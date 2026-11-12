@@ -1,7 +1,6 @@
 package com.lomo.data.engine
 
 import com.lomo.domain.model.ReminderMarker
-import com.lomo.domain.model.ReminderReference
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.repository.MarkdownReminderRepository
@@ -9,12 +8,11 @@ import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
 
 /**
- * Owning boundary that admits every Markdown/reminder mutation through the workspace lease.
+ * Task mutation admission and read-only Markdown/reminder planning over the active session.
  *
- * The condition lives here once instead of being copied into each use case: a background alarm
- * marking a reminder done and a foreground checkbox toggle reach the same engine, so both must be
- * admitted and drained by the same barrier. Reads stay unleased — they are safe against a
- * retiring engine because the session serialises routes behind its own adapter lease.
+ * Task writes acquire the shared mutation lease here. Reminder plans perform no writes; the
+ * reminder coordinator holds that lease across planning and the canonical session update.
+ * Reads are safe against a retiring engine because the session serialises adapter routes.
  */
 internal class LeasedMarkdownWorkspace(
     private val delegate: ManagedEngineSession,
@@ -23,18 +21,19 @@ internal class LeasedMarkdownWorkspace(
     MarkdownReminderRepository {
     override fun renderMarkdown(content: String): MarkdownRenderDocument = delegate.renderMarkdown(content)
 
-    override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> =
-        delegate.remindersForMemo(memoIdentity)
+    override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> = delegate.remindersForMemo(memoIdentity)
 
     override suspend fun toggleTask(
+        operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,
         actionSpan: MarkdownSourceSpan,
-    ): com.lomo.domain.model.MemoDocumentMutation =
-        lease.withWrite { delegate.toggleTask(memoIdentity, actionSpan) }
+    ): String = lease.withWrite { delegate.toggleTask(operationId, memoIdentity, actionSpan) }
 
-    override suspend fun rewriteReminder(
-        reference: ReminderReference,
+    override suspend fun planReminderRewrite(
+        memoId: String,
+        reminderId: String,
+        expectedToken: String,
         replacement: String,
-    ): com.lomo.domain.model.MemoDocumentMutation =
-        lease.withWrite { delegate.rewriteReminder(reference, replacement) }
+    ): com.lomo.domain.model.ReminderRewritePlan =
+        delegate.planReminderRewrite(memoId, reminderId, expectedToken, replacement)
 }

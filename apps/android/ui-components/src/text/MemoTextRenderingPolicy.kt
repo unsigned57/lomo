@@ -21,13 +21,11 @@ internal enum class MemoTextLayoutCacheField {
     LineHeightPx,
     BaselinePx,
     BaseLetterSpacingPx,
+    FontSizePx,
     ProtectedRanges,
 }
 
-internal data class MemoTextProtectedRangeKey(
-    val start: Int,
-    val end: Int,
-)
+internal data class MemoTextProtectedRangeKey(val start: Int, val end: Int)
 
 internal data class MemoTextLayoutCacheKey(
     val text: String,
@@ -37,26 +35,27 @@ internal data class MemoTextLayoutCacheKey(
     val lineHeightPx: Float,
     val baselinePx: Float,
     val baseLetterSpacingPx: Float,
+    val fontSizePx: Float,
     val protectedRanges: List<MemoTextProtectedRangeKey>,
 )
 
-internal fun MemoTextLayoutInput.toMemoTextLayoutCacheKey(): MemoTextLayoutCacheKey =
-    MemoTextLayoutCacheKey(
-        text = text,
-        maxWidthPx = maxWidthPx,
-        maxLines = maxLines,
-        ellipsizeLastVisibleLine = ellipsizeLastVisibleLine,
-        lineHeightPx = lineHeightPx,
-        baselinePx = baselinePx,
-        baseLetterSpacingPx = baseLetterSpacingPx,
-        protectedRanges =
-            protectedRanges.map { range ->
-                MemoTextProtectedRangeKey(
-                    start = range.start,
-                    end = range.end,
-                )
-            },
-    )
+internal fun MemoTextLayoutInput.toMemoTextLayoutCacheKey(): MemoTextLayoutCacheKey = MemoTextLayoutCacheKey(
+    text = text,
+    maxWidthPx = maxWidthPx,
+    maxLines = maxLines,
+    ellipsizeLastVisibleLine = ellipsizeLastVisibleLine,
+    lineHeightPx = lineHeightPx,
+    baselinePx = baselinePx,
+    baseLetterSpacingPx = baseLetterSpacingPx,
+    fontSizePx = fontSizePx,
+    protectedRanges =
+    protectedRanges.map { range ->
+        MemoTextProtectedRangeKey(
+            start = range.start,
+            end = range.end,
+        )
+    },
+)
 
 internal data class MemoTextRenderingRequest(
     val text: String,
@@ -90,14 +89,13 @@ internal fun resolveMemoTextRenderingPolicy(request: MemoTextRenderingRequest): 
     }
 }
 
-private fun MemoTextRenderingRequest.customEngineCapabilities(): Set<MemoTextRenderingCapability> =
-    buildSet {
-        if (selectionRequired) add(MemoTextRenderingCapability.Selection)
-        if (tapHandlingRequired) add(MemoTextRenderingCapability.TapHandling)
-        if (hasLinks) add(MemoTextRenderingCapability.Links)
-        if (hasInlineStyles) add(MemoTextRenderingCapability.InlineStyles)
-        if (hasSearchHighlights) add(MemoTextRenderingCapability.SearchHighlights)
-    }
+private fun MemoTextRenderingRequest.customEngineCapabilities(): Set<MemoTextRenderingCapability> = buildSet {
+    if (selectionRequired) add(MemoTextRenderingCapability.Selection)
+    if (tapHandlingRequired) add(MemoTextRenderingCapability.TapHandling)
+    if (hasLinks) add(MemoTextRenderingCapability.Links)
+    if (hasInlineStyles) add(MemoTextRenderingCapability.InlineStyles)
+    if (hasSearchHighlights) add(MemoTextRenderingCapability.SearchHighlights)
+}
 
 private val CUSTOM_TEXT_LAYOUT_CACHE_FIELDS =
     setOf(
@@ -108,5 +106,6 @@ private val CUSTOM_TEXT_LAYOUT_CACHE_FIELDS =
         MemoTextLayoutCacheField.LineHeightPx,
         MemoTextLayoutCacheField.BaselinePx,
         MemoTextLayoutCacheField.BaseLetterSpacingPx,
+        MemoTextLayoutCacheField.FontSizePx,
         MemoTextLayoutCacheField.ProtectedRanges,
     )

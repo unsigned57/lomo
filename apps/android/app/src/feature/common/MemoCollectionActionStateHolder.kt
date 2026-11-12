@@ -1,15 +1,15 @@
 package com.lomo.app.feature.common
 
-import com.lomo.domain.model.Memo
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoEditorSubmissionStateMachine
+import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 
 class MemoCollectionActionStateHolder(
     capabilities: MemoCollectionCapabilities,

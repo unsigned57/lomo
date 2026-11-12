@@ -2,9 +2,7 @@ package com.lomo.data.share
 
 import android.net.wifi.WifiManager
 
-internal class LanShareMulticastLockManager(
-    private val wifiManager: WifiManager,
-) {
+internal class LanShareMulticastLockManager(private val wifiManager: WifiManager) {
     private var multicastLock: WifiManager.MulticastLock? = null
 
     fun acquire() {

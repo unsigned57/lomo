@@ -9,6 +9,8 @@ use std::ops::Range;
 
 use jiff::ToSpan;
 use lomo_core::LomoError;
+mod links;
+
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
 
@@ -213,6 +215,10 @@ pub enum RenderInline {
         source_span: ByteSpan,
         children: Vec<Self>,
     },
+    Underline {
+        source_span: ByteSpan,
+        children: Vec<Self>,
+    },
     Highlight {
         source_span: ByteSpan,
         children: Vec<Self>,
@@ -261,7 +267,7 @@ pub enum RenderInline {
     },
 }
 
-/// Projects one [`RenderDocumentV1`] from constrained source bytes.
+/// Projects one [`RenderDocumentV1`] from constrained source bytes for presentation.
 ///
 /// This is the single Markdown semantic pipeline for inline/non-workspace text and for workspace
 /// document IR ownership. Workspace parse stores the resulting IR; it does not re-tokenize the body.
@@ -271,15 +277,49 @@ pub enum RenderInline {
 /// Returns `resource_limit` when inline size, nesting, node count, or IR string budgets are exceeded.
 pub fn render_markdown(source: &SourceBytes) -> Result<RenderDocumentV1, LomoError> {
     ResourceBudget::check_inline_render_bytes(source.len())?;
-    render_markdown_core(source)
+    render_with_budget(source, NodeBudget::Presentation)
 }
 
-/// Shared IR projection without the inline-request size gate.
+/// Projects the same IR for workspace facts — never for presentation.
 ///
-/// Workspace documents may exceed the 1 MiB inline render budget; they still share this node-fact
-/// pipeline and the nesting/node/IR-string limits.
-pub fn render_markdown_core(source: &SourceBytes) -> Result<RenderDocumentV1, LomoError> {
-    let mut builder = RenderBuilder::new(source.len());
+/// Index, query, task, and attachment facts are read from the user's own files: a dated file
+/// accumulates every memo's nodes and one memo may be a long checklist or imported note, so
+/// neither the 1 MiB inline gate nor the [`crate::MAX_RENDER_DOCUMENT_NODES`] presentation budget
+/// applies — the IR is linear in source bytes the caller already holds (workspace reads are
+/// bounded by the application file-size limit). Nesting depth, IR string and node-count
+/// representability limits still apply. IR crossing to a renderer goes through
+/// [`render_markdown`] and its budgets.
+///
+/// # Errors
+///
+/// Returns `resource_limit` when nesting, IR string, or node-count representability limits fail.
+pub fn project_markdown_facts(source: &SourceBytes) -> Result<RenderDocumentV1, LomoError> {
+    render_with_budget(source, NodeBudget::Facts)
+}
+
+/// Which node-count law a projection is held to.
+#[derive(Clone, Copy)]
+enum NodeBudget {
+    /// IR handed to a renderer: bounded by [`crate::MAX_RENDER_DOCUMENT_NODES`].
+    Presentation,
+    /// Workspace facts: bounded only by `u32` representability.
+    Facts,
+}
+
+impl NodeBudget {
+    fn admit(self, node_count: u32) -> Result<(), LomoError> {
+        match self {
+            Self::Presentation => ResourceBudget::check_render_document_nodes(node_count),
+            Self::Facts => Ok(()),
+        }
+    }
+}
+
+fn render_with_budget(
+    source: &SourceBytes,
+    node_budget: NodeBudget,
+) -> Result<RenderDocumentV1, LomoError> {
+    let mut builder = RenderBuilder::new(source.len(), node_budget);
     for (event, range) in offset_events(source.as_str()) {
         builder.feed(event, range)?;
     }
@@ -299,8 +339,10 @@ struct RenderBuilder {
     stack: Vec<Frame>,
     root_blocks: Vec<RenderBlock>,
     node_count: u32,
+    node_budget: NodeBudget,
     max_depth: u32,
     source_len: usize,
+    link_text_spans: links::LinkTextSpans,
 }
 
 enum Frame {
@@ -384,13 +426,15 @@ enum Frame {
 }
 
 impl RenderBuilder {
-    const fn new(source_len: usize) -> Self {
+    const fn new(source_len: usize, node_budget: NodeBudget) -> Self {
         Self {
             stack: Vec::new(),
             root_blocks: Vec::new(),
             node_count: 0,
+            node_budget,
             max_depth: 0,
             source_len,
+            link_text_spans: links::LinkTextSpans::new(),
         }
     }
 
@@ -444,11 +488,20 @@ impl RenderBuilder {
                 Ok(())
             }
             Event::TaskListMarker(checked) => {
+                // pulldown emits the marker inside the item's first block scope: directly under
+                // Item for tight lists, but under the item's Paragraph frame for loose lists
+                // (the dated-file shape, where blank-line-separated memos share one list). The
+                // owner is always the innermost enclosing Item frame.
+                let owner = self
+                    .stack
+                    .iter_mut()
+                    .rev()
+                    .find(|frame| matches!(frame, Frame::Item { .. }));
                 if let Some(Frame::Item {
                     checked: slot,
                     task_span,
                     ..
-                }) = self.stack.last_mut()
+                }) = owner
                 {
                     *slot = Some(checked);
                     *task_span = Some(source_span);
@@ -621,7 +674,7 @@ impl RenderBuilder {
                     return Ok(());
                 };
                 self.count_node()?;
-                let inlines = classify_extensions(inlines, self.source_len)?;
+                let inlines = classify_extensions(inlines, self.source_len, &self.link_text_spans)?;
                 self.push_block(RenderBlock::Paragraph {
                     source_span: merge_spans(source_span, end_span, self.source_len)?,
                     inlines,
@@ -639,7 +692,7 @@ impl RenderBuilder {
                     return Ok(());
                 };
                 self.count_node()?;
-                let inlines = classify_extensions(inlines, self.source_len)?;
+                let inlines = classify_extensions(inlines, self.source_len, &self.link_text_spans)?;
                 self.push_block(RenderBlock::Heading {
                     source_span: merge_spans(source_span, end_span, self.source_len)?,
                     level: stacked_level,
@@ -698,7 +751,8 @@ impl RenderBuilder {
                 // going through Paragraph end — classify only those deferred paragraphs.
                 // Idempotent on already-classified loose-list paragraphs; required for tight-list
                 // synthetic paragraphs that never saw TagEnd::Paragraph.
-                let blocks = classify_blocks_extensions(blocks, self.source_len)?;
+                let blocks =
+                    classify_blocks_extensions(blocks, self.source_len, &self.link_text_spans)?;
                 self.count_node()?;
                 if let Some(Frame::List { items, .. }) = self.stack.last_mut() {
                     items.push(RenderListItem {
@@ -788,7 +842,7 @@ impl RenderBuilder {
                     return Ok(());
                 };
                 self.count_node()?;
-                let inlines = classify_extensions(inlines, self.source_len)?;
+                let inlines = classify_extensions(inlines, self.source_len, &self.link_text_spans)?;
                 if let Some(Frame::Table { current_row, .. }) = self.stack.last_mut() {
                     current_row.push(RenderTableCell {
                         source_span: merge_spans(source_span, end_span, self.source_len)?,
@@ -917,6 +971,7 @@ impl RenderBuilder {
             alt_parts.push(text.to_string());
             return Ok(());
         }
+        self.link_text_spans.record(source_span, text.len());
         self.count_node()?;
         self.push_inline(RenderInline::Text {
             source_span,
@@ -956,7 +1011,6 @@ impl RenderBuilder {
                 {
                     inlines.push(inline);
                 }
-                Ok(())
             }
             Target::Children => {
                 if let Some(
@@ -968,7 +1022,6 @@ impl RenderBuilder {
                 {
                     children.push(inline);
                 }
-                Ok(())
             }
             Target::ImageAlt => {
                 if let (Some(Frame::Image { alt_parts, .. }), RenderInline::Text { text, .. }) =
@@ -976,14 +1029,21 @@ impl RenderBuilder {
                 {
                     alt_parts.push(text);
                 }
-                Ok(())
             }
             Target::ItemWrap => {
                 // Tight list items may emit bare inlines; accumulate into one paragraph so
                 // SoftBreak stays inside the item plain-text stream (not extra block joins).
+                let source_len = self.source_len;
                 if let Some(Frame::Item { blocks, .. }) = self.stack.last_mut()
-                    && let Some(RenderBlock::Paragraph { inlines, .. }) = blocks.last_mut()
+                    && let Some(RenderBlock::Paragraph {
+                        source_span,
+                        inlines,
+                    }) = blocks.last_mut()
                 {
+                    // The synthetic paragraph owns every inline it accumulates, including lazy
+                    // continuation lines, so its span grows with each appended child.
+                    *source_span =
+                        merge_spans(*source_span, inline_source_span(&inline), source_len)?;
                     inlines.push(inline);
                     return Ok(());
                 }
@@ -994,7 +1054,6 @@ impl RenderBuilder {
                         inlines: vec![inline],
                     });
                 }
-                Ok(())
             }
             Target::RootWrap => {
                 self.count_node()?;
@@ -1002,9 +1061,9 @@ impl RenderBuilder {
                     source_span: inline_source_span(&inline),
                     inlines: vec![inline],
                 });
-                Ok(())
             }
         }
+        Ok(())
     }
 
     fn push_block(&mut self, block: RenderBlock) {
@@ -1065,8 +1124,8 @@ impl RenderBuilder {
     }
 
     fn count_node(&mut self) -> Result<(), LomoError> {
-        self.node_count = self.node_count.saturating_add(1);
-        ResourceBudget::check_render_document_nodes(self.node_count)
+        self.node_count = checked_node_increment(self.node_count)?;
+        self.node_budget.admit(self.node_count)
     }
 
     fn checked_span(&self, range: Range<usize>) -> Result<ByteSpan, LomoError> {
@@ -1076,6 +1135,7 @@ impl RenderBuilder {
     fn finish(self) -> Result<RenderDocumentV1, LomoError> {
         ResourceBudget::check_semantic_nesting_depth(self.max_depth)?;
         let final_node_count = validate_final_ir(&self.root_blocks, self.source_len)?;
+        self.node_budget.admit(final_node_count)?;
         let plain_text = blocks_plain_text(&self.root_blocks);
         check_ir_string(&plain_text)?;
 
@@ -1151,6 +1211,7 @@ const fn inline_source_span(inline: &RenderInline) -> ByteSpan {
         | RenderInline::Strong { source_span, .. }
         | RenderInline::Emphasis { source_span, .. }
         | RenderInline::Strikethrough { source_span, .. }
+        | RenderInline::Underline { source_span, .. }
         | RenderInline::Highlight { source_span, .. }
         | RenderInline::Code { source_span, .. }
         | RenderInline::Link { source_span, .. }
@@ -1167,18 +1228,70 @@ const fn inline_source_span(inline: &RenderInline) -> ByteSpan {
 fn classify_extensions(
     inlines: Vec<RenderInline>,
     source_len: usize,
+    text_spans: &links::LinkTextSpans,
 ) -> Result<Vec<RenderInline>, LomoError> {
     let flattened = flatten_text_nodes(inlines);
     let merged = merge_adjacent_text(flattened, source_len)?;
-    let with_wiki = classify_wiki(merged, source_len)?;
+    let with_links = links::classify_bare_links(merged, source_len, text_spans)?;
+    let with_wiki = classify_wiki(with_links, source_len)?;
     let with_highlight = classify_highlight(with_wiki, source_len)?;
     let with_tags = classify_tags(with_highlight, source_len)?;
     classify_reminders(with_tags, source_len)
 }
 
+/// Only balanced inline `<u>` pairs become formatting; malformed/other HTML remains literal.
+fn classify_underline(
+    inlines: Vec<RenderInline>,
+    source_len: usize,
+) -> Result<Vec<RenderInline>, LomoError> {
+    let mut output = Vec::with_capacity(inlines.len());
+    let mut stack: Vec<(ByteSpan, String, Vec<RenderInline>)> = Vec::new();
+    for inline in inlines {
+        if let RenderInline::HtmlInline { source_span, text } = &inline {
+            if text.trim().eq_ignore_ascii_case("<u>") {
+                let depth = u32::try_from(stack.len() + 1).map_err(|error| {
+                    crate::limits::resource_limit("render_nesting_overflow", &error.to_string())
+                })?;
+                ResourceBudget::check_semantic_nesting_depth(depth)?;
+                stack.push((*source_span, text.clone(), Vec::new()));
+                continue;
+            }
+            if text.trim().eq_ignore_ascii_case("</u>")
+                && let Some((open_span, _, children)) = stack.pop()
+            {
+                let underlined = RenderInline::Underline {
+                    source_span: merge_spans(open_span, *source_span, source_len)?,
+                    children,
+                };
+                if let Some((_, _, parent)) = stack.last_mut() {
+                    parent.push(underlined);
+                } else {
+                    output.push(underlined);
+                }
+                continue;
+            }
+        }
+        if let Some((_, _, parent)) = stack.last_mut() {
+            parent.push(inline);
+        } else {
+            output.push(inline);
+        }
+    }
+    while let Some((source_span, text, children)) = stack.pop() {
+        let target = match stack.last_mut() {
+            Some((_, _, parent)) => parent,
+            None => &mut output,
+        };
+        target.push(RenderInline::HtmlInline { source_span, text });
+        target.extend(children);
+    }
+    Ok(output)
+}
+
 fn classify_blocks_extensions(
     blocks: Vec<RenderBlock>,
     source_len: usize,
+    text_spans: &links::LinkTextSpans,
 ) -> Result<Vec<RenderBlock>, LomoError> {
     let mut out = Vec::with_capacity(blocks.len());
     for block in blocks {
@@ -1188,7 +1301,7 @@ fn classify_blocks_extensions(
                 inlines,
             } => out.push(RenderBlock::Paragraph {
                 source_span,
-                inlines: classify_extensions(inlines, source_len)?,
+                inlines: classify_extensions(inlines, source_len, text_spans)?,
             }),
             RenderBlock::Heading {
                 source_span,
@@ -1197,14 +1310,14 @@ fn classify_blocks_extensions(
             } => out.push(RenderBlock::Heading {
                 source_span,
                 level,
-                inlines: classify_extensions(inlines, source_len)?,
+                inlines: classify_extensions(inlines, source_len, text_spans)?,
             }),
             RenderBlock::BlockQuote {
                 source_span,
                 blocks,
             } => out.push(RenderBlock::BlockQuote {
                 source_span,
-                blocks: classify_blocks_extensions(blocks, source_len)?,
+                blocks: classify_blocks_extensions(blocks, source_len, text_spans)?,
             }),
             RenderBlock::List {
                 ordered,
@@ -1218,7 +1331,7 @@ fn classify_blocks_extensions(
                         source_span: item.source_span,
                         task_span: item.task_span,
                         checked: item.checked,
-                        blocks: classify_blocks_extensions(item.blocks, source_len)?,
+                        blocks: classify_blocks_extensions(item.blocks, source_len, text_spans)?,
                     });
                 }
                 out.push(RenderBlock::List {
@@ -1238,7 +1351,7 @@ fn classify_blocks_extensions(
                     .map(|cell| {
                         Ok(RenderTableCell {
                             source_span: cell.source_span,
-                            inlines: classify_extensions(cell.inlines, source_len)?,
+                            inlines: classify_extensions(cell.inlines, source_len, text_spans)?,
                         })
                     })
                     .collect::<Result<Vec<_>, LomoError>>()?;
@@ -1249,7 +1362,7 @@ fn classify_blocks_extensions(
                         .map(|cell| {
                             Ok(RenderTableCell {
                                 source_span: cell.source_span,
-                                inlines: classify_extensions(cell.inlines, source_len)?,
+                                inlines: classify_extensions(cell.inlines, source_len, text_spans)?,
                             })
                         })
                         .collect::<Result<Vec<_>, LomoError>>()?;
@@ -1310,6 +1423,13 @@ fn merge_adjacent_text(
                 source_span,
                 children: merge_adjacent_text(children, source_len)?,
             }),
+            RenderInline::Underline {
+                source_span,
+                children,
+            } => out.push(RenderInline::Underline {
+                source_span,
+                children: merge_adjacent_text(children, source_len)?,
+            }),
             RenderInline::Highlight {
                 source_span,
                 children,
@@ -1348,7 +1468,7 @@ fn merge_adjacent_text(
             | RenderInline::HtmlInline { .. } => out.push(inline),
         }
     }
-    Ok(out)
+    classify_underline(out, source_len)
 }
 
 fn flatten_text_nodes(inlines: Vec<RenderInline>) -> Vec<RenderInline> {
@@ -1374,6 +1494,13 @@ fn flatten_text_nodes(inlines: Vec<RenderInline>) -> Vec<RenderInline> {
                 source_span,
                 children,
             } => RenderInline::Strikethrough {
+                source_span,
+                children: flatten_text_nodes(children),
+            },
+            RenderInline::Underline {
+                source_span,
+                children,
+            } => RenderInline::Underline {
                 source_span,
                 children: flatten_text_nodes(children),
             },
@@ -1422,9 +1549,11 @@ fn classify_wiki(
 ) -> Result<Vec<RenderInline>, LomoError> {
     // Handle wiki images `![[target|alt]]` before plain wiki `[[target]]` so the bang is not left
     // as text while the brackets become a reference.
-    map_text_segments(inlines, |text, source_span| {
-        classify_wiki_text(text, source_span, source_len)
-    })
+    map_text_segments(
+        inlines,
+        |text, source_span| classify_wiki_text(text, source_span, source_len),
+        true,
+    )
 }
 
 #[expect(
@@ -1707,6 +1836,13 @@ fn classify_highlight(
                 source_span,
                 children: classify_highlight(children, source_len)?,
             }),
+            RenderInline::Underline {
+                source_span,
+                children,
+            } => split.push(RenderInline::Underline {
+                source_span,
+                children: classify_highlight(children, source_len)?,
+            }),
             RenderInline::Link {
                 destination,
                 title,
@@ -1803,15 +1939,38 @@ fn classify_tags(
     source_len: usize,
 ) -> Result<Vec<RenderInline>, LomoError> {
     // Shared tag scanner with storage analysis (`tags::iter_tag_matches`).
-    map_text_segments(inlines, |text, source_span| {
-        let mut out = Vec::new();
-        let mut cursor = 0usize;
-        for (name, start, end) in iter_tag_matches(text) {
-            if start > cursor {
+    map_text_segments(
+        inlines,
+        |text, source_span| {
+            let mut out = Vec::new();
+            let mut cursor = 0usize;
+            for (name, start, end) in iter_tag_matches(text) {
+                if start > cursor {
+                    out.push(RenderInline::Text {
+                        source_span: subspan(source_span, cursor, start, source_len)?,
+                        text: text
+                            .get(cursor..start)
+                            .ok_or_else(|| {
+                                validation(
+                                    "tag_slice_invalid",
+                                    "tag scanner produced a non-boundary range",
+                                )
+                            })?
+                            .to_owned(),
+                    });
+                }
+                check_ir_string(&name)?;
+                out.push(RenderInline::Tag {
+                    source_span: subspan(source_span, start, end, source_len)?,
+                    name,
+                });
+                cursor = end;
+            }
+            if cursor < text.len() {
                 out.push(RenderInline::Text {
-                    source_span: subspan(source_span, cursor, start, source_len)?,
+                    source_span: subspan(source_span, cursor, text.len(), source_len)?,
                     text: text
-                        .get(cursor..start)
+                        .get(cursor..)
                         .ok_or_else(|| {
                             validation(
                                 "tag_slice_invalid",
@@ -1821,44 +1980,54 @@ fn classify_tags(
                         .to_owned(),
                 });
             }
-            check_ir_string(&name)?;
-            out.push(RenderInline::Tag {
-                source_span: subspan(source_span, start, end, source_len)?,
-                name,
-            });
-            cursor = end;
-        }
-        if cursor < text.len() {
-            out.push(RenderInline::Text {
-                source_span: subspan(source_span, cursor, text.len(), source_len)?,
-                text: text
-                    .get(cursor..)
-                    .ok_or_else(|| {
-                        validation(
-                            "tag_slice_invalid",
-                            "tag scanner produced a non-boundary range",
-                        )
-                    })?
-                    .to_owned(),
-            });
-        }
-        Ok(out)
-    })
+            Ok(out)
+        },
+        true,
+    )
 }
 
 fn classify_reminders(
     inlines: Vec<RenderInline>,
     source_len: usize,
 ) -> Result<Vec<RenderInline>, LomoError> {
-    map_text_segments(inlines, |text, source_span| {
-        let mut out = Vec::new();
-        let mut cursor = 0usize;
-        for (start, end) in strict_reminder_matches(text) {
-            if start > cursor {
+    map_text_segments(
+        inlines,
+        |text, source_span| {
+            let mut out = Vec::new();
+            let mut cursor = 0usize;
+            for (start, end) in strict_reminder_matches(text) {
+                if start > cursor {
+                    out.push(RenderInline::Text {
+                        source_span: subspan(source_span, cursor, start, source_len)?,
+                        text: text
+                            .get(cursor..start)
+                            .ok_or_else(|| {
+                                validation(
+                                    "reminder_slice_invalid",
+                                    "reminder scanner produced a non-boundary range",
+                                )
+                            })?
+                            .to_owned(),
+                    });
+                }
+                let token = text.get(start..end).ok_or_else(|| {
+                    validation(
+                        "reminder_slice_invalid",
+                        "reminder scanner produced a non-boundary range",
+                    )
+                })?;
+                check_ir_string(token)?;
+                out.push(RenderInline::Reminder {
+                    source_span: subspan(source_span, start, end, source_len)?,
+                    token: token.to_owned(),
+                });
+                cursor = end;
+            }
+            if cursor < text.len() {
                 out.push(RenderInline::Text {
-                    source_span: subspan(source_span, cursor, start, source_len)?,
+                    source_span: subspan(source_span, cursor, text.len(), source_len)?,
                     text: text
-                        .get(cursor..start)
+                        .get(cursor..)
                         .ok_or_else(|| {
                             validation(
                                 "reminder_slice_invalid",
@@ -1868,35 +2037,10 @@ fn classify_reminders(
                         .to_owned(),
                 });
             }
-            let token = text.get(start..end).ok_or_else(|| {
-                validation(
-                    "reminder_slice_invalid",
-                    "reminder scanner produced a non-boundary range",
-                )
-            })?;
-            check_ir_string(token)?;
-            out.push(RenderInline::Reminder {
-                source_span: subspan(source_span, start, end, source_len)?,
-                token: token.to_owned(),
-            });
-            cursor = end;
-        }
-        if cursor < text.len() {
-            out.push(RenderInline::Text {
-                source_span: subspan(source_span, cursor, text.len(), source_len)?,
-                text: text
-                    .get(cursor..)
-                    .ok_or_else(|| {
-                        validation(
-                            "reminder_slice_invalid",
-                            "reminder scanner produced a non-boundary range",
-                        )
-                    })?
-                    .to_owned(),
-            });
-        }
-        Ok(out)
-    })
+            Ok(out)
+        },
+        true,
+    )
 }
 
 fn strict_reminder_matches(text: &str) -> Vec<(usize, usize)> {
@@ -2466,6 +2610,7 @@ fn is_two_digits(text: &str) -> bool {
 fn map_text_segments(
     inlines: Vec<RenderInline>,
     map_text: impl Fn(&str, ByteSpan) -> Result<Vec<RenderInline>, LomoError> + Copy,
+    visit_link_labels: bool,
 ) -> Result<Vec<RenderInline>, LomoError> {
     let mut out = Vec::new();
     for inline in inlines {
@@ -2478,29 +2623,41 @@ fn map_text_segments(
                 children,
             } => out.push(RenderInline::Strong {
                 source_span,
-                children: map_text_segments(children, map_text)?,
+                children: map_text_segments(children, map_text, visit_link_labels)?,
             }),
             RenderInline::Emphasis {
                 source_span,
                 children,
             } => out.push(RenderInline::Emphasis {
                 source_span,
-                children: map_text_segments(children, map_text)?,
+                children: map_text_segments(children, map_text, visit_link_labels)?,
             }),
             RenderInline::Strikethrough {
                 source_span,
                 children,
             } => out.push(RenderInline::Strikethrough {
                 source_span,
-                children: map_text_segments(children, map_text)?,
+                children: map_text_segments(children, map_text, visit_link_labels)?,
+            }),
+            RenderInline::Underline {
+                source_span,
+                children,
+            } => out.push(RenderInline::Underline {
+                source_span,
+                children: map_text_segments(children, map_text, visit_link_labels)?,
             }),
             RenderInline::Highlight {
                 source_span,
                 children,
             } => out.push(RenderInline::Highlight {
                 source_span,
-                children: map_text_segments(children, map_text)?,
+                children: map_text_segments(children, map_text, visit_link_labels)?,
             }),
+            link @ (RenderInline::Link { .. } | RenderInline::WikiReference { .. })
+                if !visit_link_labels =>
+            {
+                out.push(link);
+            }
             RenderInline::Link {
                 destination,
                 title,
@@ -2510,7 +2667,7 @@ fn map_text_segments(
                 source_span,
                 destination,
                 title,
-                children: map_text_segments(children, map_text)?,
+                children: map_text_segments(children, map_text, visit_link_labels)?,
             }),
             RenderInline::WikiReference {
                 source_span,
@@ -2520,7 +2677,7 @@ fn map_text_segments(
                 out.push(RenderInline::WikiReference {
                     source_span,
                     target,
-                    children: map_text_segments(children, map_text)?,
+                    children: map_text_segments(children, map_text, visit_link_labels)?,
                 });
             }
             RenderInline::Code { .. }
@@ -2696,6 +2853,7 @@ fn collect_from_inlines(
             RenderInline::Strong { children, .. }
             | RenderInline::Emphasis { children, .. }
             | RenderInline::Strikethrough { children, .. }
+            | RenderInline::Underline { children, .. }
             | RenderInline::Highlight { children, .. } => {
                 collect_from_inlines(
                     children,
@@ -2740,12 +2898,13 @@ fn emit_attachment_fact(
 
 fn validate_final_ir(blocks: &[RenderBlock], source_len: usize) -> Result<u32, LomoError> {
     let mut count = 0u32;
-    validate_blocks(blocks, 1, source_len, &mut count)?;
+    validate_blocks(blocks, None, 1, source_len, &mut count)?;
     Ok(count)
 }
 
 fn validate_blocks(
     blocks: &[RenderBlock],
+    parent: Option<ByteSpan>,
     depth: u32,
     source_len: usize,
     count: &mut u32,
@@ -2753,22 +2912,35 @@ fn validate_blocks(
     ResourceBudget::check_semantic_nesting_depth(depth)?;
     for block in blocks {
         count_final_node(count)?;
-        validate_span(block_source_span(block), source_len)?;
+        let span = block_source_span(block);
+        validate_span(span, parent, source_len)?;
         match block {
             RenderBlock::Paragraph { inlines, .. } | RenderBlock::Heading { inlines, .. } => {
-                validate_inlines(inlines, depth.saturating_add(1), source_len, count)?;
+                validate_inlines(inlines, span, depth.saturating_add(1), source_len, count)?;
             }
             RenderBlock::BlockQuote { blocks, .. } => {
-                validate_blocks(blocks, depth.saturating_add(1), source_len, count)?;
+                validate_blocks(
+                    blocks,
+                    Some(span),
+                    depth.saturating_add(1),
+                    source_len,
+                    count,
+                )?;
             }
             RenderBlock::List { items, .. } => {
                 for item in items {
                     count_final_node(count)?;
-                    validate_span(item.source_span, source_len)?;
+                    validate_span(item.source_span, Some(span), source_len)?;
                     if let Some(task_span) = item.task_span {
-                        validate_span(task_span, source_len)?;
+                        validate_span(task_span, Some(item.source_span), source_len)?;
                     }
-                    validate_blocks(&item.blocks, depth.saturating_add(1), source_len, count)?;
+                    validate_blocks(
+                        &item.blocks,
+                        Some(item.source_span),
+                        depth.saturating_add(1),
+                        source_len,
+                        count,
+                    )?;
                 }
             }
             RenderBlock::CodeBlock {
@@ -2782,8 +2954,14 @@ fn validate_blocks(
             RenderBlock::Table { header, rows, .. } => {
                 for cell in header.iter().chain(rows.iter().flatten()) {
                     count_final_node(count)?;
-                    validate_span(cell.source_span, source_len)?;
-                    validate_inlines(&cell.inlines, depth.saturating_add(1), source_len, count)?;
+                    validate_span(cell.source_span, Some(span), source_len)?;
+                    validate_inlines(
+                        &cell.inlines,
+                        cell.source_span,
+                        depth.saturating_add(1),
+                        source_len,
+                        count,
+                    )?;
                 }
             }
             RenderBlock::HtmlBlock { literal, .. } => check_ir_string(literal)?,
@@ -2795,6 +2973,7 @@ fn validate_blocks(
 
 fn validate_inlines(
     inlines: &[RenderInline],
+    parent: ByteSpan,
     depth: u32,
     source_len: usize,
     count: &mut u32,
@@ -2802,7 +2981,8 @@ fn validate_inlines(
     ResourceBudget::check_semantic_nesting_depth(depth)?;
     for inline in inlines {
         count_final_node(count)?;
-        validate_span(inline_source_span(inline), source_len)?;
+        let span = inline_source_span(inline);
+        validate_span(span, Some(parent), source_len)?;
         match inline {
             RenderInline::Text { text, .. }
             | RenderInline::Code { text, .. }
@@ -2810,9 +2990,10 @@ fn validate_inlines(
             RenderInline::Strong { children, .. }
             | RenderInline::Emphasis { children, .. }
             | RenderInline::Strikethrough { children, .. }
+            | RenderInline::Underline { children, .. }
             | RenderInline::Highlight { children, .. }
             | RenderInline::WikiReference { children, .. } => {
-                validate_inlines(children, depth.saturating_add(1), source_len, count)?;
+                validate_inlines(children, span, depth.saturating_add(1), source_len, count)?;
             }
             RenderInline::Link {
                 destination,
@@ -2824,7 +3005,7 @@ fn validate_inlines(
                 if let Some(title) = title {
                     check_ir_string(title)?;
                 }
-                validate_inlines(children, depth.saturating_add(1), source_len, count)?;
+                validate_inlines(children, span, depth.saturating_add(1), source_len, count)?;
             }
             RenderInline::Image {
                 destination,
@@ -2846,18 +3027,36 @@ fn validate_inlines(
     Ok(())
 }
 
+/// Final IR walk counts every node; the caller's [`NodeBudget`] judges the total, so extension
+/// expansion after parsing cannot bypass the presentation budget.
 fn count_final_node(count: &mut u32) -> Result<(), LomoError> {
-    *count = count.checked_add(1).ok_or_else(|| {
+    *count = checked_node_increment(*count)?;
+    Ok(())
+}
+
+fn checked_node_increment(count: u32) -> Result<u32, LomoError> {
+    count.checked_add(1).ok_or_else(|| {
         crate::limits::resource_limit(
             "render_document_too_large",
             "RenderDocumentV1 node count cannot be represented",
         )
-    })?;
-    ResourceBudget::check_render_document_nodes(*count)
+    })
 }
 
-fn validate_span(span: ByteSpan, source_len: usize) -> Result<(), LomoError> {
+/// Every render node is addressable in the source and nested inside its parent node's bytes;
+/// presentation layers rely on this law to map interactions back to source edits.
+fn validate_span(
+    span: ByteSpan,
+    parent: Option<ByteSpan>,
+    source_len: usize,
+) -> Result<(), LomoError> {
     let _validated = ByteSpan::try_new(span.start(), span.end(), source_len)?;
+    if parent.is_some_and(|parent| span.start() < parent.start() || span.end() > parent.end()) {
+        return Err(validation(
+            "render_child_span_outside_parent",
+            "render child span must be contained by its parent",
+        ));
+    }
     Ok(())
 }
 
@@ -2937,6 +3136,7 @@ fn inline_plain_text(inline: &RenderInline) -> String {
         RenderInline::Strong { children, .. }
         | RenderInline::Emphasis { children, .. }
         | RenderInline::Strikethrough { children, .. }
+        | RenderInline::Underline { children, .. }
         | RenderInline::Highlight { children, .. }
         | RenderInline::Link { children, .. } => inlines_plain_text(children),
         RenderInline::Image { alt, .. } => alt.clone(),

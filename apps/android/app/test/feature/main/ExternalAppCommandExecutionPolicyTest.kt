@@ -47,7 +47,10 @@ class ExternalAppCommandExecutionPolicyTest : AppFunSpec() {
     init {
         test("given main screen not ready when create planned then wait for root readiness") {
             planExternalAppCommandExecution(
-                command = command(action = ExternalAppCommandAction.CreateMemo, status = ExternalAppCommandStatus.Pending),
+                command = command(
+                    action = ExternalAppCommandAction.CreateMemo,
+                    status = ExternalAppCommandStatus.Pending,
+                ),
                 readiness = readiness(appReady = false),
             ) shouldBe
                 ExternalAppCommandExecutionPlan(
@@ -57,7 +60,10 @@ class ExternalAppCommandExecutionPolicyTest : AppFunSpec() {
 
         test("given visible editor when create planned then focus editor and complete") {
             planExternalAppCommandExecution(
-                command = command(action = ExternalAppCommandAction.CreateMemo, status = ExternalAppCommandStatus.Pending),
+                command = command(
+                    action = ExternalAppCommandAction.CreateMemo,
+                    status = ExternalAppCommandStatus.Pending,
+                ),
                 readiness = readiness(editorVisible = true),
             ) shouldBe
                 ExternalAppCommandExecutionPlan(
@@ -68,7 +74,10 @@ class ExternalAppCommandExecutionPolicyTest : AppFunSpec() {
 
         test("given no editor target when create planned then wait for editor target") {
             planExternalAppCommandExecution(
-                command = command(action = ExternalAppCommandAction.CreateMemo, status = ExternalAppCommandStatus.Pending),
+                command = command(
+                    action = ExternalAppCommandAction.CreateMemo,
+                    status = ExternalAppCommandStatus.Pending,
+                ),
                 readiness = readiness(editorVisible = false, canOpenDraftEditor = false),
             ) shouldBe
                 ExternalAppCommandExecutionPlan(
@@ -78,7 +87,10 @@ class ExternalAppCommandExecutionPolicyTest : AppFunSpec() {
 
         test("given missing voice storage when start planned then request setup and wait") {
             planExternalAppCommandExecution(
-                command = command(action = ExternalAppCommandAction.StartRecording, status = ExternalAppCommandStatus.Pending),
+                command = command(
+                    action = ExternalAppCommandAction.StartRecording,
+                    status = ExternalAppCommandStatus.Pending,
+                ),
                 readiness = readiness(voiceDirectoryConfigured = false),
             ) shouldBe
                 ExternalAppCommandExecutionPlan(
@@ -89,33 +101,42 @@ class ExternalAppCommandExecutionPolicyTest : AppFunSpec() {
 
         test("given command already waiting for voice storage when still missing then keep waiting") {
             planExternalAppCommandExecution(
-                command = command(action = ExternalAppCommandAction.StartRecording, status = ExternalAppCommandStatus.WaitingForVoiceDirectory),
+                command = command(
+                    action = ExternalAppCommandAction.StartRecording,
+                    status = ExternalAppCommandStatus.WaitingForVoiceDirectory,
+                ),
                 readiness = readiness(voiceDirectoryConfigured = false),
             ) shouldBe ExternalAppCommandExecutionPlan()
         }
 
         test("given missing microphone permission when start planned then request permission and remain pending") {
             planExternalAppCommandExecution(
-                command = command(action = ExternalAppCommandAction.StartRecording, status = ExternalAppCommandStatus.Pending),
+                command = command(
+                    action = ExternalAppCommandAction.StartRecording,
+                    status = ExternalAppCommandStatus.Pending,
+                ),
                 readiness =
-                    readiness(
-                        editorVisible = false,
-                        hasRecordAudioPermission = false,
-                    ),
+                readiness(
+                    editorVisible = false,
+                    hasRecordAudioPermission = false,
+                ),
             ) shouldBe
                 ExternalAppCommandExecutionPlan(
                     statusUpdate = ExternalAppCommandStatus.WaitingForRecordAudioPermission,
                     steps =
-                        listOf(
-                            ExternalAppCommandStep.OpenDraftEditor,
-                            ExternalAppCommandStep.RequestRecordAudioPermission,
-                        ),
+                    listOf(
+                        ExternalAppCommandStep.OpenDraftEditor,
+                        ExternalAppCommandStep.RequestRecordAudioPermission,
+                    ),
                 )
         }
 
         test("given recording already active when start planned then complete idempotently") {
             planExternalAppCommandExecution(
-                command = command(action = ExternalAppCommandAction.StartRecording, status = ExternalAppCommandStatus.Pending),
+                command = command(
+                    action = ExternalAppCommandAction.StartRecording,
+                    status = ExternalAppCommandStatus.Pending,
+                ),
                 readiness = readiness(isRecording = true),
             ) shouldBe
                 ExternalAppCommandExecutionPlan(
@@ -136,23 +157,23 @@ class ExternalAppCommandExecutionPolicyTest : AppFunSpec() {
         test("given a live capture when its stop command is planned then the stop step runs") {
             planExternalAppCommandExecution(
                 command =
-                    command(
-                        action = ExternalAppCommandAction.StopRecording,
-                        payload = "recording-1",
-                    ),
+                command(
+                    action = ExternalAppCommandAction.StopRecording,
+                    payload = "recording-1",
+                ),
                 readiness =
-                    readiness(
-                        isRecording = true,
-                        recordingCaptureId = "recording-1",
-                        editorVisible = true,
-                    ),
+                readiness(
+                    isRecording = true,
+                    recordingCaptureId = "recording-1",
+                    editorVisible = true,
+                ),
             ) shouldBe
                 ExternalAppCommandExecutionPlan(
                     steps =
-                        listOf(
-                            ExternalAppCommandStep.EnsureEditorVisible,
-                            ExternalAppCommandStep.StopRecording,
-                        ),
+                    listOf(
+                        ExternalAppCommandStep.EnsureEditorVisible,
+                        ExternalAppCommandStep.StopRecording,
+                    ),
                     terminalResult = ExternalAppCommandTerminalResult.Executed,
                 )
         }
@@ -160,16 +181,16 @@ class ExternalAppCommandExecutionPolicyTest : AppFunSpec() {
         test("given a stale stop for a dead capture when planned then it resolves ended and never becomes start") {
             planExternalAppCommandExecution(
                 command =
-                    command(
-                        action = ExternalAppCommandAction.StopRecording,
-                        payload = "recording-dead",
-                    ),
+                command(
+                    action = ExternalAppCommandAction.StopRecording,
+                    payload = "recording-dead",
+                ),
                 readiness =
-                    readiness(
-                        isRecording = true,
-                        recordingCaptureId = "recording-live",
-                        editorVisible = true,
-                    ),
+                readiness(
+                    isRecording = true,
+                    recordingCaptureId = "recording-live",
+                    editorVisible = true,
+                ),
             ) shouldBe
                 ExternalAppCommandExecutionPlan(
                     terminalResult = ExternalAppCommandTerminalResult.AlreadySatisfied,
@@ -179,10 +200,10 @@ class ExternalAppCommandExecutionPolicyTest : AppFunSpec() {
         test("given a stale stop after process death when planned then it resolves ended without starting") {
             planExternalAppCommandExecution(
                 command =
-                    command(
-                        action = ExternalAppCommandAction.StopRecording,
-                        payload = "recording-dead",
-                    ),
+                command(
+                    action = ExternalAppCommandAction.StopRecording,
+                    payload = "recording-dead",
+                ),
                 readiness = readiness(isRecording = false),
             ) shouldBe
                 ExternalAppCommandExecutionPlan(
@@ -196,16 +217,15 @@ private fun command(
     action: ExternalAppCommandAction,
     status: ExternalAppCommandStatus = ExternalAppCommandStatus.Pending,
     payload: String? = null,
-): com.lomo.app.ExternalAppCommand =
-    com.lomo.app.ExternalAppCommand(
-        id = "command-1",
-        action = action,
-        source = com.lomo.app.ExternalAppCommandSource.QuickSettingsTile,
-        status = status,
-        createdAtMillis = 1_000L,
-        expiresAtMillis = 61_000L,
-        payload = payload,
-    )
+): com.lomo.app.ExternalAppCommand = com.lomo.app.ExternalAppCommand(
+    id = "command-1",
+    action = action,
+    source = com.lomo.app.ExternalAppCommandSource.QuickSettingsTile,
+    status = status,
+    createdAtMillis = 1_000L,
+    expiresAtMillis = 61_000L,
+    payload = payload,
+)
 
 private fun readiness(
     appReady: Boolean = true,
@@ -215,13 +235,12 @@ private fun readiness(
     hasRecordAudioPermission: Boolean = true,
     isRecording: Boolean = false,
     recordingCaptureId: String? = null,
-): ExternalAppCommandReadiness =
-    ExternalAppCommandReadiness(
-        appReady = appReady,
-        voiceDirectoryConfigured = voiceDirectoryConfigured,
-        editorVisible = editorVisible,
-        canOpenDraftEditor = canOpenDraftEditor,
-        hasRecordAudioPermission = hasRecordAudioPermission,
-        isRecording = isRecording,
-        recordingCaptureId = recordingCaptureId,
-    )
+): ExternalAppCommandReadiness = ExternalAppCommandReadiness(
+    appReady = appReady,
+    voiceDirectoryConfigured = voiceDirectoryConfigured,
+    editorVisible = editorVisible,
+    canOpenDraftEditor = canOpenDraftEditor,
+    hasRecordAudioPermission = hasRecordAudioPermission,
+    isRecording = isRecording,
+    recordingCaptureId = recordingCaptureId,
+)

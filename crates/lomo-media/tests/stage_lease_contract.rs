@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //!
 //! Capability: staged media always has a durable owner; releasing one holder never destroys bytes
@@ -210,10 +219,9 @@ mod tests {
             .expect("transfer");
 
         let reloaded = StageLedger::load(&stage_dir).expect("reload");
-        assert!(
-            reloaded
-                .records_for_owner(StageOwnerKind::Draft, "draft-a")
-                .is_empty()
+        assert_eq!(
+            reloaded.records_for_owner(StageOwnerKind::Draft, "draft-a"),
+            Vec::<lomo_media::StageRecord>::new()
         );
         let pending_records = reloaded.records_for_owner(StageOwnerKind::PendingOperation, "op-1");
         assert_eq!(pending_records.len(), 1);

@@ -27,11 +27,10 @@ internal fun resolveMemoParagraphDoubleTapOutcome(
     hasDoubleClickHandler: Boolean,
     paragraphHasSelection: Boolean,
     scopeHasSelection: Boolean,
-): MemoParagraphDoubleTapOutcome =
-    if (!hasDoubleClickHandler) {
-        MemoParagraphDoubleTapOutcome.Ignore
-    } else {
-        MemoParagraphDoubleTapOutcome.OpenEditor(
-            clearSelectionFirst = paragraphHasSelection || scopeHasSelection,
-        )
-    }
+): MemoParagraphDoubleTapOutcome = if (!hasDoubleClickHandler) {
+    MemoParagraphDoubleTapOutcome.Ignore
+} else {
+    MemoParagraphDoubleTapOutcome.OpenEditor(
+        clearSelectionFirst = paragraphHasSelection || scopeHasSelection,
+    )
+}

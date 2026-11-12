@@ -6,4 +6,5 @@ data class DailyReviewSession(
     val date: LocalDate,
     val seed: Long,
     val pageIndex: Int,
+    val options: DailyReviewOptions = DailyReviewOptions(),
 )

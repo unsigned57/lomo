@@ -9,7 +9,6 @@ import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.model.WebDavSyncStatus
-import com.lomo.domain.model.isConfigured
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
@@ -33,10 +32,9 @@ interface WebDavSyncConfigurationRepository {
 
     fun observeLastSyncTimeMillis(): Flow<Long?>
 
-    fun observeLastSyncInstant(): Flow<Instant?> =
-        observeLastSyncTimeMillis().map { value ->
-            value?.let(Instant::ofEpochMilli)
-        }
+    fun observeLastSyncInstant(): Flow<Instant?> = observeLastSyncTimeMillis().map { value ->
+        value?.let(Instant::ofEpochMilli)
+    }
 }
 
 interface WebDavSyncConnectionMutationRepository {
@@ -52,22 +50,20 @@ interface WebDavSyncConnectionMutationRepository {
 interface WebDavSyncCredentialMutationRepository {
     suspend fun setPassword(password: String)
 
-    suspend fun getPasswordStatus(): StoredCredentialStatus =
-        if (isPasswordConfigured()) {
-            StoredCredentialStatus.Present
-        } else {
-            StoredCredentialStatus.Missing
-        }
+    suspend fun getPasswordStatus(): StoredCredentialStatus = if (isPasswordConfigured()) {
+        StoredCredentialStatus.Present
+    } else {
+        StoredCredentialStatus.Missing
+    }
 
-    suspend fun getCredentialState(): CredentialState =
-        CredentialState(
-            provider = CredentialProvider.WEBDAV,
-            fields =
-                listOf(
-                    CredentialFieldState(CredentialField.WEBDAV_USERNAME, StoredCredentialStatus.Missing),
-                    CredentialFieldState(CredentialField.WEBDAV_PASSWORD, getPasswordStatus()),
-                ),
-        )
+    suspend fun getCredentialState(): CredentialState = CredentialState(
+        provider = CredentialProvider.WEBDAV,
+        fields =
+        listOf(
+            CredentialFieldState(CredentialField.WEBDAV_USERNAME, StoredCredentialStatus.Missing),
+            CredentialFieldState(CredentialField.WEBDAV_PASSWORD, getPasswordStatus()),
+        ),
+    )
 
     suspend fun isPasswordConfigured(): Boolean
 }

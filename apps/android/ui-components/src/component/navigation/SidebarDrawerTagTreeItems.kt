@@ -1,12 +1,9 @@
 package com.lomo.ui.component.navigation
 
-import androidx.compose.ui.unit.LayoutDirection
-
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -16,37 +13,38 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Tag
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.cd_collapse
 import com.lomo.ui.generated.resources.cd_expand
 import com.lomo.ui.generated.resources.sidebar_tags
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
 import sh.calvin.reorderable.ReorderableItem
-import sh.calvin.reorderable.ReorderableLazyListState
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.unit.dp
 
 internal fun LazyListScope.sidebarTags(input: SidebarTagsInput) {
     val tags = input.tags
@@ -63,18 +61,18 @@ internal fun LazyListScope.sidebarTags(input: SidebarTagsInput) {
     item(key = "sidebar_tags_header") {
         Text(
             text = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_tags),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.padding(vertical = AppSpacing.Small),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = AppSpacing.Medium, top = AppSpacing.Medium, bottom = AppSpacing.Small),
         )
     }
 
     items(visibleRows, key = { row -> row.node.fullPath }) { row ->
         val rowModifier =
             Modifier.animateItem(
-                fadeInSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
-                placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
-                fadeOutSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                fadeInSpec = LocalLomoMotion.current.layout.fastEffectsSpec(),
+                placementSpec = LocalLomoMotion.current.layout.defaultSpatialSpec(),
+                fadeOutSpec = LocalLomoMotion.current.layout.fastEffectsSpec(),
             )
         if (row.level == 0) {
             ReorderableItem(
@@ -120,27 +118,27 @@ private fun sh.calvin.reorderable.ReorderableCollectionItemScope.DraggableRootTa
 ) {
     val scale by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (isDragging) SidebarDrawerTokens.TagDragScale else 1f,
-        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+        animationSpec = LocalLomoMotion.current.component.fastSpatialSpec(),
         label = "TagDragScale",
     )
     val alpha by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (isDragging) SidebarDrawerTokens.TagDragAlpha else 1f,
-        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        animationSpec = LocalLomoMotion.current.component.fastEffectsSpec(),
         label = "TagDragAlpha",
     )
     val haptic = LocalAppHapticFeedback.current
     Box(
         modifier =
-            modifier
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    this.alpha = alpha
-                }
-                .longPressDraggableHandle(
-                    onDragStarted = { haptic.heavy() },
-                    onDragStopped = { onReorderComplete(tagTree.map { it.name }) },
-                ),
+        modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                this.alpha = alpha
+            }
+            .longPressDraggableHandle(
+                onDragStarted = { haptic.heavy() },
+                onDragStopped = { onReorderComplete(tagTree.map { it.name }) },
+            ),
     ) {
         TagTreeItem(
             row = row,
@@ -191,124 +189,86 @@ private fun SidebarTagRow(
     anchorTag: String?,
     modifier: Modifier = Modifier,
 ) {
-    val containerColor by androidx.compose.animation.animateColorAsState(
-        targetValue =
-            if (isSelected) {
-                SidebarDrawerTokens.selectedContainerColor(MaterialTheme.colorScheme)
-            } else {
-                Color.Transparent
-            },
-        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
-        label = "SidebarTagContainer",
-    )
-    val contentColor by androidx.compose.animation.animateColorAsState(
-        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
-        label = "SidebarTagContent",
-    )
+    val colorScheme = MaterialTheme.colorScheme
+    val containerColor =
+        if (isSelected) {
+            colorScheme.secondaryContainer
+        } else {
+            Color.Transparent
+        }
+    val contentColor =
+        if (isSelected) {
+            colorScheme.onSecondaryContainer
+        } else {
+            colorScheme.onSurface
+        }
+    val leadingAndTrailingTint =
+        if (isSelected) {
+            colorScheme.onSecondaryContainer
+        } else {
+            colorScheme.onSurfaceVariant
+        }
 
-    val border = null
-
-    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    val outlineVariant = colorScheme.outlineVariant
 
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
-            .drawBehind {
-                // If level > 0, draw vertical dashed guidelines for hierarchy
-                if (level > 0) {
-                    val stepPx = with(density) { SidebarDrawerTokens.TagRowStartPadding.toPx() }
-                    val startOffsetPx = stepPx / 2f
-                    val dashPathEffect = PathEffect.dashPathEffect(
-                        floatArrayOf(4f, 4f), // 4px line, 4px gap
-                        0f
-                    )
-                    
-                    for (i in 0 until level) {
-                        val x = startOffsetPx + i * stepPx
-                        drawLine(
-                            color = outlineVariant,
-                            start = Offset(x, 0f),
-                            end = Offset(x, size.height),
-                            strokeWidth = 1.dp.toPx(),
-                            pathEffect = dashPathEffect
-                        )
-                    }
-                }
-            }
+            .drawTagGuidelines(level, outlineVariant),
     ) {
         Surface(
             onClick = rememberTagClick(node.fullPath, onTagClick),
             shape = SidebarDrawerTokens.TagRowShape,
             color = containerColor,
             contentColor = contentColor,
-            border = border,
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .padding(start = SidebarDrawerTokens.TagRowStartPadding * level)
-                .height(SidebarDrawerTokens.RowHeight)
                 .benchmarkAnchor(anchorTag),
         ) {
             Row(
                 modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(
-                            start = SidebarDrawerTokens.TagRowStartPadding,
-                            end = SidebarDrawerTokens.TagRowEndPadding,
-                        ),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = SidebarDrawerTokens.TagRowStartPadding,
+                        end = SidebarDrawerTokens.TagRowEndPadding,
+                        top = 10.dp,
+                        bottom = 10.dp,
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TagTreeLeadingIcon(contentColor)
+                Icon(
+                    imageVector = Icons.Outlined.Tag,
+                    contentDescription = null,
+                    tint = leadingAndTrailingTint,
+                    modifier = Modifier.size(SidebarDrawerTokens.TagLeadingIconSize),
+                )
                 Spacer(modifier = Modifier.width(SidebarDrawerTokens.TagLabelSpacing))
-                TagTreeLabel(
-                    node = node,
+                Text(
+                    text = node.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     color = contentColor,
-                    isSelected = isSelected,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                TagTreeTrailingContent(
-                    node = node,
-                    hasChildren = hasChildren,
-                    isExpanded = isExpanded,
-                    color = contentColor,
-                    onToggleExpand = onToggleExpand,
-                )
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalContentColor provides leadingAndTrailingTint,
+                ) {
+                    TagTreeTrailingContent(
+                        node = node,
+                        hasChildren = hasChildren,
+                        isExpanded = isExpanded,
+                        onToggleExpand = onToggleExpand,
+                    )
+                }
             }
         }
     }
-}
-
-@Composable
-private fun TagTreeLabel(
-    node: TagNode,
-    color: Color,
-    isSelected: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        node.name,
-        style = if (isSelected) {
-            MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-        } else {
-            MaterialTheme.typography.bodyMedium
-        },
-        color = color,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier,
-    )
-}
-
-@Composable
-private fun TagTreeLeadingIcon(color: Color) {
-    Icon(
-        Icons.Outlined.Tag,
-        null,
-        modifier = Modifier.size(SidebarDrawerTokens.TagLeadingIconSize),
-        tint = color,
-    )
 }
 
 @Composable
@@ -316,7 +276,6 @@ private fun TagTreeTrailingContent(
     node: TagNode,
     hasChildren: Boolean,
     isExpanded: Boolean,
-    color: Color,
     onToggleExpand: (String) -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -324,14 +283,13 @@ private fun TagTreeTrailingContent(
             Text(
                 count.toString(),
                 style = MaterialTheme.typography.labelSmall,
-                color = color,
+                color = LocalContentColor.current,
             )
         }
         if (hasChildren) {
             Spacer(modifier = Modifier.width(AppSpacing.ExtraSmall))
             TagTreeExpandButton(
                 isExpanded = isExpanded,
-                color = color,
                 onClick = { onToggleExpand(node.fullPath) },
             )
         }
@@ -339,31 +297,32 @@ private fun TagTreeTrailingContent(
 }
 
 @Composable
-private fun TagTreeExpandButton(
-    isExpanded: Boolean,
-    color: Color,
-    onClick: () -> Unit,
-) {
+private fun TagTreeExpandButton(isExpanded: Boolean, onClick: () -> Unit) {
+    val color = LocalContentColor.current
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == LayoutDirection.Rtl
     val rotation by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isExpanded) { if (rtl) -90f else 90f } else 0f,
-        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+        targetValue = if (isExpanded) {
+            if (rtl) -90f else 90f
+        } else {
+            0f
+        },
+        animationSpec = LocalLomoMotion.current.component.fastSpatialSpec(),
         label = "TagExpandIndicator",
     )
-    IconButton(
+    LomoIconButton(
         onClick = rememberLightHapticClick(onClick),
-        modifier = Modifier.size(SidebarDrawerTokens.TagExpandButtonSize),
+        modifier = Modifier.size(IconButtonDefaults.smallContainerSize()),
     ) {
         Icon(
             Icons.AutoMirrored.Rounded.KeyboardArrowRight,
             contentDescription =
-                org.jetbrains.compose.resources.stringResource(
-                    if (isExpanded) {
-                        Res.string.cd_collapse
-                    } else {
-                        Res.string.cd_expand
-                    },
-                ),
+            org.jetbrains.compose.resources.stringResource(
+                if (isExpanded) {
+                    Res.string.cd_collapse
+                } else {
+                    Res.string.cd_expand
+                },
+            ),
             modifier = Modifier.size(SidebarDrawerTokens.TagExpandIconSize).graphicsLayer { rotationZ = rotation },
             tint = color,
         )
@@ -371,15 +330,36 @@ private fun TagTreeExpandButton(
 }
 
 @Composable
-private fun rememberTagClick(
-    fullPath: String,
-    onTagClick: (String) -> Unit,
-): () -> Unit {
+private fun rememberTagClick(fullPath: String, onTagClick: (String) -> Unit): () -> Unit {
     val haptic = LocalAppHapticFeedback.current
     return remember(fullPath, onTagClick, haptic) {
         {
             haptic.light()
             onTagClick(fullPath)
+        }
+    }
+}
+
+private fun Modifier.drawTagGuidelines(level: Int, color: Color): Modifier = drawBehind {
+    // If level > 0, draw vertical dashed guidelines for hierarchy
+    if (level > 0) {
+        val stepPx = SidebarDrawerTokens.TagRowStartPadding.toPx()
+        val startOffsetPx = stepPx / 2f
+        val dashPathEffect =
+            PathEffect.dashPathEffect(
+                floatArrayOf(4f, 4f), // 4px line, 4px gap
+                0f,
+            )
+
+        for (i in 0 until level) {
+            val x = startOffsetPx + i * stepPx
+            drawLine(
+                color = color,
+                start = Offset(x, 0f),
+                end = Offset(x, size.height),
+                strokeWidth = 1.dp.toPx(),
+                pathEffect = dashPathEffect,
+            )
         }
     }
 }

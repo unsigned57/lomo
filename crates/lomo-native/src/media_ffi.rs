@@ -264,8 +264,7 @@ pub fn ffi_finalize_recording(
 
 /// Records a freshly staged artifact in the durable stage ledger and acquires one lease.
 ///
-/// `workspace_root` is the Direct workspace used to resolve destination collisions; pass it as
-/// `None` when only a private stage root exists.
+/// Destination evidence comes from the active session capability, including mounted media roots.
 ///
 /// # Errors
 ///
@@ -275,18 +274,15 @@ pub fn ffi_finalize_recording(
     reason = "BoltFFI boundary owns the staged DTO"
 )]
 pub fn ffi_record_stage_lease(
-    workspace_root: Option<&str>,
+    session: &lomo_application::WorkspaceSession,
     staged: MediaStagedDto,
     owner_kind: MediaStageOwnerKindDto,
     owner_id: &str,
 ) -> Result<MediaStageRecordDto, EngineError> {
     let staged = staged_from_dto(&staged)?;
-    let stage_dir =
-        lomo_media::stage_directory_of(&staged.staging_path).map_err(EngineError::from)?;
     let lease = stage_lease(ArtifactId::of_digest(&staged.digest), owner_kind, owner_id)?;
-    let mut ledger = StageLedger::load(&stage_dir).map_err(EngineError::from)?;
-    let record = ledger
-        .record(workspace_root.map(Path::new), &staged, lease)
+    let record = session
+        .record_media_stage_lease(&staged, lease)
         .map_err(EngineError::from)?;
     Ok(stage_record_to_dto(&record))
 }

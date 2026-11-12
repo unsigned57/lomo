@@ -53,50 +53,51 @@ import kotlin.io.path.writeText
  * - Cross-file payload resolution (NoInferredMutableStatePayload, verified by the full-mode gate),
  *   event surfaces (SingleEventStreamRules) and machine multiplicity (ViewModelSingleStateFlow).
  */
-class StatePayloadImmutabilityRulesTest : FunSpec({
-    test("registers payload immutability and derivation-write rules in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoMutableStatePayload")].shouldNotBeNull()
-        rules[RuleName("NoWriteInFlowDerivation")].shouldNotBeNull()
-        rules[RuleName("NoInferredMutableStatePayload")].shouldNotBeNull()
-    }
+class StatePayloadImmutabilityRulesTest :
+    FunSpec({
+        test("registers payload immutability and derivation-write rules in rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoMutableStatePayload")].shouldNotBeNull()
+            rules[RuleName("NoWriteInFlowDerivation")].shouldNotBeNull()
+            rules[RuleName("NoInferredMutableStatePayload")].shouldNotBeNull()
+        }
 
-    test("NoMutableStatePayload: flags data class *State with var constructor member") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "app/src/feature/SampleState.kt",
-                """
+        test("NoMutableStatePayload: flags data class *State with var constructor member") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "app/src/feature/SampleState.kt",
+                    """
                 package com.lomo.app.feature
 
                 data class SampleState(var count: Int, val title: String)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Mutable member 'count'"
-        findings.single().message shouldContain "mutable-payload-ok"
-        findings.single().message shouldContain "quality/udf-contract.md"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Mutable member 'count'"
+            findings.single().message shouldContain "mutable-payload-ok"
+            findings.single().message shouldContain "quality/udf-contract.md"
+        }
 
-    test("NoMutableStatePayload: allows immutable data class *State") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "app/src/feature/SampleState.kt",
-                """
+        test("NoMutableStatePayload: allows immutable data class *State") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "app/src/feature/SampleState.kt",
+                    """
                 package com.lomo.app.feature
 
                 data class SampleState(val count: Int, val title: String)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoMutableStatePayload: flags mutable container and Compose mutable state members") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "app/src/feature/SampleState.kt",
-                """
+        test("NoMutableStatePayload: flags mutable container and Compose mutable state members") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "app/src/feature/SampleState.kt",
+                    """
                 package com.lomo.app.feature
 
                 data class SampleState(
@@ -107,32 +108,32 @@ class StatePayloadImmutabilityRulesTest : FunSpec({
                     var label by mutableStateOf("")
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(4)
-    }
+            findings.shouldHaveSize(4)
+        }
 
-    test("NoMutableStatePayload: allows non-data *State UI-local holder without flow reference") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "app/src/feature/DialogState.kt",
-                """
+        test("NoMutableStatePayload: allows non-data *State UI-local holder without flow reference") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "app/src/feature/DialogState.kt",
+                    """
                 package com.lomo.app.feature
 
                 class SampleDialogState {
                     var route by mutableStateOf<String?>(null)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoMutableStatePayload: flags non-data *State class referenced as flow payload") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoMutableStatePayload: flags non-data *State class referenced as flow payload") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -148,18 +149,18 @@ class StatePayloadImmutabilityRulesTest : FunSpec({
                     val uiState: StateFlow<SampleState> = _state.asStateFlow()
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(2)
-        findings.any { finding -> finding.message.contains("Mutable member 'label'") } shouldBe true
-        findings.any { finding -> finding.message.contains("Mutable holder surface 'uiState'") } shouldBe true
-    }
+            findings.shouldHaveSize(2)
+            findings.any { finding -> finding.message.contains("Mutable member 'label'") } shouldBe true
+            findings.any { finding -> finding.message.contains("Mutable holder surface 'uiState'") } shouldBe true
+        }
 
-    test("NoMutableStatePayload: flags sealed *State payload whose nested data class carries a var") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "app/src/feature/SampleState.kt",
-                """
+        test("NoMutableStatePayload: flags sealed *State payload whose nested data class carries a var") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "app/src/feature/SampleState.kt",
+                    """
                 package com.lomo.app.feature
 
                 import kotlinx.coroutines.flow.StateFlow
@@ -171,34 +172,34 @@ class StatePayloadImmutabilityRulesTest : FunSpec({
 
                 val uiState: StateFlow<SampleState> = machine.state
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "retries"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "retries"
+        }
 
-    test("NoMutableStatePayload: flags payload whose member type carries a var (in-file recursion)") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "app/src/feature/SampleState.kt",
-                """
+        test("NoMutableStatePayload: flags payload whose member type carries a var (in-file recursion)") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "app/src/feature/SampleState.kt",
+                    """
                 package com.lomo.app.feature
 
                 data class SampleState(val detail: Detail)
 
                 data class Detail(var note: String)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "note"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "note"
+        }
 
-    test("NoMutableStatePayload: flags ViewModel exposing mutable container and mutable holder") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoMutableStatePayload: flags ViewModel exposing mutable container and mutable holder") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -219,45 +220,45 @@ class StatePayloadImmutabilityRulesTest : FunSpec({
                     val holder = LocalHolder()
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(2)
-    }
+            findings.shouldHaveSize(2)
+        }
 
-    test("NoMutableStatePayload: mutable-payload-ok marker suppresses the finding") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "app/src/feature/SampleState.kt",
-                """
+        test("NoMutableStatePayload: mutable-payload-ok marker suppresses the finding") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "app/src/feature/SampleState.kt",
+                    """
                 package com.lomo.app.feature
 
                 // behavior-contract: mutable-payload-ok: platform cursor contract requires in-place mutation
                 data class SampleState(var cursor: Int)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoMutableStatePayload: ignores mutable payloads outside /app/src/") {
-        val findings =
-            rule("NoMutableStatePayload").findingsForSource(
-                "data/src/model/SampleState.kt",
-                """
+        test("NoMutableStatePayload: ignores mutable payloads outside /app/src/") {
+            val findings =
+                rule("NoMutableStatePayload").findingsForSource(
+                    "data/src/model/SampleState.kt",
+                    """
                 package com.lomo.data.model
 
                 data class SampleState(var count: Int)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoWriteInFlowDerivation: flags backing write inside a machine derivation chain") {
-        val findings =
-            rule("NoWriteInFlowDerivation").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoWriteInFlowDerivation: flags backing write inside a machine derivation chain") {
+            val findings =
+                rule("NoWriteInFlowDerivation").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -277,18 +278,18 @@ class StatePayloadImmutabilityRulesTest : FunSpec({
                         }.stateIn(viewModelScope, appWhileSubscribed(), SampleState(""))
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "derivation-write-ok"
-        findings.single().message shouldContain "quality/udf-contract.md"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "derivation-write-ok"
+            findings.single().message shouldContain "quality/udf-contract.md"
+        }
 
-    test("NoWriteInFlowDerivation: allows backing write inside a sink-terminated subscription") {
-        val findings =
-            rule("NoWriteInFlowDerivation").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoWriteInFlowDerivation: allows backing write inside a sink-terminated subscription") {
+            val findings =
+                rule("NoWriteInFlowDerivation").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -308,16 +309,16 @@ class StatePayloadImmutabilityRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoWriteInFlowDerivation: allows backing writes inside member functions and launch bodies") {
-        val findings =
-            rule("NoWriteInFlowDerivation").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoWriteInFlowDerivation: allows backing writes inside member functions and launch bodies") {
+            val findings =
+                rule("NoWriteInFlowDerivation").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -335,16 +336,16 @@ class StatePayloadImmutabilityRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoWriteInFlowDerivation: flags update and emit inside a flow-producing expression") {
-        val findings =
-            rule("NoWriteInFlowDerivation").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoWriteInFlowDerivation: flags update and emit inside a flow-producing expression") {
+            val findings =
+                rule("NoWriteInFlowDerivation").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -365,16 +366,16 @@ class StatePayloadImmutabilityRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(2)
-    }
+            findings.shouldHaveSize(2)
+        }
 
-    test("NoWriteInFlowDerivation: derivation-write-ok marker suppresses the finding") {
-        val findings =
-            rule("NoWriteInFlowDerivation").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoWriteInFlowDerivation: derivation-write-ok marker suppresses the finding") {
+            val findings =
+                rule("NoWriteInFlowDerivation").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -395,23 +396,19 @@ class StatePayloadImmutabilityRulesTest : FunSpec({
                         }.stateIn(viewModelScope, appWhileSubscribed(), SampleState(""))
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
-})
+            findings.shouldHaveSize(0)
+        }
+    })
 
-private fun rule(name: String): Rule =
-    LomoArchitectureRuleSetProvider()
-        .instance()
-        .rules[RuleName(name)]
-        ?.invoke(Config.empty)
-        ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
+private fun rule(name: String): Rule = LomoArchitectureRuleSetProvider()
+    .instance()
+    .rules[RuleName(name)]
+    ?.invoke(Config.empty)
+    ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("detekt-test")
     val file = tempDir.resolve(relativePath)
     file.parent?.createDirectories()

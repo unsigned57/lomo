@@ -55,39 +55,38 @@ class GalleryImageDimensionResolver(
         return aspectRatio
     }
 
-    private suspend fun decodeAspectRatio(path: String): Float =
-        withContext(dispatcherProvider.io) {
-            try {
-                if (path.startsWith(CONTENT_URI_PREFIX, ignoreCase = true)) {
-                    val inputStream = contentResolver.openInputStream(path.toUri())
-                    if (inputStream == null) {
-                        return@withContext GALLERY_DEFAULT_ASPECT_RATIO
-                    }
-                    return@withContext inputStream.use { stream ->
-                        boundsAspectRatio {
-                            BitmapFactory.decodeStream(stream, null, it)
-                        }
-                    }
-                }
-
-                val filePath = path.toBitmapDecodePath()
-                if (filePath == null) {
-                    Timber.tag(LOG_TAG).w("Unsupported gallery image path: $path")
+    private suspend fun decodeAspectRatio(path: String): Float = withContext(dispatcherProvider.io) {
+        try {
+            if (path.startsWith(CONTENT_URI_PREFIX, ignoreCase = true)) {
+                val inputStream = contentResolver.openInputStream(path.toUri())
+                if (inputStream == null) {
                     return@withContext GALLERY_DEFAULT_ASPECT_RATIO
                 }
-                if (!File(filePath).isFile) {
-                    Timber.tag(LOG_TAG).w("Gallery image file does not exist: $filePath")
-                    return@withContext GALLERY_DEFAULT_ASPECT_RATIO
+                return@withContext inputStream.use { stream ->
+                    boundsAspectRatio {
+                        BitmapFactory.decodeStream(stream, null, it)
+                    }
                 }
-                boundsAspectRatio { options ->
-                    BitmapFactory.decodeFile(filePath, options)
-                }
-            } catch (throwable: Exception) {
-                if (throwable is CancellationException) throw throwable
-                Timber.tag(LOG_TAG).w(throwable, "Failed to decode gallery image bounds: $path")
-                GALLERY_DEFAULT_ASPECT_RATIO
             }
+
+            val filePath = path.toBitmapDecodePath()
+            if (filePath == null) {
+                Timber.tag(LOG_TAG).w("Unsupported gallery image path: $path")
+                return@withContext GALLERY_DEFAULT_ASPECT_RATIO
+            }
+            if (!File(filePath).isFile) {
+                Timber.tag(LOG_TAG).w("Gallery image file does not exist: $filePath")
+                return@withContext GALLERY_DEFAULT_ASPECT_RATIO
+            }
+            boundsAspectRatio { options ->
+                BitmapFactory.decodeFile(filePath, options)
+            }
+        } catch (throwable: Exception) {
+            if (throwable is CancellationException) throw throwable
+            Timber.tag(LOG_TAG).w(throwable, "Failed to decode gallery image bounds: $path")
+            GALLERY_DEFAULT_ASPECT_RATIO
         }
+    }
 
     private fun boundsAspectRatio(decode: (BitmapFactory.Options) -> Unit): Float {
         val options =
@@ -104,17 +103,16 @@ class GalleryImageDimensionResolver(
         }
     }
 
-    private fun String.toBitmapDecodePath(): String? =
-        when {
-            startsWith(FILE_URI_PREFIX, ignoreCase = true) ->
-                toUri().path
+    private fun String.toBitmapDecodePath(): String? = when {
+        startsWith(FILE_URI_PREFIX, ignoreCase = true) ->
+            toUri().path
 
-            startsWith(HTTP_URI_PREFIX, ignoreCase = true) ||
-                startsWith(HTTPS_URI_PREFIX, ignoreCase = true) ->
-                null
+        startsWith(HTTP_URI_PREFIX, ignoreCase = true) ||
+            startsWith(HTTPS_URI_PREFIX, ignoreCase = true) ->
+            null
 
-            else -> this
-        }
+        else -> this
+    }
 
     private companion object {
         const val MAX_CACHE_ENTRIES = 256

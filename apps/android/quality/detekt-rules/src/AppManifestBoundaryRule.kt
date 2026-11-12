@@ -10,10 +10,11 @@ import java.nio.file.Path
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
-internal class AppManifestBoundaryRule(config: Config) : LomoBaseRule(
-    config,
-    "The app manifest cannot name data-layer components; module dependency scopes are owned by Rust architecture tests.",
-) {
+internal class AppManifestBoundaryRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "The app manifest may register data receivers/services only; compile dependencies remain owned by Rust architecture tests.",
+    ) {
     private val checkedManifests = mutableSetOf<Path>()
 
     override fun visitKtFile(file: KtFile) {
@@ -24,7 +25,10 @@ internal class AppManifestBoundaryRule(config: Config) : LomoBaseRule(
         if (!Files.isRegularFile(manifest) || !checkedManifests.add(manifest)) return
         try {
             dataComponents(manifest).forEach { component ->
-                reportFile(file, "app AndroidManifest.xml must not directly name data-layer component: $component")
+                reportFile(
+                    file,
+                    "app AndroidManifest.xml may name data components only as receivers/services: $component",
+                )
             }
         } catch (error: SAXException) {
             reportFile(file, "Invalid app AndroidManifest.xml: ${error.message}")
@@ -44,8 +48,11 @@ internal class AppManifestBoundaryRule(config: Config) : LomoBaseRule(
         }
         val document = factory.newDocumentBuilder().parse(manifest.toFile())
         val elements = document.getElementsByTagName("*")
-        return (0 until elements.length).map { index ->
-            (elements.item(index) as Element).getAttributeNS("http://schemas.android.com/apk/res/android", "name")
-        }.filter { it.startsWith("com.lomo.data.") }.toSet()
+        return (0 until elements.length).map { index -> elements.item(index) as Element }
+            .filterNot { element ->
+                element.tagName in setOf("receiver", "service") && element.parentNode.nodeName == "application"
+            }
+            .map { it.getAttributeNS("http://schemas.android.com/apk/res/android", "name") }
+            .filter { it.startsWith("com.lomo.data.") }.toSet()
     }
 }

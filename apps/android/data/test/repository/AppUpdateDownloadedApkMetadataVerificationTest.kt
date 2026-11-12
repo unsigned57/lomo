@@ -76,7 +76,9 @@ class AppUpdateDownloadedApkMetadataVerificationTest : DataFunSpec() {
             result.shouldBeInvalid(MISMATCH_MESSAGE)
         }
 
-        test("given missing expected package or version metadata when verifying downloaded apk then install is rejected") {
+        test(
+            "given missing expected package or version metadata when verifying downloaded apk then install is rejected",
+        ) {
             val missingPackage =
                 verifyDownloadedApkMetadata(
                     metadata = matchingMetadata(),
@@ -190,9 +192,7 @@ private fun DownloadedApkVerificationResult.shouldBeInvalid(message: String) {
     invalid.message shouldBe message
 }
 
-private fun matchingMetadata(
-    signerDigests: Set<String> = setOf(RELEASE_SIGNER_DIGEST),
-): DownloadedApkMetadata =
+private fun matchingMetadata(signerDigests: Set<String> = setOf(RELEASE_SIGNER_DIGEST)): DownloadedApkMetadata =
     DownloadedApkMetadata(
         packageName = "com.lomo.app",
         versionName = "1.6.0",
@@ -204,18 +204,17 @@ private fun expectedUpdateInfo(
     expectedPackageName: String? = "com.lomo.app",
     expectedVersionName: String? = "1.6.0",
     expectedVersionCode: Long? = 44L,
-): AppUpdateInfo =
-    AppUpdateInfo(
-        url = "https://example.com/releases/1.6.0",
-        version = "1.6.0",
-        releaseNotes = "Release notes",
-        apkDownloadUrl = "https://example.com/assets/lomo-v1.6.0-vc44.apk",
-        apkFileName = "lomo-v1.6.0-vc44.apk",
-        apkSizeBytes = 4_096L,
-        expectedPackageName = expectedPackageName,
-        expectedVersionName = expectedVersionName,
-        expectedVersionCode = expectedVersionCode,
-    )
+): AppUpdateInfo = AppUpdateInfo(
+    url = "https://example.com/releases/1.6.0",
+    version = "1.6.0",
+    releaseNotes = "Release notes",
+    apkDownloadUrl = "https://example.com/assets/lomo-v1.6.0-vc44.apk",
+    apkFileName = "lomo-v1.6.0-vc44.apk",
+    apkSizeBytes = 4_096L,
+    expectedPackageName = expectedPackageName,
+    expectedVersionName = expectedVersionName,
+    expectedVersionCode = expectedVersionCode,
+)
 
 private const val RELEASE_SIGNER_DIGEST = "release-signer"
 private const val INVALID_APK_MESSAGE = "Invalid APK"

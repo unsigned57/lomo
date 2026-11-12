@@ -10,25 +10,26 @@ import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtTreeVisitorVoid
 import org.jetbrains.kotlin.psi.KtWhileExpression
 
-internal class NoLoopBoundaryIoRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Calling I/O, database, FFI, or repository boundary methods inside loops or collection iterations causes N+1 query amplification. Use batch or bulk APIs instead.",
-) {
+internal class NoLoopBoundaryIoRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Calling I/O, database, FFI, or repository boundary methods inside loops or collection iterations causes N+1 query amplification. Use batch or bulk APIs instead.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*loop-io-ok""")
 
     private val loopIterators = setOf(
         "forEach", "forEachIndexed", "map", "mapNotNull", "mapIndexed",
-        "flatMap", "filter", "filterNotNull", "filterIndexed"
+        "flatMap", "filter", "filterNotNull", "filterIndexed",
     )
 
-    private val forbiddenReceivers = Regex("""^(port|bridge|native|dataStore|.*[rR]epository|.*[sS]ervice|.*[eE]ngine|.*[cC]lient)$""")
+    private val forbiddenReceivers = Regex(
+        """^(port|bridge|native|dataStore|.*[rR]epository|.*[sS]ervice|.*[eE]ngine|.*[cC]lient)$""",
+    )
 
     private val forbiddenIoMethods = setOf(
         "getMemo", "applyMemoCommand", "commitDocumentMutation", "queryMemos",
         "queryCount", "findMemoSnapshot", "readWorkspaceScanPage", "startWorkspaceScan",
-        "startRebuild", "refreshMemos"
+        "startRebuild", "refreshMemos",
     )
 
     override fun visitForExpression(expression: KtForExpression) {
@@ -93,20 +94,25 @@ internal class NoLoopBoundaryIoRule(
     }
 }
 
-internal class NoNestedCollectionScanRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Linear search (contains, any, firstOrNull, find) on a collection inside an outer iteration produces O(N^2) Cartesian complexity. Pre-index into a Set or Map instead.",
-) {
+internal class NoNestedCollectionScanRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Linear search (contains, any, firstOrNull, find) on a collection inside an outer iteration produces O(N^2) Cartesian complexity. Pre-index into a Set or Map instead.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*nested-scan-ok""")
 
     private val outerIterators = setOf(
-        "filter", "filterNot", "filterIndexed", "map", "mapNotNull", "mapIndexed", "flatMap", "forEach", "forEachIndexed"
+        "filter", "filterNot", "filterIndexed", "map", "mapNotNull", "mapIndexed", "flatMap", "forEach",
+        "forEachIndexed",
     )
 
     private val linearScanMethods = setOf(
-        "any", "firstOrNull", "find", "first", "indexOf", "none"
+        "any",
+        "firstOrNull",
+        "find",
+        "first",
+        "indexOf",
+        "none",
     )
 
     override fun visitCallExpression(expression: KtCallExpression) {
@@ -131,8 +137,9 @@ internal class NoNestedCollectionScanRule(
             .filterIsInstance<org.jetbrains.kotlin.psi.KtLambdaExpression>()
             .firstOrNull() ?: return
 
-        val enclosingCall = (enclosingLambda.parent as? org.jetbrains.kotlin.psi.KtLambdaArgument)?.parent as? KtCallExpression
-            ?: enclosingLambda.parent as? KtCallExpression ?: return
+        val enclosingCall =
+            (enclosingLambda.parent as? org.jetbrains.kotlin.psi.KtLambdaArgument)?.parent as? KtCallExpression
+                ?: enclosingLambda.parent as? KtCallExpression ?: return
         val enclosingCallee = enclosingCall.calleeExpression?.text ?: return
         if (enclosingCallee !in outerIterators) return
 
@@ -153,32 +160,36 @@ internal class NoNestedCollectionScanRule(
         if (expression.hasOptOutComment(optOutMarker)) return
 
         val message = if (isContains) {
-            "Nested collection linear contains anti-pattern (O(N^2) complexity): calling '$receiverText.contains(...)' " +
+            "Nested collection linear contains anti-pattern (O(N^2) complexity): calling " +
+                "'$receiverText.contains(...)' " +
                 "inside collection iteration '$enclosingCallee'. Ensure '$receiverText' is a Set or pre-index it, " +
                 "or mark with `// behavior-contract: nested-scan-ok: <reason>`."
         } else {
             "Nested collection scan anti-pattern (O(N^2) complexity): calling '$receiverText.$callee { ... }' " +
-                "inside collection iteration '$enclosingCallee'. Pre-index '$receiverText' into a Set (toSet()) or Map (associateBy()) before iterating, " +
+                "inside collection iteration '$enclosingCallee'. Pre-index '$receiverText' into a Set (toSet()) or " +
+                "Map (associateBy()) before iterating, " +
                 "or mark with `// behavior-contract: nested-scan-ok: <reason>`."
         }
         reportElement(expression, message)
     }
 }
 
-internal class NoFullRebuildInLocalMutationRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Local mutation functions (update, toggle, delete, markDone, snooze) must not trigger full database rebuilds (startRebuild, refreshMemos). Local changes must update projections incrementally.",
-) {
+internal class NoFullRebuildInLocalMutationRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Local mutation functions (update, toggle, delete, markDone, snooze) must not trigger full database rebuilds (startRebuild, refreshMemos). Local changes must update projections incrementally.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*full-rebuild-ok""")
 
     private val localMutationPrefixes = listOf(
-        "update", "toggle", "delete", "mark", "snooze", "pin", "unpin", "restore", "create"
+        "update", "toggle", "delete", "mark", "snooze", "pin", "unpin", "restore", "create",
     )
 
     private val globalRebuildCallees = setOf(
-        "startRebuild", "refreshMemos", "publishRebuild", "rebuildFromCurrentWorkspace"
+        "startRebuild",
+        "refreshMemos",
+        "publishRebuild",
+        "rebuildFromCurrentWorkspace",
     )
 
     override fun visitNamedFunction(function: KtNamedFunction) {
@@ -204,8 +215,10 @@ internal class NoFullRebuildInLocalMutationRule(
                     if (call.hasOptOutComment(optOutMarker)) return
                     reportElement(
                         call,
-                        "Compensating full-rebuild anti-pattern: calling '$callee()' inside local mutation function '$functionName'. " +
-                            "Local mutations must update only their target projection, not rebuild the entire database. " +
+                        "Compensating full-rebuild anti-pattern: calling '$callee()' inside local mutation function " +
+                            "'$functionName'. " +
+                            "Local mutations must update only their target projection, not rebuild the entire " +
+                            "database. " +
                             "If intentional, mark with `// behavior-contract: full-rebuild-ok: <reason>`.",
                     )
                 }

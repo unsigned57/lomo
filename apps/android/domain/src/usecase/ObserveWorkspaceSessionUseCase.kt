@@ -17,9 +17,7 @@ import kotlinx.coroutines.flow.map
  * owner instead of depending on the engine repository, so activation and presentation consume the
  * same fact.
  */
-class ObserveWorkspaceSessionUseCase(
-    engineReadinessRepository: EngineReadinessRepository,
-) {
+class ObserveWorkspaceSessionUseCase(engineReadinessRepository: EngineReadinessRepository) {
     /** Single mount value: readiness, location, authority and projection freshness together. */
     val mount: StateFlow<WorkspaceMount> = engineReadinessRepository.mount
 
@@ -39,8 +37,7 @@ class ObserveWorkspaceSessionUseCase(
         readiness.first { state -> state !is EngineReadiness.Opening }
 
     /** Root path of the installed workspace, distinct across location changes. */
-    fun observeActiveRootPath(): Flow<String?> =
-        activeWorkspaceLocation
-            .map { location -> location?.raw }
-            .distinctUntilChanged()
+    fun observeActiveRootPath(): Flow<String?> = activeWorkspaceLocation
+        .map { location -> location?.raw }
+        .distinctUntilChanged()
 }

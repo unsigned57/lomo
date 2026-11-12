@@ -9,11 +9,7 @@
 use image::{ImageReader, imageops::FilterType};
 use lomo_core::RelativeWorkspacePath;
 use ratatui::layout::Rect;
-use ratatui_image::{
-    Resize, ResizeEncodeRender,
-    picker::{Picker, ProtocolType},
-    protocol::StatefulProtocol,
-};
+use ratatui_image::{Resize, ResizeEncodeRender, picker::Picker, protocol::StatefulProtocol};
 use std::{
     hash::{Hash, Hasher},
     io::Cursor,
@@ -161,7 +157,8 @@ impl std::fmt::Debug for SharedPicker {
 impl PartialEq for SharedPicker {
     fn eq(&self, other: &Self) -> bool {
         self.0.protocol_type() == other.0.protocol_type()
-            && self.0.font_size() == other.0.font_size()
+            && self.0.font_size().width == other.0.font_size().width
+            && self.0.font_size().height == other.0.font_size().height
     }
 }
 impl Eq for SharedPicker {}
@@ -331,51 +328,6 @@ pub struct ReaderImage {
 /// never silently kept.
 pub const READY_IMAGE_BUDGET_BYTES: usize = 64 * 1024 * 1024;
 
-/// Cell ceiling of a `Halfblocks` encode: ratatui-image 8.x sizes its cell
-/// buffer with a `u16` `width * height` product and truncates the same index
-/// to `u16` in `render` — a fitted box above `u16::MAX` cells panics inside
-/// the dependency where no `Result` exists (F-IMG-5). The bound is a property
-/// of that protocol; pixel-stream protocols (Kitty, Sixel, iTerm2) encode the
-/// raster itself and pass through unchanged.
-const MAX_HALFBLOCKS_CELLS: u64 = 65_535;
-
-/// The fitted cell rect clamped into the encoder's representable range —
-/// scaled down proportionally so `width * height ≤ u16::MAX`, never zero on
-/// either axis. Scaling preserves the fitted aspect (each halfblock cell is
-/// `1×2` source pixels), so the clamped encode is the same picture bounded to
-/// the largest area the protocol can address.
-fn bounded_encode_area(protocol: ProtocolType, area: Rect) -> Rect {
-    if protocol != ProtocolType::Halfblocks {
-        return area;
-    }
-    let cells = u64::from(area.width) * u64::from(area.height);
-    if cells <= MAX_HALFBLOCKS_CELLS {
-        return area;
-    }
-    // `floor(side · sqrt(MAX / cells))` computed as the exact integer
-    // `isqrt(side² · MAX / cells)` — floor rounding only ever shrinks.
-    let scaled = |side: u16| -> u16 {
-        let scaled = (u64::from(side) * u64::from(side) * MAX_HALFBLOCKS_CELLS / cells).isqrt();
-        u16::try_from(scaled).map_or(1, |value| value.max(1))
-    };
-    let mut width = scaled(area.width);
-    let mut height = scaled(area.height);
-    // Verify the stated bound on the pair, not just each side — two floors
-    // can pair to one cell over the ceiling on an adversarial aspect.
-    while u64::from(width) * u64::from(height) > MAX_HALFBLOCKS_CELLS {
-        if width >= height {
-            width = width.saturating_sub(1);
-        } else {
-            height = height.saturating_sub(1);
-        }
-    }
-    Rect {
-        width,
-        height,
-        ..area
-    }
-}
-
 /// # Errors
 /// Capability-bound reads, decoder limits and invalid image formats remain visible per attachment.
 /// `token` is the pending registry's cancellation flag — a decode whose request
@@ -450,10 +402,10 @@ pub fn prepare_image(
     // Bound the resident raster to the display box in queried pixel metrics —
     // the protocol's image source keeps this fitted raster, so the ready
     // budget measures exactly what stays alive.
-    let (font_w, font_h) = picker.font_size();
+    let font_size = picker.font_size();
     let fitted = decoded.resize(
-        u32::from(columns).saturating_mul(u32::from(font_w)),
-        u32::from(rows).saturating_mul(u32::from(font_h)),
+        u32::from(columns).saturating_mul(u32::from(font_size.width)),
+        u32::from(rows).saturating_mul(u32::from(font_size.height)),
         FilterType::Triangle,
     );
     let resident = fitted.as_bytes().len();
@@ -463,19 +415,13 @@ pub fn prepare_image(
         hasher.finish()
     };
     let mut protocol = picker.new_resize_protocol(fitted);
-    // The cell rect the fitted image occupies inside the request box —
-    // clamped into the encoder's representable range so a render box wider
-    // than the protocol's `u16` cell arithmetic produces a bounded image
-    // instead of a panic inside the dependency (F-IMG-5).
-    let area = bounded_encode_area(
-        picker.protocol_type(),
-        protocol.size_for(Resize::Fit(None), Rect::new(0, 0, columns, rows)),
-    );
+    let size = protocol.size_for(Resize::Fit(None), ratatui::layout::Size::new(columns, rows));
+    let area = size.into();
     // Encode on this worker: `resize_encode` produces the protocol payload
     // (sixel string, kitty transmit, iTerm2 blob, halfblock cells) here so
     // the first `StatefulImage` render only writes prepared cells — the draw
     // path never performs the O(pixels) encode (B-06).
-    protocol.resize_encode(&Resize::Fit(None), area);
+    protocol.resize_encode(&Resize::Fit(None), size);
     if let Some(Err(error)) = protocol.last_encoding_result() {
         return Err(TuiError::io(format!("image encode: {error}")));
     }

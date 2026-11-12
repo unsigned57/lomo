@@ -88,11 +88,11 @@ class ReminderValueDomainParityTest : DataFunSpec() {
             val summary =
                 memoSummary(
                     reminders =
-                        listOf(
-                            reminder(opaqueId = "r-none", recurrence = ReminderRecurrence.NONE),
-                            reminder(opaqueId = "r-daily", recurrence = ReminderRecurrence.DAILY),
-                            reminder(opaqueId = "r-weekly", recurrence = ReminderRecurrence.WEEKLY),
-                        ),
+                    listOf(
+                        reminder(opaqueId = "r-none", recurrence = ReminderRecurrence.NONE),
+                        reminder(opaqueId = "r-daily", recurrence = ReminderRecurrence.DAILY),
+                        reminder(opaqueId = "r-weekly", recurrence = ReminderRecurrence.WEEKLY),
+                    ),
                 )
 
             val markers = summary.toStoreSummary().reminders
@@ -109,32 +109,28 @@ class ReminderValueDomainParityTest : DataFunSpec() {
     }
 }
 
-private fun memoSummary(reminders: List<WorkspaceReminderReference>): StoreMemoSummary =
-    StoreMemoSummary(
-        memoId = "memo-1",
-        sourcePath = "2026-07-20_09:30:00_0.md",
-        fileFingerprint = "fp",
-        updatedAtMs = 20L,
-        createdAtMs = 10L,
-        hasTodo = false,
-        hasUrl = false,
-        hasAttachment = false,
-        isPinned = false,
-        isTrashed = false,
-        bodyPreview = "body",
-        contentRevision = 1uL,
-        rank = null,
-        tags = emptyList(),
-        imageUrls = emptyList(),
-        reminders = reminders,
-        isPending = false,
-        charCount = 4L,
-    )
+private fun memoSummary(reminders: List<WorkspaceReminderReference>): StoreMemoSummary = StoreMemoSummary(
+    memoId = "memo-1",
+    sourcePath = "2026-07-20_09:30:00_0.md",
+    fileFingerprint = "fp",
+    updatedAtMs = 20L,
+    createdAtMs = 10L,
+    hasTodo = false,
+    hasUrl = false,
+    hasAttachment = false,
+    isPinned = false,
+    isTrashed = false,
+    bodyPreview = "body",
+    contentRevision = 1uL,
+    rank = null,
+    tags = emptyList(),
+    imageUrls = emptyList(),
+    reminders = reminders,
+    isPending = false,
+    charCount = 4L,
+)
 
-private fun reminder(
-    opaqueId: String,
-    recurrence: ReminderRecurrence,
-): WorkspaceReminderReference =
+private fun reminder(opaqueId: String, recurrence: ReminderRecurrence): WorkspaceReminderReference =
     WorkspaceReminderReference(
         opaqueId = opaqueId,
         revision = "a".repeat(64),

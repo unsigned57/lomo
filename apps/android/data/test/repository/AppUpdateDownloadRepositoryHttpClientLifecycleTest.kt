@@ -139,17 +139,11 @@ class AppUpdateDownloadRepositoryHttpClientLifecycleTest : DataFunSpec() {
     }
 }
 
-private class FakeAppUpdateApkDownloader(
-    private val payload: ByteArray,
-) : AppUpdateApkDownloader {
+private class FakeAppUpdateApkDownloader(private val payload: ByteArray) : AppUpdateApkDownloader {
     var downloadUrl: String? = null
         private set
 
-    override suspend fun download(
-        downloadUrl: String,
-        outputFile: File,
-        onProgress: suspend (Int) -> Unit,
-    ) {
+    override suspend fun download(downloadUrl: String, outputFile: File, onProgress: suspend (Int) -> Unit) {
         this.downloadUrl = downloadUrl
         onProgress(0)
         outputFile.writeBytes(payload)
@@ -157,16 +151,11 @@ private class FakeAppUpdateApkDownloader(
     }
 }
 
-private class RejectingVerifier(
-    private val message: String,
-) : AppUpdateApkVerifier {
+private class RejectingVerifier(private val message: String) : AppUpdateApkVerifier {
     lateinit var verifiedBytes: ByteArray
         private set
 
-    override fun verify(
-        apkFile: File,
-        updateInfo: AppUpdateInfo,
-    ): DownloadedApkVerificationResult {
+    override fun verify(apkFile: File, updateInfo: AppUpdateInfo): DownloadedApkVerificationResult {
         verifiedBytes = apkFile.readBytes()
         return DownloadedApkVerificationResult.Invalid(message)
     }
@@ -194,17 +183,16 @@ private fun updateContext(cacheDir: File): Context {
     return context
 }
 
-private fun updateInfo(): AppUpdateInfo =
-    AppUpdateInfo(
-        url = "https://example.com/releases/1.6.0",
-        version = "1.6.0",
-        releaseNotes = "Release notes",
-        apkDownloadUrl = APK_URL,
-        apkFileName = "lomo-v1.6.0-vc44.apk",
-        apkSizeBytes = 4_096L,
-        expectedPackageName = "com.lomo.app",
-        expectedVersionName = "1.6.0",
-        expectedVersionCode = 44L,
-    )
+private fun updateInfo(): AppUpdateInfo = AppUpdateInfo(
+    url = "https://example.com/releases/1.6.0",
+    version = "1.6.0",
+    releaseNotes = "Release notes",
+    apkDownloadUrl = APK_URL,
+    apkFileName = "lomo-v1.6.0-vc44.apk",
+    apkSizeBytes = 4_096L,
+    expectedPackageName = "com.lomo.app",
+    expectedVersionName = "1.6.0",
+    expectedVersionCode = 44L,
+)
 
 private const val APK_URL = "https://example.com/assets/lomo-v1.6.0-vc44.apk"

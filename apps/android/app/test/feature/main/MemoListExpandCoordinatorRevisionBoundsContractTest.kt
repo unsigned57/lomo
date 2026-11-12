@@ -41,10 +41,10 @@ import kotlinx.coroutines.test.runTest
  * Excludes:
  * - Compose effects and the previewRevisions feed; the coordinator is driven directly.
  */
-class MemoListExpandCoordinatorRevisionBoundsContractTest : FunSpec({
+class MemoListExpandCoordinatorRevisionBoundsContractTest :
+    FunSpec({
 
-    fun memo(id: String, revision: Long?, body: String = "body-$id"): Memo =
-        Memo(
+        fun memo(id: String, revision: Long?, body: String = "body-$id"): Memo = Memo(
             id = id,
             timestamp = 1L,
             updatedAt = revision ?: 0L,
@@ -55,8 +55,7 @@ class MemoListExpandCoordinatorRevisionBoundsContractTest : FunSpec({
             contentKind = MemoContentKind.Full,
         )
 
-    fun uiModel(memo: Memo): MemoUiModel =
-        MemoUiModel(
+        fun uiModel(memo: Memo): MemoUiModel = MemoUiModel(
             memo = memo,
             processedContent = memo.content,
             renderDocument = emptyRenderDocument(),
@@ -67,89 +66,87 @@ class MemoListExpandCoordinatorRevisionBoundsContractTest : FunSpec({
             reminders = persistentListOf(),
         )
 
-    fun coordinator(
-        scope: kotlinx.coroutines.CoroutineScope,
-        loadFullMemo: suspend (String) -> Memo?,
-    ) = MemoListExpandCoordinator(
-        scope = scope,
-        loadFullMemo = loadFullMemo,
-        mapFullMemo = { loaded -> uiModel(loaded) },
-    )
+        fun coordinator(scope: kotlinx.coroutines.CoroutineScope, loadFullMemo: suspend (String) -> Memo?) =
+            MemoListExpandCoordinator(
+                scope = scope,
+                loadFullMemo = loadFullMemo,
+                mapFullMemo = { loaded -> uiModel(loaded) },
+            )
 
-    test("a terminal Failed under an unresolved request never auto-resurrects on repeat syncs") {
-        runTest {
-            var fail = true
-            val loads = mutableListOf<String>()
-            val coordinator =
-                coordinator(this) { id ->
-                    loads += id
-                    if (fail) throw IllegalStateException("read failed")
-                    memo(id, revision = null)
-                }
+        test("a terminal Failed under an unresolved request never auto-resurrects on repeat syncs") {
+            runTest {
+                var fail = true
+                val loads = mutableListOf<String>()
+                val coordinator =
+                    coordinator(this) { id ->
+                        loads += id
+                        if (fail) throw IllegalStateException("read failed")
+                        memo(id, revision = null)
+                    }
 
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            testScheduler.advanceUntilIdle()
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Failed>()
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                testScheduler.advanceUntilIdle()
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Failed>()
 
-            // The store could serve the row now, but a terminal failure under an unresolved
-            // request must not loop: each repeat sync keeps it Failed until retryExpand.
-            fail = false
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            testScheduler.advanceUntilIdle()
+                // The store could serve the row now, but a terminal failure under an unresolved
+                // request must not loop: each repeat sync keeps it Failed until retryExpand.
+                fail = false
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                testScheduler.advanceUntilIdle()
 
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Failed>()
-            loads shouldBe listOf("m1")
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Failed>()
+                loads shouldBe listOf("m1")
+            }
         }
-    }
 
-    test("a resolved request whose loaded snapshot is unversioned reloads once per sync — linear, not a hot loop") {
-        runTest {
-            val loads = mutableListOf<String>()
-            val coordinator =
-                coordinator(this) { id ->
-                    loads += id
-                    memo(id, revision = null, body = "unversioned")
-                }
+        test("a resolved request whose loaded snapshot is unversioned reloads once per sync — linear, not a hot loop") {
+            runTest {
+                val loads = mutableListOf<String>()
+                val coordinator =
+                    coordinator(this) { id ->
+                        loads += id
+                        memo(id, revision = null, body = "unversioned")
+                    }
 
-            coordinator.sync("ws-a", mapOf("m1" to 7L))
-            testScheduler.advanceUntilIdle()
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                coordinator.sync("ws-a", mapOf("m1" to 7L))
+                testScheduler.advanceUntilIdle()
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
 
-            // A snapshot that carries no contentRevision can never self-prove a resolved
-            // request revision: each external sync reloads it once — bounded linear, driven
-            // only by sync triggers, never by the coordinator's own publishes.
-            coordinator.sync("ws-a", mapOf("m1" to 7L))
-            testScheduler.advanceUntilIdle()
-            coordinator.sync("ws-a", mapOf("m1" to 7L))
-            testScheduler.advanceUntilIdle()
+                // A snapshot that carries no contentRevision can never self-prove a resolved
+                // request revision: each external sync reloads it once — bounded linear, driven
+                // only by sync triggers, never by the coordinator's own publishes.
+                coordinator.sync("ws-a", mapOf("m1" to 7L))
+                testScheduler.advanceUntilIdle()
+                coordinator.sync("ws-a", mapOf("m1" to 7L))
+                testScheduler.advanceUntilIdle()
 
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
-            loads shouldBe listOf("m1", "m1", "m1")
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                loads shouldBe listOf("m1", "m1", "m1")
+            }
         }
-    }
 
-    test("a null preview revision keeps the last resolved request revision and serves the matching snapshot") {
-        runTest {
-            val loads = mutableListOf<String>()
-            val coordinator =
-                coordinator(this) { id ->
-                    loads += id
-                    memo(id, revision = 7, body = "resolved-body")
-                }
+        test("a null preview revision keeps the last resolved request revision and serves the matching snapshot") {
+            runTest {
+                val loads = mutableListOf<String>()
+                val coordinator =
+                    coordinator(this) { id ->
+                        loads += id
+                        memo(id, revision = 7, body = "resolved-body")
+                    }
 
-            coordinator.sync("ws-a", mapOf("m1" to 7L))
-            testScheduler.advanceUntilIdle()
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                coordinator.sync("ws-a", mapOf("m1" to 7L))
+                testScheduler.advanceUntilIdle()
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
 
-            // The row left the loaded preview window (revision now null): the request retains
-            // revision 7 and the snapshot — which proves 7 — serves without a reload.
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            testScheduler.advanceUntilIdle()
+                // The row left the loaded preview window (revision now null): the request retains
+                // revision 7 and the snapshot — which proves 7 — serves without a reload.
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                testScheduler.advanceUntilIdle()
 
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
-                .model.memo.content shouldBe "resolved-body"
-            loads shouldBe listOf("m1")
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                    .model.memo.content shouldBe "resolved-body"
+                loads shouldBe listOf("m1")
+            }
         }
-    }
-})
+    })

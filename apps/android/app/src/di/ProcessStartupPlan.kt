@@ -25,33 +25,31 @@ internal data class ProcessStartupPlan(
 }
 
 /** App-side modules shared by the owning process graph (order-stable for the trace). */
-internal fun appProcessModules(): List<Module> =
-    listOf(
-        appModule,
-        appScopeModule,
-        domainAppUpdateModule,
-        domainCoreModule,
-        domainMemoMutationModule,
-        domainMemoReadModule,
-        domainSearchModule,
-        domainShareModule,
-        domainSyncModule,
-        domainWorkspaceModule,
-        viewModelModule,
-    )
+internal fun appProcessModules(): List<Module> = listOf(
+    appModule,
+    appScopeModule,
+    domainAppUpdateModule,
+    domainCoreModule,
+    domainMemoMutationModule,
+    domainMemoReadModule,
+    domainSearchModule,
+    domainShareModule,
+    domainSyncModule,
+    domainWorkspaceModule,
+    viewModelModule,
+)
 
 internal fun processStartupPlan(
     duty: WorkspaceProcessDuty,
     processName: String,
     dataModules: List<Module>,
-): ProcessStartupPlan =
-    ProcessStartupPlan(
-        duty = duty,
-        processName = processName,
-        modules =
-            if (duty.ownsNativeEngine) {
-                dataModules + appProcessModules()
-            } else {
-                emptyList()
-            },
-    )
+): ProcessStartupPlan = ProcessStartupPlan(
+    duty = duty,
+    processName = processName,
+    modules =
+    if (duty.ownsNativeEngine) {
+        dataModules + appProcessModules()
+    } else {
+        emptyList()
+    },
+)

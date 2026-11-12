@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn local_changed_remote_token_unchanged_must_not_download() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "sess-digest").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn cancel_blocks_pending_resolved_conflict_publish() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "sess-cancel").expect("session");
         write_session(&paths, &session).expect("write session");

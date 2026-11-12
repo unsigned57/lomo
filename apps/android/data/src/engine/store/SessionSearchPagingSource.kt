@@ -10,9 +10,9 @@ import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.nativebridge.SessionSearchMode
 import com.lomo.nativebridge.SessionSearchOutcome
 import com.lomo.nativebridge.SessionSearchRequest
-import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 
 private const val SESSION_SEARCH_MAX_PAGE_SIZE = 256
 
@@ -42,7 +42,9 @@ internal class SessionSearchPagingSource(
                 val cursor =
                     when (params) {
                         is LoadParams.Refresh -> null
+
                         is LoadParams.Append -> BridgePageCursor(params.key)
+
                         is LoadParams.Prepend ->
                             return@withContext LoadResult.Error(
                                 IllegalStateException("session search paging is forward-only"),
@@ -64,6 +66,7 @@ internal class SessionSearchPagingSource(
                     }
                 when (outcome) {
                     is SessionSearchOutcome.Discarded -> LoadResult.Invalid()
+
                     is SessionSearchOutcome.Ready -> {
                         val memos =
                             outcome.page.items.map { hit ->

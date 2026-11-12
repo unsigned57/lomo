@@ -1,13 +1,13 @@
 package com.lomo.ui.theme
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.ui.theme
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
@@ -31,51 +30,63 @@ import io.kotest.matchers.shouldBe
 class ThemeAnimationPolicyTest : UiComponentsFunSpec() {
     init {
         test("system theme disables animation when dark mode flips") {
-        (shouldAnimateThemeColorTransition(
-                themeMode = ThemeMode.SYSTEM,
-                previousDarkTheme = false,
-                currentDarkTheme = true,
-            )) shouldBe false
-        (shouldAnimateThemeColorTransition(
-                themeMode = ThemeMode.SYSTEM,
-                previousDarkTheme = true,
-                currentDarkTheme = false,
-            )) shouldBe false
+            (
+                shouldAnimateThemeColorTransition(
+                    themeMode = ThemeMode.SYSTEM,
+                    previousDarkTheme = false,
+                    currentDarkTheme = true,
+                )
+                ) shouldBe false
+            (
+                shouldAnimateThemeColorTransition(
+                    themeMode = ThemeMode.SYSTEM,
+                    previousDarkTheme = true,
+                    currentDarkTheme = false,
+                )
+                ) shouldBe false
         }
     }
 
     init {
         test("system theme keeps animation for steady-state recomposition") {
-        (shouldAnimateThemeColorTransition(
-                themeMode = ThemeMode.SYSTEM,
-                previousDarkTheme = true,
-                currentDarkTheme = true,
-            )) shouldBe true
+            (
+                shouldAnimateThemeColorTransition(
+                    themeMode = ThemeMode.SYSTEM,
+                    previousDarkTheme = true,
+                    currentDarkTheme = true,
+                )
+                ) shouldBe true
         }
     }
 
     init {
         test("explicit themes keep animated transitions") {
-        (shouldAnimateThemeColorTransition(
-                themeMode = ThemeMode.DARK,
-                previousDarkTheme = false,
-                currentDarkTheme = true,
-            )) shouldBe true
-        (shouldAnimateThemeColorTransition(
-                themeMode = ThemeMode.LIGHT,
-                previousDarkTheme = true,
-                currentDarkTheme = false,
-            )) shouldBe true
+            (
+                shouldAnimateThemeColorTransition(
+                    themeMode = ThemeMode.DARK,
+                    previousDarkTheme = false,
+                    currentDarkTheme = true,
+                )
+                ) shouldBe true
+            (
+                shouldAnimateThemeColorTransition(
+                    themeMode = ThemeMode.LIGHT,
+                    previousDarkTheme = true,
+                    currentDarkTheme = false,
+                )
+                ) shouldBe true
         }
     }
 
     init {
         test("initial composition keeps animation enabled") {
-        (shouldAnimateThemeColorTransition(
-                themeMode = ThemeMode.SYSTEM,
-                previousDarkTheme = null,
-                currentDarkTheme = true,
-            )) shouldBe true
+            (
+                shouldAnimateThemeColorTransition(
+                    themeMode = ThemeMode.SYSTEM,
+                    previousDarkTheme = null,
+                    currentDarkTheme = true,
+                )
+                ) shouldBe true
         }
     }
 }

@@ -1,0 +1,27 @@
+# Requires an APK with notification/exact-alarm declarations and both capabilities granted.
+# Run on a landscape tablet window.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- runFlow:
+    when:
+      notVisible: "Add reminder"
+    commands:
+      - tapOn:
+          text: "Expand"
+          below:
+            id: "benchmark_input_editor"
+      - waitForAnimationToEnd
+- tapOn: "Add reminder"
+- assertVisible: "Reminder"
+- tapOn: "Next"
+- takeScreenshot: reminder-clock
+- assertVisible: "Next"
+- tapOn: "Next"
+- assertVisible: "Repeat count"
+- assertVisible: "Confirm"
+- takeScreenshot: reminder-options
+- tapOn: "Cancel"

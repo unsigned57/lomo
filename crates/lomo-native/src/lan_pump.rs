@@ -142,7 +142,9 @@ impl LanInboxPump {
                 return Err(error);
             }
             let current = self.generation.load(Ordering::SeqCst);
-            if current > last_seen {
+            // Retirement is terminal even if this observer carries a generation from a
+            // previous engine. A generation bump alone cannot release an equal/newer cursor.
+            if self.stop.load(Ordering::SeqCst) || current > last_seen {
                 drop(guard);
                 return Ok(current);
             }

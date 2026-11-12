@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use lomo_core::LomoError;
 
 use crate::limits::validation;
-use crate::render::{RenderBlock, RenderInline, render_markdown};
+use crate::render::{RenderBlock, RenderInline, project_markdown_facts};
 use crate::source::{ByteSpan, SourceBytes};
 
 /// Plans a free-content attachment destination remap from one owner parse.
@@ -30,7 +30,7 @@ pub fn remap_attachment_destinations(
     }
     let lookup = AttachmentMappingLookup::try_from_mappings(mappings)?;
     let source = SourceBytes::try_from_str(content)?;
-    let render = render_markdown(&source)?;
+    let render = project_markdown_facts(&source)?;
 
     let mut occurrences = Vec::new();
     collect_required_occurrences(render.blocks(), &lookup, &mut occurrences);
@@ -296,6 +296,7 @@ fn collect_required_inlines(
             RenderInline::Strong { children, .. }
             | RenderInline::Emphasis { children, .. }
             | RenderInline::Strikethrough { children, .. }
+            | RenderInline::Underline { children, .. }
             | RenderInline::Highlight { children, .. } => {
                 collect_required_inlines(children, lookup, out);
             }
@@ -618,6 +619,7 @@ fn collect_code_spans_inlines(inlines: &[RenderInline], spans: &mut Vec<ByteSpan
             RenderInline::Strong { children, .. }
             | RenderInline::Emphasis { children, .. }
             | RenderInline::Strikethrough { children, .. }
+            | RenderInline::Underline { children, .. }
             | RenderInline::Highlight { children, .. }
             | RenderInline::Link { children, .. }
             | RenderInline::WikiReference { children, .. } => {

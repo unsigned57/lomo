@@ -1,6 +1,6 @@
 package com.lomo.data.source
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
@@ -16,13 +16,11 @@ package com.lomo.data.source
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
-
-import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.KotestTemporaryFolder
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:

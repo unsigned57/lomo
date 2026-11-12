@@ -15,7 +15,7 @@ separate agent command implementation or manually maintained command inventory.
 Every invocation that reaches xtask writes exactly one JSON document to stdout:
 
 ```json
-{"schema_version":1,"command":"cache","status":"succeeded","data":{"paths":{"cargo_target":"/checkout/target"}}}
+{"schema_version":1,"command":"cache","status":"succeeded","data":{"paths":{"cargo_target":"/checkout/target/cargo"}}}
 ```
 
 - `schema_version` identifies the result envelope. Consumers must reject unsupported versions.
@@ -39,10 +39,13 @@ Every invocation that reaches xtask writes exactly one JSON document to stdout:
 | `just ci` | completed `verification` evidence and published `apk` |
 | `just cache paths` | resolved absolute `paths` |
 | `just cache audit` | entries with `present` plus bytes, or `absent` without invented bytes |
-| `just cache prune` / `clean` | removed-file counts or removed paths |
-| `just android ...` / `native ...` / `bindings` | published APK or generated output directory |
-| `just android benchmark` | `target/lomo/reports/android-benchmark/android-benchmark.v1.json` plus raw androidx `*-benchmarkData.json`; an attached device is required and the run never claims a scenario it did not execute |
+| `just cache prune` / `clean` | Cargo sweep summary, removed scratch counts, or removed paths |
+| `just build android ...` / `just build tui` / `native ...` / `bindings` | published APK, `lomo` binary, or generated output directory |
+| `just build android benchmark [scenario] [--redroid]` | `reports/android-benchmark/android-benchmark.v1.json` plus raw androidx `*-benchmarkData.json`; an attached device is required (`--redroid` provisions the pinned container, evidence is emulator-grade) and the run never claims a scenario it did not execute |
+| `just uitest` | `reports/android-uitest/android-uitest.v1.json` plus per-flow screenshots, hierarchies, logs and JUnit XML; an attached device is required (`--redroid` provisions one) and the run never claims a flow it did not execute |
+| `just tuitest` | `reports/tui-uitest/tui-uitest.v1.json` plus per-flow screen snapshots and step logs; each flow runs the real `lomo` binary in an isolated 100x36 PTY and never claims a step it did not execute |
 | `just perf` | baseline/performance JSON paths and the measured conclusion |
+| `just perf device [startup\|cuj\|engine\|workspace\|system\|sync\|profile\|release\|all]... [--corpus device] [--backend saf\|direct] [--redroid] [--trace]` | `reports/android-device-perf/device-perf.v1.json` plus raw `*-benchmarkData.json`, gfxinfo/meminfo dumps and engine-probe JSON; needs an attached device (`--redroid` provisions the pinned container). `--corpus device` injects the deterministic workspace-shaped corpus (SAF under `/sdcard/Documents` granted through DocumentsUI, or Direct via `run-as` on debuggable builds — host-tier corpus layouts are rejected at parse since only dated `yyyy_MM_dd` documents reconcile under a workspace root), normalizes animation scales to 1.0, and debug planes declare `suppressed_errors=EMULATOR,DEBUGGABLE`; release planes record their own target and compilation provenance. Emulator evidence never establishes physical-device truth; the run fails closed on unknown planes/flags and never claims a scenario it did not execute (`sync` is explicit and requires `--corpus device --backend direct`; `profile` supports `--write`; `release` explicitly measures the SAF corpus) |
 
 Verification task statuses are `Passed`, `Failed`, `Cancelled` and `NotScheduled`. Read `logs`
 for captured subprocess output; tasks executed inside xtask may have no separate log file.
@@ -64,27 +67,49 @@ the word "review" alone does not require a build. Classify the actual change bef
 | Native, FFI, lock or packaging inputs | Regenerate and validate the affected generated/pack surface |
 | Dependency manifests | `just deps check`; explicit task-related updates follow [Dependency Selection](dependencies.md) |
 | Code changes delivered for review or push | `just check`; `just dev` is an iteration aid, not a substitute |
-| Code merge/shared-branch delivery | `just ci`; pre-push also runs `just _preflight`, including applicable diff-scoped Rust mutation tests |
+| Code merge/shared-branch delivery | `just ci`; pre-push also runs `just _preflight` |
 
 Documentation that changes an executable rule or a fixture's expected behavior is not a prose-only
 change. Use narrow tests during implementation; do not run the full release gate after each edit.
 `just dev --tests-only` is the worktree test sweep without static analysis. `just perf` and
-`just cache audit` are manual diagnostics; a full mutation sweep uses `cargo mutants` directly.
+`just cache audit` are manual diagnostics.
 
 | Gate | Includes | Intentionally omits |
 | --- | --- | --- |
 | pre-commit | staged formatting and meaningful-test contracts | compile, test and native gates |
-| `just dev` | affected worktree owners, including untracked/deleted files; diff-scoped mutation tests after Rust suites | coverage, fat LTO |
-| `just dev --tests-only` | test tasks from the same worktree plan | static analysis, coverage, mutation tests |
-| `just _preflight` (pre-push) | pushed commits vs remote base; Rust-only pushes omit Kotlin; no remote base uses the iterative surface without mutation tasks | coverage, fat LTO |
+| `just dev` | affected worktree owners, including untracked/deleted files | coverage, fat LTO |
+| `just dev --tests-only` | test tasks from the same worktree plan | static analysis, coverage |
+| `just _preflight` (pre-push) | pushed commits vs remote base; Rust-only pushes omit Kotlin; no remote base uses the full iterative surface | coverage, fat LTO |
 | `just check` | Rust fmt, strict Clippy, nextest/doc and architecture tests, machete; dev bindings/native graph; Kotlin model/build, Detekt, test style, Android Lint, shell contracts and host tests | cargo-deny, coverage, Compose static, fat-LTO release native, device install |
 | `just ci` | check plus cargo-deny, Rust/Kotlin coverage, Compose static, four-ABI release native and APK/ELF/dependency validation | device execution |
+
+Device engine trend snapshots use `device-perf-engine-baseline.v2.json`, keyed by backend
+and metric. SAF and Direct update independent histories; missing history reports `no_baseline`,
+malformed history or samples fail with an error, and sample counts below five or p50 deltas
+beyond 15% remain `inconclusive`. The unscoped v1 snapshot is historical evidence and is not
+migrated because its backend cannot be established. Compare runs on the same device and corpus;
+the backend key alone does not establish cross-device comparability. A requested corpus must
+activate successfully before measuring any plane or updating its baseline.
+
+Workspace performance is an explicit, corpus-resetting diagnostic:
+`just perf device workspace --corpus device --backend saf --trace` (or `--backend direct`).
+It measures five fresh-index samples, five cold reopens of the existing index, five actual
+switches between distinct seeded workspaces, and five reconciles each preceded by an external
+append plus a new dated document. The fixed test-owned directories are reset; this plane is
+excluded from bare/`all` sweeps. Memo/task counts and corpus markers must match before results
+are accepted. SAF first index measures grant confirmation through the first indexed card;
+Direct first index and both backends' switching/reconcile timings measure production data calls
+through Ready, with first-page reads reported separately. These endpoints must not be compared
+as if they measured identical UI work. Original samples and p50/p95 remain in the device report.
+The engine plane also changes the workspace before every dirty-rebuild sample; the new
+`engine-rebuild-dirty-each-sample` metric identity keeps these samples separate from the old
+one-dirty/four-idle distribution in persisted history.
 
 `--scope <owner>` deliberately excludes other owners. Inspect `complete_worktree` and
 `excluded_owners`; a passed scoped plan does not close the whole worktree.
 Zero/unreported tests in a required test task, changes to its verification inputs, failed
 prerequisites, missing outputs and unavailable required tools cannot pass. A prose-only task with
-no required test is not a zero-test failure. Missed diff-scoped mutants fail `dev`/pre-push.
+no required test is not a zero-test failure.
 
 GitHub PR jobs select Rust/native/Kotlin surfaces by path. Native PR jobs use `release-ci`;
 shipping native outputs use the release pack path. The `quality` aggregation job governs branch
@@ -97,8 +122,8 @@ Read current values from their owners; do not add pins to agent configuration or
 | Fact | Authoritative input |
 | --- | --- |
 | Rust channel and components | [`rust-toolchain.toml`](../rust-toolchain.toml); MSRV in [`Cargo.toml`](../Cargo.toml); update via `just rust-toolchain-bump` |
-| JDK and Android SDK levels | [`apps/android/app/module.yaml`](../apps/android/app/module.yaml) is the single declaration; Amper has no cross-module settings inheritance, so sibling `module.yaml` copies are verified by `just kotlin-toolchain-check` (also checks workflow `java-version`/`ndk` literals against `jdk.version`/`NDK_VERSION`) |
-| Cargo tools and BoltFFI CLI | [`tools.toml`](../tools.toml), installed by `just bootstrap` |
+| JDK and Android SDK levels | [`apps/android/app/module.yaml`](../apps/android/app/module.yaml) is the single declaration (including compile API major/minor, Kotlin compiler and Compose runtime); Amper has no cross-module settings inheritance, so sibling `module.yaml` copies are verified by `just kotlin-toolchain-check` (also checks workflow `java-version`/`ndk` literals against `jdk.version`/`NDK_VERSION`) |
+| Cargo tools and BoltFFI CLI | [`tools.toml`](tools.toml), installed by `just bootstrap` |
 | Crate/module dependencies and app version | Cargo manifests/lock and `apps/android/**/module.yaml` |
 | External dependency capabilities | [`dependency-capabilities.toml`](dependency-capabilities.toml); classification workflow in [Dependency Selection](dependencies.md#capability-boundaries-instead-of-library-allowlists) |
 | NDK, native API and standard paths | [`workspace.rs`](../crates/lomo-xtask/src/workspace.rs) |
@@ -106,7 +131,7 @@ Read current values from their owners; do not add pins to agent configuration or
 | Rust coverage threshold | `RUST_COVERAGE_MINIMUM` in [`quality.rs`](../crates/lomo-xtask/src/quality.rs); xtask/architecture tests are excluded |
 | Kotlin analysis configuration | [`quality/detekt/config`](detekt/config) and the owning single-purpose scripts |
 
-`just native` and `just android debug/release` default to arm64 at the Just entrypoint; pass `all`
+`just native` and `just build android debug/release` default to arm64; pass `all`
 for a universal/four-ABI build. Native release packaging uses the canonical release-android
 profile and xtask's immediate-abort/build-std policy. Dependency version changes follow
 [Dependency Selection](dependencies.md#version-changes). No production dual stack, compatibility
@@ -149,17 +174,72 @@ budgets still require task-specific behavior evidence; static checks do not prov
 explicit `LOMO_KOTLIN_*` overrides retain precedence. Every Kotlin gate uses the same configured
 shared build directory. Do not create task-specific cache/build trees or another bootstrap script.
 
-Generated reports, APKs, corpora and temporary files live under `target/lomo` in the configured
-Cargo target; Cargo's own build graph remains alongside it. Kotlin/binding/native outputs remain
+The root `target/` has two responsibilities: `cargo/` holds Cargo's build graph, as declared in
+`.cargo/config.toml`; `lomo/` holds packages, generated datasets and build state.
+`CARGO_TARGET_DIR` and `LOMO_GENERATED_ROOT` override those roots independently. The shared Kotlin
+build defaults to `target/lomo/build/kotlin`; `LOMO_KOTLIN_BUILD_DIR` retains precedence.
+User dependency caches remain in their standard locations. Before each APK build, xtask removes
+only the selected variant's Java resource merger snapshot/zip cache and merged resource archives.
+Amper rewrites module archives in place, so AGP's retained entry index can reference removed
+`META-INF` entries. Debug and release use this same preparation even without an ABI change;
+compiler, native and shared dependency caches remain reusable. Cleanup errors stop the build
+before Kotlin starts; the build is not retried automatically.
+
+Reports live independently at repository-root `reports/<tool-or-task>/` and are ignored by Git.
+Manual command logs use `reports/manual/<task>/`; stdout JSON and stderr logs remain separate.
+`LOMO_GENERATED_ROOT` only relocates build outputs, never this evidence directory.
+Within the Lomo namespace:
+
+| Directory | Responsibility |
+| --- | --- |
+| `artifacts/android/<debug\|release>/` | Validated APKs, named by app version and ABI |
+| `artifacts/tui/<debug\|release>/` | Published desktop executable, copied from the successful Cargo build |
+| `artifacts/tui/dist/` | Desktop distribution archives and checksums |
+| `build/` | Shared Kotlin output, binding/JNI provenance, JNI ABI stash and benchmark intermediates |
+| `corpora/` | Generated large test datasets |
+| `tmp/<command>/` | Resettable command-owned scratch space |
+
+Do not put logs, provenance stamps or intermediate files in `artifacts/` or directly in `lomo/`.
+The [directory map](../docs/project-layout.md) includes the source tree and package lookup examples.
+Kotlin/binding/native outputs remain
 ignored. Builds must be reproducible from a clean checkout; an existing dirty worktree is also a
 valid development input. Preserve other edits and record the inputs actually verified. Small golden
 format fixtures belong in `fixtures/`; large seeded corpora are generated by `just perf`.
 
-`prune` removes stale Cargo artifacts, debug-symbol packages and coverage-instrumented outputs;
-pre-push invokes it. `clean` deletes the existing allowlisted repository outputs, never global
+`just build tui` and `just build android` run the same `prune` operation before compiling;
+pre-push invokes it too. It delegates Cargo artifact retention to the pinned `cargo-sweep --time 7` (fingerprint access
+time) and coverage build-tree deletion to `cargo clean --target-dir`. Project scratch files
+use a seven-day modification-time cutoff. Recent caches,
+packages, corpora and reports remain. Cargo profile locks are held throughout pruning; a competing
+build stops cleanup with an actionable error rather than racing the compiler. Symlinks are never
+traversed. Cleanup failures stop the build; it is not retried silently. Direct `cargo build` and
+`./kotlin` invocations do not run the xtask hook. `just cache prune` runs it explicitly. Tool selection and the maintenance limitation are
+recorded in [the cleanup decision](../docs/development/cache-cleanup.md). `clean` deletes the existing allowlisted build outputs, preserving root `reports/` and global
 user caches. Neither command is a repair for incorrect ownership or stale source configuration.
-Baseline profiles are regenerated by the gate from the shared Kotlin build via
-`generate_static_baseline_profile.py`; do not hand-edit generated profiles.
+Baseline and Startup Profiles are device-collected packaging inputs. The sole publisher is
+`just perf device profile --corpus device --backend saf --write`; it writes the measured
+`baselineProfiles/generated.txt`, `baselineProfiles/startup-prof.txt` and `baseline-profile.json`
+collection receipt under the app module. The receipt binds the complete profile bytes to the
+captured APK SHA-256, corpus digest, device fingerprint and source revision. `baseline-profile`
+validates the receipt hashes and the HRF syntax with Android SDK `profgen validate`, including
+error diagnostics emitted with exit 0. It rejects empty profiles and caps each HRF at 32 MiB.
+It does not expand profiles into every runtime method or claim fresh workload coverage after a
+source change. Recollect when critical journeys, dependencies or startup paths change; do not
+hand-edit measured inputs. The required-profile release mode verifies ART installation. Check
+the release build's R8 metadata for `dexFiles[].startup: true` and match its checksum to the APK
+DEX before claiming Startup Profile layout coverage.
+Profile collection resets only the fixed test-owned SAF corpus before seeding, so memos created
+by an earlier journey cannot enter the next capture's initial workspace.
+
+`just perf device release --corpus device --backend saf --trace` independently measures cold,
+warm and hot startup plus scrolling on the signed, profileable release APK under
+`none|partialRequire|full`. The plane resets only its test-owned corpus and grants the same SAF
+folder through DocumentsUI after both install swaps. It restores the debug install and its grant.
+Missing cards or a scroll that never moves the first card out of view fail the journey. Combine
+`profile release ... --write` to collect, publish and measure in one invocation. Release results
+carry their own APK digest and compilation-mode/suppression metadata; redroid's unavailable
+frame/TTID/TTFD metrics remain unavailable. Compose runtime tracing uses the current AndroidX
+in-process tracing integration with Macrobenchmark; it adds no tracing native binary to the app.
 
 On failure, inspect the structured error and the first failed task's log. Distinguish task-related
 failures from existing or unrelated worktree failures. Fix authorized tool/pin/NDK/binding or pack

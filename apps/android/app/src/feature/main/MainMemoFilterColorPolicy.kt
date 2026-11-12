@@ -3,10 +3,7 @@ package com.lomo.app.feature.main
 import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 
-internal data class MainMemoDateRangeIconColors(
-    val containerColor: Color,
-    val iconColor: Color,
-)
+internal data class MainMemoDateRangeIconColors(val containerColor: Color, val iconColor: Color)
 
 internal data class MainMemoDateFieldColors(
     val containerColor: Color,
@@ -16,10 +13,7 @@ internal data class MainMemoDateFieldColors(
     val valueColor: Color,
 )
 
-internal fun mainMemoDateRangeIconColors(
-    isActive: Boolean,
-    colorScheme: ColorScheme,
-): MainMemoDateRangeIconColors =
+internal fun mainMemoDateRangeIconColors(isActive: Boolean, colorScheme: ColorScheme): MainMemoDateRangeIconColors =
     if (isActive) {
         MainMemoDateRangeIconColors(
             containerColor = colorScheme.primaryContainer,
@@ -32,10 +26,7 @@ internal fun mainMemoDateRangeIconColors(
         )
     }
 
-internal fun mainMemoDateFieldColors(
-    hasValue: Boolean,
-    colorScheme: ColorScheme,
-): MainMemoDateFieldColors =
+internal fun mainMemoDateFieldColors(hasValue: Boolean, colorScheme: ColorScheme): MainMemoDateFieldColors =
     if (hasValue) {
         MainMemoDateFieldColors(
             containerColor = colorScheme.primaryContainer,

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" width="96" height="96" alt="Lomo logo" />
+  <img src="docs/assets/logo.png" width="96" height="96" alt="Lomo logo" />
 </p>
 
 <h1 align="center">Lomo</h1>
@@ -27,9 +27,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/01_menu.png" width="32%" alt="Menu" />
-  <img src="docs/screenshots/02_home.png" width="32%" alt="Home" />
-  <img src="docs/screenshots/03_detail.png" width="32%" alt="Detail" />
+  <img src="docs/assets/screenshots/01_menu.png" width="32%" alt="Menu" />
+  <img src="docs/assets/screenshots/02_home.png" width="32%" alt="Home" />
+  <img src="docs/assets/screenshots/03_detail.png" width="32%" alt="Detail" />
 </p>
 <p align="center"><sub>Menu · Home · Detail</sub></p>
 
@@ -118,7 +118,7 @@ The home screen is a centered, single-column memo feed.
 - `Esc` peels one layer at a time and the hint bar always names what it will do next
 - Terminals with an image protocol render images in full text
 
-The desktop TUI has no built-in Git/WebDAV/S3 sync or LAN sharing in this round; copy the Markdown workspace (and `.lomo`) or use an external file sync tool.
+The desktop TUI has no built-in Git/WebDAV/S3 sync or LAN sharing in this round; copy the Markdown workspace and attachments (including `.trash` to retain deleted memos), or use an external file sync tool. History, pins and internal control state stay private to each installation.
 
 Building from source is covered under **Building** below.
 
@@ -136,7 +136,7 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 - **Async:** Coroutines & Flow (Android)
 - **Data:**
   - Markdown workspace storage through the Storage Access Framework on Android, host filesystem on desktop
-  - Rust-owned SQLite derived index and durable `.lomo` state
+  - Rust-owned SQLite derived index and durable app-private control state
 
 </details>
 
@@ -151,7 +151,10 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 just bootstrap
 
 # Build and validate Debug APK
-just android debug
+just build android debug
+
+# Build the desktop TUI binary (target/lomo/artifacts/tui/release/lomo)
+just build tui release
 
 # Run the TUI
 cargo run -p lomo-tui --release --locked
@@ -164,16 +167,19 @@ just check
 just ci
 ```
 
+See the [directory map](docs/project-layout.md) for source ownership and packaged outputs.
+
 `native-bindings/src` and native `.so` files are generated build outputs. Builds must work from a
 clean checkout; existing local edits are also supported and must be preserved. Signed release builds
-use `just android release` and require the keystore configuration in [Release](quality/release.md).
+use `just build android release` and require the keystore configuration in [Release](quality/release.md).
 
 Production FFI identity is `native-bindings` / `com.lomo.nativebridge` / `liblomo_native_jni.so`.
 Capability fixtures live in [fixtures](fixtures/README.md); module authority lives in
 [Architecture](ARCHITECTURE.md). The [documentation index](docs/README.md) maps each document to its owner.
 
 Android Studio may still be used for editing and device work, but repository verification and
-native generation must use the commands above.
+native generation must use the commands above. For headless UI debugging and flow reproduction
+against the redroid container device, see [Android UI test](quality/android-uitest.md).
 
 </details>
 

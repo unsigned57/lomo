@@ -2,9 +2,7 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 
-class GetCurrentAppBuildVersionUseCase(
-    private val appRuntimeInfoRepository: AppRuntimeInfoRepository,
-) {
+class GetCurrentAppBuildVersionUseCase(private val appRuntimeInfoRepository: AppRuntimeInfoRepository) {
     suspend operator fun invoke(): String {
         val versionName = appRuntimeInfoRepository.getCurrentVersionName()
         require(versionName.isNotBlank()) {

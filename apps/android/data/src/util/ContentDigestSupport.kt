@@ -15,7 +15,6 @@ internal fun InputStream.md5Hex(): String {
     return digest.digest().joinToString(separator = "") { byte -> "%02x".format(java.util.Locale.ROOT, byte) }
 }
 
-internal fun File.md5Hex(): String =
-    inputStream().use { input -> input.md5Hex() }
+internal fun File.md5Hex(): String = inputStream().use { input -> input.md5Hex() }
 
 private const val STREAM_DIGEST_BUFFER_SIZE = 16 * 1024

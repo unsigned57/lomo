@@ -4,8 +4,10 @@
 //! evidence fingerprints are diffed against it, every changed or removed path is assigned a
 //! proven projection scope, and only facts inside those scopes are re-read and re-applied in one
 //! transaction. A path whose projection ownership cannot be proven from the listing — an unknown
-//! `.lomo` subtree, a deleted record whose identity lives only in its body — sends the caller
-//! back to the full scan, which remains the truth rebuilder.
+//! `.lomo` subtree or a deleted record no live fact can claim — sends the caller back to the
+//! full scan, which remains the truth rebuilder. Known inert `.lomo` control families and
+//! removable records whose authority still resolves (an unclaimed state object, a hash-named
+//! identity map) stay scoped: the cold scan never reads them either.
 //!
 //! Invariant: reconcile cost is proportional to the changed set, never the library size.
 
@@ -23,7 +25,7 @@ use lomo_store::{
 };
 use lomo_workspace::{
     MemoId, MemoIdentityMap, StateHead, WorkspaceRelativePath, decode_record,
-    memo_identity_record_path, trash_record_relative_path,
+    memo_identity_record_path, trash_record_path_matches_identity,
 };
 
 use crate::{
@@ -248,17 +250,27 @@ struct PathScope {
     /// slot answers only to the head claiming the one body the stem can name,
     /// the same route the cold `pins()` walk reads it through.
     state_objects: Vec<(String, String)>,
+    /// Removed state-object stems — provable only against every live head's
+    /// tip claim: the cold `pins()` walk never opens an object no head names.
+    state_object_removed: Vec<String>,
     trash_reads: BTreeSet<String>,
     trash_removed: Vec<String>,
     purge_reads: Vec<String>,
     purge_removed: Vec<String>,
     identity_reads: Vec<String>,
+    /// Removed identity-record paths — provable only when the record's hashed
+    /// name re-derives an owner document this pass can still see.
+    identity_removed: Vec<String>,
     unclassifiable: bool,
 }
 
 impl PathScope {
     /// Assigns a scope to a path that is present now and changed or added versus the snapshot.
     fn classify_present(&mut self, path: &str) {
+        if path.starts_with(TRASH_RECORDS) && has_extension(path, "md") {
+            self.trash_reads.insert(path.to_owned());
+            return;
+        }
         if !path.starts_with(lomo_rel::ROOT_PREFIX) {
             if has_extension(path, "md") {
                 self.docs_changed.insert(path.to_owned());
@@ -278,12 +290,13 @@ impl PathScope {
             self.state_heads.push((path.to_owned(), stem.to_owned()));
         } else if let Some(stem) = record_stem(path, STATE_OBJECTS) {
             self.state_objects.push((path.to_owned(), stem.to_owned()));
-        } else if record_stem(path, TRASH_RECORDS).is_some() {
-            self.trash_reads.insert(path.to_owned());
         } else if record_stem(path, PURGE_RECORDS).is_some() {
             self.purge_reads.push(path.to_owned());
         } else if record_stem(path, IDENTITY_RECORDS).is_some() {
             self.identity_reads.push(path.to_owned());
+        } else if is_inert_lomo_path(path) {
+            // A known control family the cold scan never reads — the listing
+            // row is the whole fact.
         } else {
             self.unclassifiable = true;
         }
@@ -296,6 +309,10 @@ impl PathScope {
     /// memo ids, and trash/purge stems hash back to their canonical names. Anything without a
     /// proof is unclassifiable.
     fn classify_removed(&mut self, path: &str) {
+        if path.starts_with(TRASH_RECORDS) && has_extension(path, "md") {
+            self.trash_removed.push(path.to_owned());
+            return;
+        }
         if !path.starts_with(lomo_rel::ROOT_PREFIX) {
             if has_extension(path, "md") {
                 self.docs_removed.insert(path.to_owned());
@@ -310,21 +327,38 @@ impl PathScope {
             self.history_tombstone_removed.push(stem.to_owned());
         } else if let Some(stem) = record_stem(path, STATE_HEADS) {
             self.state_head_removed.push(stem.to_owned());
-        } else if record_stem(path, STATE_OBJECTS).is_some() {
-            // A deleted state object leaves no body to decode and no index to resolve; only a
-            // head re-walk can tell whether it was the tip.
-            self.unclassifiable = true;
-        } else if record_stem(path, TRASH_RECORDS).is_some() {
-            self.trash_removed.push(path.to_owned());
+        } else if let Some(stem) = record_stem(path, STATE_OBJECTS) {
+            // A deleted object has no body to decode; the live heads' tip claims
+            // decide whether the cold walk would ever open the slot.
+            self.state_object_removed.push(stem.to_owned());
         } else if record_stem(path, PURGE_RECORDS).is_some() {
             self.purge_removed.push(path.to_owned());
         } else if record_stem(path, IDENTITY_RECORDS).is_some() {
-            // Which memo owned the deleted binding is not derivable from its hash.
-            self.unclassifiable = true;
+            // The hashed record name is still derivable — the owner document
+            // check runs where the root id is known.
+            self.identity_removed.push(path.to_owned());
+        } else if is_inert_lomo_path(path) {
+            // Known inert family: removal joins the committed rows only.
         } else {
             self.unclassifiable = true;
         }
     }
+}
+
+/// `.lomo/` subtrees the cold scan provably never reads: the layout head plus the
+/// operations, migration-staging, local-state, and sync-control families — control
+/// carriers whose files only ever join the committed listing rows. A `.lomo/` path
+/// outside this list and outside every canonical record shape stays fail-closed:
+/// unknown families and non-canonical members of record families return to the
+/// full scan rather than risk silently dropping a fact an unknown layout carries.
+fn is_inert_lomo_path(path: &str) -> bool {
+    path == lomo_rel::LAYOUT_HEAD
+        || path.starts_with(lomo_rel::OPERATIONS_PREFIX)
+        || path.starts_with(lomo_rel::MIGRATION_STAGING_PREFIX)
+        || path == lomo_rel::LOCAL
+        || path.starts_with(lomo_rel::LOCAL_PREFIX)
+        || path == lomo_rel::SYNC
+        || path.starts_with(lomo_rel::SYNC_PREFIX)
 }
 
 /// Finds the committed identity whose canonical record name is exactly `path`.
@@ -341,6 +375,13 @@ fn canonical_owner(
     Ok(None)
 }
 
+fn trash_owner(committed_ids: &BTreeSet<String>, path: &str) -> Option<String> {
+    committed_ids
+        .iter()
+        .find(|id| trash_record_path_matches_identity(path, id))
+        .cloned()
+}
+
 /// One fact-gathering pass over a proven [`PathScope`].
 ///
 /// Owns every mutable collection so each phase stays a small method: `facts` is what
@@ -351,6 +392,7 @@ struct Gather<'a> {
     io: &'a WorkspaceIo<'a>,
     store: &'a Store,
     current: &'a BTreeMap<String, String>,
+    presence: rebuild_records::RecordPresence<'a>,
     scope: &'a mut PathScope,
     facts: ScannedIncrementalFacts,
     memo_removes: BTreeSet<String>,
@@ -381,16 +423,21 @@ impl Gather<'_> {
 
     /// Retires one memo identity from the projection: drop its memo-owned rows, re-derive its
     /// pin fact, and let any live trash record claim it again.
-    fn retire_memo(&mut self, memo_id: &str) -> Result<(), LomoError> {
+    fn retire_memo(&mut self, memo_id: &str) {
         if !self.memo_removes.insert(memo_id.to_owned()) {
-            return Ok(());
+            return;
         }
         self.state_memos.insert(memo_id.to_owned());
-        let trash_path = trash_record_relative_path(memo_id)?.as_str().to_owned();
-        if self.current.contains_key(&trash_path) {
-            self.scope.trash_reads.insert(trash_path);
-        }
-        Ok(())
+        self.queue_trash_reads(memo_id);
+    }
+
+    fn queue_trash_reads(&mut self, memo_id: &str) {
+        self.scope.trash_reads.extend(
+            self.current
+                .keys()
+                .filter(|path| trash_record_path_matches_identity(path, memo_id))
+                .cloned(),
+        );
     }
 
     /// Purge records first: their effective set suppresses trash reads in the same pass.
@@ -422,16 +469,20 @@ impl Gather<'_> {
             self.facts.purged_removes.push(owner.clone());
             self.purged_ids.remove(&owner);
             // The lifted suppression lets a live trash record claim the memo again.
-            let trash_path = trash_record_relative_path(&owner)?.as_str().to_owned();
-            if self.current.contains_key(&trash_path) {
-                self.scope.trash_reads.insert(trash_path);
-            }
+            self.queue_trash_reads(&owner);
         }
         Ok(true)
     }
 
     /// Identity records only prove which source document to rescan; a binding that cannot be
     /// decoded cannot name its document, so that one defeats scoping.
+    ///
+    /// A removed record's owner must re-derive from its canonical hashed name — the same
+    /// authority `memo_identity_record_path` mints — over the documents this pass can still
+    /// see: live `.md` files plus documents the same diff removed. A live owner re-scans and
+    /// re-writes the record exactly as `reconcile_identity` does for a missing map; an owner
+    /// that left in the same diff is already retired by its own removal lane. An ownerless
+    /// removal defeats scoping because no durable fact names the document it bound.
     fn identities(&mut self, config: &WorkspaceSessionConfig) -> Result<bool, LomoError> {
         for path in self.scope.identity_reads.clone() {
             let Ok(map) = MemoIdentityMap::decode(&self.read(&path)?) else {
@@ -447,6 +498,33 @@ impl Gather<'_> {
             let doc = map.path().as_str().to_owned();
             if self.current.contains_key(&doc) {
                 self.scope.docs_changed.insert(doc);
+            }
+        }
+        if self.scope.identity_removed.is_empty() {
+            return Ok(true);
+        }
+        let mut candidates: Vec<String> = self
+            .current
+            .keys()
+            .filter(|path| !path.starts_with(lomo_rel::ROOT_PREFIX) && has_extension(path, "md"))
+            .cloned()
+            .collect();
+        candidates.extend(self.scope.docs_removed.iter().cloned());
+        for path in self.scope.identity_removed.clone() {
+            let mut owner: Option<String> = None;
+            for candidate in &candidates {
+                let document = WorkspaceRelativePath::parse(candidate)?;
+                if memo_identity_record_path(config.root_id, &document)?.as_str() == path {
+                    owner = Some(candidate.clone());
+                    break;
+                }
+            }
+            match owner {
+                Some(document) if self.current.contains_key(&document) => {
+                    self.scope.docs_changed.insert(document);
+                }
+                Some(_) => {}
+                None => return Ok(false),
             }
         }
         Ok(true)
@@ -488,9 +566,7 @@ impl Gather<'_> {
             self.widen_document_lane(&memo_id)?;
         }
         for path in self.scope.trash_removed.clone() {
-            if let Some(owner) =
-                canonical_owner(&committed_trashed, &path, trash_record_relative_path)?
-            {
+            if let Some(owner) = trash_owner(&committed_trashed, &path) {
                 self.widen_document_lane(&owner)?;
             }
         }
@@ -532,34 +608,50 @@ impl Gather<'_> {
         config: &WorkspaceSessionConfig,
         executor: &Arc<dyn PlatformActionExecutor>,
     ) -> Result<(), LomoError> {
-        let mut scan_history_files: Vec<RelativeWorkspacePath> = Vec::new();
-        for path in self.scope.docs_changed.clone() {
-            let rel = RelativeWorkspacePath::parse(&path)?;
-            let mut written: Vec<ScannedHistoryProjection> = Vec::new();
-            let memos = scan_markdown_files(
-                config,
-                executor,
-                std::slice::from_ref(&rel),
-                &mut scan_history_files,
-                &mut written,
-                &mut self.written_paths,
-            )?;
-            for projection in written {
-                self.initial_history
-                    .insert(projection.memo_id.clone(), projection);
-            }
-            let new_ids: BTreeSet<String> = memos.iter().map(|memo| memo.memo_id.clone()).collect();
-            self.facts.memo_upserts.extend(memos);
-            self.emitted_ids.extend(new_ids.iter().cloned());
+        let paths = self
+            .scope
+            .docs_changed
+            .iter()
+            .map(|path| RelativeWorkspacePath::parse(path))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut scan_history_files = Vec::new();
+        let mut written = Vec::new();
+        let documents = scan_markdown_files(
+            config,
+            executor,
+            &paths,
+            self.current,
+            &mut scan_history_files,
+            &mut written,
+            &mut self.written_paths,
+        )?;
+        for projection in written {
+            self.initial_history
+                .insert(projection.memo_id.clone(), projection);
+        }
+        let mut ids_by_path: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        for memo in &documents.memos {
+            ids_by_path
+                .entry(&memo.source_path)
+                .or_default()
+                .insert(&memo.memo_id);
+            self.emitted_ids.insert(memo.memo_id.clone());
+        }
+        for path in &paths {
+            // Every requested document was admitted before this point. A document with no
+            // memo blocks has no bucket and legitimately retires all of its old identities.
+            let new_ids = ids_by_path.get(path.as_str());
             for old_id in self.store.memo_ids_for_source_path(path.as_str())? {
-                if !new_ids.contains(&old_id) {
-                    self.retire_memo(&old_id)?;
+                if new_ids.is_none_or(|ids| !ids.contains(old_id.as_str())) {
+                    self.retire_memo(&old_id);
                 }
             }
         }
+        self.facts.memo_upserts.extend(documents.memos);
+        self.presence.observe_writes(&self.written_paths);
         for path in self.scope.docs_removed.clone() {
             for old_id in self.store.memo_ids_for_source_path(path.as_str())? {
-                self.retire_memo(&old_id)?;
+                self.retire_memo(&old_id);
             }
         }
         Ok(())
@@ -597,9 +689,13 @@ impl Gather<'_> {
     fn state(&mut self) -> Result<bool, LomoError> {
         let mut anchored_stems: BTreeSet<String> = BTreeSet::new();
         let mut strays: Vec<(String, MemoId, StateHead)> = Vec::new();
+        // Every decoded head contributes its tip claim — the claim set is what a removed
+        // object stem must stay clear of to be provably inert.
+        let mut claimed_tips: BTreeSet<String> = BTreeSet::new();
         for (path, stem) in self.scope.state_heads.clone() {
             let (id, head) =
                 rebuild_records::decode_state_head(&decode_record(&self.read(&path)?)?)?;
+            claimed_tips.insert(head.head_revision_id.as_str().to_owned());
             if id.as_str() == stem {
                 anchored_stems.insert(stem.clone());
                 self.state_memos.insert(stem);
@@ -621,6 +717,39 @@ impl Gather<'_> {
             }
             self.state_memos.insert(stem);
         }
+        if !self.scope.state_object_removed.is_empty() {
+            // A removed object is provably inert only while no live head claims its stem —
+            // the cold `pins()` walk never opens an object no head names, while a head
+            // pointing at the missing file produces the same `state_head_missing` verdict
+            // the full scan must reproduce. Every current head is a potential claimant, so
+            // unchanged heads decode here through the same predicate; changed heads already
+            // contributed their claims above.
+            for path in self
+                .current
+                .keys()
+                .filter(|path| record_stem(path, STATE_HEADS).is_some())
+            {
+                if self
+                    .scope
+                    .state_heads
+                    .iter()
+                    .any(|(changed, _)| changed == path)
+                {
+                    continue;
+                }
+                let (_id, head) =
+                    rebuild_records::decode_state_head(&decode_record(&self.read(path)?)?)?;
+                claimed_tips.insert(head.head_revision_id.as_str().to_owned());
+            }
+            if self
+                .scope
+                .state_object_removed
+                .iter()
+                .any(|stem| claimed_tips.contains(stem))
+            {
+                return Ok(false);
+            }
+        }
         for (path, stem) in self.scope.state_objects.clone() {
             match rebuild_records::decode_state_revision_owner(&self.read(&path)?) {
                 Ok((memo_id, revision)) => {
@@ -639,7 +768,7 @@ impl Gather<'_> {
                     // leaves the slot's true owner unproven, so the cold
                     // outcome is produced by the full scan.
                     if revision.revision_id.as_str() != stem
-                        || rebuild_records::state_head_tip_claim(self.io, &memo_id)?
+                        || rebuild_records::state_head_tip_claim(self.io, &memo_id, &self.presence)?
                             .is_none_or(|tip| tip.as_str() != stem)
                         || revision.recomputed_id() != revision.revision_id
                     {
@@ -787,7 +916,7 @@ impl Gather<'_> {
             }
             let memo_id = projection.memo.memo_id.clone();
             if committed_trashed.contains(&memo_id) && !self.emitted_ids.contains(&memo_id) {
-                self.retire_memo(&memo_id)?;
+                self.retire_memo(&memo_id);
             }
             if self.emitted_ids.contains(&memo_id)
                 || (!committed_trashed.contains(&memo_id)
@@ -799,13 +928,9 @@ impl Gather<'_> {
             self.facts.trash_upserts.push(projection);
         }
         for path in self.scope.trash_removed.clone() {
-            if let Some(owner) =
-                canonical_owner(&committed_trashed, &path, trash_record_relative_path)?
-            {
-                self.retire_memo(&owner)?;
-            } else if canonical_owner(&self.purged_ids, &path, trash_record_relative_path)?
-                .is_none()
-            {
+            if let Some(owner) = trash_owner(&committed_trashed, &path) {
+                self.retire_memo(&owner);
+            } else if trash_owner(&self.purged_ids, &path).is_none() {
                 // Neither a live trash row nor a suppressed purge can claim this path.
                 return Ok(false);
             }
@@ -877,7 +1002,7 @@ impl Gather<'_> {
     fn rewalk(&mut self) -> Result<(), LomoError> {
         for memo in self.history_memos.clone() {
             let memo_id = MemoId::parse(&memo)?;
-            let revisions = rebuild_records::history_scoped(self.io, &memo_id)?;
+            let revisions = rebuild_records::history_scoped(self.io, &memo_id, &self.presence)?;
             self.facts.history_replaces.push(ScannedMemoHistoryReplace {
                 memo_id: memo,
                 revisions,
@@ -933,7 +1058,7 @@ impl Gather<'_> {
         }
         for memo in self.state_memos.clone() {
             let memo_id = MemoId::parse(&memo)?;
-            match rebuild_records::state_scoped(self.io, &memo_id)? {
+            match rebuild_records::state_scoped(self.io, &memo_id, &self.presence)? {
                 rebuild_records::ScopedPinVerdict::Pinned(pin)
                     if self.memo_row_survives(&memo, &committed_trashed)? =>
                 {
@@ -974,8 +1099,8 @@ impl Gather<'_> {
     }
 
     /// Listing rows. Files written during this scan (identity records, initial history)
-    /// post-date the listing that provoked it, so their tokens refresh from a parent-directory
-    /// re-list — the same mechanism the full inventory uses.
+    /// post-date the listing that provoked it. The observation planner uses the complete current
+    /// inventory to choose exact paths or bulk parents, then returns only the written rows.
     fn finish_listing(
         mut self,
         config: &WorkspaceSessionConfig,
@@ -992,7 +1117,12 @@ impl Gather<'_> {
             .listing_removes
             .extend(self.absorbed_state_heads.iter().cloned());
         let mut listing_rows = upsert_tokens;
-        refresh_listing_tokens(config, executor, &self.written_paths, &mut listing_rows)?;
+        listing_rows.extend(refresh_listing_tokens(
+            config,
+            executor,
+            &self.written_paths,
+            self.current,
+        )?);
         for path in &self.absorbed_state_heads {
             listing_rows.remove(path);
         }
@@ -1021,11 +1151,12 @@ fn gather_facts(
     store: &Store,
     mut delta: ListingDelta,
 ) -> Result<Option<ScannedIncrementalFacts>, LomoError> {
-    let io = WorkspaceIo { config, executor };
+    let io = WorkspaceIo::physical(config, executor);
     let mut gather = Gather {
         io: &io,
         store,
         current: &delta.current,
+        presence: rebuild_records::RecordPresence::new(&delta.current),
         scope: &mut delta.scope,
         facts: ScannedIncrementalFacts::default(),
         memo_removes: BTreeSet::new(),

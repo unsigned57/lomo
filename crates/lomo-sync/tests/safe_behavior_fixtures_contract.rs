@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract — P5-11 host residual deepen (safe-behavior fixtures)
 //!
 //! - Unit under test: language-agnostic `sync-safe-behavior.v1.json` cases
@@ -171,7 +180,7 @@ mod tests {
     #[test]
     fn sb03_verify_failure_no_baseline_advance() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session =
             SyncSession::new(fence_g1(), SessionKind::Incremental, "s-sb03").expect("session");
         let local = FakeLocalPort {
@@ -207,15 +216,18 @@ mod tests {
         )
         .expect("cycle");
         assert!(!result.baseline_advanced);
-        assert!(result.baseline.entries.is_empty());
+        assert_eq!(
+            result.baseline.entries,
+            Vec::<lomo_sync::BaselineEntry>::new()
+        );
         let on_disk = lomo_sync::read_baseline(&paths).expect("read");
-        assert!(on_disk.entries.is_empty());
+        assert_eq!(on_disk.entries, Vec::<lomo_sync::BaselineEntry>::new());
     }
 
     #[test]
     fn sb04_conditional_write_failure_replans() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session =
             SyncSession::new(fence_g1(), SessionKind::Incremental, "s-sb04").expect("session");
         let local = FakeLocalPort {
@@ -316,7 +328,7 @@ mod tests {
     #[test]
     fn sb07_secrets_not_in_durable_state_or_diagnostics() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session =
             SyncSession::new(fence_g1(), SessionKind::Incremental, "s-sb07").expect("session");
         write_session(&paths, &session).expect("write");
@@ -450,7 +462,7 @@ mod tests {
         std::fs::create_dir_all(user_memo.parent().expect("parent")).expect("memo dir");
         std::fs::write(&user_memo, b"# keep\n").expect("seed memo");
 
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence_g1(), SessionKind::Incremental, "s-sb10").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -481,7 +493,7 @@ mod tests {
         // Then: every directory tree under `.lomo/sync/v1` is gone while workspace files live.
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         for dir in [&paths.git_mirror, &paths.multipart, &paths.tmp] {
             std::fs::create_dir_all(dir).expect("seed control dir");
         }

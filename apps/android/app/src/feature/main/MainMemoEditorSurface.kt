@@ -35,75 +35,77 @@ internal fun rememberMainMemoEditorSurface(
     val recordingAmplitude by dependencies.recordingViewModel.recordingAmplitude.collectAsStateWithLifecycle()
     return MemoEditorSurface(
         session =
-            MemoEditorSessionState(
-                imageDirectory = imageDirectory,
-                ownerDraftId = dependencies.editorViewModel.ownerDraftId,
-                rootPath = rootDirectory,
-                imageMap = imageMap,
-                availableTags = availableTags,
-                hints = inputHints,
-                isRecording = isRecording,
-                recordingDuration = recordingDuration,
-                recordingAmplitude = recordingAmplitude,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                onImageDirectoryMissing = onImageDirectoryMissing,
-                onCameraCaptureError = interactionCallbacks.onCameraCaptureError,
-            ),
+        MemoEditorSessionState(
+            imageDirectory = imageDirectory,
+            ownerDraftId = dependencies.editorViewModel.ownerDraftId,
+            rootPath = rootDirectory,
+            imageMap = imageMap,
+            availableTags = availableTags,
+            hints = inputHints,
+            isRecording = isRecording,
+            recordingDuration = recordingDuration,
+            recordingAmplitude = recordingAmplitude,
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
+            onImageDirectoryMissing = onImageDirectoryMissing,
+            onCameraCaptureError = interactionCallbacks.onCameraCaptureError,
+        ),
         capabilities =
-            MemoEditorCapabilities(
-                quickSaveOnBackEnabled = quickSaveOnBackEnabled,
-                toolbarActions = memoEditorToolbarTools(recording = true),
-                toolbarToolOrder = inputToolbarToolOrder,
-            ),
+        MemoEditorCapabilities(
+            quickSaveOnBackEnabled = quickSaveOnBackEnabled,
+            toolbarActions = memoEditorToolbarTools(recording = true),
+            toolbarToolOrder = inputToolbarToolOrder,
+        ),
         commands = mainMemoEditorCommands(dependencies, interactionCallbacks),
         operations =
-            MemoEditorOperations(
-                onSaveImage = dependencies.editorViewModel::saveImage,
-                onSubmit = { submissionId, session, content, timestampMillis ->
-                    if (session != null) {
-                        dependencies.editorViewModel.submissions.update(submissionId, session, content)
-                        dependencies.editorViewModel.submissions.await(submissionId)
+        MemoEditorOperations(
+            onSaveImages = dependencies.editorViewModel::saveImages,
+            onSubmit = { submissionId, session, content, timestampMillis ->
+                if (session != null) {
+                    dependencies.editorViewModel.submissions.update(submissionId, session, content)
+                    dependencies.editorViewModel.submissions.await(submissionId)
+                } else {
+                    val accepted =
+                        interactionCallbacks.onCreateMemo(
+                            submissionId,
+                            content,
+                            timestampMillis,
+                        )
+                    if (!accepted) {
+                        dependencies.editorViewModel.submissions.reject(
+                            submissionId,
+                            IllegalStateException("Another memo creation is already pending"),
+                        )
+                        false
                     } else {
-                        val accepted =
-                            interactionCallbacks.onCreateMemo(
-                                submissionId,
-                                content,
-                                timestampMillis,
-                            )
-                        if (!accepted) {
-                            dependencies.editorViewModel.submissions.reject(
-                                submissionId,
-                                IllegalStateException("Another memo creation is already pending"),
-                            )
-                            false
-                        } else {
-                            dependencies.editorViewModel.submissions.await(submissionId)
-                        }
+                        dependencies.editorViewModel.submissions.await(submissionId)
                     }
-                },
-                submissionState = dependencies.editorViewModel.submissionState,
-                onDismiss = dependencies.editorViewModel::discardInputs,
-                onToolbarOrderChanged = { tools ->
-                    dependencies.mainViewModel.updateInputToolbarToolOrder(tools.map { tool -> tool.persistedId })
-                },
-            ),
+                }
+            },
+            submissionState = dependencies.editorViewModel.submissionState,
+            onDismiss = dependencies.editorViewModel::discardInputs,
+            onToolbarOrderChanged = { tools ->
+                dependencies.mainViewModel.updateInputToolbarToolOrder(tools.map { tool -> tool.persistedId })
+            },
+        ),
     )
 }
 
 private fun mainMemoEditorCommands(
     dependencies: MainScreenDependencies,
     interactionCallbacks: MainScreenInteractionCallbacks,
-): MemoEditorCommandHandler =
-    MemoEditorCommandHandler { command ->
-        when (command) {
-            InputEditorCommand.StopRecording -> interactionCallbacks.onStopRecording()
-            InputEditorCommand.CancelRecording -> dependencies.recordingViewModel.cancelRecording()
-            is InputEditorCommand.Action ->
-                when (command.id) {
-                    MemoEditorToolbarActionIds.record -> interactionCallbacks.onStartRecording()
-                    else -> unsupportedMemoEditorCommand(command)
-                }
-            else -> unsupportedMemoEditorCommand(command)
-        }
+): MemoEditorCommandHandler = MemoEditorCommandHandler { command ->
+    when (command) {
+        InputEditorCommand.StopRecording -> interactionCallbacks.onStopRecording()
+
+        InputEditorCommand.CancelRecording -> dependencies.recordingViewModel.cancelRecording()
+
+        is InputEditorCommand.Action ->
+            when (command.id) {
+                MemoEditorToolbarActionIds.record -> interactionCallbacks.onStartRecording()
+                else -> unsupportedMemoEditorCommand(command)
+            }
+
+        else -> unsupportedMemoEditorCommand(command)
     }
+}

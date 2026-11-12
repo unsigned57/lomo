@@ -23,56 +23,57 @@ package com.lomo.ui.component.picker
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 
-class SecondsWheelMathTest : FunSpec({
-    test("given snapped list at index 12 with zero offset when centered second requested then it returns 12") {
-        SecondsWheelMath.centeredSecond(
-            firstVisibleIndex = 12,
-            firstVisibleOffsetPx = 0,
-            itemHeightPx = 40,
-        ) shouldBe 12
-    }
+class SecondsWheelMathTest :
+    FunSpec({
+        test("given snapped list at index 12 with zero offset when centered second requested then it returns 12") {
+            SecondsWheelMath.centeredSecond(
+                firstVisibleIndex = 12,
+                firstVisibleOffsetPx = 0,
+                itemHeightPx = 40,
+            ) shouldBe 12
+        }
 
-    test("given offset greater than half item height when centered second requested then it rounds up") {
-        SecondsWheelMath.centeredSecond(
-            firstVisibleIndex = 12,
-            firstVisibleOffsetPx = 25,
-            itemHeightPx = 40,
-        ) shouldBe 13
-    }
+        test("given offset greater than half item height when centered second requested then it rounds up") {
+            SecondsWheelMath.centeredSecond(
+                firstVisibleIndex = 12,
+                firstVisibleOffsetPx = 25,
+                itemHeightPx = 40,
+            ) shouldBe 13
+        }
 
-    test("given offset less than half item height when centered second requested then it rounds down") {
-        SecondsWheelMath.centeredSecond(
-            firstVisibleIndex = 12,
-            firstVisibleOffsetPx = 15,
-            itemHeightPx = 40,
-        ) shouldBe 12
-    }
+        test("given offset less than half item height when centered second requested then it rounds down") {
+            SecondsWheelMath.centeredSecond(
+                firstVisibleIndex = 12,
+                firstVisibleOffsetPx = 15,
+                itemHeightPx = 40,
+            ) shouldBe 12
+        }
 
-    test("given offset exactly half item height when centered second requested then it rounds up") {
-        SecondsWheelMath.centeredSecond(
-            firstVisibleIndex = 30,
-            firstVisibleOffsetPx = 20,
-            itemHeightPx = 40,
-        ) shouldBe 31
-    }
+        test("given offset exactly half item height when centered second requested then it rounds up") {
+            SecondsWheelMath.centeredSecond(
+                firstVisibleIndex = 30,
+                firstVisibleOffsetPx = 20,
+                itemHeightPx = 40,
+            ) shouldBe 31
+        }
 
-    test("given negative integer when clamped then it is bound to 0 without wrapping") {
-        SecondsWheelMath.clamp(-3) shouldBe 0
-    }
+        test("given negative integer when clamped then it is bound to 0 without wrapping") {
+            SecondsWheelMath.clamp(-3) shouldBe 0
+        }
 
-    test("given integer above the max when clamped then it is bound to 59 without wrapping") {
-        SecondsWheelMath.clamp(63) shouldBe 59
-    }
+        test("given integer above the max when clamped then it is bound to 59 without wrapping") {
+            SecondsWheelMath.clamp(63) shouldBe 59
+        }
 
-    test("given in-range integer when clamped then it is returned unchanged") {
-        SecondsWheelMath.clamp(42) shouldBe 42
-    }
+        test("given in-range integer when clamped then it is returned unchanged") {
+            SecondsWheelMath.clamp(42) shouldBe 42
+        }
 
-    test("given a rounded index past the max when centered second requested then it is clamped to 59") {
-        SecondsWheelMath.centeredSecond(
-            firstVisibleIndex = 59,
-            firstVisibleOffsetPx = 30,
-            itemHeightPx = 40,
-        ) shouldBe 59
-    }
-})
+        test("given a rounded index past the max when centered second requested then it is clamped to 59") {
+            SecondsWheelMath.centeredSecond(
+                firstVisibleIndex = 59,
+                firstVisibleOffsetPx = 30,
+                itemHeightPx = 40,
+            ) shouldBe 59
+        }
+    })

@@ -1,17 +1,12 @@
 package com.lomo.ui.component.common
 
-sealed interface HeadEnterBaseline {
-    data class ExistingHead(val id: String) : HeadEnterBaseline
+/** A creation holds new identities until the durable result identifies its actual row. */
+sealed interface PendingEnter {
+    val requestId: EnterRequestId
 
-    data object EmptyList : HeadEnterBaseline
+    data class Creating(override val requestId: EnterRequestId, val baselineKeys: Set<String>) : PendingEnter
+
+    data class AwaitingViewport(override val requestId: EnterRequestId, val itemId: String) : PendingEnter
 }
 
-data class PendingHeadEnter(
-    val requestId: EnterRequestId,
-    val baseline: HeadEnterBaseline,
-)
-
-data class EnterAnimationState(
-    val activeEnters: Set<String> = emptySet(),
-    val pendingHeadEnters: List<PendingHeadEnter> = emptyList(),
-)
+data class EnterAnimationState(val activeEnters: Set<String> = emptySet(), val pendingEnter: PendingEnter? = null)

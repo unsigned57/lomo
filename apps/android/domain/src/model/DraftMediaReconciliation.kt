@@ -7,11 +7,7 @@ package com.lomo.domain.model
  * (host crash mid-write, external cleanup). A missing row can never be promoted: surfacing it
  * early is what turns an opaque commit rejection into a recoverable draft failure.
  */
-data class DraftStagedMediaRef(
-    val artifactId: String,
-    val relativePath: String,
-    val stagedBytesPresent: Boolean,
-)
+data class DraftStagedMediaRef(val artifactId: String, val relativePath: String, val stagedBytesPresent: Boolean)
 
 /**
  * Restart-time reconciliation of every staged-media lease owned by one recovered draft.
@@ -19,10 +15,7 @@ data class DraftStagedMediaRef(
  * The ledger is the single authority for which artifacts a draft owns; this snapshot is what a
  * re-opened draft uses to decide whether its media references can still be promoted.
  */
-data class DraftMediaReconciliation(
-    val draftId: DraftId,
-    val records: List<DraftStagedMediaRef>,
-) {
+data class DraftMediaReconciliation(val draftId: DraftId, val records: List<DraftStagedMediaRef>) {
     /** Records whose staged bytes are gone; their references can never be promoted. */
     val missing: List<DraftStagedMediaRef>
         get() = records.filterNot { it.stagedBytesPresent }
@@ -35,9 +28,8 @@ data class DraftMediaReconciliation(
  * does not distinguish "draft lost its staging" from other attachment errors; this carrier names
  * the recoverable condition and the destinations that must be re-attached or removed.
  */
-class RecoverableDraftFailure(
-    val missingDestinations: List<String>,
-) : IllegalStateException(
+class RecoverableDraftFailure(val missingDestinations: List<String>) :
+    IllegalStateException(
         "Recovered draft references staged media that no longer exist: " +
             missingDestinations.joinToString(),
     ) {

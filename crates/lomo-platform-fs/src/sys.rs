@@ -134,13 +134,17 @@ pub fn exists_beneath(root: &Root, rel: &str) -> Result<bool, LomoError> {
 /// # Errors
 /// Permission on symlink escape, storage on missing target or I/O failure.
 pub fn stat_document(root: &Root, target: &WorkspaceTarget) -> Result<DocumentMetadata, LomoError> {
-    let (node, handle_str) = match target {
-        WorkspaceTarget::Root => (root.open_self()?, "root".to_owned()),
+    let (node, handle) = open_target(root, target)?;
+    metadata_for(node, target.clone(), &handle)
+}
+
+fn open_target(root: &Root, target: &WorkspaceTarget) -> Result<(Node, String), LomoError> {
+    match target {
+        WorkspaceTarget::Root => Ok((root.open_self()?, "root".to_owned())),
         WorkspaceTarget::Relative(rel) => {
-            (open_node_at(root, rel.as_str())?, rel.as_str().to_owned())
+            Ok((open_node_at(root, rel.as_str())?, rel.as_str().to_owned()))
         }
-    };
-    metadata_for(node, target.clone(), &handle_str)
+    }
 }
 
 /// Queries listing metadata for `target` beneath `root` without hashing bytes.
@@ -154,12 +158,12 @@ pub fn stat_document(root: &Root, target: &WorkspaceTarget) -> Result<DocumentMe
 ///
 /// # Errors
 /// Permission on symlink escape, storage on missing target or I/O failure.
-pub fn list_document(
+pub fn inspect_document(
     root: &Root,
-    rel: &RelativeWorkspacePath,
+    target: &WorkspaceTarget,
 ) -> Result<DocumentMetadata, LomoError> {
-    let node = open_node_at(root, rel.as_str())?;
-    metadata_for_token(&node, WorkspaceTarget::Relative(rel.clone()), rel.as_str())
+    let (node, handle) = open_target(root, target)?;
+    metadata_for_token(&node, target.clone(), &handle)
 }
 
 /// Reads source bytes in a single streaming operation with authoritative evidence.
@@ -373,7 +377,7 @@ pub fn stream_temp(
     };
     let outcome = outcome.and_then(|()| {
         if total != source.length()
-            || format!("{:x}", hasher.finalize()) != source.digest().as_str()
+            || lomo_core::hex_encode(&hasher.finalize()) != source.digest().as_str()
         {
             return Err((
                 "artifact_source_mismatch",
@@ -456,7 +460,7 @@ pub fn reclaim_temps(dir: &Dir, file_name: &str) -> Result<(), LomoError> {
 pub fn compute_sha256_bytes(data: &[u8]) -> Result<Sha256Digest, LomoError> {
     let mut hasher = Sha256::new();
     hasher.update(data);
-    let hex = format!("{:x}", hasher.finalize());
+    let hex = lomo_core::hex_encode(&hasher.finalize());
     Sha256Digest::parse(&hex)
 }
 
@@ -483,6 +487,6 @@ pub fn stream_sha256(reader: &mut impl Read) -> Result<(u64, Sha256Digest), Lomo
         }
         length = length.saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
     }
-    let hex = format!("{:x}", hasher.finalize());
+    let hex = lomo_core::hex_encode(&hasher.finalize());
     Ok((length, Sha256Digest::parse(&hex)?))
 }

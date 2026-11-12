@@ -2,9 +2,9 @@ package com.lomo.detektrules
 
 import dev.detekt.api.Config
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtBlockExpression
+import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtIfExpression
@@ -21,13 +21,12 @@ import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 import org.jetbrains.kotlin.psi.psiUtil.parents
 
-internal class PagingDataCachedInRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Flow<PagingData<*>> surfaces in app source must terminate in cachedIn(scope) before exposure; an uncached " +
-        "pager restarts and re-allocates for every collector (Audit F10 audit-01 / D6 audit-07). See quality/udf-contract.md.",
-) {
+internal class PagingDataCachedInRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Flow<PagingData<*>> surfaces in app source must terminate in cachedIn(scope) before exposure; an uncached " +
+            "pager restarts and re-allocates for every collector (Audit F10 audit-01 / D6 audit-07). See quality/udf-contract.md.",
+    ) {
     private val uncachedPagingMarker = Regex("""behavior-contract:\s*uncached-paging-ok""")
 
     override fun visitProperty(property: KtProperty) {
@@ -45,8 +44,10 @@ internal class PagingDataCachedInRule(
 
         reportElement(
             property,
-            "Uncached Flow<PagingData<*>> '${property.name}' in ${property.containingClassOrObject?.name ?: file.name}: " +
-                "the paging chain must terminate in cachedIn(scope) before exposure, otherwise every collector restarts " +
+            "Uncached Flow<PagingData<*>> '${property.name}' in " +
+                "${property.containingClassOrObject?.name ?: file.name}: " +
+                "the paging chain must terminate in cachedIn(scope) before exposure, otherwise every collector " +
+                "restarts " +
                 "the pager (Audit F10 audit-01 / D6 audit-07). Private intermediates feeding a cachedIn-terminated " +
                 "public surface may register with '// behavior-contract: uncached-paging-ok: <reason>'. " +
                 "See quality/udf-contract.md.",
@@ -65,9 +66,14 @@ internal class PagingDataCachedInRule(
         val body = function.bodyExpression ?: return
         val results = if (body is KtBlockExpression) {
             body.collectDescendantsOfType<KtReturnExpression>()
-                .filter { it.getTargetLabel() == null && it.parents.filterIsInstance<KtNamedFunction>().firstOrNull() == function }
+                .filter {
+                    it.getTargetLabel() == null &&
+                        it.parents.filterIsInstance<KtNamedFunction>().firstOrNull() == function
+                }
                 .mapNotNull { it.returnedExpression }
-        } else listOf(body)
+        } else {
+            listOf(body)
+        }
         if (results.isNotEmpty() && results.all { it.isCachedPagingValue() }) return
 
         reportElement(
@@ -97,19 +103,23 @@ internal class PagingDataCachedInRule(
 
     private fun KtExpression.isPurePassThrough(): Boolean = when (this) {
         is KtNameReferenceExpression -> true
-        is KtDotQualifiedExpression -> receiverExpression.isPurePassThrough() && selectorExpression is KtNameReferenceExpression
+
+        is KtDotQualifiedExpression -> receiverExpression.isPurePassThrough() &&
+            selectorExpression is KtNameReferenceExpression
+
         else -> false
     }
 }
 
-internal class NoWriteOnlyStateFlowRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "A private MutableStateFlow whose class-body occurrences are only writes (.value assignment / update receiver) " +
-        "and never read is a leaking accumulator (Audit RF4 audit-04); read it through the screen-state machine or " +
-        "delete it. See quality/udf-contract.md.",
-) {
+internal class NoWriteOnlyStateFlowRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "A private MutableStateFlow whose class-body occurrences are only writes (.value assignment / update " +
+            "receiver) " +
+            "and never read is a leaking accumulator (Audit RF4 audit-04); read it through the screen-state machine " +
+            "or " +
+            "delete it. See quality/udf-contract.md.",
+    ) {
     private val writeOnlyMarker = Regex("""behavior-contract:\s*write-only-flow-ok""")
     private val mutableStateFlowPattern = Regex("""(^|[^A-Za-z])MutableStateFlow""")
 
@@ -137,8 +147,10 @@ internal class NoWriteOnlyStateFlowRule(
         if (writeCount > 0 && readCount == 0) {
             reportElement(
                 property,
-                "Write-only StateFlow '$flowName' in ${containingClass.name}: the flow is written (.value = / update) " +
-                    "but never read in its class (Audit RF4 audit-04) — an accumulating leak nobody consumes. Read it " +
+                "Write-only StateFlow '$flowName' in ${containingClass.name}: the flow is written (.value = / " +
+                    "update) " +
+                    "but never read in its class (Audit RF4 audit-04) — an accumulating leak nobody consumes. Read " +
+                    "it " +
                     "through the screen-state machine or delete it; register cross-file readers with " +
                     "'// behavior-contract: write-only-flow-ok: <reason>'. See quality/udf-contract.md.",
             )
@@ -148,11 +160,9 @@ internal class NoWriteOnlyStateFlowRule(
     private fun org.jetbrains.kotlin.psi.KtClassOrObject.nameOccurrences(
         name: String,
         excluding: KtProperty,
-    ): List<FlowOccurrence> {
-        return collectDescendantsOfType<KtNameReferenceExpression>()
-            .filter { it.getReferencedName() == name && !excluding.textRange.contains(it.textRange) }
-            .map { FlowOccurrence(isWrite = it.isStateWrite()) }
-    }
+    ): List<FlowOccurrence> = collectDescendantsOfType<KtNameReferenceExpression>()
+        .filter { it.getReferencedName() == name && !excluding.textRange.contains(it.textRange) }
+        .map { FlowOccurrence(isWrite = it.isStateWrite()) }
 
     private data class FlowOccurrence(val isWrite: Boolean)
 
@@ -167,14 +177,13 @@ internal class NoWriteOnlyStateFlowRule(
     }
 }
 
-internal class NoCollaboratorDefaultArgRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Constructor value parameters must not default-instantiate collaborator types (Bus/Registry/Coordinator by " +
-        "configuration); a default value mints an orphan collaborator outside the composition root " +
-        "(Audit Q6 audit-03). See quality/udf-contract.md.",
-) {
+internal class NoCollaboratorDefaultArgRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Constructor value parameters must not default-instantiate collaborator types (Bus/Registry/Coordinator by " +
+            "configuration); a default value mints an orphan collaborator outside the composition root " +
+            "(Audit Q6 audit-03). See quality/udf-contract.md.",
+    ) {
     private val collaboratorDefaultMarker = Regex("""behavior-contract:\s*collaborator-default-ok""")
     private val forbiddenTypeTokens = config.valueOrDefault("forbiddenTypeTokens", emptyList<String>())
 

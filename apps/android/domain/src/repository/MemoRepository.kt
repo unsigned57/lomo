@@ -1,20 +1,18 @@
 package com.lomo.domain.repository
 
 import androidx.paging.PagingSource
-import com.lomo.domain.model.DailyReviewCandidateBoundary
-import com.lomo.domain.model.DailyReviewCandidateCursor
 import com.lomo.domain.model.DailyReviewCandidatePage
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.MemoOperationId
-import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.MemoProjectionPublication
 import com.lomo.domain.model.MemoQuerySpec
+import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoSearchMode
-import com.lomo.domain.model.TagSelection
 import com.lomo.domain.model.MemoStatistics
-import com.lomo.domain.model.MemoTask
 import com.lomo.domain.model.MemoTagCount
+import com.lomo.domain.model.MemoTask
+import com.lomo.domain.model.TagSelection
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 import java.time.ZoneId
@@ -38,31 +36,11 @@ interface MemoListQueryRepository {
 }
 
 interface DailyReviewCandidateRepository {
-    /**
-     * Captures the stable high-water boundary for a Daily Review candidate session in the default
-     * main-list ordering. Implementations must make later candidate pages exclude rows that sort
-     * ahead of this boundary, even if the backing collection changes after the boundary is captured.
-     */
-    suspend fun getDailyReviewCandidateBoundary(): DailyReviewCandidateBoundary?
-
-    /**
-     * Returns candidate ids in default main-list order at or behind [boundary], starting after
-     * [cursor]. [cursor] is null for the first page. Implementations may encode repository-owned
-     * snapshot tokens in [DailyReviewCandidateBoundary.token] and [DailyReviewCandidateCursor.token].
-     */
-    suspend fun getDailyReviewCandidatePage(
-        boundary: DailyReviewCandidateBoundary,
-        cursor: DailyReviewCandidateCursor?,
-        limit: Int,
-    ): DailyReviewCandidatePage
-
-    /**
-     * Reads the current visible ordering behind the captured boundary with the same opaque
-     * continuation semantics. This is used only to fill ids that disappeared or arrived after a
-     * session snapshot; it never exposes an integer offset to callers.
-     */
-    suspend fun getDailyReviewVisibleUnseenPage(
-        cursor: DailyReviewCandidateCursor?,
+    /** Rust owns filters, month/random ordering and query-coupled bounded cursors. */
+    suspend fun getDailyReviewPage(
+        options: com.lomo.domain.model.DailyReviewOptions,
+        seed: Long,
+        cursor: String?,
         limit: Int,
     ): DailyReviewCandidatePage
 }
@@ -81,10 +59,7 @@ interface MainListQueryRepository {
      * Null means the memo is not a member of the spec's result; any rank above zero means the
      * memo is a member but cannot be the list head under the spec's ordering.
      */
-    suspend fun rankInMainListQuery(
-        spec: MemoQuerySpec,
-        id: String,
-    ): Int?
+    suspend fun rankInMainListQuery(spec: MemoQuerySpec, id: String): Int?
 
     /**
      * Reanchors the live main-list paging source so the next refresh starts at [id].
@@ -108,57 +83,32 @@ interface MemoQueryRepository :
 interface MemoMutationRepository {
     suspend fun refreshMemos()
 
-    /** Commits Rust-parsed facts from a document command without rebuilding the workspace. */
-    suspend fun commitDocumentMutation(
-        mutation: com.lomo.domain.model.MemoDocumentMutation,
-    )
+    /**
+     * Durably creates a memo. [onAccepted] runs once, before durable I/O, when the engine admits
+     * the create and its pending row becomes queryable under the returned memo id; a commit that
+     * then fails withdraws that row and throws.
+     */
+    suspend fun saveMemo(attempt: com.lomo.domain.model.MemoCreateAttempt, onAccepted: (memoId: String) -> Unit): Memo
 
-    suspend fun saveMemo(
-        attempt: com.lomo.domain.model.MemoCreateAttempt,
-    ): Memo
+    suspend fun updateMemo(attempt: com.lomo.domain.model.MemoUpdateAttempt)
 
-    suspend fun updateMemo(
-        attempt: com.lomo.domain.model.MemoUpdateAttempt,
-    )
+    suspend fun deleteMemo(memo: Memo, operationId: MemoOperationId)
 
-    suspend fun deleteMemo(
-        memo: Memo,
-        operationId: MemoOperationId,
-    )
+    suspend fun restoreMemoRevision(currentMemo: Memo, revision: MemoRevision, operationId: MemoOperationId)
 
-    suspend fun restoreMemoRevision(
-        currentMemo: Memo,
-        revision: MemoRevision,
-        operationId: MemoOperationId,
-    )
-
-    suspend fun setMemoPinned(
-        memoId: String,
-        pinned: Boolean,
-        operationId: MemoOperationId,
-    )
+    suspend fun setMemoPinned(memoId: String, pinned: Boolean, operationId: MemoOperationId)
 }
 
 interface MemoSearchRepository {
     fun getMemosByTagPagingSource(selection: TagSelection): PagingSource<String, Memo>
 
-    fun searchPagingSource(
-        query: String,
-        mode: MemoSearchMode,
-        filter: MemoListFilter,
-    ): PagingSource<String, Memo>
+    fun searchPagingSource(query: String, mode: MemoSearchMode, filter: MemoListFilter): PagingSource<String, Memo>
 }
 
 interface MemoStatisticsRepository {
-    suspend fun getMemoStatistics(
-        zone: ZoneId,
-        today: LocalDate,
-    ): MemoStatistics
+    suspend fun getMemoStatistics(zone: ZoneId, today: LocalDate): MemoStatistics
 
-    fun observeMemoStatistics(
-        zone: ZoneId,
-        today: LocalDate,
-    ): Flow<MemoStatistics>
+    fun observeMemoStatistics(zone: ZoneId, today: LocalDate): Flow<MemoStatistics>
 
     fun getMemoCountFlow(): Flow<Int>
 
@@ -174,15 +124,9 @@ interface MemoStatisticsRepository {
 interface MemoTrashRepository {
     fun getDeletedMemosPagingSource(): PagingSource<String, Memo>
 
-    suspend fun restoreMemo(
-        memo: Memo,
-        operationId: MemoOperationId,
-    )
+    suspend fun restoreMemo(memo: Memo, operationId: MemoOperationId)
 
-    suspend fun deletePermanently(
-        memo: Memo,
-        operationId: MemoOperationId,
-    )
+    suspend fun deletePermanently(memo: Memo, operationId: MemoOperationId)
 
     suspend fun clearTrash(operationId: MemoOperationId)
 }
@@ -190,8 +134,5 @@ interface MemoTrashRepository {
 interface MemoTaskRepository {
     suspend fun listTasks(): List<MemoTask>
 
-    suspend fun toggleTask(
-        task: MemoTask,
-        done: Boolean,
-    )
+    suspend fun toggleTask(task: MemoTask, done: Boolean)
 }

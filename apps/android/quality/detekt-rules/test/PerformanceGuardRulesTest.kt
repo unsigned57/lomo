@@ -9,7 +9,6 @@ import dev.detekt.test.utils.compileForTest
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -40,19 +39,20 @@ import kotlin.io.path.writeText
  * Excludes:
  * - Measured hot-path benchmarks and approved indexed lookups.
  */
-class PerformanceGuardRulesTest : FunSpec({
-    test("registers NoLoopBoundaryIo, NoNestedCollectionScan, and NoFullRebuildInLocalMutation in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoLoopBoundaryIo")].shouldNotBeNull()
-        rules[RuleName("NoNestedCollectionScan")].shouldNotBeNull()
-        rules[RuleName("NoFullRebuildInLocalMutation")].shouldNotBeNull()
-    }
+class PerformanceGuardRulesTest :
+    FunSpec({
+        test("registers NoLoopBoundaryIo, NoNestedCollectionScan, and NoFullRebuildInLocalMutation in rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoLoopBoundaryIo")].shouldNotBeNull()
+            rules[RuleName("NoNestedCollectionScan")].shouldNotBeNull()
+            rules[RuleName("NoFullRebuildInLocalMutation")].shouldNotBeNull()
+        }
 
-    test("NoLoopBoundaryIo: flags calling port.getMemo inside for loop") {
-        val findings =
-            rule("NoLoopBoundaryIo").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoLoopBoundaryIo: flags calling port.getMemo inside for loop") {
+            val findings =
+                rule("NoLoopBoundaryIo").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository(private val port: Any) {
@@ -63,17 +63,17 @@ class PerformanceGuardRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Loop-boundary I/O anti-pattern"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Loop-boundary I/O anti-pattern"
+        }
 
-    test("NoLoopBoundaryIo: flags calling repository.commit inside forEach iteration") {
-        val findings =
-            rule("NoLoopBoundaryIo").findingsForSource(
-                "app/src/feature/memo/SampleController.kt",
-                """
+        test("NoLoopBoundaryIo: flags calling repository.commit inside forEach iteration") {
+            val findings =
+                rule("NoLoopBoundaryIo").findingsForSource(
+                    "app/src/feature/memo/SampleController.kt",
+                    """
                 package com.lomo.app.feature.memo
 
                 class SampleController(private val memoRepository: Any) {
@@ -84,17 +84,17 @@ class PerformanceGuardRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Loop-boundary I/O anti-pattern"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Loop-boundary I/O anti-pattern"
+        }
 
-    test("NoLoopBoundaryIo: allows in-memory list operations inside loop") {
-        val findings =
-            rule("NoLoopBoundaryIo").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoLoopBoundaryIo: allows in-memory list operations inside loop") {
+            val findings =
+                rule("NoLoopBoundaryIo").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -107,16 +107,16 @@ class PerformanceGuardRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoLoopBoundaryIo: allows boundary call when marked with behavior-contract opt-out") {
-        val findings =
-            rule("NoLoopBoundaryIo").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoLoopBoundaryIo: allows boundary call when marked with behavior-contract opt-out") {
+            val findings =
+                rule("NoLoopBoundaryIo").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository(private val port: Any) {
@@ -128,16 +128,16 @@ class PerformanceGuardRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoNestedCollectionScan: flags otherList.any inside filter iteration") {
-        val findings =
-            rule("NoNestedCollectionScan").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoNestedCollectionScan: flags otherList.any inside filter iteration") {
+            val findings =
+                rule("NoNestedCollectionScan").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase {
@@ -149,17 +149,17 @@ class PerformanceGuardRulesTest : FunSpec({
                 }
                 class Item(val id: String)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Nested collection scan anti-pattern"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Nested collection scan anti-pattern"
+        }
 
-    test("NoNestedCollectionScan: flags targetList.contains inside map iteration") {
-        val findings =
-            rule("NoNestedCollectionScan").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoNestedCollectionScan: flags targetList.contains inside map iteration") {
+            val findings =
+                rule("NoNestedCollectionScan").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase {
@@ -171,17 +171,17 @@ class PerformanceGuardRulesTest : FunSpec({
                 }
                 class Item(val id: String)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Nested collection linear contains anti-pattern"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Nested collection linear contains anti-pattern"
+        }
 
-    test("NoNestedCollectionScan: allows scanning item's own child properties") {
-        val findings =
-            rule("NoNestedCollectionScan").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoNestedCollectionScan: allows scanning item's own child properties") {
+            val findings =
+                rule("NoNestedCollectionScan").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase {
@@ -191,16 +191,16 @@ class PerformanceGuardRulesTest : FunSpec({
                 }
                 class Item(val id: String, val tags: List<String>)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoNestedCollectionScan: allows nested scan when marked with behavior-contract opt-out") {
-        val findings =
-            rule("NoNestedCollectionScan").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoNestedCollectionScan: allows nested scan when marked with behavior-contract opt-out") {
+            val findings =
+                rule("NoNestedCollectionScan").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase {
@@ -213,16 +213,16 @@ class PerformanceGuardRulesTest : FunSpec({
                 }
                 class Item(val id: String)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoFullRebuildInLocalMutation: flags startRebuild inside toggleTask function") {
-        val findings =
-            rule("NoFullRebuildInLocalMutation").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoFullRebuildInLocalMutation: flags startRebuild inside toggleTask function") {
+            val findings =
+                rule("NoFullRebuildInLocalMutation").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository(private val port: Any) {
@@ -231,17 +231,17 @@ class PerformanceGuardRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Compensating full-rebuild anti-pattern"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Compensating full-rebuild anti-pattern"
+        }
 
-    test("NoFullRebuildInLocalMutation: flags refreshMemos inside updateMemoContent function") {
-        val findings =
-            rule("NoFullRebuildInLocalMutation").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoFullRebuildInLocalMutation: flags refreshMemos inside updateMemoContent function") {
+            val findings =
+                rule("NoFullRebuildInLocalMutation").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase(private val repo: Any) {
@@ -250,17 +250,17 @@ class PerformanceGuardRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Compensating full-rebuild anti-pattern"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Compensating full-rebuild anti-pattern"
+        }
 
-    test("NoFullRebuildInLocalMutation: allows startRebuild inside dedicated rebuild function") {
-        val findings =
-            rule("NoFullRebuildInLocalMutation").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoFullRebuildInLocalMutation: allows startRebuild inside dedicated rebuild function") {
+            val findings =
+                rule("NoFullRebuildInLocalMutation").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository(private val port: Any) {
@@ -269,16 +269,16 @@ class PerformanceGuardRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoFullRebuildInLocalMutation: allows incremental mutation inside update function") {
-        val findings =
-            rule("NoFullRebuildInLocalMutation").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoFullRebuildInLocalMutation: allows incremental mutation inside update function") {
+            val findings =
+                rule("NoFullRebuildInLocalMutation").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository(private val port: Any) {
@@ -287,16 +287,16 @@ class PerformanceGuardRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoFullRebuildInLocalMutation: allows full rebuild with explicit opt-out comment") {
-        val findings =
-            rule("NoFullRebuildInLocalMutation").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoFullRebuildInLocalMutation: allows full rebuild with explicit opt-out comment") {
+            val findings =
+                rule("NoFullRebuildInLocalMutation").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository(private val port: Any) {
@@ -306,24 +306,18 @@ class PerformanceGuardRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
-})
+            findings.shouldHaveSize(0)
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-perf-guard-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

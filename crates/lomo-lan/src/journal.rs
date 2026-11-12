@@ -1256,7 +1256,7 @@ impl LanJournal {
                 Ok(Some(LanStagedPayload {
                     path: target,
                     size_bytes: assembled,
-                    digest: format!("{:x}", hasher.finalize()),
+                    digest: lomo_core::hex_encode(&hasher.finalize()),
                 }))
             }
             Ok(StreamedChunks::Missing(coordinate)) => {
@@ -1748,7 +1748,7 @@ impl LanJournal {
             })?;
             hasher.update(&bytes);
         }
-        Ok(format!("{:x}", hasher.finalize()))
+        Ok(lomo_core::hex_encode(&hasher.finalize()))
     }
 
     /// Deletes staged payload subtrees whose batch id no longer owns a durable batch record.
@@ -2417,7 +2417,7 @@ fn verify_assembled_payload(target: &Path) -> Result<Option<LanStagedPayload>, L
     Ok(Some(LanStagedPayload {
         path: target.to_path_buf(),
         size_bytes,
-        digest: format!("{:x}", hasher.finalize()),
+        digest: lomo_core::hex_encode(&hasher.finalize()),
     }))
 }
 

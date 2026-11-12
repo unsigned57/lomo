@@ -181,6 +181,7 @@ mod tests {
     fn action_id(action: &PlatformAction) -> &str {
         match action {
             PlatformAction::Stat { action_id, .. }
+            | PlatformAction::Inspect { action_id, .. }
             | PlatformAction::ListChildren { action_id, .. }
             | PlatformAction::EnsureDirectory { action_id, .. }
             | PlatformAction::ReadToExchange { action_id, .. }
@@ -189,6 +190,20 @@ mod tests {
             | PlatformAction::ArtifactWrite { action_id, .. }
             | PlatformAction::Move { action_id, .. }
             | PlatformAction::Delete { action_id, .. } => action_id,
+        }
+    }
+
+    fn inspection_metadata(target: &WorkspaceTarget) -> DocumentMetadata {
+        DocumentMetadata {
+            target: target.clone(),
+            document_handle: "fixture-document".to_owned(),
+            kind: DocumentKind::Directory,
+            mime_type: None,
+            evidence: ActionEvidence {
+                length: 0,
+                digest: ContentDigest::Unknown,
+                fingerprint: "root-listing".to_owned(),
+            },
         }
     }
 
@@ -208,6 +223,9 @@ mod tests {
             evidence: evidence(),
         };
         match action {
+            PlatformAction::Inspect { target, .. } => PlatformActionOutput::Stat {
+                metadata: inspection_metadata(target),
+            },
             PlatformAction::Stat { target, .. } => PlatformActionOutput::Stat {
                 metadata: metadata(target.clone(), DocumentKind::Directory),
             },

@@ -17,7 +17,9 @@ package com.lomo.data.engine
  * - Given an unknown schema or invalid action count, when execution starts, then it fails before any
  *   side effect rather than truncating or accepting a default.
  * - Given a batch containing only independent reads, when execution starts, then reads overlap while
- *   their verified results remain in Rust-authored action order.
+ *   their verified results remain in Rust-authored action order; every read kind — Stat,
+ *   ListChildren, ReadToExchange and Read — is independent, and any batch mixing in a write stays
+ *   sequential.
  * - Given one independent read fails, when the concurrent batch completes, then the submitted
  *   result stops at that failure as the longest verified ordered prefix.
  * - Given consecutive independent read batches, when execution runs, then every read is submitted
@@ -42,6 +44,11 @@ package com.lomo.data.engine
  * Production scope: apps/android/data/src/di/EngineModule.kt
  *
  * Test Change Justification:
+ * - Reason category: metadata-only protocol extension.
+ * - Old behavior/assertion being replaced: no assertions replaced; exhaustive fixture action dispatch lacked Inspect.
+ * - Why old assertion is no longer correct: the appended action must return Unknown digest as metadata evidence.
+ * - Coverage preserved by: existing outcomes and concurrency locks remain; Inspect shares the independent read lane.
+ * - Why this is not fitting the test to the implementation: metadata observations must not claim hashed bytes.
  * - Reason category: platform protocol contract change.
  * - Old behavior/assertion being replaced: metadata fixtures omitted the opaque document handle.
  * - Why old assertion is no longer correct: current platform metadata requires a handle for stable follow-up reads.
@@ -56,6 +63,17 @@ package com.lomo.data.engine
  *   pins that two consecutive batches share it and that it is not shut down per call.
  * - Why this is not fitting the test to the implementation: the shared-lane assertion describes
  *   the required lifecycle contract (DI-owned pool), not the current per-call internals.
+ * - Reason category: platform protocol contract change (parallel listing lanes).
+ * - Old behavior/assertion being replaced: only homogeneous ReadToExchange batches were
+ *   independent-read candidates, so ListChildren/Stat/Read always ran sequentially.
+ * - Why old assertion is no longer correct: directory enumeration is provider-side read-only work
+ *   Rust may batch across independent directories; the lane's contract is every action being a
+ *   side-effect-free read, not a specific variant.
+ * - Coverage preserved by: the ordered-prefix, failure, deadline and shared-executor scenarios are
+ *   unchanged; new scenarios pin overlap, ordered failure truncation, mixed-kind eligibility and
+ *   write-mixed batches staying sequential.
+ * - Why this is not fitting the test to the implementation: assertions target the observable
+ *   submission/ordering contract, not which actions happened to run parallel.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -226,13 +244,13 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
             val executor =
                 AndroidPlatformActionExecutor(
                     access =
-                        PlatformActionAccess { action ->
-                            if (action.actionId() == "read-2") {
-                                ActionOutcome.Failed(FAILURE)
-                            } else {
-                                ActionOutcome.Applied(action.output())
-                            }
-                        },
+                    PlatformActionAccess { action ->
+                        if (action.actionId() == "read-2") {
+                            ActionOutcome.Failed(FAILURE)
+                        } else {
+                            ActionOutcome.Applied(action.output())
+                        }
+                    },
                     currentTimeMillis = { 1_000L },
                     readExecutor = Executors.newFixedThreadPool(2),
                 )
@@ -243,7 +261,144 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
             result.actionResults.last().outcome shouldBe ActionOutcome.Failed(FAILURE)
         }
 
-        test("given consecutive independent read batches when executed then every read runs on the one injected executor") {
+        test("given independent list-children batch when executed then pages overlap and results preserve order") {
+            val entered = CountDownLatch(2)
+            val release = CountDownLatch(1)
+            val accessed = Collections.synchronizedList(mutableListOf<String>())
+            val access =
+                PlatformActionAccess { action ->
+                    accessed += action.actionId()
+                    entered.countDown()
+                    check(release.await(2, TimeUnit.SECONDS)) { "list release timed out" }
+                    ActionOutcome.Applied(action.output())
+                }
+            val executor =
+                AndroidPlatformActionExecutor(
+                    access = access,
+                    currentTimeMillis = { 1_000L },
+                    readExecutor = Executors.newFixedThreadPool(2),
+                )
+            val caller = Executors.newSingleThreadExecutor()
+            val lists =
+                listOf(
+                    listAction("list-1", "media/bulk"),
+                    listAction("list-2", "media/img"),
+                )
+
+            try {
+                val result = caller.submit<PlatformBatchResult> {
+                    executor.execute(batch(actions = lists, deadline = 2_000uL))
+                }
+
+                entered.await(1, TimeUnit.SECONDS) shouldBe true
+                release.countDown()
+
+                result.get(2, TimeUnit.SECONDS).actionResults.map { it.actionId } shouldContainExactly
+                    listOf("list-1", "list-2")
+                accessed.toSet() shouldBe setOf("list-1", "list-2")
+            } finally {
+                release.countDown()
+                caller.shutdownNow()
+            }
+        }
+
+        test("given a list-children failure when batch completes then result stops at ordered failure") {
+            val lists =
+                listOf(
+                    listAction("list-1", "media/bulk"),
+                    listAction("list-2", "media/img"),
+                    listAction("list-3", ".lomo/history"),
+                )
+            val executor =
+                AndroidPlatformActionExecutor(
+                    access =
+                    PlatformActionAccess { action ->
+                        if (action.actionId() == "list-2") {
+                            ActionOutcome.Failed(FAILURE)
+                        } else {
+                            ActionOutcome.Applied(action.output())
+                        }
+                    },
+                    currentTimeMillis = { 1_000L },
+                    readExecutor = Executors.newFixedThreadPool(2),
+                )
+
+            val result = executor.execute(batch(actions = lists, deadline = 2_000uL))
+
+            result.actionResults.map { it.actionId } shouldContainExactly listOf("list-1", "list-2")
+            result.actionResults.last().outcome shouldBe ActionOutcome.Failed(FAILURE)
+        }
+
+        test("given mixed independent read kinds when executed then every read runs on the injected executor") {
+            val access =
+                PlatformActionAccess { action ->
+                    ActionOutcome.Applied(action.output())
+                }
+            val readExecutor = RecordingReadExecutor()
+            try {
+                val executor =
+                    AndroidPlatformActionExecutor(
+                        access = access,
+                        currentTimeMillis = { 1_000L },
+                        readExecutor = readExecutor,
+                    )
+                val reads =
+                    listOf(
+                        PlatformAction.Stat("stat-1", "root-capability", WorkspaceTarget.Root),
+                        listAction("list-1", "media/bulk"),
+                        readAction("read-1", "one.md", "exchange-one"),
+                        PlatformAction.Read(
+                            "read-2",
+                            "root-capability",
+                            "two.md",
+                            ExpectedFingerprint.Absent,
+                        ),
+                    )
+
+                executor.execute(batch(actions = reads, deadline = 2_000uL))
+
+                readExecutor.submittedTaskCount.get() shouldBe 4
+            } finally {
+                readExecutor.shutdownNow()
+            }
+        }
+
+        test("given a write mixed with reads when executed then execution stays sequential and ordered") {
+            val accessed = mutableListOf<String>()
+            val access =
+                PlatformActionAccess { action ->
+                    accessed += action.actionId()
+                    ActionOutcome.Applied(action.output())
+                }
+            val readExecutor = RecordingReadExecutor()
+            try {
+                val executor =
+                    AndroidPlatformActionExecutor(
+                        access = access,
+                        currentTimeMillis = { 1_000L },
+                        readExecutor = readExecutor,
+                    )
+                val actions =
+                    listOf(
+                        listAction("list-1", "media/bulk"),
+                        PlatformAction.EnsureDirectory("dir-1", "root-capability", "images"),
+                        listAction("list-2", "images"),
+                    )
+
+                val result = executor.execute(batch(actions = actions, deadline = 2_000uL))
+
+                readExecutor.submittedTaskCount.get() shouldBe 0
+                accessed shouldContainExactly listOf("list-1", "dir-1", "list-2")
+                result.actionResults.map { it.actionId } shouldContainExactly
+                    listOf("list-1", "dir-1", "list-2")
+            } finally {
+                readExecutor.shutdownNow()
+            }
+        }
+
+        test(
+            "given consecutive independent read batches when executed then every read runs on the one injected executor",
+        ) {
             val laneNames = Collections.synchronizedList(mutableListOf<String>())
             val access =
                 PlatformActionAccess { action ->
@@ -297,10 +452,7 @@ private class RecordingReadExecutor : java.util.concurrent.AbstractExecutorServi
 
     override fun isTerminated(): Boolean = delegate.isTerminated
 
-    override fun awaitTermination(
-        timeout: Long,
-        unit: TimeUnit,
-    ): Boolean = delegate.awaitTermination(timeout, unit)
+    override fun awaitTermination(timeout: Long, unit: TimeUnit): Boolean = delegate.awaitTermination(timeout, unit)
 }
 
 private val VERIFIED_EVIDENCE =
@@ -320,61 +472,60 @@ private val FAILURE =
         diagnostic = "Workspace permission is no longer available",
     )
 
-private fun batch(
-    actions: List<PlatformAction>,
-    deadline: ULong,
-): PlatformActionBatch =
-    PlatformActionBatch(
-        schemaVersion = 1u,
-        jobId = "job-android",
-        batchId = "batch-android",
-        attempt = 3u,
-        deadlineEpochMillis = deadline,
-        actions = actions,
-    )
+private fun batch(actions: List<PlatformAction>, deadline: ULong): PlatformActionBatch = PlatformActionBatch(
+    schemaVersion = 1u,
+    jobId = "job-android",
+    batchId = "batch-android",
+    attempt = 3u,
+    deadlineEpochMillis = deadline,
+    actions = actions,
+)
 
-private fun allActions(): List<PlatformAction> =
-    listOf(
-        PlatformAction.Stat("action-1", "root-capability", WorkspaceTarget.Root),
-        PlatformAction.ListChildren("action-2", "root-capability", WorkspaceTarget.Root, null, 256u),
-        PlatformAction.EnsureDirectory("action-3", "root-capability", "images"),
-        PlatformAction.ReadToExchange(
-            "action-4",
-            "root-capability",
-            "memo.md",
-            null,
-            "exchange-read",
-            ExpectedFingerprint.Absent,
-        ),
-        PlatformAction.WriteFromExchange(
-            "action-5",
-            "root-capability",
-            ExchangeArtifact("exchange-write", 12uL, "a".repeat(64)),
-            "memo.md",
-            WriteMode.REPLACE,
-            ExpectedFingerprint.Absent,
-        ),
-        PlatformAction.Move(
-            "action-6",
-            "root-capability",
-            "memo.md",
-            "trash/memo.md",
-            ExpectedFingerprint.Match(VERIFIED_EVIDENCE),
-            ExpectedFingerprint.Absent,
-        ),
-        PlatformAction.Delete(
-            "action-7",
-            "root-capability",
-            "trash/memo.md",
-            ExpectedFingerprint.Match(VERIFIED_EVIDENCE),
-        ),
-    )
+private fun allActions(): List<PlatformAction> = listOf(
+    PlatformAction.Stat("action-1", "root-capability", WorkspaceTarget.Root),
+    PlatformAction.ListChildren("action-2", "root-capability", WorkspaceTarget.Root, null, 256u),
+    PlatformAction.EnsureDirectory("action-3", "root-capability", "images"),
+    PlatformAction.ReadToExchange(
+        "action-4",
+        "root-capability",
+        "memo.md",
+        null,
+        "exchange-read",
+        ExpectedFingerprint.Absent,
+    ),
+    PlatformAction.WriteFromExchange(
+        "action-5",
+        "root-capability",
+        ExchangeArtifact("exchange-write", 12uL, "a".repeat(64)),
+        "memo.md",
+        WriteMode.REPLACE,
+        ExpectedFingerprint.Absent,
+    ),
+    PlatformAction.Move(
+        "action-6",
+        "root-capability",
+        "memo.md",
+        "trash/memo.md",
+        ExpectedFingerprint.Match(VERIFIED_EVIDENCE),
+        ExpectedFingerprint.Absent,
+    ),
+    PlatformAction.Delete(
+        "action-7",
+        "root-capability",
+        "trash/memo.md",
+        ExpectedFingerprint.Match(VERIFIED_EVIDENCE),
+    ),
+)
 
-private fun readAction(
-    actionId: String,
-    path: String,
-    exchangeToken: String,
-): PlatformAction.ReadToExchange =
+private fun listAction(actionId: String, directory: String): PlatformAction.ListChildren = PlatformAction.ListChildren(
+    actionId = actionId,
+    capabilityToken = "root-capability",
+    target = WorkspaceTarget.Relative(directory),
+    cursor = null,
+    pageSize = 256u,
+)
+
+private fun readAction(actionId: String, path: String, exchangeToken: String): PlatformAction.ReadToExchange =
     PlatformAction.ReadToExchange(
         actionId = actionId,
         capabilityToken = "root-capability",
@@ -387,92 +538,104 @@ private fun readAction(
 private fun reads(vararg actionIds: String): List<PlatformAction.ReadToExchange> =
     actionIds.map { actionId -> readAction(actionId, "$actionId.md", "exchange-$actionId") }
 
-private fun PlatformAction.actionId(): String =
-    when (this) {
-        is PlatformAction.Stat -> actionId
-        is PlatformAction.ListChildren -> actionId
-        is PlatformAction.EnsureDirectory -> actionId
-        is PlatformAction.ReadToExchange -> actionId
-        is PlatformAction.Read -> actionId
-        is PlatformAction.WriteFromExchange -> actionId
-        is PlatformAction.ArtifactWrite -> actionId
-        is PlatformAction.Move -> actionId
-        is PlatformAction.Delete -> actionId
-    }
+private fun PlatformAction.actionId(): String = when (this) {
+    is PlatformAction.Stat -> actionId
+    is PlatformAction.Inspect -> actionId
+    is PlatformAction.ListChildren -> actionId
+    is PlatformAction.EnsureDirectory -> actionId
+    is PlatformAction.ReadToExchange -> actionId
+    is PlatformAction.Read -> actionId
+    is PlatformAction.WriteFromExchange -> actionId
+    is PlatformAction.ArtifactWrite -> actionId
+    is PlatformAction.Move -> actionId
+    is PlatformAction.Delete -> actionId
+}
 
 private fun PlatformAction.output(): PlatformActionOutput {
     fun metadata(
         target: WorkspaceTarget,
         kind: DocumentKind,
         evidence: ActionEvidence = VERIFIED_EVIDENCE,
-    ): DocumentMetadata =
-        DocumentMetadata(
-            target = target,
-            documentHandle = "fixture-document",
-            kind = kind,
-            mimeType = null,
-            evidence = evidence,
-        )
+    ): DocumentMetadata = DocumentMetadata(
+        target = target,
+        documentHandle = "fixture-document",
+        kind = kind,
+        mimeType = null,
+        evidence = evidence,
+    )
 
     return when (this) {
+        is PlatformAction.Inspect ->
+            PlatformActionOutput.Stat(
+                metadata(target, DocumentKind.DIRECTORY, ActionEvidence(0uL, ContentDigest.Unknown, "metadata-token")),
+            )
+
         is PlatformAction.Stat ->
             PlatformActionOutput.Stat(metadata(target, DocumentKind.DIRECTORY))
+
         is PlatformAction.ListChildren ->
             PlatformActionOutput.Listed(MetadataPage(items = emptyList(), nextCursor = null))
+
         is PlatformAction.EnsureDirectory ->
             PlatformActionOutput.DirectoryReady(
                 metadata(WorkspaceTarget.Relative(path), DocumentKind.DIRECTORY),
             )
+
         is PlatformAction.ReadToExchange ->
             PlatformActionOutput.ReadToExchange(
                 sourceMetadata = metadata(WorkspaceTarget.Relative(path), DocumentKind.FILE),
                 artifact = ExchangeArtifact(exchangeToken, 12uL, "a".repeat(64)),
             )
+
         is PlatformAction.Read ->
             PlatformActionOutput.Read(
                 sourceMetadata =
-                    metadata(
-                        WorkspaceTarget.Relative(path),
-                        DocumentKind.FILE,
-                        evidence =
-                            ActionEvidence(
-                                length = 0uL,
-                                digest = ContentDigest.Verified("a".repeat(64)),
-                                fingerprint = "fixture-fingerprint",
-                            ),
+                metadata(
+                    WorkspaceTarget.Relative(path),
+                    DocumentKind.FILE,
+                    evidence =
+                    ActionEvidence(
+                        length = 0uL,
+                        digest = ContentDigest.Verified("a".repeat(64)),
+                        fingerprint = "fixture-fingerprint",
                     ),
+                ),
                 bytes = byteArrayOf(),
             )
+
         is PlatformAction.WriteFromExchange ->
             PlatformActionOutput.WriteComplete(
                 metadata(
                     target = WorkspaceTarget.Relative(path),
                     kind = DocumentKind.FILE,
                     evidence =
-                        ActionEvidence(
-                            length = artifact.length,
-                            digest = ContentDigest.Verified(artifact.digest),
-                            fingerprint = "fingerprint-android",
-                        ),
+                    ActionEvidence(
+                        length = artifact.length,
+                        digest = ContentDigest.Verified(artifact.digest),
+                        fingerprint = "fingerprint-android",
+                    ),
                 ),
             )
+
         is PlatformAction.ArtifactWrite ->
             PlatformActionOutput.WriteComplete(
                 metadata(
                     target = WorkspaceTarget.Relative(path),
                     kind = DocumentKind.FILE,
                     evidence =
-                        ActionEvidence(
-                            length = source.length,
-                            digest = ContentDigest.Verified(source.digest),
-                            fingerprint = "fingerprint-android",
-                        ),
+                    ActionEvidence(
+                        length = source.length,
+                        digest = ContentDigest.Verified(source.digest),
+                        fingerprint = "fingerprint-android",
+                    ),
                 ),
             )
+
         is PlatformAction.Move ->
             PlatformActionOutput.MoveComplete(
                 metadata(WorkspaceTarget.Relative(target), DocumentKind.FILE),
             )
+
         is PlatformAction.Delete ->
             PlatformActionOutput.DeleteComplete(
                 VerifiedAbsence(

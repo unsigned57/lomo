@@ -50,17 +50,16 @@ package com.lomo.data.worker
  *   interface.
  */
 
+import com.lomo.data.engine.sync.RemoteSyncBackendProbe
 import com.lomo.data.engine.sync.RemoteSyncBoundaryFailure
 import com.lomo.data.engine.sync.RemoteSyncConflictPage
-import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncConflictResolution
+import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncCyclePlanSummary
 import com.lomo.data.engine.sync.RemoteSyncCycleRequest
-import com.lomo.data.engine.sync.RemoteSyncBackendProbe
 import com.lomo.data.engine.sync.RemoteSyncCycleStatus
 import com.lomo.data.engine.sync.RemoteSyncRepository
 import com.lomo.data.engine.sync.RemoteSyncRetryDisposition
-import com.lomo.data.engine.sync.RemoteSyncRetryHint
 import com.lomo.data.engine.sync.RemoteSyncSecretLease
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
@@ -94,11 +93,7 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
     var probeError: RemoteSyncBoundaryFailure? = null
     var runCycleError: RemoteSyncBoundaryFailure? = null
 
-    override fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage {
+    override fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage {
         listCount += 1
         error("listConflicts is not the production work unit surface; use runCycle")
     }
@@ -109,10 +104,8 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
         resolutions: List<RemoteSyncConflictResolution>,
     ): RemoteSyncConflictResolveResult = error("resolve not used by work executor unit")
 
-    override fun issueSecretLease(
-        secretBytes: ByteArray,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease = error("issue not used by work executor unit")
+    override fun issueSecretLease(secretBytes: ByteArray, ttlMillis: Long): RemoteSyncSecretLease =
+        error("issue not used by work executor unit")
 
     override fun probeSecretLease(leaseId: String): Int {
         probeCount += 1
@@ -124,7 +117,6 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
     override fun revokeSecretLease(leaseId: String) {
         error("revoke is owned by worker lease lifecycle, not work executor")
     }
-
 
     override fun runCycle(request: RemoteSyncCycleRequest): RemoteSyncCyclePlanSummary {
         runCycleCount += 1
@@ -155,265 +147,263 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
         error("probe not used by work executor unit")
 }
 
-private fun noRecordCycleStatus(): RemoteSyncCycleStatus =
-    RemoteSyncCycleStatus(
-        hasRecord = false,
-        cycleSeq = 0L,
-        cycleId = "",
-        fenceKey = "",
-        backendKind = "",
-        sessionId = "",
-        applyRemote = false,
-        phase = RemoteSyncCycleStatus.PHASE_IDLE,
-        stage = RemoteSyncCycleStatus.STAGE_FINISHED,
-        ensurePresentCount = 0,
-        ensureAbsentCount = 0,
-        pullPresentCount = 0,
-        openConflictCount = 0,
-        holdCount = 0,
-        localEntryCount = 0,
-        remoteListedCount = 0,
-        baselineEntryCount = 0,
-        pagesApplied = 0,
-        baselineAdvanced = false,
-        retryDisposition = "never",
-        failureCode = null,
-        failureMessage = null,
-        cancelRequested = false,
-        startedAtMs = 0L,
-        updatedAtMs = 0L,
-        finishedAtMs = null,
-        lastSuccessfulAtMs = null,
-        stateStamp = 0L,
-    )
-
+private fun noRecordCycleStatus(): RemoteSyncCycleStatus = RemoteSyncCycleStatus(
+    hasRecord = false,
+    cycleSeq = 0L,
+    cycleId = "",
+    fenceKey = "",
+    backendKind = "",
+    sessionId = "",
+    applyRemote = false,
+    phase = RemoteSyncCycleStatus.PHASE_IDLE,
+    stage = RemoteSyncCycleStatus.STAGE_FINISHED,
+    ensurePresentCount = 0,
+    ensureAbsentCount = 0,
+    pullPresentCount = 0,
+    openConflictCount = 0,
+    holdCount = 0,
+    localEntryCount = 0,
+    remoteListedCount = 0,
+    baselineEntryCount = 0,
+    pagesApplied = 0,
+    baselineAdvanced = false,
+    retryDisposition = "never",
+    failureCode = null,
+    failureMessage = null,
+    cancelRequested = false,
+    startedAtMs = 0L,
+    updatedAtMs = 0L,
+    finishedAtMs = null,
+    lastSuccessfulAtMs = null,
+    stateStamp = 0L,
+)
 
 private fun hermeticRequest(
     workspaceRoot: String = "/ws",
     secretLeaseId: String? = null,
     secretFieldKey: String? = null,
-): RustSyncWorkRequest =
-    RustSyncWorkRequest(
-        workspaceRoot = workspaceRoot,
-        backendKind = "hermetic_fake",
-        remoteDatasetId = "ds-test",
-        secretFieldKey = secretFieldKey,
-        secretLeaseId = secretLeaseId,
-        applyRemote = false,
-    )
+): RustSyncWorkRequest = RustSyncWorkRequest(
+    workspaceRoot = workspaceRoot,
+    backendKind = "hermetic_fake",
+    remoteDatasetId = "ds-test",
+    secretFieldKey = secretFieldKey,
+    secretLeaseId = secretLeaseId,
+    applyRemote = false,
+)
 
-class RemoteSyncRustWorkExecutorTest : FunSpec({
-    test("blank workspace fail-closed Never without repository calls") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            val executor = RemoteSyncRustWorkExecutor(repo)
+class RemoteSyncRustWorkExecutorTest :
+    FunSpec({
+        test("blank workspace fail-closed Never without repository calls") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint = executor.run(hermeticRequest(workspaceRoot = "   "))
+                val hint = executor.run(hermeticRequest(workspaceRoot = "   "))
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.Never
-            hint.retryAfterMillis.shouldBeNull()
-            repo.runCycleCount shouldBe 0
-            repo.probeCount shouldBe 0
-            repo.inspectCount shouldBe 0
-            repo.listCount shouldBe 0
+                hint.disposition shouldBe RemoteSyncRetryDisposition.Never
+                hint.retryAfterMillis.shouldBeNull()
+                repo.runCycleCount shouldBe 0
+                repo.probeCount shouldBe 0
+                repo.inspectCount shouldBe 0
+                repo.listCount shouldBe 0
+            }
         }
-    }
 
-    test("blank backend kind fail-closed Never without repository calls") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("blank backend kind fail-closed Never without repository calls") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint =
-                executor.run(
-                    RustSyncWorkRequest(
-                        workspaceRoot = "/ws",
-                        backendKind = "  ",
-                        remoteDatasetId = "ds",
-                    ),
-                )
+                val hint =
+                    executor.run(
+                        RustSyncWorkRequest(
+                            workspaceRoot = "/ws",
+                            backendKind = "  ",
+                            remoteDatasetId = "ds",
+                        ),
+                    )
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.Never
-            repo.runCycleCount shouldBe 0
-            repo.probeCount shouldBe 0
+                hint.disposition shouldBe RemoteSyncRetryDisposition.Never
+                repo.runCycleCount shouldBe 0
+                repo.probeCount shouldBe 0
+            }
         }
-    }
 
-    test("no secret lease runs composed cycle and maps disposition to AfterUserAction") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("no secret lease runs composed cycle and maps disposition to AfterUserAction") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint = executor.run(hermeticRequest())
+                val hint = executor.run(hermeticRequest())
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.AfterUserAction
-            hint.retryAfterMillis.shouldBeNull()
-            repo.probeCount shouldBe 0
-            repo.runCycleCount shouldBe 1
-            repo.inspectCount shouldBe 0
-            repo.listCount shouldBe 0
-            repo.lastCycleRequest?.workspaceRoot shouldBe "/ws"
-            repo.lastCycleRequest?.backendKind shouldBe "hermetic_fake"
-            repo.lastCycleRequest?.remoteDatasetId shouldBe "ds-test"
-            repo.lastCycleRequest?.applyRemote shouldBe false
+                hint.disposition shouldBe RemoteSyncRetryDisposition.AfterUserAction
+                hint.retryAfterMillis.shouldBeNull()
+                repo.probeCount shouldBe 0
+                repo.runCycleCount shouldBe 1
+                repo.inspectCount shouldBe 0
+                repo.listCount shouldBe 0
+                repo.lastCycleRequest?.workspaceRoot shouldBe "/ws"
+                repo.lastCycleRequest?.backendKind shouldBe "hermetic_fake"
+                repo.lastCycleRequest?.remoteDatasetId shouldBe "ds-test"
+                repo.lastCycleRequest?.applyRemote shouldBe false
+            }
         }
-    }
 
-    test("present lease probes opaque id then runs composed cycle") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("present lease probes opaque id then runs composed cycle") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint =
-                executor.run(
-                    hermeticRequest(
-                        secretFieldKey = "WEBDAV_PASSWORD",
-                        secretLeaseId = "lease-opaque-42",
-                    ),
-                )
+                val hint =
+                    executor.run(
+                        hermeticRequest(
+                            secretFieldKey = "WEBDAV_PASSWORD",
+                            secretLeaseId = "lease-opaque-42",
+                        ),
+                    )
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.AfterUserAction
-            repo.probeCount shouldBe 1
-            repo.lastProbeLeaseId shouldBe "lease-opaque-42"
-            repo.runCycleCount shouldBe 1
-            repo.inspectCount shouldBe 0
-            repo.listCount shouldBe 0
-            repo.lastCycleRequest?.secretLeaseId shouldBe "lease-opaque-42"
+                hint.disposition shouldBe RemoteSyncRetryDisposition.AfterUserAction
+                repo.probeCount shouldBe 1
+                repo.lastProbeLeaseId shouldBe "lease-opaque-42"
+                repo.runCycleCount shouldBe 1
+                repo.inspectCount shouldBe 0
+                repo.listCount shouldBe 0
+                repo.lastCycleRequest?.secretLeaseId shouldBe "lease-opaque-42"
+            }
         }
-    }
 
-    test("blank secret lease id fail-closed Never without probe or runCycle") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("blank secret lease id fail-closed Never without probe or runCycle") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint =
-                executor.run(
-                    hermeticRequest(
-                        secretFieldKey = "S3_SECRET_ACCESS_KEY",
-                        secretLeaseId = "  ",
-                    ),
-                )
+                val hint =
+                    executor.run(
+                        hermeticRequest(
+                            secretFieldKey = "S3_SECRET_ACCESS_KEY",
+                            secretLeaseId = "  ",
+                        ),
+                    )
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.Never
-            repo.probeCount shouldBe 0
-            repo.runCycleCount shouldBe 0
+                hint.disposition shouldBe RemoteSyncRetryDisposition.Never
+                repo.probeCount shouldBe 0
+                repo.runCycleCount shouldBe 0
+            }
         }
-    }
 
-    test("missing lease boundary maps to Never without runCycle") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            repo.probeError =
-                RemoteSyncBoundaryFailure(
-                    category = "validation",
-                    code = "secret_lease_missing",
-                    retryDisposition = "never",
-                    diagnostic = "secret lease is missing; process death or never issued",
-                )
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("missing lease boundary maps to Never without runCycle") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                repo.probeError =
+                    RemoteSyncBoundaryFailure(
+                        category = "validation",
+                        code = "secret_lease_missing",
+                        retryDisposition = "never",
+                        diagnostic = "secret lease is missing; process death or never issued",
+                    )
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint =
-                executor.run(
-                    hermeticRequest(secretLeaseId = "lease-never-issued"),
-                )
+                val hint =
+                    executor.run(
+                        hermeticRequest(secretLeaseId = "lease-never-issued"),
+                    )
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.Never
-            repo.probeCount shouldBe 1
-            repo.runCycleCount shouldBe 0
+                hint.disposition shouldBe RemoteSyncRetryDisposition.Never
+                repo.probeCount shouldBe 1
+                repo.runCycleCount shouldBe 0
+            }
         }
-    }
 
-    test("expired lease boundary maps to Never without runCycle") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            repo.probeError =
-                RemoteSyncBoundaryFailure(
-                    category = "validation",
-                    code = "secret_lease_expired",
-                    retryDisposition = "never",
-                    diagnostic = "secret lease TTL elapsed; re-issue credentials for a new lease",
-                )
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("expired lease boundary maps to Never without runCycle") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                repo.probeError =
+                    RemoteSyncBoundaryFailure(
+                        category = "validation",
+                        code = "secret_lease_expired",
+                        retryDisposition = "never",
+                        diagnostic = "secret lease TTL elapsed; re-issue credentials for a new lease",
+                    )
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint =
-                executor.run(
-                    hermeticRequest(secretLeaseId = "lease-expired-1"),
-                )
+                val hint =
+                    executor.run(
+                        hermeticRequest(secretLeaseId = "lease-expired-1"),
+                    )
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.Never
-            repo.probeCount shouldBe 1
-            repo.runCycleCount shouldBe 0
+                hint.disposition shouldBe RemoteSyncRetryDisposition.Never
+                repo.probeCount shouldBe 1
+                repo.runCycleCount shouldBe 0
+            }
         }
-    }
 
-    test("runCycle Transient boundary maps to Transient") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            repo.runCycleError =
-                RemoteSyncBoundaryFailure(
-                    category = "network",
-                    code = "sync_remote_unreachable",
-                    retryDisposition = "transient",
-                    diagnostic = "connection reset",
-                )
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("runCycle Transient boundary maps to Transient") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                repo.runCycleError =
+                    RemoteSyncBoundaryFailure(
+                        category = "network",
+                        code = "sync_remote_unreachable",
+                        retryDisposition = "transient",
+                        diagnostic = "connection reset",
+                    )
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint = executor.run(hermeticRequest())
+                val hint = executor.run(hermeticRequest())
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.Transient
-            repo.runCycleCount shouldBe 1
-            repo.inspectCount shouldBe 0
+                hint.disposition shouldBe RemoteSyncRetryDisposition.Transient
+                repo.runCycleCount shouldBe 1
+                repo.inspectCount shouldBe 0
+            }
         }
-    }
 
-    test("runCycle AfterUserAction boundary maps to AfterUserAction") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            repo.runCycleError =
-                RemoteSyncBoundaryFailure(
-                    category = "conflict",
-                    code = "conflict_session_open",
-                    retryDisposition = "after_user_action",
-                    diagnostic = "open conflicts require user resolution",
-                )
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("runCycle AfterUserAction boundary maps to AfterUserAction") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                repo.runCycleError =
+                    RemoteSyncBoundaryFailure(
+                        category = "conflict",
+                        code = "conflict_session_open",
+                        retryDisposition = "after_user_action",
+                        diagnostic = "open conflicts require user resolution",
+                    )
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint = executor.run(hermeticRequest())
+                val hint = executor.run(hermeticRequest())
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.AfterUserAction
-            repo.runCycleCount shouldBe 1
+                hint.disposition shouldBe RemoteSyncRetryDisposition.AfterUserAction
+                repo.runCycleCount shouldBe 1
+            }
         }
-    }
 
-    test("runCycle summary never disposition maps to Never") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            repo.cycleSummary = repo.cycleSummary.copy(retryDisposition = "never")
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("runCycle summary never disposition maps to Never") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                repo.cycleSummary = repo.cycleSummary.copy(retryDisposition = "never")
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint = executor.run(hermeticRequest())
+                val hint = executor.run(hermeticRequest())
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.Never
-            repo.runCycleCount shouldBe 1
+                hint.disposition shouldBe RemoteSyncRetryDisposition.Never
+                repo.runCycleCount shouldBe 1
+            }
         }
-    }
 
-    test("unknown boundary disposition fail-closed Never") {
-        runTest {
-            val repo = FakeRemoteSyncRepository()
-            repo.runCycleError =
-                RemoteSyncBoundaryFailure(
-                    category = "internal",
-                    code = "weird",
-                    retryDisposition = "not_a_real_disposition",
-                    diagnostic = "x",
-                )
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("unknown boundary disposition fail-closed Never") {
+            runTest {
+                val repo = FakeRemoteSyncRepository()
+                repo.runCycleError =
+                    RemoteSyncBoundaryFailure(
+                        category = "internal",
+                        code = "weird",
+                        retryDisposition = "not_a_real_disposition",
+                        diagnostic = "x",
+                    )
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val hint = executor.run(hermeticRequest())
+                val hint = executor.run(hermeticRequest())
 
-            hint.disposition shouldBe RemoteSyncRetryDisposition.Never
+                hint.disposition shouldBe RemoteSyncRetryDisposition.Never
+            }
         }
-    }
-})
+    })

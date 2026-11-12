@@ -54,104 +54,105 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
             val document =
                 MarkdownRenderDocument(
                     sourceByteLength = 200u,
-                    plainText = "Title Paragraph with bold and removed text. quoted text done plain item Name Status Lomo ready cover",
+                    plainText =
+                    "Title Paragraph with bold and removed text. quoted text done plain item Name Status Lomo ready cover",
                     tagNames = emptyList(),
                     attachments = listOf(MarkdownAttachment("images/cover.png", MediaClass.IMAGE)),
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Heading(
-                                sourceSpan = span(0u, 5u),
-                                level = 1u,
-                                inlines = listOf(text(0u, 5u, "Title")),
-                            ),
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(6u, 40u),
-                                inlines =
-                                    listOf(
-                                        text(6u, 20u, "Paragraph with "),
-                                        MarkdownRenderInline.Strong(
-                                            sourceSpan = span(20u, 24u),
-                                            inlines = listOf(text(20u, 24u, "bold")),
-                                        ),
-                                        text(24u, 29u, " and "),
-                                        MarkdownRenderInline.Strikethrough(
-                                            sourceSpan = span(29u, 36u),
-                                            inlines = listOf(text(29u, 36u, "removed")),
-                                        ),
-                                        text(36u, 40u, " text."),
-                                    ),
-                            ),
-                            MarkdownRenderBlock.BlockQuote(
-                                sourceSpan = span(41u, 52u),
-                                blocks =
-                                    listOf(
-                                        MarkdownRenderBlock.Paragraph(
-                                            sourceSpan = span(41u, 52u),
-                                            inlines = listOf(text(41u, 52u, "quoted text")),
-                                        ),
-                                    ),
-                            ),
-                            MarkdownRenderBlock.ListBlock(
-                                sourceSpan = span(53u, 80u),
-                                ordered = false,
-                                startNumber = 1u,
-                                items =
-                                    listOf(
-                                        MarkdownRenderListItem(
-                                            sourceSpan = span(53u, 62u),
-                                            actionSpan = span(55u, 58u),
-                                            checked = true,
-                                            blocks =
-                                                listOf(
-                                                    MarkdownRenderBlock.Paragraph(
-                                                        sourceSpan = span(59u, 62u),
-                                                        inlines = listOf(text(59u, 62u, "done")),
-                                                    ),
-                                                ),
-                                        ),
-                                        MarkdownRenderListItem(
-                                            sourceSpan = span(63u, 80u),
-                                            actionSpan = null,
-                                            checked = null,
-                                            blocks =
-                                                listOf(
-                                                    MarkdownRenderBlock.Paragraph(
-                                                        sourceSpan = span(65u, 80u),
-                                                        inlines = listOf(text(65u, 80u, "plain item")),
-                                                    ),
-                                                ),
-                                        ),
-                                    ),
-                            ),
-                            MarkdownRenderBlock.Table(
-                                sourceSpan = span(81u, 120u),
-                                header =
-                                    listOf(
-                                        cell(81u, 85u, "Name"),
-                                        cell(86u, 92u, "Status"),
-                                    ),
-                                rows =
-                                    listOf(
-                                        listOf(
-                                            cell(93u, 97u, "Lomo"),
-                                            cell(98u, 103u, "ready"),
-                                        ),
-                                    ),
-                            ),
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(104u, 130u),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(104u, 130u),
-                                            destination = "images/cover.png",
-                                            title = null,
-                                            altText = "cover",
-                                            mediaClass = MediaClass.IMAGE,
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Heading(
+                            sourceSpan = span(0u, 5u),
+                            level = 1u,
+                            inlines = listOf(text(0u, 5u, "Title")),
+                        ),
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(6u, 40u),
+                            inlines =
+                            listOf(
+                                text(6u, 20u, "Paragraph with "),
+                                MarkdownRenderInline.Strong(
+                                    sourceSpan = span(20u, 24u),
+                                    inlines = listOf(text(20u, 24u, "bold")),
+                                ),
+                                text(24u, 29u, " and "),
+                                MarkdownRenderInline.Strikethrough(
+                                    sourceSpan = span(29u, 36u),
+                                    inlines = listOf(text(29u, 36u, "removed")),
+                                ),
+                                text(36u, 40u, " text."),
                             ),
                         ),
+                        MarkdownRenderBlock.BlockQuote(
+                            sourceSpan = span(41u, 52u),
+                            blocks =
+                            listOf(
+                                MarkdownRenderBlock.Paragraph(
+                                    sourceSpan = span(41u, 52u),
+                                    inlines = listOf(text(41u, 52u, "quoted text")),
+                                ),
+                            ),
+                        ),
+                        MarkdownRenderBlock.ListBlock(
+                            sourceSpan = span(53u, 80u),
+                            ordered = false,
+                            startNumber = 1u,
+                            items =
+                            listOf(
+                                MarkdownRenderListItem(
+                                    sourceSpan = span(53u, 62u),
+                                    actionSpan = span(55u, 58u),
+                                    checked = true,
+                                    blocks =
+                                    listOf(
+                                        MarkdownRenderBlock.Paragraph(
+                                            sourceSpan = span(59u, 62u),
+                                            inlines = listOf(text(59u, 62u, "done")),
+                                        ),
+                                    ),
+                                ),
+                                MarkdownRenderListItem(
+                                    sourceSpan = span(63u, 80u),
+                                    actionSpan = null,
+                                    checked = null,
+                                    blocks =
+                                    listOf(
+                                        MarkdownRenderBlock.Paragraph(
+                                            sourceSpan = span(65u, 80u),
+                                            inlines = listOf(text(65u, 80u, "plain item")),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        MarkdownRenderBlock.Table(
+                            sourceSpan = span(81u, 120u),
+                            header =
+                            listOf(
+                                cell(81u, 85u, "Name"),
+                                cell(86u, 92u, "Status"),
+                            ),
+                            rows =
+                            listOf(
+                                listOf(
+                                    cell(93u, 97u, "Lomo"),
+                                    cell(98u, 103u, "ready"),
+                                ),
+                            ),
+                        ),
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(104u, 130u),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(104u, 130u),
+                                    destination = "images/cover.png",
+                                    title = null,
+                                    altText = "cover",
+                                    mediaClass = MediaClass.IMAGE,
+                                ),
+                            ),
+                        ),
+                    ),
                 )
 
             val lines =
@@ -188,39 +189,39 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
                     plainText = "a b",
                     tagNames = emptyList(),
                     attachments =
-                        listOf(
-                            MarkdownAttachment("a.png", MediaClass.IMAGE),
-                            MarkdownAttachment("b.png", MediaClass.IMAGE),
-                        ),
+                    listOf(
+                        MarkdownAttachment("a.png", MediaClass.IMAGE),
+                        MarkdownAttachment("b.png", MediaClass.IMAGE),
+                    ),
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0u, 10u),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(0u, 5u),
-                                            destination = "a.png",
-                                            title = null,
-                                            altText = "a",
-                                            mediaClass = MediaClass.IMAGE,
-                                        ),
-                                    ),
-                            ),
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(11u, 20u),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(11u, 20u),
-                                            destination = "b.png",
-                                            title = null,
-                                            altText = "b",
-                                            mediaClass = MediaClass.IMAGE,
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0u, 10u),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(0u, 5u),
+                                    destination = "a.png",
+                                    title = null,
+                                    altText = "a",
+                                    mediaClass = MediaClass.IMAGE,
+                                ),
                             ),
                         ),
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(11u, 20u),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(11u, 20u),
+                                    destination = "b.png",
+                                    title = null,
+                                    altText = "b",
+                                    mediaClass = MediaClass.IMAGE,
+                                ),
+                            ),
+                        ),
+                    ),
                 )
 
             val lines = buildMarkdownShareBodyLines(document, imagePlaceholder = "[Image]")
@@ -236,26 +237,26 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
                     tagNames = emptyList(),
                     attachments = emptyList(),
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0u, 40u),
-                                inlines =
-                                    listOf(
-                                        text(0u, 6u, "Visit "),
-                                        MarkdownRenderInline.Link(
-                                            sourceSpan = span(6u, 20u),
-                                            destination = "https://example.com",
-                                            title = null,
-                                            inlines = listOf(text(6u, 20u, "https://example.com")),
-                                        ),
-                                        text(20u, 25u, " and "),
-                                        MarkdownRenderInline.Highlight(
-                                            sourceSpan = span(25u, 34u),
-                                            inlines = listOf(text(25u, 34u, "important")),
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0u, 40u),
+                            inlines =
+                            listOf(
+                                text(0u, 6u, "Visit "),
+                                MarkdownRenderInline.Link(
+                                    sourceSpan = span(6u, 20u),
+                                    destination = "https://example.com",
+                                    title = null,
+                                    inlines = listOf(text(6u, 20u, "https://example.com")),
+                                ),
+                                text(20u, 25u, " and "),
+                                MarkdownRenderInline.Highlight(
+                                    sourceSpan = span(25u, 34u),
+                                    inlines = listOf(text(25u, 34u, "important")),
+                                ),
                             ),
                         ),
+                    ),
                 )
 
             val lines = buildMarkdownShareBodyLines(document, imagePlaceholder = "[Image]")
@@ -267,23 +268,12 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
     }
 }
 
-private fun span(
-    start: ULong,
-    end: ULong,
-): MarkdownSourceSpan = MarkdownSourceSpan(startByte = start, endByte = end)
+private fun span(start: ULong, end: ULong): MarkdownSourceSpan = MarkdownSourceSpan(startByte = start, endByte = end)
 
-private fun text(
-    start: ULong,
-    end: ULong,
-    value: String,
-): MarkdownRenderInline.Text = MarkdownRenderInline.Text(span(start, end), value)
+private fun text(start: ULong, end: ULong, value: String): MarkdownRenderInline.Text =
+    MarkdownRenderInline.Text(span(start, end), value)
 
-private fun cell(
-    start: ULong,
-    end: ULong,
-    value: String,
-): MarkdownRenderTableCell =
-    MarkdownRenderTableCell(
-        sourceSpan = span(start, end),
-        inlines = listOf(text(start, end, value)),
-    )
+private fun cell(start: ULong, end: ULong, value: String): MarkdownRenderTableCell = MarkdownRenderTableCell(
+    sourceSpan = span(start, end),
+    inlines = listOf(text(start, end, value)),
+)

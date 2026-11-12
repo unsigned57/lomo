@@ -22,12 +22,7 @@ interface LanShareDiscoveryCoordinator {
     /** Resolved NSD records that failed validation and were discarded, counted for observability. */
     val rejectedRecordCount: StateFlow<Int>
 
-    fun registerService(
-        port: Int,
-        deviceName: String,
-        deviceId: String,
-        protocolVersion: UInt,
-    ): Boolean
+    fun registerService(port: Int, deviceName: String, deviceId: String, protocolVersion: UInt): Boolean
 
     fun unregisterService()
 
@@ -58,12 +53,7 @@ class NsdDiscoveryService(
     private var localDeviceId: String = ""
     private var advertisedProtocolVersion: String = ""
 
-    override fun registerService(
-        port: Int,
-        deviceName: String,
-        deviceId: String,
-        protocolVersion: UInt,
-    ): Boolean {
+    override fun registerService(port: Int, deviceName: String, deviceId: String, protocolVersion: UInt): Boolean {
         unregisterService()
         advertisedProtocolVersion = protocolVersion.toString()
         val serviceInfo =
@@ -80,10 +70,7 @@ class NsdDiscoveryService(
                     Timber.tag(TAG).d("Service registered globally: %s", info.serviceName)
                 }
 
-                override fun onRegistrationFailed(
-                    info: NsdServiceInfo,
-                    errorCode: Int,
-                ) {
+                override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
                     Timber.tag(TAG).e("Global registration failed: %d", errorCode)
                     clearRegistrationListener(this)
                     onServiceRegistrationFailed()
@@ -93,10 +80,7 @@ class NsdDiscoveryService(
                     Timber.tag(TAG).d("Service unregistered globally: %s", info.serviceName)
                 }
 
-                override fun onUnregistrationFailed(
-                    info: NsdServiceInfo,
-                    errorCode: Int,
-                ) {
+                override fun onUnregistrationFailed(info: NsdServiceInfo, errorCode: Int) {
                     Timber.tag(TAG).e("Global unregistration failed: %d", errorCode)
                 }
             }
@@ -146,19 +130,13 @@ class NsdDiscoveryService(
                     Timber.tag(TAG).d("Global discovery stopped for %s", serviceType)
                 }
 
-                override fun onStartDiscoveryFailed(
-                    serviceType: String,
-                    errorCode: Int,
-                ) {
+                override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                     Timber.tag(TAG).e("Global discovery start failed: %d", errorCode)
                     clearDiscoveryListener(this)
                     onDiscoveryStartFailed()
                 }
 
-                override fun onStopDiscoveryFailed(
-                    serviceType: String,
-                    errorCode: Int,
-                ) {
+                override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
                     Timber.tag(TAG).e("Global discovery stop failed: %d", errorCode)
                 }
             }
@@ -241,10 +219,7 @@ class NsdDiscoveryService(
         val serviceKey = callbackKey(serviceInfo)
         val listener =
             object : NsdManager.ResolveListener {
-                override fun onResolveFailed(
-                    info: NsdServiceInfo,
-                    errorCode: Int,
-                ) {
+                override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {
                     Timber.tag(TAG).e("Resolve failed for %s: %d", serviceKey, errorCode)
                 }
 
@@ -265,10 +240,7 @@ class NsdDiscoveryService(
         }
     }
 
-    private fun handleResolvedService(
-        serviceKey: String,
-        info: NsdServiceInfo,
-    ) {
+    private fun handleResolvedService(serviceKey: String, info: NsdServiceInfo) {
         val device =
             mapResolvedLanShareDevice(
                 serviceName = info.serviceName,

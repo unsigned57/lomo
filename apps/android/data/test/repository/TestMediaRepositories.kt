@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+import com.lomo.domain.model.ImageLocationSnapshot
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
@@ -7,8 +8,7 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import java.io.OutputStream
+import kotlinx.coroutines.flow.map
 
 /*
  * Behavior Contract:
@@ -40,15 +40,11 @@ internal object ThrowingMediaRepository : MediaRepository {
         draftId: com.lomo.domain.model.DraftId,
     ): StorageLocation = unexpected("importImage")
 
-    override suspend fun removeImage(
-        entryId: MediaEntryId,
-        draftId: com.lomo.domain.model.DraftId,
-    ) {
+    override suspend fun removeImage(entryId: MediaEntryId, draftId: com.lomo.domain.model.DraftId) {
         unexpected("removeImage")
     }
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
-        unexpected("observeImageLocations")
+    override fun observeImageLocations(): Flow<ImageLocationSnapshot> = unexpected("observeImageLocations")
 
     override suspend fun refreshImageLocations() {
         unexpected("refreshImageLocations")
@@ -107,20 +103,20 @@ internal class RecordingMediaRepository : MediaRepository {
     var orphanSweepCallCount: Int = 0
         private set
 
+    /** When set, the next sweep throws it — lets callers prove post-commit isolation. */
+    var orphanSweepFailure: Exception? = null
+
     override suspend fun importImage(
         source: StorageLocation,
         draftId: com.lomo.domain.model.DraftId,
     ): StorageLocation = source
 
-    override suspend fun removeImage(
-        entryId: MediaEntryId,
-        draftId: com.lomo.domain.model.DraftId,
-    ) {
+    override suspend fun removeImage(entryId: MediaEntryId, draftId: com.lomo.domain.model.DraftId) {
         locations.value = locations.value - entryId
     }
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
-        locations.asStateFlow()
+    override fun observeImageLocations(): Flow<ImageLocationSnapshot> =
+        locations.map { ImageLocationSnapshot.Ready(it) }
 
     override suspend fun refreshImageLocations() {
         refreshImageLocationsCallCount += 1
@@ -149,6 +145,7 @@ internal class RecordingMediaRepository : MediaRepository {
 
     override suspend fun runOrphanSweepAtOperationBoundary() {
         orphanSweepCallCount += 1
+        orphanSweepFailure?.let { throw it }
     }
 
     override suspend fun reconcileDraftMedia(
@@ -179,7 +176,6 @@ internal class NoOpMediaPort : com.lomo.data.engine.media.MediaPort {
     ): com.lomo.data.engine.media.MediaStagedFacts = error("stageMedia is not expected")
 
     override fun recordStageLease(
-        workspaceRoot: String?,
         staged: com.lomo.data.engine.media.MediaStagedFacts,
         ownerKind: com.lomo.data.engine.media.MediaStageOwnerKind,
         ownerId: String,
@@ -202,10 +198,8 @@ internal class NoOpMediaPort : com.lomo.data.engine.media.MediaPort {
         lease: com.lomo.data.engine.media.MediaStageLease,
     ): com.lomo.data.engine.media.MediaStageRelease = error("releaseStageLease is not expected")
 
-    override fun allocateRecordingTarget(
-        mediaRoot: String,
-        extension: String,
-    ): String = error("allocateRecordingTarget is not expected")
+    override fun allocateRecordingTarget(mediaRoot: String, extension: String): String =
+        error("allocateRecordingTarget is not expected")
 
     override fun finalizeRecording(
         mediaRoot: String,
@@ -216,8 +210,7 @@ internal class NoOpMediaPort : com.lomo.data.engine.media.MediaPort {
     override fun queryMediaManifest(
         workspaceRoot: String,
         verifiedEntries: List<com.lomo.data.engine.media.MediaCommittedEntry>,
-    ): com.lomo.data.engine.media.MediaManifest =
-        error("queryMediaManifest is not expected")
+    ): com.lomo.data.engine.media.MediaManifest = error("queryMediaManifest is not expected")
 
     override fun sessionMediaOrphanSweep(
         nowMs: Long?,

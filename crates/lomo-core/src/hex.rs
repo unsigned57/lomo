@@ -1,10 +1,8 @@
 //! Lowercase hex rendering for raw byte slices (P-05 single authority).
 //!
-//! Digest values (`Sha256::digest`, `Hasher::finalize`) already implement
-//! `core::fmt::LowerHex` and must render via `format!("{digest:x}")`; this function
-//! is the single shared encoder for `&[u8]` payloads that are not digest types —
-//! record checksums, CSPRNG tokens, MAC outputs. No third hand-rolled nibble or
-//! `{b:02x}` loop may exist beside these two forms.
+//! Shared encoder for digest outputs, record checksums, CSPRNG tokens and MAC outputs.
+//! SHA2 0.11 returns byte arrays without a formatting implementation; all callers render
+//! the bytes through this authority so persisted identifiers retain the same encoding.
 
 /// Encodes `bytes` as lowercase hex: exactly two `0-9a-f` characters per byte,
 /// most-significant nibble first. Empty input yields an empty string.

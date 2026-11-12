@@ -166,8 +166,7 @@ class RemoteSyncCycleStateMappingTest : DataFunSpec() {
     }
 }
 
-private fun noRecord(): RemoteSyncCycleStatus =
-    record(phase = RemoteSyncCycleStatus.PHASE_IDLE).copy(hasRecord = false)
+private fun noRecord(): RemoteSyncCycleStatus = record(phase = RemoteSyncCycleStatus.PHASE_IDLE).copy(hasRecord = false)
 
 private fun record(
     phase: String,
@@ -181,34 +180,33 @@ private fun record(
     failureMessage: String? = null,
     cancelRequested: Boolean = false,
     finishedAtMs: Long? = null,
-): RemoteSyncCycleStatus =
-    RemoteSyncCycleStatus(
-        hasRecord = true,
-        cycleSeq = 7L,
-        cycleId = "cycle-000007",
-        fenceKey = "fence",
-        backendKind = "git",
-        sessionId = "session",
-        applyRemote = true,
-        phase = phase,
-        stage = stage,
-        ensurePresentCount = ensurePresentCount,
-        ensureAbsentCount = ensureAbsentCount,
-        pullPresentCount = pullPresentCount,
-        openConflictCount = openConflictCount,
-        holdCount = 0,
-        localEntryCount = 0,
-        remoteListedCount = 0,
-        baselineEntryCount = 0,
-        pagesApplied = pagesApplied,
-        baselineAdvanced = phase == RemoteSyncCycleStatus.PHASE_COMPLETED,
-        retryDisposition = "never",
-        failureCode = failureCode,
-        failureMessage = failureMessage,
-        cancelRequested = cancelRequested,
-        startedAtMs = 10L,
-        updatedAtMs = 20L,
-        finishedAtMs = finishedAtMs,
-        lastSuccessfulAtMs = null,
-        stateStamp = 9L,
-    )
+): RemoteSyncCycleStatus = RemoteSyncCycleStatus(
+    hasRecord = true,
+    cycleSeq = 7L,
+    cycleId = "cycle-000007",
+    fenceKey = "fence",
+    backendKind = "git",
+    sessionId = "session",
+    applyRemote = true,
+    phase = phase,
+    stage = stage,
+    ensurePresentCount = ensurePresentCount,
+    ensureAbsentCount = ensureAbsentCount,
+    pullPresentCount = pullPresentCount,
+    openConflictCount = openConflictCount,
+    holdCount = 0,
+    localEntryCount = 0,
+    remoteListedCount = 0,
+    baselineEntryCount = 0,
+    pagesApplied = pagesApplied,
+    baselineAdvanced = phase == RemoteSyncCycleStatus.PHASE_COMPLETED,
+    retryDisposition = "never",
+    failureCode = failureCode,
+    failureMessage = failureMessage,
+    cancelRequested = cancelRequested,
+    startedAtMs = 10L,
+    updatedAtMs = 20L,
+    finishedAtMs = finishedAtMs,
+    lastSuccessfulAtMs = null,
+    stateStamp = 9L,
+)

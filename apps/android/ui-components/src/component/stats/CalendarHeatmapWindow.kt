@@ -8,10 +8,7 @@ import java.util.Locale
 private const val HEATMAP_MONTH_LABEL_TRAILING_WEEKS = 2
 private const val HEATMAP_MIN_LABEL_WEEKS = 3
 
-internal fun calculateWeeksToCoverEarliestDate(
-    today: LocalDate,
-    earliestDate: LocalDate,
-): Int {
+internal fun calculateWeeksToCoverEarliestDate(today: LocalDate, earliestDate: LocalDate): Int {
     val normalizedEarliestDate = earliestDate.coerceAtMost(today)
     val todayOffsetInWeek = today.dayOfWeek.value % DAYS_PER_WEEK
     val daysBetween =
@@ -23,10 +20,7 @@ internal fun calculateWeeksToCoverEarliestDate(
     return (daysOutsideCurrentWeek + DAYS_PER_WEEK - 1) / DAYS_PER_WEEK + 1
 }
 
-internal fun buildMonthLabels(
-    startDay: LocalDate,
-    totalWeeks: Int,
-): List<MonthLabel> {
+internal fun buildMonthLabels(startDay: LocalDate, totalWeeks: Int): List<MonthLabel> {
     var currentMonth = -1
     val labels = mutableListOf<MonthLabel>()
     for (week in 0 until totalWeeks) {
@@ -47,10 +41,7 @@ internal fun buildMonthLabels(
     return labels
 }
 
-private fun shouldShowHeatmapMonthLabel(
-    week: Int,
-    totalWeeks: Int,
-): Boolean =
+private fun shouldShowHeatmapMonthLabel(week: Int, totalWeeks: Int): Boolean =
     week < totalWeeks - HEATMAP_MONTH_LABEL_TRAILING_WEEKS ||
         totalWeeks < HEATMAP_MIN_LABEL_WEEKS
 
@@ -78,8 +69,5 @@ internal fun buildHeatmapCells(
     return cells
 }
 
-private fun formatHeatmapMonthLabel(
-    date: LocalDate,
-): String {
-    return date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-}
+private fun formatHeatmapMonthLabel(date: LocalDate): String =
+    date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())

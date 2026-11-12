@@ -1,6 +1,9 @@
 //! Shared application lifecycle and commands. Physical writes use one frozen transaction path.
 
-use std::sync::{Arc, Mutex, RwLock, atomic::AtomicU64};
+use std::sync::{
+    Arc, Mutex, RwLock,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 
 use lomo_core::{LomoError, OperationId, PageSize, PlatformActionExecutor, RelativeWorkspacePath};
 use lomo_store::{
@@ -10,20 +13,22 @@ use lomo_store::{
     StoreReaderPool,
 };
 use lomo_workspace::{
-    DocumentPatchCommand, HistorySnapshotV1, MemoId, MemoIdentityChange, TrashRecordCreate,
-    TrashRecordV1, encode_trash_record, trash_record_relative_path,
+    DocumentPatchCommand, HistorySnapshotV1, MemoId, MemoIdentityChange, encode_trash_record,
+    trash_record_relative_path,
 };
 
 use crate::{
     config::WorkspaceSessionConfig,
-    csprng::{generate_device_id, mint_memo_id},
-    document_plan::{LoadedDocument, project_memo},
+    csprng::generate_device_id,
+    document_plan::{DocumentRead, LoadedDocument, project_memo},
     draft::{ConflictEvidence, DraftStore},
     error::{storage, validation},
     intent::IntentJournal,
     lock::TransactionLock,
     private_io::{read_optional, write_atomic},
-    record_plan::{StateChange, history_files, state_files},
+    record_plan::{
+        StateChange, history_files, history_files_after_tip, state_files, trash_snapshot,
+    },
     transaction::{PlannedFile, TransactionInput, payload_digest},
     types::{
         CreateMemoRequest, CreateMemoResult, DeleteMemoRequest, DeleteMemoResult, PinMemoRequest,
@@ -35,8 +40,10 @@ use crate::{
 pub struct WorkspaceSession {
     pub(crate) config: WorkspaceSessionConfig,
     pub(crate) executor: Arc<dyn PlatformActionExecutor>,
-    pub(crate) intent_journal: IntentJournal,
+    pub(crate) intent_journal: Arc<IntentJournal>,
+    pub(crate) write_behind: crate::write_behind::WriteBehind,
     device_id: String,
+    projection_verified: AtomicBool,
     store: Mutex<Option<Store>>,
     readers: StoreReaderPool,
     read_gate: RwLock<()>,
@@ -65,6 +72,23 @@ pub struct WorkspaceSession {
 }
 
 impl WorkspaceSession {
+    /// Host-private state root for adapters sharing this session's durable generation.
+    #[must_use]
+    pub fn private_state_dir(&self) -> &std::path::Path {
+        &self.config.state_dir
+    }
+
+    /// Opens a readable retained projection before workspace revalidation.
+    ///
+    /// # Errors
+    /// Propagates private storage, recovery and projection failures.
+    pub fn open_for_presentation(
+        config: WorkspaceSessionConfig,
+        executor: Arc<dyn PlatformActionExecutor>,
+    ) -> Result<Self, LomoError> {
+        Self::open_internal(config, executor, true)
+    }
+
     /// Opens private state and recovers pending transactions before admitting new commands.
     ///
     /// # Errors
@@ -72,6 +96,14 @@ impl WorkspaceSession {
     pub fn open(
         config: WorkspaceSessionConfig,
         executor: Arc<dyn PlatformActionExecutor>,
+    ) -> Result<Self, LomoError> {
+        Self::open_internal(config, executor, false)
+    }
+
+    fn open_internal(
+        config: WorkspaceSessionConfig,
+        executor: Arc<dyn PlatformActionExecutor>,
+        retain_projection: bool,
     ) -> Result<Self, LomoError> {
         crate::calendar::local_date(epoch_millis()?, &config.time_zone)?;
         for directory in [
@@ -104,8 +136,14 @@ impl WorkspaceSession {
         if let Some(witness) = store.integrity_witness() {
             readers.mark_verified(witness)?;
         }
+        let intent_journal = Arc::new(IntentJournal::new(&state_layout)?);
         let session = Self {
-            intent_journal: IntentJournal::new(&state_layout)?,
+            write_behind: crate::write_behind::WriteBehind::new(
+                config.clone(),
+                Arc::clone(&executor),
+                Arc::clone(&intent_journal),
+            ),
+            intent_journal,
             readers,
             read_gate: RwLock::new(()),
             draft_store: DraftStore::new(&state_layout)?,
@@ -114,6 +152,7 @@ impl WorkspaceSession {
             config,
             executor,
             device_id,
+            projection_verified: AtomicBool::new(true),
             store: Mutex::new(Some(store)),
             mount: Mutex::new(None),
             search_epoch: AtomicU64::new(0),
@@ -123,11 +162,61 @@ impl WorkspaceSession {
         };
         let pending = session.recover_files_for_mount()?;
         let floor = session.intent_journal.clock_floor()?;
+        // Decide before restoring the clock: a migration can intentionally invalidate a
+        // projection by resetting its revision, and a journal floor cannot certify its rows.
+        let retained = retain_projection
+            && pending.is_empty()
+            && session.with_store(|store| {
+                Ok(store.high_water_revision() > 0
+                    && store.high_water_revision() >= floor.core_revision
+                    && store.workspace_listing_digest()?.is_some())
+            })?;
         session.with_store_mut(|store| store.restore_clock_floor(floor))?;
-        session.rebuild_locked(!pending.is_empty())?;
-        session.acknowledge_mounted_operations(&pending)?;
-        session.evict_stale_baselines()?;
+        if retained {
+            session.projection_verified.store(false, Ordering::Release);
+        } else {
+            session.rebuild_locked(!pending.is_empty())?;
+            session.acknowledge_mounted_operations(&pending)?;
+            session.evict_stale_baselines()?;
+        }
         Ok(session)
+    }
+
+    /// Blocks until every committed command's bytes reached the workspace.
+    ///
+    /// Commands return once their intent is durable and published; workspace files converge
+    /// behind them. Callers that hand workspace bytes to another owner (export, an external
+    /// editor, tests asserting on disk) settle first.
+    ///
+    /// # Errors
+    /// The replay failure of the oldest unconverged intent.
+    pub fn settle_workspace(&self) -> Result<(), LomoError> {
+        self.write_behind.settle()
+    }
+
+    /// Backlog and stall state of write-behind convergence.
+    ///
+    /// # Errors
+    /// Storage when the queue lock is poisoned.
+    pub fn write_convergence(&self) -> Result<crate::write_behind::WriteConvergence, LomoError> {
+        self.write_behind.convergence()
+    }
+
+    /// Whether the mounted projection has been reconciled in this session.
+    #[must_use]
+    pub fn projection_is_verified(&self) -> bool {
+        self.projection_verified.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn require_verified_projection(&self) -> Result<(), LomoError> {
+        if self.projection_is_verified() {
+            Ok(())
+        } else {
+            Err(storage(
+                "projection_revalidating",
+                "workspace verification must complete before writes",
+            ))
+        }
     }
 
     #[must_use]
@@ -223,30 +312,52 @@ impl WorkspaceSession {
     /// # Errors
     /// Storage or corruption failures while publishing the witness or deleting receipts.
     pub fn seal(&self) -> Result<bool, LomoError> {
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        let _held = self.write_behind.exclusive()?;
         self.intent_journal.seal()
     }
 
     /// Appends a new independently identified memo to its dated Markdown document.
     ///
+    /// The composition of [`Self::accept_create`] and [`AcceptedCreate::commit`].
+    ///
     /// # Errors
     /// Rejects stale baselines, operation reuse, invalid content and physical write failures.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "create freezes markdown, attachments, history, and optional pin in one transaction"
-    )]
     pub fn create_memo(&self, request: CreateMemoRequest) -> Result<CreateMemoResult, LomoError> {
+        self.accept_create(request)?
+            .commit()
+            .map_err(|withdrawn| withdrawn.into_error())
+    }
+
+    /// Admits a create and publishes its pending projection row before any workspace I/O.
+    ///
+    /// The acceptance holds the transaction lock and the minted identity; the row is queryable
+    /// with `is_pending` until [`AcceptedCreate::commit`] upgrades it in place. A commit failure
+    /// or an acceptance dropped without commit withdraws the row. A replayed operation is
+    /// accepted with its committed receipt and no pending row.
+    ///
+    /// # Errors
+    /// Invalid requests, an unverified projection, operation reuse and projection failures.
+    pub fn accept_create(
+        &self,
+        request: CreateMemoRequest,
+    ) -> Result<AcceptedCreate<'_>, LomoError> {
         request.validate()?;
+        self.require_verified_projection()?;
         require_new_memo_content(&request.content)?;
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        let lock = self.write_behind.exclusive()?;
         let digest = payload_digest(&request)?;
-        if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
-            return Ok(CreateMemoResult {
-                memo_id: MemoId::parse(&receipt.memo_id)?,
-                commit_result: receipt,
+        let replay = self.replay(&lock, &request.operation_id, &digest)?;
+        if let Some(receipt) = replay {
+            drop(lock);
+            return Ok(AcceptedCreate {
+                session: self,
+                state: AcceptedState::Replayed(CreateMemoResult {
+                    memo_id: MemoId::parse(&receipt.memo_id)?,
+                    commit_result: receipt,
+                }),
             });
         }
-        self.recover_pending()?;
+        self.recover_pending(&lock)?;
         let now = epoch_millis()?;
         let chronology = request.chronology_epoch_ms.unwrap_or(now);
         let stamp = crate::calendar::journal_stamp(
@@ -254,21 +365,107 @@ impl WorkspaceSession {
             &self.config.time_zone,
             self.config.date_format,
         )?;
-        let path = if let Some(path) = request.relative_path {
+        let path = if let Some(path) = request.relative_path.clone() {
             path
         } else {
             RelativeWorkspacePath::parse(&stamp.filename)?
         };
+        let time_part = request.time_token.clone().unwrap_or(stamp.time_token);
+        let date_key = crate::document_plan::filename_stem(&path)?.to_owned();
+        // Pending and durable rows must share the chronology a cold rebuild derives from the
+        // document, including its second precision. The event timestamp belongs to history only.
+        let projected_chronology =
+            crate::calendar::memo_chronology(&date_key, &time_part, &self.config.time_zone)?;
+        let begun = self.with_store_mut(|store| {
+            store.begin_saf_memo_create(&lomo_store::SafMemoCreateBegin {
+                operation_id: request.operation_id.as_str().to_owned(),
+                date_key,
+                time_part: time_part.clone(),
+                chronology_epoch_ms: projected_chronology,
+                source_path: path.as_str().to_owned(),
+                body: request.content.clone(),
+            })
+        })?;
+        let memo_id = MemoId::parse(&begun.memo_id)?;
+        Ok(AcceptedCreate {
+            session: self,
+            state: AcceptedState::Pending(Box::new(PendingCreate {
+                _lock: lock,
+                publication: lomo_store::SafProjectionCommitResult {
+                    operation_id: request.operation_id.as_str().to_owned(),
+                    memo_id: begun.memo_id,
+                    core_revision: begun.core_revision,
+                    event_sequence: begun.event_sequence,
+                    content_revision: 0,
+                    file_fingerprint: String::new(),
+                    scopes: begun.scopes,
+                    idempotent_replay: begun.idempotent_replay,
+                    deleted_memos: Vec::new(),
+                },
+                plan: CreatePlan {
+                    request,
+                    digest,
+                    path,
+                    time_part,
+                    chronology,
+                    now,
+                    memo_id,
+                },
+            })),
+        })
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "create freezes markdown, attachments, history, and optional pin in one transaction"
+    )]
+    fn commit_create(
+        &self,
+        held: &crate::write_behind::Exclusive<'_>,
+        plan: CreatePlan,
+    ) -> Result<CreateMemoResult, LomoError> {
+        let CreatePlan {
+            request,
+            digest,
+            path,
+            time_part,
+            chronology,
+            now,
+            memo_id,
+        } = plan;
         let io = self.io();
-        let loaded = LoadedDocument::load(&io, path.clone())?;
+        // Creation follows the physical source, including verified absence. A retained query
+        // projection cannot turn an externally removed document into a required existing file.
+        let read = if self
+            .with_reader(|store| store.source_document_fingerprint(path.as_str()))?
+            .is_some()
+        {
+            DocumentRead::CataloguedDestination
+        } else {
+            DocumentRead::UncataloguedDestination
+        };
+        let loaded = LoadedDocument::load(&io, path.clone(), read)?;
+        if loaded.original.is_none() {
+            let memo_removes = self.active_memo_ids_for_source_path(path.as_str())?;
+            if !memo_removes.is_empty() {
+                // These rows just lost their source attestation. Preserve the admitted pending
+                // create and use the normal incremental fact publisher to retire stale siblings.
+                self.with_store_mut(|store| {
+                    store.apply_scanned_incremental(&lomo_store::ScannedIncrementalFacts {
+                        listing_removes: vec![path.as_str().to_owned()],
+                        memo_removes,
+                        ..lomo_store::ScannedIncrementalFacts::default()
+                    })
+                })?;
+            }
+        }
         if let Some(expected) = &request.expected_document_fingerprint {
             self.check_baseline(&loaded, &request.operation_id, expected, &request.content)?;
         }
-        let memo_id = mint_memo_id()?;
         let command = DocumentPatchCommand::Append {
             path: loaded.logical_path.clone(),
             expected_fingerprint: loaded.document.source().fingerprint().clone(),
-            time_part: request.time_token.unwrap_or(stamp.time_token),
+            time_part,
             content: request.content.clone(),
         };
         let changed = loaded.apply(
@@ -289,10 +486,10 @@ impl WorkspaceSession {
             &io,
             &request.operation_id,
             &request.content,
+            crate::media_plan::AttachmentBaseline::NewMemo,
             &request.pending_promotes,
         )?);
-        let history = history_files(
-            &io,
+        let history = history_files_after_tip(
             &HistorySnapshotV1 {
                 memo_id: memo_id.as_str().to_owned(),
                 revision: 1,
@@ -300,6 +497,7 @@ impl WorkspaceSession {
                 file_fingerprint: fingerprint.to_owned(),
                 created_at_ms: chronology,
             },
+            None,
         )?;
         files.extend(history.files);
         let mut mutations = vec![DocumentPublication {
@@ -334,16 +532,18 @@ impl WorkspaceSession {
                 ),
             });
         }
-        let staging = request.pending_promotes.clone();
-        let commit_result = self.commit_transaction(TransactionInput {
-            operation_id: request.operation_id,
-            memo_id: memo_id.clone(),
-            path,
-            payload_digest: digest,
-            files,
-            mutations,
-        })?;
-        crate::media_plan::discard_private_staging(&staging);
+        let commit_result = self.commit_transaction(
+            held,
+            TransactionInput {
+                operation_id: request.operation_id,
+                memo_id: memo_id.clone(),
+                path,
+                payload_digest: digest,
+                files,
+                mutations,
+                staging: request.pending_promotes,
+            },
+        )?;
         Ok(CreateMemoResult {
             memo_id,
             commit_result,
@@ -356,15 +556,23 @@ impl WorkspaceSession {
     /// Rejects stale source versions and preserves the frozen transaction on I/O failure.
     pub fn update_memo(&self, request: UpdateMemoRequest) -> Result<UpdateMemoResult, LomoError> {
         request.validate()?;
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        self.require_verified_projection()?;
+        let target =
+            self.with_reader(|store| store.get_memo_projection(request.memo_id.as_str()))?;
+        let held = match target {
+            Some(target) if !target.is_trashed && request.pending_promotes.is_empty() => self
+                .write_behind
+                .document_edits(&RelativeWorkspacePath::parse(&target.source_path)?)?,
+            _ => self.write_behind.exclusive()?,
+        };
         let digest = payload_digest(&request)?;
-        if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
+        if let Some(receipt) = self.replay(&held, &request.operation_id, &digest)? {
             return Ok(update_result(receipt));
         }
-        self.recover_pending()?;
+        self.recover_pending(&held)?;
         let current = self.current_memo(&request.memo_id)?;
         let path = RelativeWorkspacePath::parse(&current.summary.source_path)?;
-        let loaded = LoadedDocument::load_existing(&self.io(), path.clone())?;
+        let loaded = LoadedDocument::load(&self.io(), path.clone(), DocumentRead::ActiveMemo)?;
         self.check_baseline(
             &loaded,
             &request.operation_id,
@@ -400,6 +608,9 @@ impl WorkspaceSession {
             &self.io(),
             &request.operation_id,
             &request.content,
+            crate::media_plan::AttachmentBaseline::ExistingMemo(
+                loaded.memo(&request.memo_id)?.attachments(),
+            ),
             &request.pending_promotes,
         )?);
         let history = history_files(
@@ -423,19 +634,22 @@ impl WorkspaceSession {
             trashed_at_ms: None,
             batch_targets: Vec::new(),
         };
-        let staging = request.pending_promotes.clone();
-        let receipt = self.commit_transaction(TransactionInput {
-            operation_id: request.operation_id,
-            memo_id: request.memo_id,
-            path,
-            payload_digest: digest,
-            files,
-            mutations: vec![DocumentPublication {
-                mutation,
-                history: Some(history.projection),
-            }],
-        })?;
-        crate::media_plan::discard_private_staging(&staging);
+        let receipt = self.commit_transaction(
+            &held,
+            TransactionInput {
+                operation_id: request.operation_id,
+                memo_id: request.memo_id,
+                path,
+                payload_digest: digest,
+                files,
+                mutations: vec![DocumentPublication {
+                    mutation,
+                    history: Some(history.projection),
+                }],
+                staging: request.pending_promotes,
+            },
+        )?;
+        drop(held);
         Ok(update_result(receipt))
     }
 
@@ -446,21 +660,30 @@ impl WorkspaceSession {
     /// and platform/projection errors.
     pub fn delete_memo(&self, request: DeleteMemoRequest) -> Result<DeleteMemoResult, LomoError> {
         request.validate()?;
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        self.require_verified_projection()?;
+        let held = self.write_behind.exclusive()?;
         let digest = payload_digest(&request)?;
-        if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
+        if let Some(receipt) = self.replay(&held, &request.operation_id, &digest)? {
             return Ok(delete_result(receipt));
         }
-        self.recover_pending()?;
+        self.recover_pending(&held)?;
         let current = self.current_memo(&request.memo_id)?;
         let path = RelativeWorkspacePath::parse(&current.summary.source_path)?;
-        let loaded = LoadedDocument::load_existing(&self.io(), path.clone())?;
-        self.check_baseline(
-            &loaded,
-            &request.operation_id,
-            &request.expected_document_fingerprint,
-            &current.body,
-        )?;
+        let loaded = LoadedDocument::load(&self.io(), path.clone(), DocumentRead::ActiveMemo)?;
+        let baseline =
+            lomo_workspace::SourceFingerprint::parse(&request.expected_document_fingerprint)?;
+        if !loaded.identities.unchanged_since(
+            &request.memo_id,
+            &baseline,
+            loaded.document.source().fingerprint(),
+        ) {
+            self.check_baseline(
+                &loaded,
+                &request.operation_id,
+                &request.expected_document_fingerprint,
+                &current.body,
+            )?;
+        }
         let target = loaded.memo(&request.memo_id)?;
         let command = DocumentPatchCommand::Remove {
             path: loaded.logical_path.clone(),
@@ -481,20 +704,7 @@ impl WorkspaceSession {
             &self.config.time_zone,
         )?;
         let trashed_at = request.trashed_at_ms.map_or_else(epoch_millis, Ok)?;
-        let trash = TrashRecordV1::try_new(TrashRecordCreate {
-            memo_id: request.memo_id.as_str().to_owned(),
-            source_path: path.as_str().to_owned(),
-            time_part: target.time_part().to_owned(),
-            source_fingerprint: fingerprint.to_owned(),
-            chronology_epoch_ms: projection.chronology_epoch_ms,
-            trashed_at_ms: trashed_at,
-            body: target.content().to_owned(),
-            tags: target.tags().to_vec(),
-            attachments: target.attachments().to_vec(),
-            reminders: projection.reminders.clone(),
-            has_todo: target.has_todo(),
-            has_url: target.has_url(),
-        })?;
+        let trash = trash_snapshot(&projection, target.time_part(), trashed_at)?;
         let mut files = loaded.files(&changed)?;
         files.extend(state_files(
             &self.io(),
@@ -504,7 +714,7 @@ impl WorkspaceSession {
             trashed_at,
         )?);
         let trash_path = RelativeWorkspacePath::parse(
-            trash_record_relative_path(request.memo_id.as_str())?.as_str(),
+            trash_record_relative_path(request.memo_id.as_str(), &trash.source_path)?.as_str(),
         )?;
         let previous = self.io().read(&trash_path)?;
         files.push(PlannedFile::new(
@@ -517,22 +727,27 @@ impl WorkspaceSession {
             kind: SafProjectionMutationKind::Delete,
             memo_id: request.memo_id.as_str().to_owned(),
             expected_revision: current.summary.content_revision,
-            expected_fingerprint: Some(request.expected_document_fingerprint),
+            expected_fingerprint: Some(current.summary.file_fingerprint),
             projection: Some(projection),
             trashed_at_ms: Some(trashed_at),
             batch_targets: Vec::new(),
         };
-        let receipt = self.commit_transaction(TransactionInput {
-            operation_id: request.operation_id,
-            memo_id: request.memo_id,
-            path,
-            payload_digest: digest,
-            files,
-            mutations: vec![DocumentPublication {
-                mutation,
-                history: None,
-            }],
-        })?;
+        let receipt = self.commit_transaction(
+            &held,
+            TransactionInput {
+                operation_id: request.operation_id,
+                memo_id: request.memo_id,
+                path,
+                payload_digest: digest,
+                files,
+                mutations: vec![DocumentPublication {
+                    mutation,
+                    history: None,
+                }],
+                staging: Vec::new(),
+            },
+        )?;
+        drop(held);
         Ok(delete_result(receipt))
     }
 
@@ -542,18 +757,19 @@ impl WorkspaceSession {
     /// Rejects operation reuse and invalid source identities or pin timestamps.
     pub fn pin_memo(&self, request: PinMemoRequest) -> Result<PinMemoResult, LomoError> {
         request.validate()?;
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        self.require_verified_projection()?;
+        let held = self.write_behind.exclusive()?;
         let digest = payload_digest(&request)?;
         let (operation_id, memo_id, pin) = request.into_parts();
-        if let Some(receipt) = self.replay(&operation_id, &digest)? {
+        if let Some(receipt) = self.replay(&held, &operation_id, &digest)? {
             return Ok(PinMemoResult {
                 commit_result: receipt,
             });
         }
-        self.recover_pending()?;
+        self.recover_pending(&held)?;
         let current = self.current_memo(&memo_id)?;
         let path = RelativeWorkspacePath::parse(&current.summary.source_path)?;
-        let loaded = LoadedDocument::load_existing(&self.io(), path.clone())?;
+        let loaded = LoadedDocument::load(&self.io(), path.clone(), DocumentRead::ActiveMemo)?;
         loaded.memo(&memo_id)?;
         let now = epoch_millis()?;
         let pinned_at = match pin {
@@ -574,18 +790,82 @@ impl WorkspaceSession {
             current.summary.content_revision,
             loaded.fingerprint(),
         );
-        let commit_result = self.commit_transaction(TransactionInput {
-            operation_id,
-            memo_id,
-            path,
-            payload_digest: digest,
-            files,
-            mutations: vec![DocumentPublication {
-                mutation,
-                history: None,
-            }],
-        })?;
+        let commit_result = self.commit_transaction(
+            &held,
+            TransactionInput {
+                operation_id,
+                memo_id,
+                path,
+                payload_digest: digest,
+                files,
+                mutations: vec![DocumentPublication {
+                    mutation,
+                    history: None,
+                }],
+                staging: Vec::new(),
+            },
+        )?;
+        drop(held);
         Ok(PinMemoResult { commit_result })
+    }
+
+    /// Captures unique source documents from this session's private projection for sync.
+    ///
+    /// The workspace root is not a projection directory. Every digest is checked against
+    /// the live source before it reaches a remote planner; multiple memos share one file fact.
+    ///
+    /// # Errors
+    /// Projection, source-read and stale-source failures are surfaced before remote publication.
+    pub fn snapshot_sync_documents(&self) -> Result<crate::SessionSyncSnapshot, LomoError> {
+        let _held = self.write_behind.exclusive()?;
+        let query = MemoQuery {
+            filters: MemoFilters {
+                include_trash: true,
+                ..MemoFilters::default()
+            },
+            search_text: None,
+            sort: lomo_store::MemoSort::default(),
+        };
+        let walk = crate::paging::collect_summaries(self, &query, crate::paging::NEVER_CANCELLED)?;
+        let mut documents = std::collections::BTreeMap::new();
+        for memo in walk.items.iter() {
+            if let Some(previous) =
+                documents.insert(memo.source_path.clone(), memo.file_fingerprint.clone())
+                && previous != memo.file_fingerprint
+            {
+                return Err(crate::error::corruption(
+                    "inconsistent_source_document_fingerprint",
+                    "sync source rows disagree",
+                ));
+            }
+        }
+        let paths = documents
+            .keys()
+            .map(|path| RelativeWorkspacePath::parse(path))
+            .collect::<Result<Vec<_>, _>>()?;
+        for chunk in paths.chunks(crate::workspace_io::MAX_WORKSPACE_READ_BATCH) {
+            for (path, source) in chunk.iter().zip(self.io().require_batch(chunk)?) {
+                let digest = lomo_workspace::SourceFingerprint::of_bytes(&source.bytes);
+                if documents.get(path.as_str()).map(String::as_str) != Some(digest.as_str()) {
+                    return Err(crate::error::conflict(
+                        "sync_snapshot_fingerprint_mismatch",
+                        "sync source changed since projection publication",
+                    ));
+                }
+            }
+        }
+        Ok(crate::SessionSyncSnapshot {
+            generation: self.config.workspace_generation.clone(),
+            documents: documents
+                .into_iter()
+                .map(|(path, fingerprint)| {
+                    Ok(crate::SyncDocumentFact {
+                        path: RelativeWorkspacePath::parse(&path)?,
+                        fingerprint: lomo_workspace::SourceFingerprint::parse(&fingerprint)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, LomoError>>()?,
+        })
     }
 
     /// Reads an active memo from the disposable query projection.
@@ -768,9 +1048,12 @@ impl WorkspaceSession {
     /// # Errors
     /// Unresolved identities and corrupt facts leave the previous projection intact.
     pub fn rebuild_projection(&self) -> Result<RebuildResult, LomoError> {
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
-        self.recover_pending()?;
-        self.rebuild_locked(false)
+        let held = self.write_behind.exclusive()?;
+        self.recover_pending(&held)?;
+        let result = self.rebuild_locked(false)?;
+        self.evict_stale_baselines()?;
+        self.projection_verified.store(true, Ordering::Release);
+        Ok(result)
     }
 
     /// Reconciles the projection using watcher-supplied changed paths.
@@ -786,8 +1069,8 @@ impl WorkspaceSession {
         &self,
         changed_paths: &[RelativeWorkspacePath],
     ) -> Result<RebuildResult, LomoError> {
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
-        self.recover_pending()?;
+        let held = self.write_behind.exclusive()?;
+        self.recover_pending(&held)?;
         self.reconcile_locked(false, Some(changed_paths))
     }
 
@@ -802,6 +1085,9 @@ impl WorkspaceSession {
         force_scan: bool,
         observed: Option<&[RelativeWorkspacePath]>,
     ) -> Result<RebuildResult, LomoError> {
+        // Projection facts are only derivable under a supported layout. Presentation of a
+        // retained projection consumes no workspace facts and therefore skips this check.
+        crate::record_plan::validate_workspace_layout(&self.io())?;
         let evidence = crate::rebuild::list_workspace_listing(&self.config, &self.executor)?;
         let skipped_sync = evidence.skipped_sync_subtrees();
         let listing = evidence.admitted_listing()?;
@@ -958,10 +1244,7 @@ impl WorkspaceSession {
     }
 
     pub(crate) fn io(&self) -> WorkspaceIo<'_> {
-        WorkspaceIo {
-            config: &self.config,
-            executor: &self.executor,
-        }
+        WorkspaceIo::committed(&self.config, &self.executor, &self.write_behind)
     }
 
     pub(crate) fn with_reader<R>(
@@ -1006,6 +1289,120 @@ impl WorkspaceSession {
         let result = write(store);
         drop(guard);
         result
+    }
+}
+
+/// A create the engine admitted: identity minted and pending row published, no workspace I/O
+/// performed yet. Exactly one of [`Self::commit`] or drop settles it.
+pub struct AcceptedCreate<'session> {
+    session: &'session WorkspaceSession,
+    state: AcceptedState<'session>,
+}
+
+enum AcceptedState<'session> {
+    Replayed(CreateMemoResult),
+    Pending(Box<PendingCreate<'session>>),
+    Settled,
+}
+
+struct PendingCreate<'session> {
+    _lock: crate::write_behind::Exclusive<'session>,
+    publication: lomo_store::SafProjectionCommitResult,
+    plan: CreatePlan,
+}
+
+/// Inputs frozen at acceptance; the commit derives every durable byte from them.
+struct CreatePlan {
+    request: CreateMemoRequest,
+    digest: String,
+    path: RelativeWorkspacePath,
+    time_part: String,
+    chronology: i64,
+    now: i64,
+    memo_id: MemoId,
+}
+
+/// A create whose durable commit failed after acceptance.
+///
+/// `withdrawal` is the outcome of removing its pending row: the removal publication, `None` when
+/// the row was already gone, or the projection failure that left it until the next open sweeps it.
+#[derive(Debug)]
+pub struct WithdrawnCreate {
+    pub error: LomoError,
+    pub withdrawal: Result<Option<lomo_store::SafMemoPublication>, LomoError>,
+}
+
+impl WithdrawnCreate {
+    /// The failure a caller must act on: a projection fault that left the pending row visible
+    /// outranks the commit failure it was cleaning up after.
+    #[must_use]
+    pub fn into_error(self) -> LomoError {
+        match self.withdrawal {
+            Ok(_) => self.error,
+            Err(withdrawal_error) => withdrawal_error,
+        }
+    }
+}
+
+impl AcceptedCreate<'_> {
+    /// The projection publication that made the accepted memo visible: the pending row's clock,
+    /// or the committed receipt for a replayed operation.
+    #[must_use]
+    pub fn publication(&self) -> &lomo_store::SafProjectionCommitResult {
+        match &self.state {
+            AcceptedState::Replayed(result) => &result.commit_result,
+            AcceptedState::Pending(pending) => &pending.publication,
+            AcceptedState::Settled => unreachable!("a settled acceptance is consumed"),
+        }
+    }
+
+    /// Runs the durable transaction and upgrades the pending row in place.
+    ///
+    /// # Errors
+    /// The commit failure together with the publication that withdrew the pending row.
+    pub fn commit(mut self) -> Result<CreateMemoResult, Box<WithdrawnCreate>> {
+        match std::mem::replace(&mut self.state, AcceptedState::Settled) {
+            AcceptedState::Replayed(result) => Ok(result),
+            AcceptedState::Pending(pending) => {
+                let PendingCreate {
+                    _lock: lock,
+                    publication,
+                    plan,
+                } = *pending;
+                let outcome = self.session.commit_create(&lock, plan).map_err(|error| {
+                    Box::new(WithdrawnCreate {
+                        error,
+                        withdrawal: self.session.withdraw_pending_create(&publication),
+                    })
+                });
+                drop(lock);
+                outcome
+            }
+            AcceptedState::Settled => unreachable!("a settled acceptance is consumed"),
+        }
+    }
+}
+
+impl Drop for AcceptedCreate<'_> {
+    fn drop(&mut self) {
+        if let AcceptedState::Pending(pending) =
+            std::mem::replace(&mut self.state, AcceptedState::Settled)
+        {
+            // An abandoned acceptance has no caller to report to; a row this withdrawal cannot
+            // remove is swept by the next projection open, the same path a crash takes.
+            drop(self.session.withdraw_pending_create(&pending.publication));
+        }
+    }
+}
+
+impl WorkspaceSession {
+    fn withdraw_pending_create(
+        &self,
+        publication: &lomo_store::SafProjectionCommitResult,
+    ) -> Result<Option<lomo_store::SafMemoPublication>, LomoError> {
+        self.with_store_mut(|store| {
+            store.rollback_saf_memo_create(&publication.operation_id, &publication.memo_id)
+        })
     }
 }
 

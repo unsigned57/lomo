@@ -1,17 +1,16 @@
 package com.lomo.data.di
 
 import com.lomo.data.source.FileDataSourceImpl
+import com.lomo.data.source.FileMarkdownStorageDataSourceDelegate
+import com.lomo.data.source.FileMediaStorageDataSourceDelegate
+import com.lomo.data.source.FileStorageBackendResolver
+import com.lomo.data.source.FileWorkspaceConfigSourceDelegate
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MediaStorageDataSource
 import com.lomo.data.source.WorkspaceConfigSource
-import com.lomo.data.source.FileStorageBackendResolver
-import com.lomo.data.source.FileWorkspaceConfigSourceDelegate
-import com.lomo.data.source.FileMarkdownStorageDataSourceDelegate
-import com.lomo.data.source.FileMediaStorageDataSourceDelegate
-import org.koin.dsl.module
 import org.koin.android.ext.koin.androidContext
-import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.bind
+import org.koin.dsl.module
 
 val storageDataSourceModule = module {
     single { FileStorageBackendResolver(androidContext(), get(), get()) }

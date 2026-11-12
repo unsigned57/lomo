@@ -19,10 +19,7 @@ internal const val FRAGMENT_SEPARATOR = '#'
 internal const val PATH_SEPARATOR = '/'
 private const val IMAGE_RESOLVE_CACHE_SIZE = 256
 
-internal data class ResolvedMemoImages(
-    val document: MarkdownRenderDocument,
-    val imageUrls: ImmutableList<String>,
-)
+internal data class ResolvedMemoImages(val document: MarkdownRenderDocument, val imageUrls: ImmutableList<String>)
 
 private data class ImageResolveCacheKey(
     val url: String,
@@ -42,8 +39,7 @@ internal class MemoUiImageContentResolver {
         imageMap: Map<String, Uri>,
     ): ResolvedMemoImages {
         val callCache = HashMap<ImageResolveCacheKey, String>()
-        fun resolveImageDestination(url: String): String =
-            resolveCached(url, rootPath, imagePath, imageMap, callCache)
+        fun resolveImageDestination(url: String): String = resolveCached(url, rootPath, imagePath, imageMap, callCache)
 
         // Every non-audio destination resolves into the image-load lane; authenticity is
         // judged fail-closed inside Coil. Audio keeps the raw workspace path its player needs.
@@ -56,21 +52,21 @@ internal class MemoUiImageContentResolver {
 
         return ResolvedMemoImages(
             document =
-                document.copy(
-                    attachments =
-                        document.attachments.map { attachment ->
-                            if (attachment.mediaClass != MediaClass.AUDIO) {
-                                attachment.copy(destination = resolveImageDestination(attachment.destination))
-                            } else {
-                                attachment
-                            }
-                        },
-                    blocks = document.blocks.map { block -> block.resolveImages(::resolveImageDestination) },
-                ),
+            document.copy(
+                attachments =
+                document.attachments.map { attachment ->
+                    if (attachment.mediaClass != MediaClass.AUDIO) {
+                        attachment.copy(destination = resolveImageDestination(attachment.destination))
+                    } else {
+                        attachment
+                    }
+                },
+                blocks = document.blocks.map { block -> block.resolveImages(::resolveImageDestination) },
+            ),
             imageUrls =
-                imageUrls
-                    .map(::resolveImageDestination)
-                    .toImmutableList(),
+            imageUrls
+                .map(::resolveImageDestination)
+                .toImmutableList(),
         )
     }
 
@@ -79,35 +75,33 @@ internal class MemoUiImageContentResolver {
         rootPath: String?,
         imagePath: String?,
         imageMap: Map<String, Uri>,
-    ): MarkdownRenderDocument =
-        resolveMemoImages(
-            document = document,
-            imageUrls = emptyList(),
-            rootPath = rootPath,
-            imagePath = imagePath,
-            imageMap = imageMap,
-        ).document
+    ): MarkdownRenderDocument = resolveMemoImages(
+        document = document,
+        imageUrls = emptyList(),
+        rootPath = rootPath,
+        imagePath = imagePath,
+        imageMap = imageMap,
+    ).document
 
     fun resolveProjectedImageUrls(
         imageUrls: List<String>,
         rootPath: String?,
         imagePath: String?,
         imageMap: Map<String, Uri>,
-    ): ImmutableList<String> =
-        resolveMemoImages(
-            document =
-                MarkdownRenderDocument(
-                    sourceByteLength = 0uL,
-                    plainText = "",
-                    tagNames = emptyList(),
-                    attachments = emptyList(),
-                    blocks = emptyList(),
-                ),
-            imageUrls = imageUrls,
-            rootPath = rootPath,
-            imagePath = imagePath,
-            imageMap = imageMap,
-        ).imageUrls
+    ): ImmutableList<String> = resolveMemoImages(
+        document =
+        MarkdownRenderDocument(
+            sourceByteLength = 0uL,
+            plainText = "",
+            tagNames = emptyList(),
+            attachments = emptyList(),
+            blocks = emptyList(),
+        ),
+        imageUrls = imageUrls,
+        rootPath = rootPath,
+        imagePath = imagePath,
+        imageMap = imageMap,
+    ).imageUrls
 
     private fun resolveCached(
         url: String,
@@ -146,8 +140,8 @@ internal class MemoUiImageContentResolver {
 
     /**
      * Resolves one normalized destination under the workspace directory law:
-     * qualified paths are identities; bare basenames pool every candidate that
-     * claims the name and resolve only when the claim is unique.
+     * images/ uses a dedicated image selection; other qualified paths retain workspace identity.
+     * A shared notes/image root keeps the workspace namespace instead of mounting it twice.
      */
     private fun resolveImageModel(
         imageUrl: String,
@@ -164,17 +158,28 @@ internal class MemoUiImageContentResolver {
         val canonical =
             canonicalizeAttachmentPath(normalizedImageUrl) ?: return normalizedImageUrl
         val isBareName = PATH_SEPARATOR !in canonical
+        val selectedImagePath = imagePath?.takeUnless { it == rootPath }
+        val isMountedImage = !selectedImagePath.isNullOrBlank() && canonical.startsWith("images/")
+        val probePath = if (isMountedImage) canonical.removePrefix("images/") else canonical
+        val probeInImageRoot = isBareName || isMountedImage
 
         // Pooled verifiable candidates: image-map hits plus existing files. Two
         // distinct locations claiming one basename fail closed — the first
         // candidate is never a default.
         val pooled = LinkedHashMap<String, Any>()
-        for (key in imageMapLookupKeys(normalizedImageUrl, imageMap.keys)) {
+        val lookupKeys = imageMapLookupKeys(normalizedImageUrl, imageMap.keys)
+        val selectedDirectoryKeys =
+            if (isBareName && !selectedImagePath.isNullOrBlank()) {
+                lookupKeys.filter { PATH_SEPARATOR !in it }
+            } else {
+                lookupKeys
+            }
+        for (key in selectedDirectoryKeys) {
             imageMap[key]?.let { uri ->
                 pooled.putIfAbsent(locationIdentity(uri.toString()), uri)
             }
         }
-        for (probe in fileProbeTargets(canonical, isBareName, rootPath, imagePath)) {
+        for (probe in fileProbeTargets(probePath, probeInImageRoot, rootPath, selectedImagePath)) {
             if (probe.isFile) {
                 pooled.putIfAbsent(locationIdentity(probe.absolutePath), probe)
             }
@@ -185,12 +190,9 @@ internal class MemoUiImageContentResolver {
             else -> return normalizedImageUrl
         }
 
-        // Unverifiable lanes: SAF docId joins in deterministic order, then the
-        // first-base file path for the not-found display. A join names the same
-        // canonical path under each base, so a wrong guess misses instead of
-        // loading another directory's file.
-        return resolveRelativeContentUri(canonical, isBareName, rootPath, imagePath)
-            ?: resolveFallbackRelativeFile(canonical, isBareName, rootPath, imagePath)
+        // SAF locations come only from the provider-backed image map. A document ID is
+        // opaque: joining a path onto a tree ID cannot establish a readable location.
+        return resolveFallbackRelativeFile(probePath, probeInImageRoot, rootPath, selectedImagePath)
             ?: normalizedImageUrl
     }
 }
@@ -201,11 +203,14 @@ internal class MemoUiImageContentResolver {
  * salt) are transport decoration, not location — two spellings of one file
  * must collapse to a single claim instead of counting as an ambiguity.
  */
-private fun locationIdentity(raw: String): String =
-    raw
-        .removePrefix(FILE_URI_PREFIX)
-        .substringBefore(FRAGMENT_SEPARATOR)
-        .substringBefore(QUERY_SEPARATOR)
+private fun locationIdentity(raw: String): String {
+    val location = raw.substringBefore(FRAGMENT_SEPARATOR).substringBefore(QUERY_SEPARATOR)
+    return if (location.startsWith(FILE_URI_PREFIX)) {
+        requireNotNull(parseUriPath(location)) { "Invalid file URI in image locations: $location" }
+    } else {
+        location
+    }
+}
 
 private fun isAbsoluteOrRemoteImageUrl(value: String): Boolean {
     val lower = value.lowercase(java.util.Locale.ROOT)

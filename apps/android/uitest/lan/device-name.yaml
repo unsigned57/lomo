@@ -1,0 +1,10 @@
+# Part of the opt-in two-device LAN journey; run via just uitest lan_share.
+appId: com.lomo.app
+---
+- tapOn:
+    id: "benchmark_lan_device_name_input"
+- eraseText
+- inputText: ${LAN_DEVICE_NAME}
+- hideKeyboard
+- tapOn:
+    id: "benchmark_lan_device_name_save"

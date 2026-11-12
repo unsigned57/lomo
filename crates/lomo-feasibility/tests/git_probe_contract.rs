@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //!
 //! Capability: prove vendored `libgit2` local bare transport and HTTPS smart-HTTP (credentials,
@@ -37,7 +46,7 @@ mod tests {
         assert!(report.remote.pushed_to_bare);
         assert!(report.remote.fetched_from_bare);
         assert!(report.remote.rebase_conflict_observed);
-        assert!(!report.head_message.is_empty());
+        assert_ne!(report.head_message, "");
         drop(std::fs::remove_dir_all(root));
     }
 

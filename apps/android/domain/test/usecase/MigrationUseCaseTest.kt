@@ -124,9 +124,8 @@ class MigrationUseCaseTest : DomainFunSpec() {
     }
 }
 
-private class FakeMigrationArchiveRepository(
-    private val settingsImportFailure: Throwable? = null,
-) : MigrationArchiveRepository {
+private class FakeMigrationArchiveRepository(private val settingsImportFailure: Throwable? = null) :
+    MigrationArchiveRepository {
     var notesArchiveBytes: ByteArray = byteArrayOf()
     var nextNotesExportSummary = MigrationArchiveSummary()
     var nextNotesImportSummary = MigrationArchiveSummary()
@@ -148,18 +147,12 @@ private class FakeMigrationArchiveRepository(
         return nextNotesImportSummary
     }
 
-    override suspend fun exportEncryptedSettings(
-        output: OutputStream,
-        password: String,
-    ): MigrationSettingsSummary {
+    override suspend fun exportEncryptedSettings(output: OutputStream, password: String): MigrationSettingsSummary {
         output.write(password.toByteArray())
         return MigrationSettingsSummary(settingCount = 1, sensitiveSettingCount = 1)
     }
 
-    override suspend fun importEncryptedSettings(
-        input: InputStream,
-        password: String,
-    ): MigrationSettingsSummary {
+    override suspend fun importEncryptedSettings(input: InputStream, password: String): MigrationSettingsSummary {
         importSettingsCallCount += 1
         settingsImportFailure?.let { throw it }
         input.readBytes()

@@ -49,7 +49,10 @@ class TrustedLaunchTrustRootTest : AppFunSpec() {
             hmacKey.importedAsciiKey shouldBe trustedLaunchAsciiHmacKeyBytes(hexSecret)
             hmacKey.importCount shouldBe 1
             plaintext.read() shouldBe null
-            MessageDigest.isEqual(digest, softwareHmac(trustedLaunchAsciiHmacKeyBytes(hexSecret), payload)) shouldBe true
+            MessageDigest.isEqual(
+                digest,
+                softwareHmac(trustedLaunchAsciiHmacKeyBytes(hexSecret), payload),
+            ) shouldBe true
             MessageDigest.isEqual(digest, softwareHmac(decodeHex(hexSecret), payload)) shouldBe false
         }
 
@@ -82,10 +85,15 @@ class TrustedLaunchTrustRootTest : AppFunSpec() {
             hmacKey.importCount shouldBe 0
             plaintext.read() shouldBe null
             MessageDigest.isEqual(digest, softwareHmac(originalAscii, payload)) shouldBe true
-            MessageDigest.isEqual(digest, softwareHmac(trustedLaunchAsciiHmacKeyBytes(leftoverHex), payload)) shouldBe false
+            MessageDigest.isEqual(
+                digest,
+                softwareHmac(trustedLaunchAsciiHmacKeyBytes(leftoverHex), payload),
+            ) shouldBe false
         }
 
-        test("given import failure and existing plaintext when hmac is requested then plaintext is kept and no second secret is written") {
+        test(
+            "given import failure and existing plaintext when hmac is requested then plaintext is kept and no second secret is written",
+        ) {
             val hexSecret = "ef".repeat(INSTALL_SECRET_RANDOM_BYTES)
             val plaintext = FakePlaintextInstallSecret(hexSecret)
             val hmacKey = FakeHmacKeyEntry(failImport = true)
@@ -110,7 +118,9 @@ class TrustedLaunchTrustRootTest : AppFunSpec() {
             hmacKey.importCount shouldBe 1
         }
 
-        test("given empty stores when first hmac runs then generated ascii key is imported and plaintext stays absent") {
+        test(
+            "given empty stores when first hmac runs then generated ascii key is imported and plaintext stays absent",
+        ) {
             val plaintext = FakePlaintextInstallSecret()
             val hmacKey = FakeHmacKeyEntry()
             val generated = ByteArray(INSTALL_SECRET_RANDOM_BYTES) { 0x22 }
@@ -141,9 +151,7 @@ private object ImmediateTrustedLaunchProcessLock : TrustedLaunchProcessLock {
     override fun <T> withLock(block: () -> T): T = block()
 }
 
-private class FakePlaintextInstallSecret(
-    initial: String? = null,
-) : TrustedLaunchPlaintextInstallSecret {
+private class FakePlaintextInstallSecret(initial: String? = null) : TrustedLaunchPlaintextInstallSecret {
     private var value: String? = initial
     var writeCount: Int = 0
         private set
@@ -155,10 +163,8 @@ private class FakePlaintextInstallSecret(
     }
 }
 
-private class FakeHmacKeyEntry(
-    importedAsciiKey: ByteArray? = null,
-    private val failImport: Boolean = false,
-) : TrustedLaunchHmacKeyEntry {
+private class FakeHmacKeyEntry(importedAsciiKey: ByteArray? = null, private val failImport: Boolean = false) :
+    TrustedLaunchHmacKeyEntry {
     var importedAsciiKey: ByteArray? = importedAsciiKey?.copyOf()
         private set
     var importCount: Int = 0
@@ -186,10 +192,7 @@ private class FakeHmacKeyEntry(
     }
 }
 
-private fun softwareHmac(
-    keyBytes: ByteArray,
-    payload: ByteArray,
-): ByteArray {
+private fun softwareHmac(keyBytes: ByteArray, payload: ByteArray): ByteArray {
     val mac = Mac.getInstance(HMAC_SHA_256)
     mac.init(SecretKeySpec(keyBytes, HMAC_SHA_256))
     return mac.doFinal(payload)

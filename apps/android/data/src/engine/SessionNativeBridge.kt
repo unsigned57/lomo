@@ -2,8 +2,8 @@ package com.lomo.data.engine
 
 import com.lomo.nativebridge.PlatformBatchHost
 import com.lomo.nativebridge.SessionCreateMemoRequest
-import com.lomo.nativebridge.SessionOpenResult
 import com.lomo.nativebridge.SessionDeleteMemoRequest
+import com.lomo.nativebridge.SessionOpenResult
 import com.lomo.nativebridge.SessionPinMemoRequest
 import com.lomo.nativebridge.SessionRestoreRequest
 import com.lomo.nativebridge.SessionRestoreRevisionRequest
@@ -40,37 +40,34 @@ internal interface SessionNativeBridge {
         mediaStageRoot: String,
     ): SessionOpenResult = error("workspace session open is not expected")
 
-    fun sessionCreateMemo(request: SessionCreateMemoRequest): StoreMemoCommit =
-        error("session create is not expected")
+    fun sessionCreateMemo(
+        request: SessionCreateMemoRequest,
+        observer: com.lomo.nativebridge.MemoCreateObserver,
+    ): StoreMemoCommit = error("session create is not expected")
 
-    fun sessionUpdateMemo(request: SessionUpdateMemoRequest): StoreMemoCommit =
-        error("session update is not expected")
+    fun sessionUpdateMemo(request: SessionUpdateMemoRequest): StoreMemoCommit = error("session update is not expected")
 
-    fun sessionDeleteMemo(request: SessionDeleteMemoRequest): StoreMemoCommit =
-        error("session delete is not expected")
+    fun sessionDeleteMemo(request: SessionDeleteMemoRequest): StoreMemoCommit = error("session delete is not expected")
 
-    fun sessionPinMemo(request: SessionPinMemoRequest): StoreMemoCommit =
-        error("session pin is not expected")
+    fun sessionPinMemo(request: SessionPinMemoRequest): StoreMemoCommit = error("session pin is not expected")
 
-    fun sessionSearch(request: SessionSearchRequest): SessionSearchOutcome =
-        error("session search is not expected")
+    fun sessionSearch(request: SessionSearchRequest): SessionSearchOutcome = error("session search is not expected")
 
     fun sessionListTasks(): List<SessionTaskItem> = error("session tasks are not expected")
 
     fun sessionToggleTask(request: SessionToggleTaskRequest): StoreMemoCommit =
         error("session toggle task is not expected")
 
+    fun sessionToggleTaskMarker(operationId: String, memoId: String, start: ULong, end: ULong): StoreMemoCommit =
+        error("session task marker is not expected")
+
     fun sessionStatistics(snapshot: SessionStatisticsSnapshot): SessionStatistics =
         error("session statistics are not expected")
 
-    fun sessionListHistory(
-        memoId: String,
-        cursor: String?,
-        limit: UInt,
-    ): StoreMemoHistoryPage = error("session history is not expected")
+    fun sessionListHistory(memoId: String, cursor: String?, limit: UInt): StoreMemoHistoryPage =
+        error("session history is not expected")
 
-    fun sessionRestoreMemo(request: SessionRestoreRequest): StoreMemoCommit =
-        error("session restore is not expected")
+    fun sessionRestoreMemo(request: SessionRestoreRequest): StoreMemoCommit = error("session restore is not expected")
 
     fun sessionRestoreRevision(request: SessionRestoreRevisionRequest): StoreMemoCommit =
         error("session restore revision is not expected")
@@ -81,19 +78,21 @@ internal interface SessionNativeBridge {
     fun sessionPermanentlyDeleteMany(request: StoreMemoBatchDelete): StoreMemoBatchCommit =
         error("session permanent delete batch is not expected")
 
-    fun sessionReminderPlan(nowUtcMs: Long?): StoreReminderPlan =
-        error("session reminder plan is not expected")
+    fun sessionPlanReminderRewrite(
+        request: com.lomo.nativebridge.SessionReminderRewriteRequest,
+    ): com.lomo.nativebridge.SessionReminderRewritePlan = error("session reminder rewrite planning is not expected")
 
-    fun sessionSnoozeReminder(
-        opaqueId: String,
-        interval: com.lomo.nativebridge.ReminderSnoozeInterval,
-    ) {
+    fun sessionReminderPlan(nowUtcMs: Long?): StoreReminderPlan = error("session reminder plan is not expected")
+
+    fun sessionSnoozeReminder(opaqueId: String, interval: com.lomo.nativebridge.ReminderSnoozeInterval) {
         error("session reminder snooze is not expected")
     }
 
     fun sessionRecoverReminderSnooze() {
         error("session reminder snooze recovery is not expected")
     }
+
+    fun syncPrivateStateRoot(workspaceRoot: String): String = error("session sync state root is not expected")
 
     fun syncRunCycle(
         workspaceRoot: String,

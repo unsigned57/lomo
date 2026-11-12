@@ -3,13 +3,16 @@ package com.lomo.data.repository
 import android.content.Context
 import com.lomo.data.engine.archive.ArchivePort
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
+import com.lomo.data.source.StorageRootType
+import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.domain.repository.MigrationArchiveRepository
 import com.lomo.domain.repository.SyncPolicyRepository
-import com.lomo.domain.usecase.MigrationArchiveSummary
-import com.lomo.domain.usecase.MigrationEnvelopeException
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
+import com.lomo.domain.usecase.MigrationArchiveSummary
+import com.lomo.domain.usecase.MigrationEnvelopeException
 import com.lomo.domain.usecase.MigrationSettingsSummary
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import java.io.File
@@ -27,6 +30,7 @@ class WorkspaceArchiveEdgeRepository
 constructor(
     private val context: Context,
     private val archivePort: ArchivePort,
+    private val workspaceConfigSource: WorkspaceConfigSource,
     private val workspaceRoot: WorkspaceFilesystemRoot,
     private val settingsStore: MigrationSettingsStore,
     private val invalidation: StoreInvalidationBus,
@@ -35,10 +39,13 @@ constructor(
 ) : MigrationArchiveRepository {
     override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary =
         withContext(dispatcherProvider.io) {
-            val root = requireDirectWorkspaceRoot()
             // The artifact path is session-env derived inside Rust; Kotlin only streams the
             // artifact out and reclaims it.
-            val exported = archivePort.sessionExportArchive(root, null)
+            val mediaRoots = listOfNotNull(
+                workspaceConfigSource.getRootFlow(StorageRootType.IMAGE).first(),
+                workspaceConfigSource.getRootFlow(StorageRootType.VOICE).first(),
+            )
+            val exported = archivePort.sessionExportArchive(null, mediaRoots)
             val archiveFile = File(exported.archivePath)
             try {
                 archiveFile.inputStream().use { input -> input.copyTo(output) }
@@ -87,10 +94,7 @@ constructor(
             }
         }
 
-    override suspend fun exportEncryptedSettings(
-        output: OutputStream,
-        password: String,
-    ): MigrationSettingsSummary =
+    override suspend fun exportEncryptedSettings(output: OutputStream, password: String): MigrationSettingsSummary =
         withContext(dispatcherProvider.io) {
             require(password.isNotBlank()) { "Migration password must not be blank" }
             val snapshot = settingsStore.snapshot()
@@ -101,10 +105,7 @@ constructor(
             snapshot.toSummary()
         }
 
-    override suspend fun importEncryptedSettings(
-        input: InputStream,
-        password: String,
-    ): MigrationSettingsSummary =
+    override suspend fun importEncryptedSettings(input: InputStream, password: String): MigrationSettingsSummary =
         withContext(dispatcherProvider.io) {
             require(password.isNotBlank()) { "Migration password must not be blank" }
             // Untrusted input is byte-budgeted before it is materialized.
@@ -128,9 +129,8 @@ constructor(
             snapshot.toSummary()
         }
 
-    private fun requireDirectWorkspaceRoot(): String =
-        workspaceRoot.absolutePathOrNull()
-            ?: error("Archive path FFI requires an active Direct workspace root")
+    private fun requireDirectWorkspaceRoot(): String = workspaceRoot.absolutePathOrNull()
+        ?: error("Archive path FFI requires an active Direct workspace root")
 
     private fun stageCompressedArchive(input: InputStream): File {
         val archiveFile =

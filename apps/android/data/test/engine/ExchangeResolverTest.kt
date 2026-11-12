@@ -87,7 +87,6 @@ class ExchangeResolverTest : DataFunSpec() {
             }
         }
 
-
         test("given long complete UTF-8 artifact when read then exact content is returned") {
             val root = kotlin.io.path.createTempDirectory("lomo-exchange").toFile()
             try {
@@ -169,8 +168,7 @@ class ExchangeResolverTest : DataFunSpec() {
     }
 }
 
-private fun sha256Hex(bytes: ByteArray): String =
-    MessageDigest
-        .getInstance("SHA-256")
-        .digest(bytes)
-        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+private fun sha256Hex(bytes: ByteArray): String = MessageDigest
+    .getInstance("SHA-256")
+    .digest(bytes)
+    .joinToString(separator = "") { byte -> "%02x".format(byte) }

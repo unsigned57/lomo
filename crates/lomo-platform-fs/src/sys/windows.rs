@@ -413,12 +413,14 @@ impl Node {
         Ok((
             metadata.file_size(),
             format!(
-                "st.{:x}.{:x}.{}.{}.{}",
-                metadata.volume_serial_number().unwrap_or_default(),
-                metadata.file_index().unwrap_or_default(),
-                metadata.file_size(),
-                metadata.last_write_time(),
-                metadata.change_time()
+                "st.{}.{}.{}.{}.{}",
+                lomo_core::hex_encode(
+                    &metadata.volume_serial_number().unwrap_or_default(),
+                    metadata.file_index().unwrap_or_default(),
+                    metadata.file_size(),
+                    metadata.last_write_time(),
+                    metadata.change_time()
+                )
             ),
         ))
     }

@@ -44,7 +44,9 @@ import io.kotest.matchers.shouldBe
  */
 class AppUpdateReleaseParsingTest : DataFunSpec() {
     init {
-        test("given current release apk asset without custom fields when parsing release then verified candidate is emitted") {
+        test(
+            "given current release apk asset without custom fields when parsing release then verified candidate is emitted",
+        ) {
             val response =
                 """
                 {
@@ -81,7 +83,9 @@ class AppUpdateReleaseParsingTest : DataFunSpec() {
             }
         }
 
-        test("given version-code release apk asset without custom fields when parsing release then version code is derived from file name") {
+        test(
+            "given version-code release apk asset without custom fields when parsing release then version code is derived from file name",
+        ) {
             val response =
                 """
                 {
@@ -109,7 +113,9 @@ class AppUpdateReleaseParsingTest : DataFunSpec() {
                 )
         }
 
-        test("given unsupported first apk and verified later apk when parsing release then verified candidate metadata is preserved") {
+        test(
+            "given unsupported first apk and verified later apk when parsing release then verified candidate metadata is preserved",
+        ) {
             val response =
                 """
                 {
@@ -165,7 +171,9 @@ class AppUpdateReleaseParsingTest : DataFunSpec() {
             }
         }
 
-        test("given apk asset without package metadata when parsing release then candidate is unsupported and not installable") {
+        test(
+            "given apk asset without package metadata when parsing release then candidate is unsupported and not installable",
+        ) {
             val response =
                 """
                 {

@@ -14,15 +14,24 @@ internal fun releaseCandidate(
     candidateToken?.let(capabilityRegistry::revoke)
 }
 
+/** Releases an unpublished candidate before propagating its terminal activation failure. */
+internal fun rejectWorkspaceCandidate(
+    candidate: ManagedWorkspaceCandidate,
+    failure: Throwable,
+    capabilityRegistry: CapabilityRegistry,
+): Nothing {
+    releaseCandidate(candidate.adapter, candidate.capabilityToken, failure, capabilityRegistry)
+    throw failure
+}
+
 /**
  * Soft workspace activation failure: candidate opened but never reached Ready.
  * Carries structured recovery so cold-restore can freeze authority without promoting the candidate.
  */
-class WorkspaceActivationException(
-    val recovery: EngineReadiness.ReadOnlyRecovery,
-) : IllegalStateException(
-    "Workspace activation did not reach Ready (${recovery.code}): ${recovery.diagnostic}",
-)
+class WorkspaceActivationException(val recovery: EngineReadiness.ReadOnlyRecovery) :
+    IllegalStateException(
+        "Workspace activation did not reach Ready (${recovery.code}): ${recovery.diagnostic}",
+    )
 
 internal fun SafMemoProjectionSnapshot.toBridge(): com.lomo.nativebridge.StoreSafMemoProjection =
     com.lomo.nativebridge.StoreSafMemoProjection(

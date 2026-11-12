@@ -54,43 +54,43 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                     actionSpan = null,
                     checked = null,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(2uL, 20uL),
-                                inlines =
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(2uL, 20uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(span(2uL, 7uL), "Item "),
+                                MarkdownRenderInline.Link(
+                                    sourceSpan = span(7uL, 20uL),
+                                    destination = "https://example.com",
+                                    title = null,
+                                    inlines =
                                     listOf(
-                                        MarkdownRenderInline.Text(span(2uL, 7uL), "Item "),
-                                        MarkdownRenderInline.Link(
-                                            sourceSpan = span(7uL, 20uL),
-                                            destination = "https://example.com",
-                                            title = null,
-                                            inlines =
-                                                listOf(
-                                                    MarkdownRenderInline.Text(span(8uL, 12uL), "link"),
-                                                ),
-                                        ),
+                                        MarkdownRenderInline.Text(span(8uL, 12uL), "link"),
                                     ),
+                                ),
                             ),
                         ),
+                    ),
                 )
             val document =
                 document(
                     sourceLength = 60uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.BlockQuote(
-                                sourceSpan = span(0uL, 60uL),
-                                blocks =
-                                    listOf(
-                                        MarkdownRenderBlock.ListBlock(
-                                            sourceSpan = span(0uL, 60uL),
-                                            ordered = false,
-                                            startNumber = 1uL,
-                                            items = listOf(nestedItem),
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.BlockQuote(
+                            sourceSpan = span(0uL, 60uL),
+                            blocks =
+                            listOf(
+                                MarkdownRenderBlock.ListBlock(
+                                    sourceSpan = span(0uL, 60uL),
+                                    ordered = false,
+                                    startNumber = 1uL,
+                                    items = listOf(nestedItem),
+                                ),
                             ),
                         ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
@@ -113,33 +113,34 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                     actionSpan = span(0uL, 3uL),
                     checked = false,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(4uL, 24uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Text(span(4uL, 24uL), "Complete the audit"),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(4uL, 24uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(span(4uL, 24uL), "Complete the audit"),
                             ),
                         ),
+                    ),
                 )
             val document =
                 document(
                     sourceLength = 24uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.ListBlock(
-                                sourceSpan = span(0uL, 24uL),
-                                ordered = false,
-                                startNumber = 1uL,
-                                items = listOf(taskItem),
-                            ),
+                    listOf(
+                        MarkdownRenderBlock.ListBlock(
+                            sourceSpan = span(0uL, 24uL),
+                            ordered = false,
+                            startNumber = 1uL,
+                            items = listOf(taskItem),
                         ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
 
-            val list = plan.items.single().shouldBeInstanceOf<MarkdownIrPresentationItem.Block>().block.shouldBeInstanceOf<MarkdownRenderBlock.ListBlock>()
+            val list = plan.items.single().shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                .block.shouldBeInstanceOf<MarkdownRenderBlock.ListBlock>()
             val item = list.items.single()
             item.actionSpan shouldBe span(0uL, 3uL)
             item.checked shouldBe false
@@ -150,41 +151,41 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                 document(
                     sourceLength = 80uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 30uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(0uL, 30uL),
-                                            destination = "img1.png",
-                                            title = null,
-                                            altText = "First",
-                                            mediaClass = MediaClass.IMAGE,
-                                        ),
-                                    ),
-                            ),
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(31uL, 60uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(31uL, 60uL),
-                                            destination = "img2.png",
-                                            title = null,
-                                            altText = "Second",
-                                            mediaClass = MediaClass.IMAGE,
-                                        ),
-                                    ),
-                            ),
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(61uL, 80uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Text(span(61uL, 80uL), "Trailing notes"),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 30uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(0uL, 30uL),
+                                    destination = "img1.png",
+                                    title = null,
+                                    altText = "First",
+                                    mediaClass = MediaClass.IMAGE,
+                                ),
                             ),
                         ),
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(31uL, 60uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(31uL, 60uL),
+                                    destination = "img2.png",
+                                    title = null,
+                                    altText = "Second",
+                                    mediaClass = MediaClass.IMAGE,
+                                ),
+                            ),
+                        ),
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(61uL, 80uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(span(61uL, 80uL), "Trailing notes"),
+                            ),
+                        ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
@@ -198,17 +199,32 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
             trailing.block.shouldBeInstanceOf<MarkdownRenderBlock.Paragraph>()
         }
 
-        test("given visible block limit when plan is built then presentation sequence is bounded without document mutation") {
+        test(
+            "given visible block limit when plan is built then presentation sequence is bounded without document mutation",
+        ) {
             val document =
                 document(
                     sourceLength = 120uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Heading(span(0uL, 20uL), 1u, listOf(MarkdownRenderInline.Text(span(2uL, 20uL), "Header"))),
-                            MarkdownRenderBlock.Paragraph(span(21uL, 50uL), listOf(MarkdownRenderInline.Text(span(21uL, 50uL), "First paragraph"))),
-                            MarkdownRenderBlock.Paragraph(span(51uL, 80uL), listOf(MarkdownRenderInline.Text(span(51uL, 80uL), "Second paragraph"))),
-                            MarkdownRenderBlock.Paragraph(span(81uL, 120uL), listOf(MarkdownRenderInline.Text(span(81uL, 120uL), "Third paragraph"))),
+                    listOf(
+                        MarkdownRenderBlock.Heading(
+                            span(0uL, 20uL),
+                            1u,
+                            listOf(MarkdownRenderInline.Text(span(2uL, 20uL), "Header")),
                         ),
+                        MarkdownRenderBlock.Paragraph(
+                            span(21uL, 50uL),
+                            listOf(MarkdownRenderInline.Text(span(21uL, 50uL), "First paragraph")),
+                        ),
+                        MarkdownRenderBlock.Paragraph(
+                            span(51uL, 80uL),
+                            listOf(MarkdownRenderInline.Text(span(51uL, 80uL), "Second paragraph")),
+                        ),
+                        MarkdownRenderBlock.Paragraph(
+                            span(81uL, 120uL),
+                            listOf(MarkdownRenderInline.Text(span(81uL, 120uL), "Third paragraph")),
+                        ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document = document, maxVisibleBlocks = 2)
@@ -236,21 +252,31 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
             val table =
                 MarkdownRenderBlock.Table(
                     sourceSpan = span(0uL, 50uL),
-                    header = listOf(MarkdownRenderTableCell(span(0uL, 10uL), listOf(MarkdownRenderInline.Text(span(0uL, 10uL), "Col1")))),
-                    rows =
-                        listOf(
-                            listOf(MarkdownRenderTableCell(span(11uL, 20uL), listOf(MarkdownRenderInline.Text(span(11uL, 20uL), "Val1")))),
+                    header = listOf(
+                        MarkdownRenderTableCell(
+                            span(0uL, 10uL),
+                            listOf(MarkdownRenderInline.Text(span(0uL, 10uL), "Col1")),
                         ),
+                    ),
+                    rows =
+                    listOf(
+                        listOf(
+                            MarkdownRenderTableCell(
+                                span(11uL, 20uL),
+                                listOf(MarkdownRenderInline.Text(span(11uL, 20uL), "Val1")),
+                            ),
+                        ),
+                    ),
                 )
             val document =
                 document(
                     sourceLength = 80uL,
                     blocks =
-                        listOf(
-                            table,
-                            MarkdownRenderBlock.ThematicBreak(span(51uL, 54uL)),
-                            MarkdownRenderBlock.CodeBlock(span(55uL, 80uL), "kotlin", "val x = 1"),
-                        ),
+                    listOf(
+                        table,
+                        MarkdownRenderBlock.ThematicBreak(span(51uL, 54uL)),
+                        MarkdownRenderBlock.CodeBlock(span(55uL, 80uL), "kotlin", "val x = 1"),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
@@ -258,8 +284,10 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
             plan.totalBlocks shouldBe 3
             plan.items.size shouldBe 3
             plan.items[0].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>().block shouldBe table
-            plan.items[1].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>().block.shouldBeInstanceOf<MarkdownRenderBlock.ThematicBreak>()
-            val code = plan.items[2].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>().block.shouldBeInstanceOf<MarkdownRenderBlock.CodeBlock>()
+            plan.items[1].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                .block.shouldBeInstanceOf<MarkdownRenderBlock.ThematicBreak>()
+            val code = plan.items[2].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                .block.shouldBeInstanceOf<MarkdownRenderBlock.CodeBlock>()
             code.language shouldBe "kotlin"
             code.literal shouldBe "val x = 1"
         }
@@ -269,24 +297,25 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                 document(
                     sourceLength = 40uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 40uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.WikiReference(
-                                            sourceSpan = span(0uL, 20uL),
-                                            target = "TargetPage",
-                                            inlines = listOf(MarkdownRenderInline.Text(span(0uL, 20uL), "My Target")),
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 40uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.WikiReference(
+                                    sourceSpan = span(0uL, 20uL),
+                                    target = "TargetPage",
+                                    inlines = listOf(MarkdownRenderInline.Text(span(0uL, 20uL), "My Target")),
+                                ),
                             ),
                         ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
 
-            val paragraph = plan.items.single().shouldBeInstanceOf<MarkdownIrPresentationItem.Block>().block.shouldBeInstanceOf<MarkdownRenderBlock.Paragraph>()
+            val paragraph = plan.items.single().shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                .block.shouldBeInstanceOf<MarkdownRenderBlock.Paragraph>()
             val wiki = paragraph.inlines.single().shouldBeInstanceOf<MarkdownRenderInline.WikiReference>()
             wiki.target shouldBe "TargetPage"
             val labelText = wiki.inlines.filterIsInstance<MarkdownRenderInline.Text>().joinToString("") { it.text }
@@ -298,21 +327,21 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                 document(
                     sourceLength = 30uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 30uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(0uL, 30uL),
-                                            destination = "wiki-cover.png",
-                                            title = null,
-                                            altText = "",
-                                            mediaClass = MediaClass.IMAGE,
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 30uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(0uL, 30uL),
+                                    destination = "wiki-cover.png",
+                                    title = null,
+                                    altText = "",
+                                    mediaClass = MediaClass.IMAGE,
+                                ),
                             ),
                         ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
@@ -328,59 +357,65 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                 document(
                     sourceLength = 50uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.BlockQuote(
-                                sourceSpan = span(0uL, 50uL),
-                                blocks =
+                    listOf(
+                        MarkdownRenderBlock.BlockQuote(
+                            sourceSpan = span(0uL, 50uL),
+                            blocks =
+                            listOf(
+                                MarkdownRenderBlock.Paragraph(
+                                    sourceSpan = span(2uL, 48uL),
+                                    inlines =
                                     listOf(
-                                        MarkdownRenderBlock.Paragraph(
+                                        MarkdownRenderInline.Image(
                                             sourceSpan = span(2uL, 48uL),
-                                            inlines =
-                                                listOf(
-                                                    MarkdownRenderInline.Image(
-                                                        sourceSpan = span(2uL, 48uL),
-                                                        destination = "wiki-cover.png",
-                                                        title = null,
-                                                        altText = "",
-                                                        mediaClass = MediaClass.IMAGE,
-                                                    ),
-                                                ),
+                                            destination = "wiki-cover.png",
+                                            title = null,
+                                            altText = "",
+                                            mediaClass = MediaClass.IMAGE,
                                         ),
                                     ),
+                                ),
                             ),
                         ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
 
-            val quote = plan.items.single().shouldBeInstanceOf<MarkdownIrPresentationItem.Block>().block.shouldBeInstanceOf<MarkdownRenderBlock.BlockQuote>()
+            val quote = plan.items.single().shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                .block.shouldBeInstanceOf<MarkdownRenderBlock.BlockQuote>()
             val paragraph = quote.blocks.single().shouldBeInstanceOf<MarkdownRenderBlock.Paragraph>()
             val imageNodes =
                 paragraph.inlines.filterIsInstance<MarkdownRenderInline.Image>()
             imageNodes.map { it.destination } shouldBe listOf("wiki-cover.png")
         }
 
-        test("given memo with inline tags and reminders when plan is built with MEMO_CARD policy then they are stripped and whitespace is normalized") {
+        test(
+            "given memo with inline tags and reminders when plan is built with MEMO_CARD policy then they are stripped and whitespace is normalized",
+        ) {
             val document =
                 document(
                     sourceLength = 60uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 60uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Text(span(0uL, 6uL), "Hello "),
-                                        MarkdownRenderInline.Tag(span(6uL, 11uL), "test"),
-                                        MarkdownRenderInline.Text(span(11uL, 20uL), "  world , "),
-                                        MarkdownRenderInline.Reminder(span(20uL, 38uL), "@2026-09-02-12:00"),
-                                        MarkdownRenderInline.Text(span(38uL, 43uL), " done"),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 60uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(span(0uL, 6uL), "Hello "),
+                                MarkdownRenderInline.Tag(span(6uL, 11uL), "test"),
+                                MarkdownRenderInline.Text(span(11uL, 20uL), "  world , "),
+                                MarkdownRenderInline.Reminder(span(20uL, 38uL), "@2026-09-02-12:00"),
+                                MarkdownRenderInline.Text(span(38uL, 43uL), " done"),
                             ),
                         ),
+                    ),
                 )
 
-            val plan = buildMarkdownIrPresentationPlan(document = document, policy = MarkdownPresentationPolicy.MEMO_CARD)
+            val plan = buildMarkdownIrPresentationPlan(
+                document = document,
+                policy = MarkdownPresentationPolicy.MEMO_CARD,
+            )
 
             plan.totalBlocks shouldBe 1
             val paragraph =
@@ -393,25 +428,30 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
             text shouldBe "Hello world, done"
         }
 
-        test("given memo with text followed by newline and tag when plan is built with MEMO_CARD policy then trailing line break is trimmed leaving no empty line") {
+        test(
+            "given memo with text followed by newline and tag when plan is built with MEMO_CARD policy then trailing line break is trimmed leaving no empty line",
+        ) {
             val document =
                 document(
                     sourceLength = 50uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 50uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Text(span(0uL, 20uL), "Quote text."),
-                                        MarkdownRenderInline.SoftBreak(span(20uL, 21uL)),
-                                        MarkdownRenderInline.Tag(span(21uL, 25uL), "tag"),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 50uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(span(0uL, 20uL), "Quote text."),
+                                MarkdownRenderInline.SoftBreak(span(20uL, 21uL)),
+                                MarkdownRenderInline.Tag(span(21uL, 25uL), "tag"),
                             ),
                         ),
+                    ),
                 )
 
-            val plan = buildMarkdownIrPresentationPlan(document = document, policy = MarkdownPresentationPolicy.MEMO_CARD)
+            val plan = buildMarkdownIrPresentationPlan(
+                document = document,
+                policy = MarkdownPresentationPolicy.MEMO_CARD,
+            )
 
             plan.totalBlocks shouldBe 1
             val paragraph =
@@ -424,70 +464,80 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                 )
         }
 
-        test("given pure tag and reminder memo when plan is built with MEMO_CARD policy then empty blocks are pruned leaving zero items") {
+        test(
+            "given pure tag and reminder memo when plan is built with MEMO_CARD policy then empty blocks are pruned leaving zero items",
+        ) {
             val document =
                 document(
                     sourceLength = 40uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 20uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Tag(span(0uL, 5uL), "tag1"),
-                                        MarkdownRenderInline.Text(span(5uL, 6uL), " "),
-                                        MarkdownRenderInline.Tag(span(6uL, 11uL), "tag2"),
-                                    ),
-                            ),
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(21uL, 40uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Reminder(span(21uL, 39uL), "@2026-09-02-12:00"),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 20uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Tag(span(0uL, 5uL), "tag1"),
+                                MarkdownRenderInline.Text(span(5uL, 6uL), " "),
+                                MarkdownRenderInline.Tag(span(6uL, 11uL), "tag2"),
                             ),
                         ),
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(21uL, 40uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Reminder(span(21uL, 39uL), "@2026-09-02-12:00"),
+                            ),
+                        ),
+                    ),
                 )
 
-            val plan = buildMarkdownIrPresentationPlan(document = document, policy = MarkdownPresentationPolicy.MEMO_CARD)
+            val plan = buildMarkdownIrPresentationPlan(
+                document = document,
+                policy = MarkdownPresentationPolicy.MEMO_CARD,
+            )
 
             plan.totalBlocks shouldBe 0
             plan.items shouldBe emptyList()
         }
 
-        test("given task list item with tag when plan is built with MEMO_CARD policy then task interactive facts stay while tag is stripped") {
+        test(
+            "given task list item with tag when plan is built with MEMO_CARD policy then task interactive facts stay while tag is stripped",
+        ) {
             val taskItem =
                 MarkdownRenderListItem(
                     sourceSpan = span(0uL, 30uL),
                     actionSpan = span(2uL, 5uL),
                     checked = false,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(6uL, 30uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Text(span(6uL, 16uL), "Buy milk "),
-                                        MarkdownRenderInline.Tag(span(16uL, 26uL), "groceries"),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(6uL, 30uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(span(6uL, 16uL), "Buy milk "),
+                                MarkdownRenderInline.Tag(span(16uL, 26uL), "groceries"),
                             ),
                         ),
+                    ),
                 )
             val document =
                 document(
                     sourceLength = 30uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.ListBlock(
-                                sourceSpan = span(0uL, 30uL),
-                                ordered = false,
-                                startNumber = 1uL,
-                                items = listOf(taskItem),
-                            ),
+                    listOf(
+                        MarkdownRenderBlock.ListBlock(
+                            sourceSpan = span(0uL, 30uL),
+                            ordered = false,
+                            startNumber = 1uL,
+                            items = listOf(taskItem),
                         ),
+                    ),
                 )
 
-            val plan = buildMarkdownIrPresentationPlan(document = document, policy = MarkdownPresentationPolicy.MEMO_CARD)
+            val plan = buildMarkdownIrPresentationPlan(
+                document = document,
+                policy = MarkdownPresentationPolicy.MEMO_CARD,
+            )
 
             plan.totalBlocks shouldBe 1
             val list =
@@ -503,37 +553,41 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
             text shouldBe "Buy milk"
         }
 
-        test("given styled paragraph with link and image when plan is built then display carries precomputed text and image split") {
+        test(
+            "given styled paragraph with link and image when plan is built then display carries precomputed text and image split",
+        ) {
             val document =
                 document(
                     sourceLength = 60uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 60uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Text(span(0uL, 6uL), "See "),
-                                        MarkdownRenderInline.Strong(
-                                            sourceSpan = span(6uL, 14uL),
-                                            inlines = listOf(MarkdownRenderInline.Text(span(7uL, 13uL), "bold ")),
-                                        ),
-                                        MarkdownRenderInline.Link(
-                                            sourceSpan = span(14uL, 30uL),
-                                            destination = "https://example.com",
-                                            title = null,
-                                            inlines = listOf(MarkdownRenderInline.Text(span(15uL, 29uL), "linked words")),
-                                        ),
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(30uL, 60uL),
-                                            destination = "pic.png",
-                                            title = null,
-                                            altText = "Pic",
-                                            mediaClass = MediaClass.IMAGE,
-                                        ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 60uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(span(0uL, 6uL), "See "),
+                                MarkdownRenderInline.Strong(
+                                    sourceSpan = span(6uL, 14uL),
+                                    inlines = listOf(MarkdownRenderInline.Text(span(7uL, 13uL), "bold ")),
+                                ),
+                                MarkdownRenderInline.Link(
+                                    sourceSpan = span(14uL, 30uL),
+                                    destination = "https://example.com",
+                                    title = null,
+                                    inlines = listOf(
+                                        MarkdownRenderInline.Text(span(15uL, 29uL), "linked words"),
                                     ),
+                                ),
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(30uL, 60uL),
+                                    destination = "pic.png",
+                                    title = null,
+                                    altText = "Pic",
+                                    mediaClass = MediaClass.IMAGE,
+                                ),
                             ),
                         ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
@@ -552,52 +606,54 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                 document(
                     sourceLength = 90uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Heading(
-                                sourceSpan = span(0uL, 20uL),
-                                level = 2u,
-                                inlines = listOf(MarkdownRenderInline.Text(span(3uL, 20uL), "Title")),
-                            ),
-                            MarkdownRenderBlock.ListBlock(
-                                sourceSpan = span(21uL, 60uL),
-                                ordered = true,
-                                startNumber = 3uL,
-                                items =
+                    listOf(
+                        MarkdownRenderBlock.Heading(
+                            sourceSpan = span(0uL, 20uL),
+                            level = 2u,
+                            inlines = listOf(MarkdownRenderInline.Text(span(3uL, 20uL), "Title")),
+                        ),
+                        MarkdownRenderBlock.ListBlock(
+                            sourceSpan = span(21uL, 60uL),
+                            ordered = true,
+                            startNumber = 3uL,
+                            items =
+                            listOf(
+                                MarkdownRenderListItem(
+                                    sourceSpan = span(21uL, 40uL),
+                                    actionSpan = null,
+                                    checked = null,
+                                    blocks =
                                     listOf(
-                                        MarkdownRenderListItem(
-                                            sourceSpan = span(21uL, 40uL),
-                                            actionSpan = null,
-                                            checked = null,
-                                            blocks =
-                                                listOf(
-                                                    MarkdownRenderBlock.Paragraph(
-                                                        sourceSpan = span(24uL, 40uL),
-                                                        inlines = listOf(MarkdownRenderInline.Text(span(24uL, 40uL), "Item")),
-                                                    ),
-                                                ),
-                                        ),
-                                    ),
-                            ),
-                            MarkdownRenderBlock.Table(
-                                sourceSpan = span(61uL, 90uL),
-                                header =
-                                    listOf(
-                                        MarkdownRenderTableCell(
-                                            span(61uL, 70uL),
-                                            listOf(MarkdownRenderInline.Text(span(61uL, 70uL), "Head")),
-                                        ),
-                                    ),
-                                rows =
-                                    listOf(
-                                        listOf(
-                                            MarkdownRenderTableCell(
-                                                span(71uL, 80uL),
-                                                listOf(MarkdownRenderInline.Text(span(71uL, 80uL), "Cell")),
+                                        MarkdownRenderBlock.Paragraph(
+                                            sourceSpan = span(24uL, 40uL),
+                                            inlines = listOf(
+                                                MarkdownRenderInline.Text(span(24uL, 40uL), "Item"),
                                             ),
                                         ),
                                     ),
+                                ),
                             ),
                         ),
+                        MarkdownRenderBlock.Table(
+                            sourceSpan = span(61uL, 90uL),
+                            header =
+                            listOf(
+                                MarkdownRenderTableCell(
+                                    span(61uL, 70uL),
+                                    listOf(MarkdownRenderInline.Text(span(61uL, 70uL), "Head")),
+                                ),
+                            ),
+                            rows =
+                            listOf(
+                                listOf(
+                                    MarkdownRenderTableCell(
+                                        span(71uL, 80uL),
+                                        listOf(MarkdownRenderInline.Text(span(71uL, 80uL), "Cell")),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
@@ -626,12 +682,12 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                 document(
                     sourceLength = 30uL,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 30uL),
-                                inlines = listOf(MarkdownRenderInline.Text(span(0uL, 30uL), "body")),
-                            ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 30uL),
+                            inlines = listOf(MarkdownRenderInline.Text(span(0uL, 30uL), "body")),
                         ),
+                    ),
                 )
 
             val plan = buildMarkdownIrPresentationPlan(document)
@@ -645,10 +701,7 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
     }
 }
 
-private fun document(
-    sourceLength: ULong,
-    blocks: List<MarkdownRenderBlock>,
-): MarkdownRenderDocument =
+private fun document(sourceLength: ULong, blocks: List<MarkdownRenderBlock>): MarkdownRenderDocument =
     MarkdownRenderDocument(
         sourceByteLength = sourceLength,
         plainText = "ir",
@@ -657,7 +710,4 @@ private fun document(
         blocks = blocks,
     )
 
-private fun span(
-    start: ULong,
-    end: ULong,
-): MarkdownSourceSpan = MarkdownSourceSpan(startByte = start, endByte = end)
+private fun span(start: ULong, end: ULong): MarkdownSourceSpan = MarkdownSourceSpan(startByte = start, endByte = end)

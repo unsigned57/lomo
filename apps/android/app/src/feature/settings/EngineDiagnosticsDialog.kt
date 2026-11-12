@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -20,6 +19,7 @@ import com.lomo.app.R
 import com.lomo.domain.model.EngineDiagnosticEvent
 import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.detail
+import com.lomo.ui.component.common.LomoTextButton
 import org.koin.compose.koinInject
 
 /**
@@ -36,7 +36,7 @@ internal fun EngineDiagnosticsDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) }
+            LomoTextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) }
         },
         title = { Text(stringResource(R.string.settings_debug_engine_diagnostics)) },
         text = {
@@ -61,11 +61,11 @@ private fun EngineDiagnosticEventRow(event: EngineDiagnosticEvent) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text =
-                stringResource(
-                    R.string.settings_debug_engine_diagnostics_entry,
-                    event.label,
-                    event.durationMillis,
-                ),
+            stringResource(
+                R.string.settings_debug_engine_diagnostics_entry,
+                event.label,
+                event.durationMillis,
+            ),
             style = MaterialTheme.typography.labelLarge,
         )
         Text(

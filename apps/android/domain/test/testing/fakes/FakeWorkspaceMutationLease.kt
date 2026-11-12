@@ -36,10 +36,9 @@ class FakeWorkspaceMutationLease(
 
     override val authority: Flow<WorkspaceAuthority?> = engineReadiness.workspaceAuthority
 
-    override fun isWritable(): Boolean =
-        synchronized(monitor) {
-            engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value)
-        }
+    override fun isWritable(): Boolean = synchronized(monitor) {
+        engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value)
+    }
 
     override fun isWritableFlow(): Flow<Boolean> =
         combine(engineReadiness.readiness, admissionsOpen) { readiness, open ->
@@ -80,20 +79,18 @@ class FakeWorkspaceMutationLease(
         }
     }
 
-    private fun admit(): WorkspaceAuthority =
-        synchronized(monitor) {
-            engineReadiness.readiness.value.requireWritable(writeFrozen = !admissionsOpen.value)
+    private fun admit(): WorkspaceAuthority = synchronized(monitor) {
+        engineReadiness.readiness.value.requireWritable(writeFrozen = !admissionsOpen.value)
+        registerLocked()
+    }
+
+    private fun admitOrNull(): WorkspaceAuthority? = synchronized(monitor) {
+        if (!engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value)) {
+            null
+        } else {
             registerLocked()
         }
-
-    private fun admitOrNull(): WorkspaceAuthority? =
-        synchronized(monitor) {
-            if (!engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value)) {
-                null
-            } else {
-                registerLocked()
-            }
-        }
+    }
 
     private fun registerLocked(): WorkspaceAuthority {
         inFlight += 1

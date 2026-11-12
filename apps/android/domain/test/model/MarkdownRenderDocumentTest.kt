@@ -20,7 +20,7 @@
  *
  * Excludes:
  * - Markdown parsing, generated BoltFFI transport types, Compose layout, and production DI.
-  * Test Change Justification:
+ * Test Change Justification:
  * - Reason category: production DTO field migration — attachmentDestinations: List<String>
  *   replaced by attachments: List<MarkdownAttachment> carrying MediaClass.
  * - Old behavior/assertion being replaced: assertions on flat attachment destination strings.
@@ -48,12 +48,12 @@ class MarkdownRenderDocumentTest : DomainFunSpec() {
                     destination = "https://lomo.app",
                     title = "Lomo",
                     inlines =
-                        listOf(
-                            MarkdownRenderInline.Text(
-                                sourceSpan = span(4uL, 8uL),
-                                text = "Lomo",
-                            ),
+                    listOf(
+                        MarkdownRenderInline.Text(
+                            sourceSpan = span(4uL, 8uL),
+                            text = "Lomo",
                         ),
+                    ),
                 )
             val image =
                 MarkdownRenderInline.Image(
@@ -69,18 +69,18 @@ class MarkdownRenderDocumentTest : DomainFunSpec() {
                     actionSpan = span(31uL, 34uL),
                     checked = false,
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(31uL, 48uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Text(
-                                            sourceSpan = span(35uL, 48uL),
-                                            text = "ship typed IR",
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(31uL, 48uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(
+                                    sourceSpan = span(35uL, 48uL),
+                                    text = "ship typed IR",
+                                ),
                             ),
                         ),
+                    ),
                 )
             val document =
                 MarkdownRenderDocument(
@@ -89,18 +89,18 @@ class MarkdownRenderDocumentTest : DomainFunSpec() {
                     tagNames = listOf("p2"),
                     attachments = listOf(MarkdownAttachment("images/a.png", MediaClass.IMAGE)),
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 28uL),
-                                inlines = listOf(link, image),
-                            ),
-                            MarkdownRenderBlock.ListBlock(
-                                sourceSpan = span(29uL, 48uL),
-                                ordered = false,
-                                startNumber = 1uL,
-                                items = listOf(task),
-                            ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 28uL),
+                            inlines = listOf(link, image),
                         ),
+                        MarkdownRenderBlock.ListBlock(
+                            sourceSpan = span(29uL, 48uL),
+                            ordered = false,
+                            startNumber = 1uL,
+                            items = listOf(task),
+                        ),
+                    ),
                 )
 
             document.nodeCount shouldBe 8
@@ -119,18 +119,18 @@ class MarkdownRenderDocumentTest : DomainFunSpec() {
                     tagNames = emptyList(),
                     attachments = emptyList(),
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0uL, 4uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Text(
-                                            sourceSpan = span(3uL, 8uL),
-                                            text = "outside",
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 4uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(
+                                    sourceSpan = span(3uL, 8uL),
+                                    text = "outside",
+                                ),
                             ),
                         ),
+                    ),
                 )
             }.code shouldBe "render_child_span_outside_parent"
 
@@ -141,27 +141,26 @@ class MarkdownRenderDocumentTest : DomainFunSpec() {
                     tagNames = emptyList(),
                     attachments = emptyList(),
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.ListBlock(
-                                sourceSpan = span(0uL, 8uL),
-                                ordered = false,
-                                startNumber = 1uL,
-                                items =
-                                    listOf(
-                                        MarkdownRenderListItem(
-                                            sourceSpan = span(0uL, 4uL),
-                                            actionSpan = span(4uL, 6uL),
-                                            checked = false,
-                                            blocks = emptyList(),
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.ListBlock(
+                            sourceSpan = span(0uL, 8uL),
+                            ordered = false,
+                            startNumber = 1uL,
+                            items =
+                            listOf(
+                                MarkdownRenderListItem(
+                                    sourceSpan = span(0uL, 4uL),
+                                    actionSpan = span(4uL, 6uL),
+                                    checked = false,
+                                    blocks = emptyList(),
+                                ),
                             ),
                         ),
+                    ),
                 )
             }.code shouldBe "render_action_span_outside_node"
         }
     }
 }
 
-private fun span(start: ULong, end: ULong): MarkdownSourceSpan =
-    MarkdownSourceSpan(startByte = start, endByte = end)
+private fun span(start: ULong, end: ULong): MarkdownSourceSpan = MarkdownSourceSpan(startByte = start, endByte = end)

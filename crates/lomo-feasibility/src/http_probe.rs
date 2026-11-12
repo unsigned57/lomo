@@ -643,7 +643,7 @@ fn verify_aws_published_sigv4_test_vector() -> Result<(), HttpProbeError> {
     let signed_headers = "host;range;x-amz-content-sha256;x-amz-date";
     let canonical_request =
         format!("GET\n/test.txt\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
-    let canonical_hash = format!("{:x}", Sha256::digest(canonical_request.as_bytes()));
+    let canonical_hash = lomo_core::hex_encode(&Sha256::digest(canonical_request.as_bytes()));
     let credential_scope = format!("{date_stamp}/{region}/{service}/aws4_request");
     let string_to_sign =
         format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_hash}");
@@ -1227,7 +1227,7 @@ fn sign_s3_get_with_keys(
     let signed_headers = "host;x-amz-content-sha256;x-amz-date";
     let canonical_request =
         format!("GET\n{path}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
-    let canonical_hash = format!("{:x}", Sha256::digest(canonical_request.as_bytes()));
+    let canonical_hash = lomo_core::hex_encode(&Sha256::digest(canonical_request.as_bytes()));
     let string_to_sign =
         format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_hash}");
     let signing_key = signing_key_for(secret_key, date_stamp, region, service);

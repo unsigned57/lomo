@@ -2,7 +2,6 @@ package com.lomo.data.repository
 
 import android.content.Context
 import com.lomo.data.engine.media.PendingMediaStageRegistry
-import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.sync.SyncConflictSuggestionPort
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewSession
@@ -12,7 +11,6 @@ import com.lomo.domain.usecase.DispatcherProvider
 internal class SyncInboxPendingReviewRestorer(
     private val context: Context,
     private val pendingStages: PendingMediaStageRegistry,
-    private val workspaceRoot: WorkspaceFilesystemRoot,
     private val contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
     private val suggestionPort: SyncConflictSuggestionPort,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
@@ -61,6 +59,7 @@ internal class SyncInboxPendingReviewRestorer(
         return when {
             inboxContent == null || inboxMetadata == null ->
                 InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.MISSING_REMOTE)
+
             else -> restoreExistingItem(item, inboxRoot, inboxRelativePath, inboxContent, inboxMetadata)
         }
     }
@@ -77,14 +76,13 @@ internal class SyncInboxPendingReviewRestorer(
         val staged =
             stageInboxMediaReferences(
                 environment =
-                    InboxStagingEnvironment(
-                        context = context,
-                        inboxRoot = inboxRoot,
-                        pendingStages = pendingStages,
-                        workspaceRoot = workspaceRoot,
-                        contentProjector = contentProjector,
-                        dispatcherProvider = dispatcherProvider,
-                    ),
+                InboxStagingEnvironment(
+                    context = context,
+                    inboxRoot = inboxRoot,
+                    pendingStages = pendingStages,
+                    contentProjector = contentProjector,
+                    dispatcherProvider = dispatcherProvider,
+                ),
                 relativePath = inboxRelativePath,
                 markdown = inboxContent,
             )
@@ -95,8 +93,10 @@ internal class SyncInboxPendingReviewRestorer(
                 actualLastModified = inboxMetadata.lastModified,
                 actualSize = incomingBytes.size.toLong(),
             ) -> InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
+
             !item.incoming.matchesContent(staged.rewrittenMarkdown) ->
                 InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
+
             else -> restoreLocalItem(item, staged.rewrittenMarkdown, inboxMetadata.lastModified)
         }
     }
@@ -123,30 +123,25 @@ internal class SyncInboxPendingReviewRestorer(
                     state = item.state,
                     message = item.message,
                     suggestion =
-                        suggestionPort.suggest(
-                            localBody = null,
-                            remoteBody = incomingContent,
-                            localLastModifiedMs = null,
-                            remoteLastModifiedMs = incomingLastModified,
-                            isBinary = item.isBinary,
-                        ),
+                    suggestionPort.suggest(
+                        localBody = null,
+                        remoteBody = incomingContent,
+                        localLastModifiedMs = null,
+                        remoteLastModifiedMs = incomingLastModified,
+                        isBinary = item.isBinary,
+                    ),
                 ),
             )
         }
 }
 
-private fun PendingSyncSideMetadata.wasAbsentWhenCaptured(): Boolean =
-    etag == null &&
-        lastModified == null &&
-        size == null &&
-        contentHash == null
+private fun PendingSyncSideMetadata.wasAbsentWhenCaptured(): Boolean = etag == null &&
+    lastModified == null &&
+    size == null &&
+    contentHash == null
 
 private sealed interface InboxReviewItemRestore {
-    data class Restored(
-        val item: SyncReviewItem,
-    ) : InboxReviewItemRestore
+    data class Restored(val item: SyncReviewItem) : InboxReviewItemRestore
 
-    data class Invalidated(
-        val reason: PendingSyncInvalidationReason,
-    ) : InboxReviewItemRestore
+    data class Invalidated(val reason: PendingSyncInvalidationReason) : InboxReviewItemRestore
 }

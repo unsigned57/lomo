@@ -40,6 +40,7 @@ object PreferenceKeys {
     const val DAILY_REVIEW_SESSION_DATE = "daily_review_session_date"
     const val DAILY_REVIEW_SESSION_SEED = "daily_review_session_seed"
     const val DAILY_REVIEW_SESSION_PAGE_INDEX = "daily_review_session_page_index"
+    const val DAILY_REVIEW_SESSION_OPTIONS = "daily_review_session_options"
     const val MEMO_SNAPSHOTS_ENABLED = "memo_snapshots_enabled"
     const val MEMO_SNAPSHOT_MAX_COUNT = "memo_snapshot_max_count"
     const val MEMO_SNAPSHOT_MAX_AGE_DAYS = "memo_snapshot_max_age_days"
@@ -93,10 +94,7 @@ object PreferenceKeys {
         const val SHOW_INPUT_HINTS = PreferenceDefaults.SHOW_INPUT_HINTS
         const val DOUBLE_TAP_EDIT_ENABLED = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED
         const val FREE_TEXT_COPY_ENABLED = PreferenceDefaults.FREE_TEXT_COPY_ENABLED
-        const val MEMO_ACTION_AUTO_REORDER_ENABLED = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED
         const val AUTO_OPEN_INPUT_ON_FOREGROUND = PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND
-        const val MEMO_ACTION_ORDER = PreferenceDefaults.MEMO_ACTION_ORDER
-        const val MEMO_ACTION_ORDERS_BY_SCOPE = PreferenceDefaults.MEMO_ACTION_ORDERS_BY_SCOPE
         const val INPUT_TOOLBAR_TOOL_ORDER = PreferenceDefaults.INPUT_TOOLBAR_TOOL_ORDER
         const val SIDEBAR_TAG_ORDER = PreferenceDefaults.SIDEBAR_TAG_ORDER
         const val QUICK_SAVE_ON_BACK_ENABLED = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED
@@ -106,6 +104,7 @@ object PreferenceKeys {
         const val THEME_MODE = PreferenceDefaults.THEME_MODE
         const val CALENDAR_HEATMAP_THRESHOLDS = PreferenceDefaults.CALENDAR_HEATMAP_THRESHOLDS
         const val COLOR_SOURCE = PreferenceDefaults.COLOR_SOURCE
+        const val CONTRAST_LEVEL = PreferenceDefaults.CONTRAST_LEVEL
         const val FONT_PREFERENCE = PreferenceDefaults.FONT_PREFERENCE
         const val SHARE_CARD_SHOW_TIME = PreferenceDefaults.SHARE_CARD_SHOW_TIME
         const val SHARE_CARD_SHOW_BRAND = PreferenceDefaults.SHARE_CARD_SHOW_BRAND

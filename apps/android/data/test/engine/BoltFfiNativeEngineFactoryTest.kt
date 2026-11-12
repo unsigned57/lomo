@@ -42,6 +42,10 @@ package com.lomo.data.engine
  */
 
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.nativebridge.EngineError
+import com.lomo.nativebridge.PlatformAction
+import com.lomo.nativebridge.PlatformActionBatch
+import com.lomo.nativebridge.WorkspaceTarget
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -49,7 +53,9 @@ import java.io.File
 
 class BoltFfiNativeEngineFactoryTest : DataFunSpec() {
     init {
-        test("given app filesDir when open request is built then control and exchange roots exist under lomo-engine v1") {
+        test(
+            "given app filesDir when open request is built then control and exchange roots exist under lomo-engine v1",
+        ) {
             val filesDir = kotlin.io.path.createTempDirectory("lomo-engine-factory").toFile()
             try {
                 val request = NativeEngineOpenRequest.forAppFilesDir(filesDir)
@@ -114,6 +120,38 @@ class BoltFfiNativeEngineFactoryTest : DataFunSpec() {
             } finally {
                 root.deleteRecursively()
             }
+        }
+
+        test("given host execution throws unexpectedly when batch runs then a typed EngineError crosses the boundary") {
+            val host =
+                BoltFfiNativeEngineFactory.SessionPlatformBatchHost(
+                    AndroidPlatformActionExecutor(
+                        access =
+                        PlatformActionAccess {
+                            throw IllegalStateException("provider exploded")
+                        },
+                        currentTimeMillis = { 1_000L },
+                        readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
+                    ),
+                )
+            val batch =
+                PlatformActionBatch(
+                    schemaVersion = 1u,
+                    jobId = "job-boundary",
+                    batchId = "batch-boundary",
+                    attempt = 1u,
+                    deadlineEpochMillis = 2_000uL,
+                    actions =
+                    listOf(
+                        PlatformAction.Stat("action-1", "cap", WorkspaceTarget.Root),
+                    ),
+                )
+
+            val error = shouldThrow<EngineError.Failure> { host.execute(batch) }
+
+            error.failure.code shouldBe "platform_batch_host_error"
+            error.failure.jobId shouldBe "job-boundary"
+            error.failure.diagnostic shouldContain "provider exploded"
         }
     }
 }

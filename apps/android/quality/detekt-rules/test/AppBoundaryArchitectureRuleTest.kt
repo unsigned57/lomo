@@ -16,9 +16,11 @@ import kotlin.io.path.writeText
  * Behavior Contract:
  * - Unit under test: AppManifestBoundary through the registered Detekt provider.
  * - Owning layer: quality; priority P0.
- * - Capability: app manifests cannot instantiate data-layer components.
+ * - Capability: app packaging may register data background services/receivers, while UI/application
+ *   components remain outside the data boundary.
  * Scenarios:
- * - Given a data component, when parsed under any Android namespace prefix, then it is rejected.
+ * - Given a data activity/application component, when parsed under any Android namespace prefix, then it is rejected.
+ * - Given a data receiver/service, when registered by app packaging, then it is accepted.
  * - Given comments or app-owned components, when parsed, then they create no forbidden edge.
  * - Given malformed XML or a document type, when checked, then invalid input is surfaced.
  * Observable outcomes: Detekt findings identify component names or invalid manifest input.
@@ -26,59 +28,85 @@ import kotlin.io.path.writeText
  * Excludes: manifest merging, product implementation, and dependency direction (owned by the
  * Rust architecture tests using parsed Amper YAML).
  * Test Change Justification:
- * - Reason category: replace a text heuristic with structural parsing and one dependency owner.
- * - Old behavior/assertion being replaced: fake module.yaml strings were scanned by an app-only regex in Detekt.
- * - Why old assertion is no longer correct: those fixtures were not valid YAML and ignored alternate YAML syntax.
- * - Coverage preserved by: policy_contracts::kotlin_runtime_composition_cannot_become_a_compile_dependency
- *   and binding_capability_cannot_escape_through_an_exported_dependency cover real module input.
- * - Why this is not fitting the test to the implementation: the original forbidden component assertion remains; two observed
- *   false-positive/false-negative cases and malformed-input cases add stronger behavior locks.
- */
-class AppBoundaryArchitectureRuleTest : FunSpec({
-    test("reports an app manifest data component") {
-        manifestFindings("""
-            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application><receiver android:name="com.lomo.data.reminder.ReminderAlarmReceiver" /></application>
-            </manifest>
-        """).single().message shouldContain "com.lomo.data.reminder.ReminderAlarmReceiver"
-    }
+ * Reason category: packaging boundary correction required by observed APK omissions.
+ * Old behavior/assertion being replaced: all data component registrations were forbidden.
+ * Why old assertion is no longer correct: library AARs discard source manifests, so app packaging
+ *   must register background services/receivers for the OS to reach data implementations.
+ * Coverage preserved by: activity/application rejections, namespace-prefix controls, malformed
+ *   XML rejection, and positive receiver/service fixtures; Kotlin compile scope stays runtime-only.
+ * Why this is not fitting the test to the implementation: the installed pre-fix APK lacks actual
+ *   permissions/components; target/lomo/reports/manual/reminder-alarm/package-before.txt records RED.
 
-    test("app-owned components stay legal") {
-        manifestFindings("""
+ */
+class AppBoundaryArchitectureRuleTest :
+    FunSpec({
+        test("reports a data activity in the app manifest") {
+            manifestFindings(
+                """
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application><activity android:name="com.lomo.data.DataActivity" /></application>
+            </manifest>
+        """,
+            ).single().message shouldContain "com.lomo.data.DataActivity"
+        }
+
+        test("data background components can be registered by the packaging owner") {
+            manifestFindings(
+                """
+            <manifest xmlns:host="http://schemas.android.com/apk/res/android">
+              <application>
+                <receiver host:name="com.lomo.data.reminder.ReminderAlarmReceiver" host:exported="false" />
+                <service host:name="com.lomo.data.recording.RecordingForegroundService" host:exported="false" />
+              </application>
+            </manifest>
+        """,
+            ).shouldHaveSize(0)
+        }
+
+        test("app-owned components stay legal") {
+            manifestFindings(
+                """
             <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <application><activity android:name="com.lomo.app.MainActivity" /></application>
             </manifest>
-        """).shouldHaveSize(0)
-    }
+        """,
+            ).shouldHaveSize(0)
+        }
 
-    test("manifest comments do not instantiate data components") {
-        manifestFindings("""
+        test("manifest comments do not instantiate data components") {
+            manifestFindings(
+                """
             <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <!-- <receiver android:name="com.lomo.data.OldReceiver" /> -->
               <application />
             </manifest>
-        """).shouldHaveSize(0)
-    }
+        """,
+            ).shouldHaveSize(0)
+        }
 
-    test("changing the Android XML namespace prefix cannot hide a component") {
-        manifestFindings("""
+        test("changing the Android XML namespace prefix cannot hide a component") {
+            manifestFindings(
+                """
             <manifest xmlns:host="http://schemas.android.com/apk/res/android">
-              <application><receiver host:name="com.lomo.data.HiddenReceiver" /></application>
+              <application host:name="com.lomo.data.HiddenApplication" />
             </manifest>
-        """).single().message shouldContain "com.lomo.data.HiddenReceiver"
-    }
+        """,
+            ).single().message shouldContain "com.lomo.data.HiddenApplication"
+        }
 
-    test("invalid XML fails closed") {
-        manifestFindings("<manifest><application>").single().message shouldContain "Invalid app AndroidManifest.xml"
-    }
+        test("invalid XML fails closed") {
+            manifestFindings("<manifest><application>").single().message shouldContain "Invalid app AndroidManifest.xml"
+        }
 
-    test("a manifest cannot obtain its policy facts from external entities") {
-        manifestFindings("""
+        test("a manifest cannot obtain its policy facts from external entities") {
+            manifestFindings(
+                """
             <!DOCTYPE manifest SYSTEM "file:///not-a-policy-input">
             <manifest><application /></manifest>
-        """).single().message shouldContain "Invalid app AndroidManifest.xml"
-    }
-})
+        """,
+            ).single().message shouldContain "Invalid app AndroidManifest.xml"
+        }
+    })
 
 private fun manifestFindings(manifest: String): List<Finding> {
     val rule = checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName("AppManifestBoundary")]) {

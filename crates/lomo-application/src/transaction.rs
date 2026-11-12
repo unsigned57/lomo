@@ -40,6 +40,11 @@ pub enum PlannedFile {
 pub enum CurrentState {
     Bytes(Option<FileSnapshot>),
     Evidence(Option<DocumentMetadata>),
+    /// Create plans delegate their conflict and replay arbitration to the write's own platform
+    /// observation: `before` is absent, so the strongest baseline the write can cite is absence
+    /// plus the artifact digest — exactly what `ExpectedFingerprint::Absent` enforces inside the
+    /// fused write observation. Re-reading the target here would only duplicate that one check.
+    Unobserved,
 }
 
 impl PlannedFile {
@@ -82,8 +87,9 @@ impl PlannedFile {
         }
     }
 
-    fn observe(&self, io: &WorkspaceIo<'_>) -> Result<CurrentState, LomoError> {
+    pub(crate) fn observe(&self, io: &WorkspaceIo<'_>) -> Result<CurrentState, LomoError> {
         match self {
+            Self::Write { before: None, .. } => Ok(CurrentState::Unobserved),
             Self::Write { .. } | Self::Delete { .. } => {
                 Ok(CurrentState::Bytes(io.read(self.path())?))
             }
@@ -91,7 +97,11 @@ impl PlannedFile {
         }
     }
 
-    fn check_current(&self, current: &CurrentState, issued: bool) -> Result<(), LomoError> {
+    pub(crate) fn check_current(
+        &self,
+        current: &CurrentState,
+        issued: bool,
+    ) -> Result<(), LomoError> {
         match (self, current) {
             (Self::Write { before, after, .. }, CurrentState::Bytes(snapshot)) => {
                 let bytes = snapshot.as_ref().map(|snapshot| snapshot.bytes.as_slice());
@@ -127,15 +137,28 @@ impl PlannedFile {
                     )),
                 }
             }
-            (Self::Write { .. } | Self::Delete { .. }, CurrentState::Evidence(_))
-            | (Self::ArtifactWrite { .. }, CurrentState::Bytes(_)) => Err(corruption(
-                "invalid_operation_plan",
-                "planned file shape does not match its observation",
-            )),
+            // The create baseline is delegated to the write's own arbitration: the platform
+            // proves absent/identical/foreign inside the fused write observation and answers
+            // already-satisfied or postcondition-mismatch from that same evidence.
+            (Self::Write { before: None, .. }, CurrentState::Unobserved) => Ok(()),
+            (
+                Self::Write {
+                    before: Some(_), ..
+                }
+                | Self::Delete { .. },
+                CurrentState::Unobserved,
+            )
+            | (Self::Write { .. } | Self::Delete { .. }, CurrentState::Evidence(_))
+            | (Self::ArtifactWrite { .. }, CurrentState::Bytes(_) | CurrentState::Unobserved) => {
+                Err(corruption(
+                    "invalid_operation_plan",
+                    "planned file shape does not match its observation",
+                ))
+            }
         }
     }
 
-    fn is_satisfied(&self, current: &CurrentState) -> bool {
+    pub(crate) fn is_satisfied(&self, current: &CurrentState) -> bool {
         match (self, current) {
             (Self::Write { after, .. }, CurrentState::Bytes(snapshot)) => {
                 snapshot.as_ref().map(|snapshot| snapshot.bytes.as_slice())
@@ -145,6 +168,8 @@ impl PlannedFile {
             (Self::ArtifactWrite { source, .. }, CurrentState::Evidence(observed)) => observed
                 .as_ref()
                 .is_some_and(|metadata| artifact_evidence_matches(metadata, source)),
+            // An unobserved create cannot know satisfaction locally — the write action itself
+            // reports AlreadySatisfied without mutating when the durable goal already holds.
             _ => false,
         }
     }
@@ -154,6 +179,12 @@ impl PlannedFile {
         match (self, current) {
             (Self::Write { path, after, .. }, CurrentState::Bytes(snapshot)) => {
                 io.write(path, snapshot.as_ref(), after)?;
+            }
+            (Self::Write { path, after, .. }, CurrentState::Unobserved) => {
+                // Absence plus the artifact digest are the entire create baseline: the write
+                // action cites ExpectedFingerprint::Absent and the platform arbitration
+                // resolves satisfy/conflict/proceed inside its own observation.
+                io.write(path, None, after)?;
             }
             (Self::Delete { path, .. }, CurrentState::Bytes(snapshot)) => {
                 let snapshot = snapshot.as_ref().ok_or_else(|| {
@@ -199,6 +230,8 @@ pub struct TransactionInput {
     pub payload_digest: String,
     pub files: Vec<PlannedFile>,
     pub mutations: Vec<DocumentPublication>,
+    /// Private staging leases released once the bytes reached the workspace.
+    pub staging: Vec<lomo_media::PromotePlan>,
 }
 
 pub fn payload_digest(request: &impl Serialize) -> Result<String, LomoError> {
@@ -210,11 +243,25 @@ pub fn payload_digest(request: &impl Serialize) -> Result<String, LomoError> {
 impl WorkspaceSession {
     pub(crate) fn replay(
         &self,
+        held: &crate::write_behind::Exclusive<'_>,
         operation_id: &OperationId,
         digest: &str,
     ) -> Result<Option<SafProjectionCommitResult>, LomoError> {
         match self.intent_journal.lookup(operation_id)? {
-            None => Ok(None),
+            None => {
+                // The committed-operation index is the terminal witness once the
+                // journal's bounded retired window and the identity record's retained
+                // tail have both evicted this id: the operation was consumed and must
+                // expire here — before any planning or file mutation — instead of
+                // re-entering as a fresh command.
+                if self.with_store(|store| store.operation_was_committed(operation_id.as_str()))? {
+                    return Err(expired(
+                        "operation_expired",
+                        "operation was committed before the retained witness window and is not re-executed",
+                    ));
+                }
+                Ok(None)
+            }
             Some(JournalEntry::Committed(record)) => {
                 if record.payload_digest != digest {
                     return Err(conflict(
@@ -233,6 +280,10 @@ impl WorkspaceSession {
                         "operation ID already owns another payload",
                     ));
                 }
+                if let Some(receipt) = self.write_behind.receipt(operation_id, digest)? {
+                    return Ok(Some(receipt));
+                }
+                self.write_behind.drain_held(held)?;
                 self.finish_transaction(&record).map(Some)
             }
             Some(JournalEntry::Retired) => Err(expired(
@@ -242,10 +293,17 @@ impl WorkspaceSession {
         }
     }
 
+    /// Commits a frozen intent: durable journal record, then projection publication, then the
+    /// workspace bytes converge through the write-behind applier in submission order.
+    ///
+    /// The caller holds workspace exclusion. Baselines come from the committed journal view;
+    /// admission drains an incompatible or full older batch before freezing this operation.
     pub(crate) fn commit_transaction(
         &self,
+        held: &crate::write_behind::Exclusive<'_>,
         input: TransactionInput,
     ) -> Result<SafProjectionCommitResult, LomoError> {
+        self.require_verified_projection()?;
         let clock_before = self
             .with_store(|store| Ok(store.projection_clock()))?
             .max(self.intent_journal.clock_floor()?);
@@ -261,53 +319,145 @@ impl WorkspaceSession {
             files: input.files,
             mutations: input.mutations,
         };
+        self.write_behind.prepare_submission(held, &record)?;
         self.intent_journal.record_pending(&record)?;
-        self.finish_transaction(&record)
+        for file in &record.files {
+            if let PlannedFile::Write { path, after, .. } = file
+                && path == &record.path
+            {
+                crate::private_io::remember_baseline(
+                    &lomo_workspace::SessionStateLayout::for_state_dir(&self.config.state_dir)
+                        .baselines,
+                    after,
+                )?;
+            }
+        }
+        let receipt = self.publish_intent(&record)?;
+        // Attachment bytes are read directly by presentation (image loaders, players), never
+        // through the projection, so a publication naming them waits for their convergence.
+        let readable_now = record
+            .files
+            .iter()
+            .any(|file| matches!(file, PlannedFile::ArtifactWrite { .. }));
+        self.write_behind
+            .submit(crate::write_behind::QueuedIntent {
+                record,
+                receipt: receipt.clone(),
+                staging: input.staging,
+            })?;
+        if readable_now {
+            // behavior-contract: silent-result-ok: the commit point is the journal plus the
+            // publication; a convergence failure is recorded as the queue stall and surfaces to
+            // the next exclusive caller or settle, exactly like a background replay failure.
+            drop(self.write_behind.drain_held(held));
+        }
+        Ok(receipt)
     }
 
-    pub(crate) fn recover_pending(&self) -> Result<(), LomoError> {
-        crate::record_plan::validate_workspace_layout(&WorkspaceIo {
-            config: &self.config,
-            executor: &self.executor,
+    fn publish_intent(
+        &self,
+        record: &OperationIntentRecord,
+    ) -> Result<SafProjectionCommitResult, LomoError> {
+        let (first, rest) = record.mutations.split_first().ok_or_else(|| {
+            corruption(
+                "invalid_operation_plan",
+                "transaction has no projection publication",
+            )
         })?;
-        for id in self.intent_journal.pending_ids()? {
-            let Some(record) = self.intent_journal.pending_record(&id)? else {
-                continue;
-            };
-            self.finish_transaction(&record)?;
+        let mut receipt = self.with_store_mut(|store| store.publish_document(first))?;
+        for mutation in rest {
+            receipt = self.with_store_mut(|store| store.publish_document(mutation))?;
+        }
+        Ok(receipt)
+    }
+
+    /// Finishes frozen operations. Layout authority is checked by `apply_transaction_files`, the
+    /// only step here that touches workspace bytes, so an empty journal costs no workspace I/O.
+    pub(crate) fn recover_pending(
+        &self,
+        held: &crate::write_behind::Exclusive<'_>,
+    ) -> Result<(), LomoError> {
+        let owned = self.write_behind.owned_ids()?;
+        let ids = self.intent_journal.pending_ids(&owned)?;
+        if !ids.is_empty() {
+            self.write_behind.drain_held(held)?;
+        }
+        for id in ids {
+            if let Some(record) = self.intent_journal.pending_record(&id)? {
+                self.finish_transaction(&record)?;
+            }
         }
         Ok(())
     }
 
     pub(crate) fn recover_files_for_mount(&self) -> Result<Vec<OperationId>, LomoError> {
-        crate::record_plan::validate_workspace_layout(&WorkspaceIo {
-            config: &self.config,
-            executor: &self.executor,
-        })?;
-        let ids = self.intent_journal.pending_ids()?;
-        for id in &ids {
-            let Some(record) = self.intent_journal.pending_record(id)? else {
-                continue;
-            };
-            self.apply_transaction_files(&record)?;
+        let ids = self
+            .intent_journal
+            .pending_ids(&std::collections::BTreeSet::new())?;
+        let mut remaining = ids.as_slice();
+        while !remaining.is_empty() {
+            let applied = crate::write_batch::apply_pending_prefix(
+                &self.io(),
+                &self.intent_journal,
+                remaining,
+            )?;
+            remaining = remaining.get(applied..).ok_or_else(|| {
+                corruption(
+                    "invalid_edit_batch",
+                    "recovery prefix exceeds pending operations",
+                )
+            })?;
         }
         Ok(ids)
     }
 
     pub(crate) fn acknowledge_mounted_operations(
         &self,
-        records: &[OperationId],
+        ids: &[OperationId],
     ) -> Result<(), LomoError> {
-        for id in records {
-            let Some(record) = self.intent_journal.pending_record(id)? else {
-                continue;
-            };
+        let mut records = Vec::new();
+        for id in ids {
+            if let Some(record) = self.intent_journal.pending_record(id)? {
+                records.push(record);
+            }
+        }
+        let mut terminal_memos = std::collections::BTreeMap::new();
+        let mut terminal_documents = std::collections::BTreeMap::new();
+        for record in &records {
+            if crate::write_batch::is_document_edit(record) {
+                for publication in &record.mutations {
+                    let projection = publication.mutation.projection.as_ref().ok_or_else(|| {
+                        corruption("invalid_edit_batch", "edit projection is missing")
+                    })?;
+                    terminal_memos.insert(publication.mutation.memo_id.as_str(), publication);
+                    terminal_documents
+                        .insert(record.path.as_str(), projection.file_fingerprint.as_str());
+                }
+            }
+        }
+        for record in &records {
             let mut clock = record.clock_before;
             let mut receipt = None;
             for publication in &record.mutations {
                 clock = clock.advance(1)?;
+                let evidence = if crate::write_batch::is_document_edit(record) {
+                    lomo_store::RebuiltPublicationEvidence::EditChain {
+                        terminal_memo: terminal_memos
+                            .get(publication.mutation.memo_id.as_str())
+                            .ok_or_else(|| {
+                                corruption("invalid_edit_batch", "terminal memo is missing")
+                            })?,
+                        document_fingerprint: terminal_documents
+                            .get(record.path.as_str())
+                            .ok_or_else(|| {
+                                corruption("invalid_edit_batch", "terminal source is missing")
+                            })?,
+                    }
+                } else {
+                    lomo_store::RebuiltPublicationEvidence::Current
+                };
                 receipt = Some(self.with_store_mut(|store| {
-                    store.acknowledge_rebuilt_publication(publication, clock)
+                    store.acknowledge_rebuilt_publication(publication, clock, evidence)
                 })?);
             }
             let receipt = receipt.ok_or_else(|| {
@@ -321,45 +471,18 @@ impl WorkspaceSession {
     }
 
     fn apply_transaction_files(&self, record: &OperationIntentRecord) -> Result<(), LomoError> {
-        let io = WorkspaceIo {
-            config: &self.config,
-            executor: &self.executor,
-        };
-        crate::record_plan::validate_workspace_layout(&io)?;
-        let states = record
-            .files
-            .iter()
-            .map(|file| file.observe(&io))
-            .collect::<Result<Vec<_>, _>>()?;
-        for (index, (file, state)) in record.files.iter().zip(&states).enumerate() {
-            file.check_current(state, index < record.started_files)?;
-        }
-        for (index, (file, state)) in record.files.iter().zip(&states).enumerate() {
-            if file.is_satisfied(state) {
-                continue;
-            }
-            self.intent_journal
-                .mark_started(&record.operation_id, index + 1)?;
-            file.apply(&io, state)?;
-        }
-        Ok(())
+        crate::write_behind::apply_intent_files(&self.io(), &self.intent_journal, record)
     }
 
+    /// Settles an intent left pending by an earlier session: its publication was never made in
+    /// this projection, so bytes are applied first and the publication follows.
     fn finish_transaction(
         &self,
         record: &OperationIntentRecord,
     ) -> Result<SafProjectionCommitResult, LomoError> {
+        self.require_verified_projection()?;
         self.apply_transaction_files(record)?;
-        let (first, rest) = record.mutations.split_first().ok_or_else(|| {
-            corruption(
-                "invalid_operation_plan",
-                "transaction has no projection publication",
-            )
-        })?;
-        let mut receipt = self.with_store_mut(|store| store.publish_document(first))?;
-        for mutation in rest {
-            receipt = self.with_store_mut(|store| store.publish_document(mutation))?;
-        }
+        let receipt = self.publish_intent(record)?;
         self.intent_journal
             .mark_committed(&record.operation_id, receipt.clone())?;
         crate::media_plan::release_committed_artifacts(&record.operation_id, &record.files);

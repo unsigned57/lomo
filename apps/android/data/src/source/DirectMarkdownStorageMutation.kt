@@ -17,55 +17,51 @@ internal suspend fun directReadFile(
     rootDir: File,
     filename: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-): String? =
-    withContext(dispatcherProvider.io) {
-        val file = File(rootDir, filename)
-        ensureWithinDirectory(rootDir, file)
-        if (file.exists()) {
-            file.readTextBestEffortUtf8()
-        } else {
-            null
-        }
+): String? = withContext(dispatcherProvider.io) {
+    val file = File(rootDir, filename)
+    ensureWithinDirectory(rootDir, file)
+    if (file.exists()) {
+        file.readTextBestEffortUtf8()
+    } else {
+        null
     }
+}
 
 internal suspend fun directReadTrashFile(
     rootDir: File,
     filename: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-): String? =
-    withContext(dispatcherProvider.io) {
-        val trashDir = directTrashDir(rootDir)
-        val file = File(trashDir, filename)
-        ensureWithinDirectory(trashDir, file)
-        if (file.exists()) {
-            file.readTextBestEffortUtf8()
-        } else {
-            null
-        }
+): String? = withContext(dispatcherProvider.io) {
+    val trashDir = directTrashDir(rootDir)
+    val file = File(trashDir, filename)
+    ensureWithinDirectory(trashDir, file)
+    if (file.exists()) {
+        file.readTextBestEffortUtf8()
+    } else {
+        null
     }
+}
 
 internal suspend fun directFingerprintFile(
     rootDir: File,
     filename: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-): String? =
-    withContext(dispatcherProvider.io) {
-        val file = File(rootDir, filename)
-        ensureWithinDirectory(rootDir, file)
-        if (file.exists() && file.isFile) file.md5Hex() else null
-    }
+): String? = withContext(dispatcherProvider.io) {
+    val file = File(rootDir, filename)
+    ensureWithinDirectory(rootDir, file)
+    if (file.exists() && file.isFile) file.md5Hex() else null
+}
 
 internal suspend fun directFingerprintTrashFile(
     rootDir: File,
     filename: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-): String? =
-    withContext(dispatcherProvider.io) {
-        val trashDir = directTrashDir(rootDir)
-        val file = File(trashDir, filename)
-        ensureWithinDirectory(trashDir, file)
-        if (file.exists() && file.isFile) file.md5Hex() else null
-    }
+): String? = withContext(dispatcherProvider.io) {
+    val trashDir = directTrashDir(rootDir)
+    val file = File(trashDir, filename)
+    ensureWithinDirectory(trashDir, file)
+    if (file.exists() && file.isFile) file.md5Hex() else null
+}
 
 internal suspend fun directSaveFile(
     rootDir: File,
@@ -73,18 +69,17 @@ internal suspend fun directSaveFile(
     content: String,
     append: Boolean,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-): String? =
-    withContext(dispatcherProvider.io) {
-        directEnsureRootExists(rootDir)
-        val file = File(rootDir, filename)
-        ensureWithinDirectory(rootDir, file)
-        if (append) {
-            appendTextDurably(file, content)
-        } else {
-            directWriteTextAtomically(file, content)
-        }
-        file.absolutePath
+): String? = withContext(dispatcherProvider.io) {
+    directEnsureRootExists(rootDir)
+    val file = File(rootDir, filename)
+    ensureWithinDirectory(rootDir, file)
+    if (append) {
+        appendTextDurably(file, content)
+    } else {
+        directWriteTextAtomically(file, content)
     }
+    file.absolutePath
+}
 
 internal suspend fun directSaveTrashFile(
     rootDir: File,
@@ -108,10 +103,7 @@ internal suspend fun directSaveTrashFile(
  * Append that fsyncs the file descriptor before returning. Guarantees the bytes survive
  * a subsequent power loss; readers at worst see the pre-append state, never a torn line.
  */
-internal fun appendTextDurably(
-    file: File,
-    content: String,
-) {
+internal fun appendTextDurably(file: File, content: String) {
     val parent = file.parentFile
     if (parent != null && !parent.exists() && !parent.mkdirs()) {
         throw IOException("Failed to create parent directory ${parent.absolutePath}")
@@ -128,10 +120,7 @@ internal fun appendTextDurably(
  * never a partial mix. Parent directory is fsynced best-effort so the rename itself
  * is durable across power loss.
  */
-internal fun directWriteTextAtomically(
-    target: File,
-    content: String,
-) {
+internal fun directWriteTextAtomically(target: File, content: String) {
     val parent = target.parentFile ?: throw IOException("Missing parent directory for ${target.absolutePath}")
     if (!parent.exists() && !parent.mkdirs()) {
         throw IOException("Failed to create parent directory ${parent.absolutePath}")

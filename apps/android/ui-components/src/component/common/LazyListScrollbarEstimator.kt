@@ -2,11 +2,7 @@ package com.lomo.ui.component.common
 
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 
-internal data class LazyListScrollbarVisibleItem(
-    val index: Int,
-    val offset: Int,
-    val size: Int,
-)
+internal data class LazyListScrollbarVisibleItem(val index: Int, val offset: Int, val size: Int)
 
 internal data class LazyListScrollbarSnapshot(
     val totalItemsCount: Int,
@@ -117,10 +113,10 @@ internal class LazyListScrollbarEstimator {
         return LazyListScrollbarMetrics(
             totalItemsCount = totalItemsCount,
             scrollTargetItemsCount =
-                resolveScrollTargetItemsCount(
-                    totalItemsCount = totalItemsCount,
-                    scrollTargetItemsCountOverride = scrollTargetItemsCountOverride,
-                ),
+            resolveScrollTargetItemsCount(
+                totalItemsCount = totalItemsCount,
+                scrollTargetItemsCountOverride = scrollTargetItemsCountOverride,
+            ),
             viewportSizePx = viewportSize,
             effectiveVisibleSpan = effectiveSpan,
             scrollFraction = boundaryFraction,
@@ -129,19 +125,12 @@ internal class LazyListScrollbarEstimator {
     }
 }
 
-private fun resolveEffectiveTotalItemsCount(
-    snapshotTotalItemsCount: Int,
-    totalItemsCountOverride: Int?,
-): Int =
-    maxOf(
-        snapshotTotalItemsCount.coerceAtLeast(0),
-        totalItemsCountOverride?.coerceAtLeast(0) ?: 0,
-    )
+private fun resolveEffectiveTotalItemsCount(snapshotTotalItemsCount: Int, totalItemsCountOverride: Int?): Int = maxOf(
+    snapshotTotalItemsCount.coerceAtLeast(0),
+    totalItemsCountOverride?.coerceAtLeast(0) ?: 0,
+)
 
-private fun resolveScrollTargetItemsCount(
-    totalItemsCount: Int,
-    scrollTargetItemsCountOverride: Int?,
-): Int =
+private fun resolveScrollTargetItemsCount(totalItemsCount: Int, scrollTargetItemsCountOverride: Int?): Int =
     (scrollTargetItemsCountOverride ?: totalItemsCount)
         .coerceAtLeast(0)
         .coerceAtMost(totalItemsCount)
@@ -149,19 +138,18 @@ private fun resolveScrollTargetItemsCount(
 internal fun LazyListLayoutInfo.toLazyListScrollbarSnapshot(
     canScrollBackward: Boolean,
     canScrollForward: Boolean,
-): LazyListScrollbarSnapshot =
-    LazyListScrollbarSnapshot(
-        totalItemsCount = totalItemsCount,
-        viewportStartOffset = viewportStartOffset,
-        viewportEndOffset = viewportEndOffset,
-        canScrollBackward = canScrollBackward,
-        canScrollForward = canScrollForward,
-        visibleItems =
-            visibleItemsInfo.map { item ->
-                LazyListScrollbarVisibleItem(
-                    index = item.index,
-                    offset = item.offset,
-                    size = item.size,
-                )
-            },
-    )
+): LazyListScrollbarSnapshot = LazyListScrollbarSnapshot(
+    totalItemsCount = totalItemsCount,
+    viewportStartOffset = viewportStartOffset,
+    viewportEndOffset = viewportEndOffset,
+    canScrollBackward = canScrollBackward,
+    canScrollForward = canScrollForward,
+    visibleItems =
+    visibleItemsInfo.map { item ->
+        LazyListScrollbarVisibleItem(
+            index = item.index,
+            offset = item.offset,
+            size = item.size,
+        )
+    },
+)

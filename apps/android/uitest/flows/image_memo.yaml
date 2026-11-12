@@ -1,0 +1,64 @@
+# Real photo import, immediate rendering, grouped paging and live viewer count.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- addMedia:
+    - "../assets/image-1.png"
+    - "../assets/image-2.png"
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- inputText: "uitest image group probe"
+- tapOn: "Add Image"
+- runFlow:
+    when:
+      visible: "Setup Image Storage Directory"
+    commands:
+      - tapOn: "Auto Create"
+      - tapOn: "Add Image"
+- tapOn:
+    text: "Photo taken on.*"
+    index: 0
+- tapOn:
+    text: "Photo taken on.*"
+    index: 1
+- tapOn: "Add \\(2\\)"
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible:
+    id: "benchmark_main_root"
+- assertVisible: "uitest image group probe\\s*"
+- assertNotVisible:
+    text: "Expand"
+    childOf:
+      id: "benchmark_memo_card_.*"
+      containsDescendants:
+        - text: "uitest image group probe\\s*"
+- assertVisible: "^image$"
+- assertNotVisible: "Image failed to load"
+- takeScreenshot: imported-image-group
+- tapOn:
+    text: "^image$"
+    index: 0
+- tapOn:
+    text: "Got it"
+    optional: true
+- assertVisible:
+    id: "benchmark_gallery_reel_root"
+- assertVisible: "1 / 2"
+- swipe:
+    start: "85%, 45%"
+    end: "15%, 45%"
+    duration: 450
+- assertVisible: "2 / 2"
+- takeScreenshot: viewer-second-image
+- swipe:
+    start: "15%, 45%"
+    end: "85%, 45%"
+    duration: 450
+- assertVisible: "1 / 2"
+- back
+- assertVisible:
+    id: "benchmark_main_root"

@@ -13,7 +13,17 @@
 //!   closed with `unknown_schema_version` and does not downgrade.
 //! - Given a v9 cache, upgrading creates a readable pre-upgrade backup and retains every history
 //!   row while admitting distinct content-addressed records at the same generation.
+//! - Given a v13 cache whose renderer dropped loose-list task markers, when open migrates to v14,
+//!   then `has_todo` is re-derived from the committed `body` (0 -> 1 repairs only) so task
+//!   queries stop reading stale false negatives.
 //!
+//! Test Change Justification:
+//! Reason category: schema fixture maintenance.
+//! Old behavior/assertion being replaced: historical fixtures retained current-schema triggers.
+//! Why old assertion is no longer correct: v16 row triggers reference lifecycle columns absent in v1.
+//! Coverage preserved by: all row preservation, backup, migration and unknown-schema assertions.
+//! Why this is not fitting the test to the implementation: removing v16 triggers makes each
+//! downgraded fixture match the historical schema being tested.
 //! Observable outcomes: `OpenInfo` fields and structured open errors.
 //! TDD proof: RED on 2026-08-17 because schema v3 had no durable complete SAF body column.
 //! Excludes: tokenizer, query, transactions, rebuild (later packages).
@@ -34,6 +44,12 @@ mod tests {
     use lomo_store::{STORE_SCHEMA_VERSION, Store, open_store};
     use rusqlite::Connection;
     use tempfile::tempdir;
+
+    fn remove_v16_triggers(connection: &Connection) {
+        connection.execute_batch("DROP TRIGGER memo_stats_insert; DROP TRIGGER memo_stats_delete;
+            DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders;")
+            .expect("historical schemas have no v16 triggers");
+    }
 
     #[test]
     fn open_applies_wal_fk_busy_version_and_integrity() {
@@ -92,6 +108,7 @@ mod tests {
 
         {
             let conn = Connection::open(&db_path).expect("open raw");
+            remove_v16_triggers(&conn);
             conn.execute(
                 "INSERT INTO memo( \
                  memo_id,source_path,file_fingerprint,created_at_ms,updated_at_ms,content_revision \
@@ -210,6 +227,7 @@ mod tests {
         let database = opened.database_path.clone();
         drop(opened);
         let connection = Connection::open(&database).expect("construct historical cache");
+        remove_v16_triggers(&connection);
         connection
             .execute_batch(
                 "DROP TABLE revision_index;
@@ -258,5 +276,66 @@ mod tests {
             .query_row("SELECT content FROM revision_index", [], |row| row.get(0))
             .expect("original snapshot row");
         assert_eq!(original, "original");
+    }
+
+    #[test]
+    fn v13_upgrade_heals_has_todo_false_negatives_from_committed_body() {
+        let dir = tempdir().expect("private projection directory");
+        let opened = open_store(dir.path()).expect("initial schema");
+        let database = opened.database_path.clone();
+        drop(opened);
+        let connection = Connection::open(&database).expect("construct v13 cache");
+        remove_v16_triggers(&connection);
+        connection
+            .execute_batch(
+                "INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
+                 has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
+                 search_content, word_count, char_count, content_revision, reminders_json, \
+                 is_pinned, is_trashed) \
+                 VALUES('task-memo','2026_10_12.md','fp1',0,0,0,1,1,'p',\
+                 'plan\n- [ ] open task\n- [x] done task\n#t','s',1,1,1,'[]',0,0);\
+                 INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
+                 has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
+                 search_content, word_count, char_count, content_revision, reminders_json, \
+                 is_pinned, is_trashed) \
+                 VALUES('plain-memo','2026_10_12.md','fp1',0,0,0,2,2,'p',\
+                 'plain prose','s',1,1,1,'[]',0,0);\
+                 INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
+                 has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
+                 search_content, word_count, char_count, content_revision, reminders_json, \
+                 is_pinned, is_trashed) \
+                 VALUES('no-body-memo','2026_10_12.md','fp1',0,0,0,3,3,'p',\
+                 NULL,'s',1,1,1,'[]',0,0);\
+                 PRAGMA user_version=13;",
+            )
+            .expect("v13 stale projection rows");
+        drop(connection);
+        let upgraded = open_store(dir.path()).expect("upgrade v13");
+        assert_eq!(upgraded.user_version, STORE_SCHEMA_VERSION);
+        let inspect = Connection::open(&database).expect("inspect upgraded projection");
+        let task_flag: i64 = inspect
+            .query_row(
+                "SELECT has_todo FROM memo WHERE memo_id='task-memo'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("healed flag");
+        assert_eq!(task_flag, 1, "task-bearing body must flip has_todo to 1");
+        let plain_flag: i64 = inspect
+            .query_row(
+                "SELECT has_todo FROM memo WHERE memo_id='plain-memo'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("plain flag");
+        assert_eq!(plain_flag, 0, "unmarked body must stay 0");
+        let null_body_flag: i64 = inspect
+            .query_row(
+                "SELECT has_todo FROM memo WHERE memo_id='no-body-memo'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("null body flag");
+        assert_eq!(null_body_flag, 0, "a NULL body must not invent facts");
     }
 }

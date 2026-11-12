@@ -1,0 +1,184 @@
+# Walks every committed surface and captures one named screenshot per screen —
+# the "all screens" artifact set agents read when verifying UI changes, doubling
+# as the smoke tour proving each surface stays reachable through real navigation.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+
+# Input sheet + a tagged probe memo; the tag feeds the drawer/tag-filter legs.
+- tapOn:
+    id: "benchmark_main_create_fab"
+- assertVisible:
+    id: "benchmark_input_sheet_root"
+- takeScreenshot: input-sheet
+- tapOn:
+    id: "benchmark_input_editor"
+- inputText: "uitest tour probe #uitest_tour_tag"
+- hideKeyboard
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible: "uitest tour probe"
+- takeScreenshot: main-feed
+
+# Filter sheet.
+- tapOn:
+    id: "benchmark_main_filter_button"
+- assertVisible:
+    id: "benchmark_filter_sheet_root"
+- takeScreenshot: filter-sheet
+- back
+- waitForAnimationToEnd
+
+# Search.
+- tapOn:
+    id: "benchmark_main_search_button"
+- assertVisible:
+    id: "benchmark_search_root"
+- takeScreenshot: search
+- back
+- waitForAnimationToEnd
+# The first back may only drop IME/focus; pop the route when it is still up.
+- runFlow:
+    when:
+      visible:
+        id: "benchmark_search_root"
+    commands:
+      - back
+      - waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_main_root"
+
+# Drawer, then the tag-filter route via the card's tag pill (the drawer tag
+# list is data-dependent and may need scrolling; the pill is deterministic).
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- takeScreenshot: drawer
+- back
+- waitForAnimationToEnd
+- tapOn: "#uitest_tour_tag"
+- assertVisible:
+    id: "benchmark_tag_root"
+- takeScreenshot: tag-filter
+- back
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_main_root"
+
+# Memo action sheet (long-press on the card) -> version history sheet.
+- longPressOn: "uitest tour probe"
+- assertVisible:
+    id: "benchmark_memo_menu_root"
+- takeScreenshot: memo-menu
+- runFlow:
+    when:
+      notVisible:
+        id: "benchmark_memo_action_history"
+    commands:
+      - swipe:
+          start: "90%, 76%"
+          end: "10%, 76%"
+          duration: 200
+      - waitForAnimationToEnd
+- runFlow:
+    when:
+      notVisible:
+        id: "benchmark_memo_action_history"
+    commands:
+      - swipe:
+          start: "90%, 76%"
+          end: "10%, 76%"
+          duration: 200
+      - waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_memo_action_history"
+- assertVisible:
+    id: "benchmark_version_history_root"
+- takeScreenshot: version-history
+- back
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible:
+        id: "benchmark_memo_menu_root"
+    commands:
+      - back
+      - waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_main_root"
+
+# Drawer destinations.
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_daily_review"
+- assertVisible:
+    id: "benchmark_daily_review_root"
+- takeScreenshot: daily-review
+- back
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_gallery"
+- assertVisible:
+    id: "benchmark_gallery_root"
+- takeScreenshot: gallery
+- back
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_statistics"
+- assertVisible:
+    id: "benchmark_statistics_root"
+- takeScreenshot: statistics
+- back
+- waitForAnimationToEnd
+
+# Trash, settings, then the settings -> sync-center row.
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_trash"
+- assertVisible:
+    id: "benchmark_trash_root"
+- takeScreenshot: trash
+- back
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_settings"
+- assertVisible:
+    id: "benchmark_settings_root"
+- takeScreenshot: settings
+# Settings home -> "Sync & Backup" sub-page -> the Sync Center row inside it.
+- scrollUntilVisible:
+    element:
+      id: "benchmark_settings_sync_backup"
+- tapOn:
+    id: "benchmark_settings_sync_backup"
+- scrollUntilVisible:
+    element:
+      id: "benchmark_settings_sync_center"
+- assertVisible:
+    id: "benchmark_settings_sync_center"
+- takeScreenshot: settings-sync-backup
+- tapOn:
+    id: "benchmark_settings_sync_center"
+- assertVisible:
+    id: "sync_center_root"
+- takeScreenshot: sync-center
+- back
+- waitForAnimationToEnd
+# Back may land on settings home or already on main; close settings if needed.
+- runFlow:
+    when:
+      visible:
+        id: "benchmark_settings_root"
+    commands:
+      - tapOn:
+          id: "benchmark_settings_back_button"
+- assertVisible:
+    id: "benchmark_main_root"

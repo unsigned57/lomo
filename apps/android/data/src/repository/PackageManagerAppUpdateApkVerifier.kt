@@ -12,10 +12,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 internal interface AppUpdateApkVerifier {
-    fun verify(
-        apkFile: File,
-        updateInfo: AppUpdateInfo,
-    ): DownloadedApkVerificationResult
+    fun verify(apkFile: File, updateInfo: AppUpdateInfo): DownloadedApkVerificationResult
 }
 
 internal interface AppUpdateInstallerResultObserver {
@@ -30,10 +27,7 @@ internal class PackageManagerAppUpdateApkVerifier(
     private val resources: DataAndroidResources,
 ) : AppUpdateApkVerifier,
     AppUpdateInstallerResultObserver {
-    override fun verify(
-        apkFile: File,
-        updateInfo: AppUpdateInfo,
-    ): DownloadedApkVerificationResult =
+    override fun verify(apkFile: File, updateInfo: AppUpdateInfo): DownloadedApkVerificationResult =
         verifyDownloadedApkMetadata(
             metadata = readArchiveMetadata(apkFile),
             installedSignerDigests = readInstalledSignerDigests(),
@@ -67,6 +61,7 @@ internal class PackageManagerAppUpdateApkVerifier(
             }
         return when (installed) {
             true -> AppUpdateInstallerResult.Installed
+
             false,
             null,
             -> AppUpdateInstallerResult.Failed(failureMessage)

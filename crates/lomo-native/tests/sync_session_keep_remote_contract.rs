@@ -1,4 +1,10 @@
 //! Behavior Contract — T33 `KeepRemote` local pull through `WorkspaceSession`
+//! Test Change Justification:
+//! Reason category: sync controls share the active session's private generation.
+//! Old behavior/assertion being replaced: fixtures seeded conflicts into the user document root.
+//! Why old assertion is no longer correct: the production owner now reads conflicts from private state.
+//! Coverage preserved by: exact `KeepRemote` bodies, conflict outcomes, and sessionless rejection assertions.
+//! Why this is not fitting the test to the implementation: only fixture placement changed; user document results remain the oracle.
 //!
 //! - Unit under test: native composition of `sync_run_cycle` / `LomoEngine::sync_run_cycle`
 //!   with durable `KeepRemote` artifacts
@@ -17,6 +23,11 @@
 //!   `LomoEngine::sync_run_cycle` runs with `apply_remote`, then `session_get_memo` returns
 //!   the remote candidate body and the dated Markdown contains those bytes.
 //!
+//! - Given a session-created document and a private projection, when a cycle is planned, then
+//!   it sees one local document and one upload intent instead of opening an empty root cache.
+//!
+//! TDD session snapshot: reports/manual/media-toolbar-search/sync-red.log observed
+//! `local_entry_count` 0 instead of 1; sync-green.log passes through the active session.
 //! Observable outcomes: `EngineError` code, session memo body, workspace Markdown bytes.
 //! TDD proof: RED `free_function_apply_cycle_fails_closed_when_keep_remote_pull_lacks_session`
 //! panicked `session-less apply must not skip KeepRemote: unexpectedly succeeded` because
@@ -26,12 +37,17 @@
 //! multi-memo dated documents.
 
 #[cfg(test)]
+mod create_observer;
+#[cfg(test)]
 mod support;
 
 #[cfg(test)]
 mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
-    use std::{fs, path::PathBuf};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use lomo_core::{CapabilityToken, PlatformActionExecutor};
     use lomo_native::{
@@ -114,7 +130,7 @@ mod tests {
 
     /// The durable fence must match the live (generation, dataset, canonical identity)
     /// triple — seeding an arbitrary fence is rejected as `sync_identity_mismatch`.
-    fn fence(workspace: &std::path::Path, dataset: &str) -> SyncIdentityFence {
+    fn fence(workspace: &Path, dataset: &str) -> SyncIdentityFence {
         let generation = lomo_workspace::load_or_mint_workspace_generation(workspace)
             .test_ok("workspace generation");
         let canonical = SyncBackendConfig::HermeticFake {
@@ -136,17 +152,24 @@ mod tests {
     ) -> (String, String) {
         let commit = session
             .engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "op-keep-remote-create".to_owned(),
-                relative_path: None,
-                time_token: Some("10:15:00".to_owned()),
-                content: local_body.to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-keep-remote-create".to_owned(),
+                    relative_path: None,
+                    time_token: Some("10:15:00".to_owned()),
+                    content: local_body.to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_ok("create memo");
+        session
+            .engine
+            .session_settle_workspace()
+            .test_ok("committed writes converge");
         let view = session
             .engine
             .get_memo(commit.memo_id.clone())
@@ -166,7 +189,12 @@ mod tests {
         );
         let local_digest = ContentDigest::from_bytes(&local_bytes);
         let remote_digest = ContentDigest::from_bytes(remote_markdown.as_bytes());
-        let paths = SyncPaths::for_workspace(&session.workspace);
+        let state_root = session
+            .engine
+            .sync_private_state_root(session.workspace.display().to_string())
+            .test_ok("private sync root");
+        let mut paths = SyncPaths::for_control_root(Path::new(&state_root));
+        paths.workspace_root = session.workspace.clone();
         let mut record = conflict_path_from_open(
             &SyncPath::parse(&source_path).test_ok("sync path"),
             Some(&local_digest),
@@ -192,13 +220,50 @@ mod tests {
         );
         record.status = ConflictPathStatus::ResolvedKeepRemote;
         let conflict = lomo_sync::ConflictSession::open(
-            fence(&session.workspace, "ds-keep-remote"),
+            fence(Path::new(&state_root), "ds-keep-remote"),
             session_id,
             vec![record],
         )
         .test_ok("open conflict session");
         write_conflict_session(&paths, &conflict).test_ok("write conflict session");
         (commit.memo_id, source_path)
+    }
+
+    #[test]
+    fn sync_cycle_reads_the_open_session_projection_instead_of_an_empty_workspace_cache() {
+        let session = open_direct_engine();
+        attach_posix_session(&session);
+        session
+            .engine
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-sync-projection".to_owned(),
+                    relative_path: None,
+                    time_token: Some("10:15:00".to_owned()),
+                    content: "real local document".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
+            .test_ok("create");
+        let result = session
+            .engine
+            .sync_run_cycle(
+                session.workspace.display().to_string(),
+                SyncBackendConfigDto {
+                    backend_kind: "hermetic_fake".to_owned(),
+                    remote_dataset_id: "ds-open-projection".to_owned(),
+                    ..SyncBackendConfigDto::default()
+                },
+                String::new(),
+                false,
+            )
+            .test_ok("plan from session");
+        assert_eq!(result.local_entry_count, 1);
+        assert_eq!(result.ensure_present_count, 1);
     }
 
     #[test]
@@ -210,6 +275,10 @@ mod tests {
 
         let error = sync_run_cycle(
             session.workspace.display().to_string(),
+            session
+                .engine
+                .sync_private_state_root(session.workspace.display().to_string())
+                .test_ok("private sync root"),
             SyncBackendConfigDto {
                 backend_kind: "hermetic_fake".to_owned(),
                 remote_dataset_id: "ds-keep-remote".to_owned(),
@@ -262,6 +331,10 @@ mod tests {
             after.body, "remote-keep-remote",
             "KeepRemote must replace the session memo body via WorkspaceSession"
         );
+        session
+            .engine
+            .session_settle_workspace()
+            .test_ok("committed writes converge");
         let markdown =
             fs::read_to_string(session.workspace.join(source_path)).test_ok("read dated");
         assert!(

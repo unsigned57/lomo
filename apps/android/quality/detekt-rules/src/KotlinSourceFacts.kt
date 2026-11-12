@@ -17,11 +17,10 @@ import org.jetbrains.kotlin.psi.KtTreeVisitorVoid
 import org.jetbrains.kotlin.psi.KtUserType
 
 /** Import aliases preserve the imported declaration's identity. No source-text search is involved. */
-internal fun KtFile.importedName(name: String): String =
-    importDirectives.firstOrNull { directive ->
-        directive.aliasName == name ||
-            (directive.aliasName == null && directive.importedFqName?.shortName()?.asString() == name)
-    }?.importedFqName?.asString() ?: name
+internal fun KtFile.importedName(name: String): String = importDirectives.firstOrNull { directive ->
+    directive.aliasName == name ||
+        (directive.aliasName == null && directive.importedFqName?.shortName()?.asString() == name)
+}?.importedFqName?.asString() ?: name
 
 internal fun KtCallExpression.canonicalCalleeName(): String? =
     (calleeExpression as? KtNameReferenceExpression)?.getReferencedName()?.let { name ->
@@ -52,17 +51,19 @@ internal fun KtFile.forbiddenCodeReference(prefixes: List<String>): String? {
     return forbidden
 }
 
-private fun KtExpression.qualifiedCodeName(): String? =
-    when (this) {
-        is KtNameReferenceExpression -> getReferencedName()
-        is KtCallExpression -> (calleeExpression as? KtNameReferenceExpression)?.getReferencedName()
-        is KtDotQualifiedExpression -> {
-            val receiver = receiverExpression.qualifiedCodeName()
-            val selector = selectorExpression?.qualifiedCodeName()
-            if (receiver == null || selector == null) null else "$receiver.$selector"
-        }
-        else -> null
+private fun KtExpression.qualifiedCodeName(): String? = when (this) {
+    is KtNameReferenceExpression -> getReferencedName()
+
+    is KtCallExpression -> (calleeExpression as? KtNameReferenceExpression)?.getReferencedName()
+
+    is KtDotQualifiedExpression -> {
+        val receiver = receiverExpression.qualifiedCodeName()
+        val selector = selectorExpression?.qualifiedCodeName()
+        if (receiver == null || selector == null) null else "$receiver.$selector"
     }
+
+    else -> null
+}
 
 private fun KtUserType.qualifiedTypeName(): String? {
     val name = referencedName ?: return null
@@ -91,7 +92,9 @@ internal fun KtElement.hasBehaviorContractException(marker: Regex): Boolean {
                     text.substring(previousStart, comment.textRange.startOffset).isBlank() &&
                         comment.matchesException(marker)
                 }
-            ) return true
+            ) {
+                return true
+            }
         }
         element = element.parent
     }
@@ -121,10 +124,11 @@ private fun PsiComment.matchesException(marker: Regex): Boolean {
 private val exceptionComment =
     Regex("""//\s*behavior-contract:\s*([a-z][a-z0-9-]*):[ \t]*(\S[^\r\n]*)""")
 
-internal class NoHandwrittenNativeDeclarationRule(config: Config) : LomoBaseRule(
-    config,
-    "JNI declarations belong exclusively to generated native-bindings; product Kotlin uses the data adapter.",
-) {
+internal class NoHandwrittenNativeDeclarationRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "JNI declarations belong exclusively to generated native-bindings; product Kotlin uses the data adapter.",
+    ) {
     override fun visitNamedFunction(function: KtNamedFunction) {
         super.visitNamedFunction(function)
         val file = function.containingKtFile

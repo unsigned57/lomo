@@ -43,7 +43,9 @@ class ReminderPermissionPolicyTest : AppFunSpec() {
             requiredReminderNotificationPermissions(sdkInt = 32) shouldBe emptyList()
         }
 
-        test("given Android 13 or newer when notification permissions are requested then catalog supplies POST_NOTIFICATIONS") {
+        test(
+            "given Android 13 or newer when notification permissions are requested then catalog supplies POST_NOTIFICATIONS",
+        ) {
             requiredReminderNotificationPermissions(sdkInt = 33) shouldBe
                 listOf(REMINDER_POST_NOTIFICATIONS_PERMISSION)
         }
@@ -64,7 +66,9 @@ class ReminderPermissionPolicyTest : AppFunSpec() {
             ) shouldBe false
         }
 
-        test("given notification denial when recovery is evaluated then app settings fallback and retry are catalog backed") {
+        test(
+            "given notification denial when recovery is evaluated then app settings fallback and retry are catalog backed",
+        ) {
             reminderNotificationRecoveryAction(CapabilityRecoveryDecision.Denied) shouldBe
                 CapabilityRecoveryAction.OpenAppSettings
             reminderNotificationRecoveryAction(CapabilityRecoveryDecision.PermanentlyDenied) shouldBe
@@ -72,7 +76,9 @@ class ReminderPermissionPolicyTest : AppFunSpec() {
             canRetryReminderNotificationRecovery() shouldBe true
         }
 
-        test("given exact alarm capability when recovery is evaluated then exact alarm settings action is catalog backed") {
+        test(
+            "given exact alarm capability when recovery is evaluated then exact alarm settings action is catalog backed",
+        ) {
             reminderExactAlarmRecoveryAction() shouldBe
                 CapabilityRecoveryAction.OpenSettings(CapabilitySettingsEntry.ExactAlarmSettings)
             canRetryReminderExactAlarmRecovery() shouldBe true

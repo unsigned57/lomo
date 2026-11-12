@@ -1,5 +1,6 @@
 package com.lomo.domain.testing.fakes
 
+import com.lomo.domain.model.ImageLocationSnapshot
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
@@ -7,7 +8,7 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 
 class FakeMediaRepository : MediaRepository {
     private val imageLocations = MutableStateFlow<Map<MediaEntryId, MediaImageDescriptor>>(emptyMap())
@@ -31,17 +32,11 @@ class FakeMediaRepository : MediaRepository {
             }
     }
 
-    fun setCategoryWorkspaceResult(
-        category: MediaCategory,
-        location: StorageLocation?,
-    ) {
+    fun setCategoryWorkspaceResult(category: MediaCategory, location: StorageLocation?) {
         categoryWorkspaceResults[category] = location
     }
 
-    fun setVoiceTarget(
-        entryId: MediaEntryId,
-        location: StorageLocation,
-    ) {
+    fun setVoiceTarget(entryId: MediaEntryId, location: StorageLocation) {
         voiceTargets[entryId] = location
     }
 
@@ -54,15 +49,12 @@ class FakeMediaRepository : MediaRepository {
         return nextImportResult
     }
 
-    override suspend fun removeImage(
-        entryId: MediaEntryId,
-        draftId: com.lomo.domain.model.DraftId,
-    ) {
+    override suspend fun removeImage(entryId: MediaEntryId, draftId: com.lomo.domain.model.DraftId) {
         removedImageIds += entryId
     }
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
-        imageLocations.asStateFlow()
+    override fun observeImageLocations(): Flow<ImageLocationSnapshot> =
+        imageLocations.map { ImageLocationSnapshot.Ready(it) }
 
     override suspend fun refreshImageLocations() {
         refreshImageLocationsCallCount += 1
@@ -94,12 +86,15 @@ class FakeMediaRepository : MediaRepository {
 
     var reconcileResult: com.lomo.domain.model.DraftMediaReconciliation? = null
     val releasedDraftIds = mutableListOf<com.lomo.domain.model.DraftId>()
+    val reconciledDraftIds = mutableListOf<com.lomo.domain.model.DraftId>()
 
     override suspend fun reconcileDraftMedia(
         draftId: com.lomo.domain.model.DraftId,
-    ): com.lomo.domain.model.DraftMediaReconciliation =
-        reconcileResult
+    ): com.lomo.domain.model.DraftMediaReconciliation {
+        reconciledDraftIds += draftId
+        return reconcileResult
             ?: com.lomo.domain.model.DraftMediaReconciliation(draftId = draftId, records = emptyList())
+    }
 
     override suspend fun releaseDraftLeases(draftId: com.lomo.domain.model.DraftId) {
         releasedDraftIds += draftId

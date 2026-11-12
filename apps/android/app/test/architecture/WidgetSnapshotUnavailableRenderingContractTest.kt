@@ -37,7 +37,9 @@ import java.io.File
  */
 class WidgetSnapshotUnavailableRenderingContractTest : AppFunSpec() {
     init {
-        test("given a persisted UNAVAILABLE generation when the widget renders then it must not fall through to the empty-vault text") {
+        test(
+            "given a persisted UNAVAILABLE generation when the widget renders then it must not fall through to the empty-vault text",
+        ) {
             val source =
                 resolveModuleRoot("app")
                     .resolve("src/widget/LomoWidget.kt")

@@ -12,9 +12,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.lomo.ui.theme.memoPlatformTextHandleColor
 import com.lomo.ui.theme.memoPlatformTextSelectionHighlightColor
 
-private const val SEARCH_HIGHLIGHT_ALPHA = 153
-private const val COLOR_COMPONENT_MAX = 255f
-
 @Composable
 internal fun MemoParagraphText(
     text: String,
@@ -68,7 +65,7 @@ internal fun MemoParagraphText(
             if (style.color == Color.Unspecified) style.copy(color = fallbackColor) else style
         }
     val searchQuery = LocalSearchHighlightQuery.current
-    val searchHighlightColor = colorScheme.tertiary.copy(alpha = SEARCH_HIGHLIGHT_ALPHA / COLOR_COMPONENT_MAX)
+    val searchHighlightColor = colorScheme.tertiaryContainer
     val highlightedText =
         remember(text, searchQuery, searchHighlightColor) {
             text.withSearchHighlight(query = searchQuery, highlightColor = searchHighlightColor)

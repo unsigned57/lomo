@@ -13,10 +13,7 @@ import com.lomo.domain.repository.SyncConflictBackupRepository
 import java.io.ByteArrayOutputStream
 
 class FakeShareImageRepository : ShareImageRepository {
-    data class StoredImage(
-        val pngBytes: ByteArray,
-        val fileNamePrefix: String,
-    )
+    data class StoredImage(val pngBytes: ByteArray, val fileNamePrefix: String)
 
     val storedImages = mutableListOf<StoredImage>()
     var nextPath: String = "/tmp/share.png"
@@ -33,17 +30,11 @@ class FakeShareImageRepository : ShareImageRepository {
 }
 
 class FakeSyncConflictBackupRepository : SyncConflictBackupRepository {
-    data class BackupRequest(
-        val files: List<SyncConflictFile>,
-        val readResults: Map<String, ByteArray?>,
-    )
+    data class BackupRequest(val files: List<SyncConflictFile>, val readResults: Map<String, ByteArray?>)
 
     val backupRequests = mutableListOf<BackupRequest>()
 
-    override suspend fun backupFiles(
-        files: List<SyncConflictFile>,
-        localFileReader: suspend (String) -> ByteArray?,
-    ) {
+    override suspend fun backupFiles(files: List<SyncConflictFile>, localFileReader: suspend (String) -> ByteArray?) {
         backupRequests +=
             BackupRequest(
                 files = files,
@@ -69,10 +60,8 @@ class FakeAppUpdateRepository(
     }
 }
 
-class FakeAppRuntimeInfoRepository(
-    var currentVersionName: String = "1.0.0",
-    var currentVersionCode: Long? = null,
-) : AppRuntimeInfoRepository {
+class FakeAppRuntimeInfoRepository(var currentVersionName: String = "1.0.0", var currentVersionCode: Long? = null) :
+    AppRuntimeInfoRepository {
     var getCurrentVersionNameCallCount = 0
         private set
     var getCurrentVersionCodeCallCount = 0
@@ -89,9 +78,7 @@ class FakeAppRuntimeInfoRepository(
     }
 }
 
-class FakeAppVersionRepository(
-    var lastAppVersion: String? = null,
-) : AppVersionRepository {
+class FakeAppVersionRepository(var lastAppVersion: String? = null) : AppVersionRepository {
     val updatedVersions = mutableListOf<String?>()
 
     override suspend fun getLastAppVersionOnce(): String? = lastAppVersion

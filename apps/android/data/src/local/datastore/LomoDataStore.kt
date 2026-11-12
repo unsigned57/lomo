@@ -15,14 +15,15 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.domain.model.AppPreferenceSnapshotField
+import com.lomo.domain.model.QuickBallAction
+import com.lomo.domain.model.QuickBallGesture
 import com.lomo.domain.model.SettingDescriptor
-import com.lomo.domain.model.SettingsCatalog
-import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SettingValue
-import com.lomo.domain.model.StorageTimestampFormats
+import com.lomo.domain.model.SettingsCatalog
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.StorageTimestampFormats
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WorkspaceRootTransition
-
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -33,7 +34,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.IOException
-
 
 internal const val LOMO_DATA_STORE_TAG = "LomoDataStore"
 
@@ -49,10 +49,7 @@ private object LomoAppDataStoreHolder {
     // behavior-contract: unmanaged-scope-ok: DataStore file ownership is process-wide by
     // androidx contract — the store must outlive every caller scope, so a SupervisorJob scope
     // rooted at process lifetime is the correct owner; cancellation is delegated to DataStore
-    fun instance(
-        context: Context,
-        dispatcher: CoroutineDispatcher,
-    ): DataStore<Preferences> =
+    fun instance(context: Context, dispatcher: CoroutineDispatcher): DataStore<Preferences> =
         instance ?: synchronized(this) {
             instance
                 ?: run {
@@ -61,28 +58,28 @@ private object LomoAppDataStoreHolder {
                         PreferenceDataStoreFactory
                             .create(
                                 corruptionHandler =
-                                    lomoPreferencesCorruptionHandler(
-                                        corruptionFile = { context.preferencesFile() },
-                                        registry = PreferencesCorruptionRegistry.shared,
-                                    ),
+                                lomoPreferencesCorruptionHandler(
+                                    corruptionFile = { context.preferencesFile() },
+                                    registry = PreferencesCorruptionRegistry.shared,
+                                ),
                                 migrations =
-                                    listOf(
-                                        UnifyStorageLocationMigration,
-                                        GitSyncPreferenceMigration,
-                                        SyncBackendPreferenceMigration,
-                                        // B15: drain the retired plaintext WebDAV username at first
-                                        // access instead of waiting for a settings-screen read.
-                                        LegacyWebDavUsernameDrainMigration(
-                                            credentialStoreFactory = {
-                                                WebDavCredentialStore(context.applicationContext)
-                                            },
-                                        ),
-                                        // P-28: one-shot drain of the lomo_reminder_prefs
-                                        // SharedPreferences island; deletes the legacy file.
-                                        ReminderIntervalSharedPreferencesMigration(
-                                            context.applicationContext,
-                                        ),
+                                listOf(
+                                    UnifyStorageLocationMigration,
+                                    GitSyncPreferenceMigration,
+                                    SyncBackendPreferenceMigration,
+                                    // B15: drain the retired plaintext WebDAV username at first
+                                    // access instead of waiting for a settings-screen read.
+                                    LegacyWebDavUsernameDrainMigration(
+                                        credentialStoreFactory = {
+                                            WebDavCredentialStore(context.applicationContext)
+                                        },
                                     ),
+                                    // P-28: one-shot drain of the lomo_reminder_prefs
+                                    // SharedPreferences island; deletes the legacy file.
+                                    ReminderIntervalSharedPreferencesMigration(
+                                        context.applicationContext,
+                                    ),
+                                ),
                                 scope = storeScope,
                                 produceFile = { context.preferencesFile() },
                             )
@@ -98,8 +95,7 @@ private object LomoAppDataStoreHolder {
                 }
         }
 
-    private fun Context.preferencesFile() =
-        applicationContext.preferencesDataStoreFile(PreferenceKeys.PREFS_NAME)
+    private fun Context.preferencesFile() = applicationContext.preferencesDataStoreFile(PreferenceKeys.PREFS_NAME)
 }
 
 interface LomoRootLocationStore {
@@ -117,6 +113,7 @@ interface LomoWorkspaceRootTransitionStore {
     suspend fun prepareRootTransition(
         previous: StorageLocation?,
         candidate: StorageLocation,
+        mediaChange: com.lomo.domain.model.MediaDirectoryChange?,
     ): WorkspaceRootTransition
 
     suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition
@@ -166,6 +163,9 @@ interface LomoDisplayPreferencesStore {
     val themeMode: Flow<String>
     val calendarHeatmapThresholds: Flow<String>
     val colorSource: Flow<String>
+    val pureBlackDark: Flow<Boolean>
+
+    val contrastLevel: Flow<String>
     val fontPreference: Flow<String>
     val colorHistory: Flow<String>
 
@@ -173,15 +173,27 @@ interface LomoDisplayPreferencesStore {
 
     suspend fun updateTimeFormat(format: String)
 
+    suspend fun updatePureBlackDark(enabled: Boolean)
+
     suspend fun updateThemeMode(mode: String)
 
     suspend fun updateCalendarHeatmapThresholds(thresholds: String)
 
     suspend fun updateColorSource(source: String)
 
+    suspend fun updateContrastLevel(level: String)
+
     suspend fun updateFontPreference(preference: String)
 
     suspend fun addColorToHistory(argb: Int)
+}
+
+interface LomoQuickBallPreferencesStore {
+    val quickBallConfig: Flow<String>
+
+    suspend fun updateQuickBallAction(gesture: QuickBallGesture, action: QuickBallAction)
+
+    suspend fun resetQuickBallConfig()
 }
 
 interface LomoInteractionPreferencesStore {
@@ -189,10 +201,7 @@ interface LomoInteractionPreferencesStore {
     val showInputHints: Flow<Boolean>
     val doubleTapEditEnabled: Flow<Boolean>
     val freeTextCopyEnabled: Flow<Boolean>
-    val memoActionAutoReorderEnabled: Flow<Boolean>
     val autoOpenInputOnForeground: Flow<Boolean>
-    val memoActionOrder: Flow<String>
-    val memoActionOrdersByScope: Flow<String>
     val inputToolbarToolOrder: Flow<String>
     val quickSaveOnBackEnabled: Flow<Boolean>
     val scrollbarEnabled: Flow<Boolean>
@@ -205,13 +214,7 @@ interface LomoInteractionPreferencesStore {
 
     suspend fun updateFreeTextCopyEnabled(enabled: Boolean)
 
-    suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean)
-
     suspend fun updateAutoOpenInputOnForeground(enabled: Boolean)
-
-    suspend fun updateMemoActionOrder(order: String)
-
-    suspend fun updateMemoActionOrdersByScope(ordersByScope: String)
 
     suspend fun updateInputToolbarToolOrder(order: String)
 
@@ -264,12 +267,9 @@ interface LomoDailyReviewSessionStore {
     val dailyReviewSessionDate: Flow<String?>
     val dailyReviewSessionSeed: Flow<Long?>
     val dailyReviewSessionPageIndex: Flow<Int?>
+    val dailyReviewSessionOptions: Flow<String?>
 
-    suspend fun updateDailyReviewSession(
-        date: String?,
-        seed: Long?,
-        pageIndex: Int?,
-    )
+    suspend fun updateDailyReviewSession(date: String?, seed: Long?, pageIndex: Int?, options: String?)
 }
 
 interface LomoSnapshotPreferencesStore {
@@ -470,14 +470,14 @@ internal data class LomoOrdinarySettingsRestoreTransaction(
 /**
  * DataStore-backed settings shell. The API remains stable while implementation is split by concern.
  */
-class LomoDataStore private constructor(
-    private val dataStore: DataStore<Preferences>,
-) : LomoRootLocationStore by RootLocationStoreImpl(dataStore),
+class LomoDataStore private constructor(private val dataStore: DataStore<Preferences>) :
+    LomoRootLocationStore by RootLocationStoreImpl(dataStore),
     LomoWorkspaceRootTransitionStore by WorkspaceRootTransitionStoreImpl(dataStore),
     LomoMediaLocationStore by MediaLocationStoreImpl(dataStore),
     LomoStorageFormatStore by StorageFormatStoreImpl(dataStore),
     LomoDisplayPreferencesStore by DisplayPreferencesStoreImpl(dataStore),
     LomoInteractionPreferencesStore by InteractionPreferencesStoreImpl(dataStore),
+    LomoQuickBallPreferencesStore by QuickBallPreferencesStoreImpl(dataStore),
     LomoSidebarTagOrderStore by SidebarTagOrderStoreImpl(dataStore),
     LomoAppSecurityStore by AppSecurityStoreImpl(dataStore),
     LomoLanSharePreferencesStore by LanSharePreferencesStoreImpl(dataStore),
@@ -508,6 +508,7 @@ class LomoDataStore private constructor(
                         flowName = descriptor.id,
                         default = defaultValue.value,
                     ).map(SettingValue::Bool)
+
             is SettingValue.Decimal ->
                 dataStore
                     .floatFlow(
@@ -515,6 +516,7 @@ class LomoDataStore private constructor(
                         flowName = descriptor.id,
                         default = defaultValue.value,
                     ).map(SettingValue::Decimal)
+
             is SettingValue.Text ->
                 dataStore
                     .stringFlow(
@@ -546,9 +548,11 @@ class LomoDataStore private constructor(
                 is SettingValue.Bool ->
                     this[booleanPreferencesKey(descriptor.storageKey)] =
                         descriptor.requireValueType<SettingValue.Bool>(value, defaultValue).value
+
                 is SettingValue.Decimal ->
                     this[floatPreferencesKey(descriptor.storageKey)] =
                         descriptor.requireValueType<SettingValue.Decimal>(value, defaultValue).value
+
                 is SettingValue.Text ->
                     this[stringPreferencesKey(descriptor.storageKey)] =
                         descriptor.requireValueType<SettingValue.Text>(value, defaultValue).value
@@ -563,6 +567,7 @@ class LomoDataStore private constructor(
                     // Filename date tokens restore verbatim; Rust `DateFormat::from_token`
                     // rejects a foreign token at session open instead of silently rewriting it.
                     LomoDataStoreKeys.STORAGE_TIMESTAMP_FORMAT -> StorageTimestampFormats.normalize(value)
+
                     else -> value
                 }
         }
@@ -598,7 +603,7 @@ class LomoDataStore private constructor(
         defaultValue: SettingValue,
     ): T {
         require(value is T) {
-            "Setting ${id} expects ${defaultValue::class.simpleName} but received ${value::class.simpleName}"
+            "Setting $id expects ${defaultValue::class.simpleName} but received ${value::class.simpleName}"
         }
         return value
     }
@@ -613,6 +618,10 @@ internal object LomoDataStoreKeys {
     val ROOT_TRANSITION_PREVIOUS_PRESENT = booleanPreferencesKey("root_transition_previous_present")
     val ROOT_TRANSITION_CANDIDATE = stringPreferencesKey("root_transition_candidate")
     val ROOT_TRANSITION_PHASE = stringPreferencesKey("root_transition_phase")
+    val ROOT_TRANSITION_MEDIA_AREA = stringPreferencesKey("root_transition_media_area")
+    val ROOT_TRANSITION_MEDIA_PREVIOUS = stringPreferencesKey("root_transition_media_previous")
+    val ROOT_TRANSITION_MEDIA_PREVIOUS_PRESENT = booleanPreferencesKey("root_transition_media_previous_present")
+    val ROOT_TRANSITION_MEDIA_CANDIDATE = stringPreferencesKey("root_transition_media_candidate")
     val IMAGE_URI = stringPreferencesKey(PreferenceKeys.IMAGE_URI)
     val IMAGE_DIRECTORY = stringPreferencesKey(PreferenceKeys.IMAGE_DIRECTORY)
     val IMAGE_LOCATION = stringPreferencesKey(PreferenceKeys.IMAGE_LOCATION)
@@ -636,6 +645,10 @@ internal object LomoDataStoreKeys {
         )
     val COLOR_SOURCE =
         stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.COLOR_SOURCE))
+    val PURE_BLACK_DARK =
+        booleanPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.PURE_BLACK_DARK))
+    val CONTRAST_LEVEL =
+        stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.CONTRAST_LEVEL))
     val COLOR_HISTORY = stringPreferencesKey(PreferenceKeys.COLOR_HISTORY)
     val FONT_PREFERENCE =
         stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.FONT_PREFERENCE))
@@ -654,21 +667,9 @@ internal object LomoDataStoreKeys {
         booleanPreferencesKey(
             SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED),
         )
-    val MEMO_ACTION_AUTO_REORDER_ENABLED =
-        booleanPreferencesKey(
-            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED),
-        )
     val AUTO_OPEN_INPUT_ON_FOREGROUND =
         booleanPreferencesKey(
             SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND),
-        )
-    val MEMO_ACTION_ORDER =
-        stringPreferencesKey(
-            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.MEMO_ACTION_ORDER),
-        )
-    val MEMO_ACTION_ORDERS_BY_SCOPE =
-        stringPreferencesKey(
-            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.MEMO_ACTION_ORDERS_BY_SCOPE),
         )
     val INPUT_TOOLBAR_TOOL_ORDER =
         stringPreferencesKey(
@@ -679,6 +680,8 @@ internal object LomoDataStoreKeys {
         booleanPreferencesKey(
             SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED),
         )
+    val QUICK_BALL_CONFIG =
+        stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.QUICK_BALL_CONFIG))
     val SCROLLBAR_ENABLED =
         booleanPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.SCROLLBAR_ENABLED))
     val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
@@ -700,6 +703,7 @@ internal object LomoDataStoreKeys {
     val DAILY_REVIEW_SESSION_DATE = stringPreferencesKey(PreferenceKeys.DAILY_REVIEW_SESSION_DATE)
     val DAILY_REVIEW_SESSION_SEED = longPreferencesKey(PreferenceKeys.DAILY_REVIEW_SESSION_SEED)
     val DAILY_REVIEW_SESSION_PAGE_INDEX = intPreferencesKey(PreferenceKeys.DAILY_REVIEW_SESSION_PAGE_INDEX)
+    val DAILY_REVIEW_SESSION_OPTIONS = stringPreferencesKey(PreferenceKeys.DAILY_REVIEW_SESSION_OPTIONS)
     val MEMO_SNAPSHOTS_ENABLED = booleanPreferencesKey(PreferenceKeys.MEMO_SNAPSHOTS_ENABLED)
     val MEMO_SNAPSHOT_MAX_COUNT = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_COUNT)
     val MEMO_SNAPSHOT_MAX_AGE_DAYS = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS)
@@ -740,6 +744,7 @@ internal object LomoDataStoreKeys {
     val S3_AUTO_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_ENABLED)
     val S3_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_INTERVAL)
     val S3_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.S3_SYNC_ON_REFRESH)
+
     /**
      * Persisted corruption witness, written by the corruption handler into the rebuilt store.
      * Its presence means "this file was replaced after corruption": absent security/sync keys
@@ -779,17 +784,13 @@ internal object LomoDataStoreKeys {
  * whether it names [type]. An unrecognized stored value parses to [SyncBackendType.UNKNOWN] and
  * therefore reports `false` for every real backend without rewriting the record.
  */
-internal fun DataStore<Preferences>.backendEnabledFlow(type: SyncBackendType): Flow<Boolean> =
-    stringFlow(
-        key = LomoDataStoreKeys.SYNC_BACKEND_TYPE,
-        flowName = "${type.storageValue()}SyncEnabled",
-        default = PreferenceKeys.Defaults.SYNC_BACKEND_TYPE,
-    ).map { SyncBackendType.fromStorageValue(it) == type }
+internal fun DataStore<Preferences>.backendEnabledFlow(type: SyncBackendType): Flow<Boolean> = stringFlow(
+    key = LomoDataStoreKeys.SYNC_BACKEND_TYPE,
+    flowName = "${type.storageValue()}SyncEnabled",
+    default = PreferenceKeys.Defaults.SYNC_BACKEND_TYPE,
+).map { SyncBackendType.fromStorageValue(it) == type }
 
-internal fun DataStore<Preferences>.nullableStringFlow(
-    key: Preferences.Key<String>,
-    flowName: String,
-): Flow<String?> =
+internal fun DataStore<Preferences>.nullableStringFlow(key: Preferences.Key<String>, flowName: String): Flow<String?> =
     data
         .map { prefs -> prefs[key] }
         .catchOnlyIOException(flowName, null)
@@ -810,16 +811,11 @@ internal fun DataStore<Preferences>.booleanFlow(
     key: Preferences.Key<Boolean>,
     flowName: String,
     default: Boolean,
-): Flow<Boolean> =
-    data
-        .map { prefs -> prefs[key] ?: default }
-        .catchOnlyIOException(flowName, default)
+): Flow<Boolean> = data
+    .map { prefs -> prefs[key] ?: default }
+    .catchOnlyIOException(flowName, default)
 
-internal fun DataStore<Preferences>.longFlow(
-    key: Preferences.Key<Long>,
-    flowName: String,
-    default: Long,
-): Flow<Long> =
+internal fun DataStore<Preferences>.longFlow(key: Preferences.Key<Long>, flowName: String, default: Long): Flow<Long> =
     data
         .map { prefs -> prefs[key] ?: default }
         .catchOnlyIOException(flowName, default)
@@ -840,36 +836,28 @@ internal fun DataStore<Preferences>.floatFlow(
     key: Preferences.Key<Float>,
     flowName: String,
     default: Float,
-): Flow<Float> =
-    data
-        .map { prefs -> prefs[key] ?: default }
-        .catchOnlyIOException(flowName, default)
+): Flow<Float> = data
+    .map { prefs -> prefs[key] ?: default }
+    .catchOnlyIOException(flowName, default)
 
 internal suspend fun <T> DataStore<Preferences>.firstValue(
     flowName: String,
     fallback: T,
     reader: (Preferences) -> T,
-): T =
-    data
-        .map(reader)
-        .catchOnlyIOException(flowName, fallback)
-        .first()
+): T = data
+    .map(reader)
+    .catchOnlyIOException(flowName, fallback)
+    .first()
 
-internal suspend fun DataStore<Preferences>.editPreferences(
-    block: MutablePreferences.() -> Unit,
-) {
+internal suspend fun DataStore<Preferences>.editPreferences(block: MutablePreferences.() -> Unit) {
     edit { prefs -> prefs.block() }
 }
 
-internal fun <T> Flow<T>.catchOnlyIOException(
-    flowName: String,
-    fallback: T,
-): Flow<T> =
-    catch { throwable ->
-        if (throwable is IOException) {
-            Timber.tag(LOMO_DATA_STORE_TAG).e(throwable, "Error in %s flow", flowName)
-            emit(fallback)
-        } else {
-            throw throwable
-        }
+internal fun <T> Flow<T>.catchOnlyIOException(flowName: String, fallback: T): Flow<T> = catch { throwable ->
+    if (throwable is IOException) {
+        Timber.tag(LOMO_DATA_STORE_TAG).e(throwable, "Error in %s flow", flowName)
+        emit(fallback)
+    } else {
+        throw throwable
     }
+}

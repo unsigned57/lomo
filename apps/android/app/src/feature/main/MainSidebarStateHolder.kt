@@ -25,10 +25,7 @@ class MainSidebarStateHolder {
      * Restore a saved session atomically: the query and filter land before the viewport anchor is
      * applied, so the list never composes a stale query under a restored position.
      */
-    fun restoreSession(
-        query: String,
-        filter: MemoListFilter,
-    ) {
+    fun restoreSession(query: String, filter: MemoListFilter) {
         _searchQuery.value = query
         filterController.restore(filter)
     }

@@ -1,17 +1,16 @@
 package com.lomo.app.feature.main
 
-import androidx.compose.material3.SheetValue
-
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,17 +21,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.FilterAlt
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberBottomSheetState
-import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
-import com.lomo.ui.component.picker.ExpressivePickerDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,15 +39,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.component.common.rememberModalSheetPresentation
+import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
+import com.lomo.ui.component.picker.ExpressivePickerDialog
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import java.time.Instant
@@ -69,11 +71,10 @@ internal fun MainMemoFilterSheet(
     onHasAttachmentChanged: (Boolean?) -> Unit,
     onHasUrlChanged: (Boolean?) -> Unit,
     onDismiss: () -> Unit,
+    onSortDirectionSelected: (Boolean) -> Unit = {},
+    onResetFilter: () -> Unit = {},
 ) {
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-    )
+    val presentation = rememberModalSheetPresentation()
     val haptic = LocalAppHapticFeedback.current
     var datePickerTarget by rememberSaveable { mutableStateOf<DatePickerTarget?>(null) }
     val hasDateFilter = filter.startDate != null || filter.endDate != null
@@ -96,19 +97,20 @@ internal fun MainMemoFilterSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
+        sheetState = presentation.sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = AppSpacing.ExtraSmall,
         dragHandle = { MainMemoFilterDragHandle() },
     ) {
         Column(
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .benchmarkAnchorRoot(BenchmarkAnchorContract.FILTER_SHEET_ROOT)
-                    .padding(horizontal = AppSpacing.ScreenHorizontalPadding)
-                    .padding(bottom = AppSpacing.ExtraLarge)
-                    .verticalScroll(rememberScrollState()),
+            Modifier
+                .fillMaxWidth()
+                .onSizeChanged(presentation::onContentMeasured)
+                .benchmarkAnchorRoot(BenchmarkAnchorContract.FILTER_SHEET_ROOT)
+                .padding(horizontal = AppSpacing.ScreenHorizontalPadding)
+                .padding(bottom = AppSpacing.ExtraLarge)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
             MainMemoFilterSheetContent(
@@ -122,6 +124,8 @@ internal fun MainMemoFilterSheet(
                 onHasTodoChanged = onHasTodoChanged,
                 onHasAttachmentChanged = onHasAttachmentChanged,
                 onHasUrlChanged = onHasUrlChanged,
+                onSortDirectionSelected = onSortDirectionSelected,
+                onResetFilter = onResetFilter,
             )
         }
     }
@@ -136,9 +140,10 @@ internal fun MainMemoFilterSheet(
 }
 
 @Composable
-internal fun MainMemoFilterHeader() {
+internal fun MainMemoFilterHeader(isFilterActive: Boolean = false, onResetFilter: () -> Unit = {}) {
+    val haptic = LocalAppHapticFeedback.current
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -156,7 +161,18 @@ internal fun MainMemoFilterHeader() {
         Text(
             text = stringResource(R.string.main_filter_title),
             style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f),
         )
+        if (isFilterActive) {
+            com.lomo.ui.component.common.LomoTextButton(
+                onClick = {
+                    haptic.medium()
+                    onResetFilter()
+                },
+            ) {
+                Text(stringResource(R.string.action_clear))
+            }
+        }
     }
 }
 
@@ -211,47 +227,47 @@ internal fun MainMemoSortButton(
     val haptic = LocalAppHapticFeedback.current
     val containerColor by androidx.compose.animation.animateColorAsState(
         targetValue =
-            if (selected) {
-                MaterialTheme.colorScheme.secondaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHigh
-            },
+        if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
         animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
         label = "MemoSortContainer",
     )
     val contentColor by androidx.compose.animation.animateColorAsState(
         targetValue =
-            if (selected) {
-                MaterialTheme.colorScheme.onSecondaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+        if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
         animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
         label = "MemoSortContent",
     )
 
-    Surface(
+    LomoFilledTonalButton(
+        onClick = {
+            haptic.medium()
+            onClick()
+        },
         modifier =
-            modifier
-                .clip(com.lomo.ui.theme.AppShapes.LargeIncreased)
-                .benchmarkAnchor(
-                    if (selected) {
-                        benchmarkSelectedTag ?: benchmarkTag
-                    } else {
-                        benchmarkTag
-                    },
-                )
-                .clickable {
-                    haptic.medium()
-                    onClick()
+        modifier
+            .benchmarkAnchor(
+                if (selected) {
+                    benchmarkSelectedTag ?: benchmarkTag
+                } else {
+                    benchmarkTag
                 },
-        shape = com.lomo.ui.theme.AppShapes.LargeIncreased,
-        color = containerColor,
+            ),
+        shapes = ButtonShapes(com.lomo.ui.theme.AppShapes.LargeIncreased, RoundedCornerShape(12.dp)),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = containerColor, contentColor = contentColor),
+        contentPadding = PaddingValues(0.dp),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(12.dp).height(64.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp).height(64.dp),
         ) {
             Icon(
                 imageVector = icon,
@@ -264,6 +280,8 @@ internal fun MainMemoSortButton(
                 text = text,
                 style = MaterialTheme.typography.labelMedium,
                 color = contentColor,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
             com.lomo.ui.component.common.LomoStateContent(
                 state = directionLabel,
@@ -273,8 +291,11 @@ internal fun MainMemoSortButton(
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        minLines = 1,
                         color = contentColor,
                         textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -293,22 +314,21 @@ internal fun MainMemoDateField(
 ) {
     val haptic = LocalAppHapticFeedback.current
     val colors = mainMemoDateFieldColors(hasValue = hasValue, colorScheme = MaterialTheme.colorScheme)
-    Surface(
-        modifier =
-            modifier
-                .clip(RoundedCornerShape(AppSpacing.Small))
-                .clickable {
-                    haptic.medium()
-                    onPick()
-                },
-        shape = RoundedCornerShape(AppSpacing.Small),
-        color = colors.containerColor,
+    LomoFilledTonalButton(
+        onClick = {
+            haptic.medium()
+            onPick()
+        },
+        modifier = modifier,
+        shapes = ButtonShapes(RoundedCornerShape(AppSpacing.Small), RoundedCornerShape(4.dp)),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.containerColor),
+        contentPadding = PaddingValues(0.dp),
     ) {
         Box(
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = AppSpacing.Small, vertical = AppSpacing.Small),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppSpacing.Small, vertical = AppSpacing.Small),
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -375,36 +395,33 @@ internal fun MainMemoDatePickerDialog(
 private fun MainMemoFilterDragHandle() {
     Box(
         modifier =
-            Modifier
-                .padding(vertical = AppSpacing.Large)
-                .width(AppSpacing.ExtraLarge)
-                .size(width = AppSpacing.ExtraLarge, height = AppSpacing.ExtraSmall)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+        Modifier
+            .padding(vertical = AppSpacing.Large)
+            .width(AppSpacing.ExtraLarge)
+            .size(width = AppSpacing.ExtraLarge, height = AppSpacing.ExtraSmall)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
     )
 }
 
 @Composable
-internal fun sortOptionLabel(option: MemoSortOption): String =
-    when (option) {
-        MemoSortOption.CREATED_TIME -> stringResource(R.string.main_filter_sort_created_time)
-        MemoSortOption.UPDATED_TIME -> stringResource(R.string.main_filter_sort_updated_time)
-    }
+internal fun sortOptionLabel(option: MemoSortOption): String = when (option) {
+    MemoSortOption.CREATED_TIME -> stringResource(R.string.main_filter_sort_created_time)
+    MemoSortOption.UPDATED_TIME -> stringResource(R.string.main_filter_sort_updated_time)
+}
 
 @Composable
 internal fun LocalDate?.formatOrDefault(): String =
     this?.format(DATE_LABEL_FORMATTER) ?: stringResource(R.string.main_filter_date_not_set)
 
-private fun LocalDate.toEpochMillis(): Long =
-    atStartOfDay(DEFAULT_ZONE)
-        .toInstant()
-        .toEpochMilli()
+private fun LocalDate.toEpochMillis(): Long = atStartOfDay(DEFAULT_ZONE)
+    .toInstant()
+    .toEpochMilli()
 
-private fun Long.toLocalDate(): LocalDate =
-    Instant
-        .ofEpochMilli(this)
-        .atZone(DEFAULT_ZONE)
-        .toLocalDate()
+private fun Long.toLocalDate(): LocalDate = Instant
+    .ofEpochMilli(this)
+    .atZone(DEFAULT_ZONE)
+    .toLocalDate()
 
 internal enum class DatePickerTarget {
     START,

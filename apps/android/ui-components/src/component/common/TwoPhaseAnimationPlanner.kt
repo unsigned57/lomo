@@ -14,24 +14,20 @@ enum class TwoPhaseProperty { ALPHA, HEIGHT_FRACTION }
 /**
  * A single step in a two-phase animation sequence.
  *
- * The planner owns only the ordering, target, and finality; the modifier resolves
+ * The planner owns ordering and targets; the modifier resolves
  * the [androidx.compose.animation.core.FiniteAnimationSpec] from [LomoListItemMotionSpecs]
  * based on the property and direction. This keeps the planner free of Compose types
  * and fully testable in pure JVM.
  */
-data class TwoPhaseAnimationStep(
-    val property: TwoPhaseProperty,
-    val targetValue: Float,
-    val isFinal: Boolean,
-)
+data class TwoPhaseAnimationStep(val property: TwoPhaseProperty, val targetValue: Float)
 
 /**
- * Plans the ordered steps for a two-phase enter or exit animation.
+ * Plans ordered steps for the two-phase enter or exit animation.
  *
  * Behavior contract:
- * - ENTER: HEIGHT_FRACTION 0→1 first (open the gap so neighbors shift), then ALPHA 0→1 (reveal).
+ * - ENTER: HEIGHT_FRACTION 0→1 first (open the gap), then ALPHA 0→1 (reveal).
  * - EXIT: ALPHA 1→0 first (fade), then HEIGHT_FRACTION 1→0 (collapse the gap).
- * - Exactly one step per plan is [TwoPhaseAnimationStep.isFinal]; settle fires after it.
+ * - Settle fires after the final step completes.
  *
  * This model — not [androidx.compose.animation.AnimatedVisibility] — owns the phase
  * ordering so no SubcomposeLayout / reuse-group boundary is introduced inside a
@@ -52,12 +48,13 @@ object TwoPhaseAnimationPlanner {
 
     fun plan(direction: TwoPhaseDirection): List<TwoPhaseAnimationStep> = when (direction) {
         TwoPhaseDirection.ENTER -> listOf(
-            TwoPhaseAnimationStep(TwoPhaseProperty.HEIGHT_FRACTION, targetValue = 1f, isFinal = false),
-            TwoPhaseAnimationStep(TwoPhaseProperty.ALPHA, targetValue = 1f, isFinal = true),
+            TwoPhaseAnimationStep(TwoPhaseProperty.HEIGHT_FRACTION, targetValue = 1f),
+            TwoPhaseAnimationStep(TwoPhaseProperty.ALPHA, targetValue = 1f),
         )
+
         TwoPhaseDirection.EXIT -> listOf(
-            TwoPhaseAnimationStep(TwoPhaseProperty.ALPHA, targetValue = 0f, isFinal = false),
-            TwoPhaseAnimationStep(TwoPhaseProperty.HEIGHT_FRACTION, targetValue = 0f, isFinal = true),
+            TwoPhaseAnimationStep(TwoPhaseProperty.ALPHA, targetValue = 0f),
+            TwoPhaseAnimationStep(TwoPhaseProperty.HEIGHT_FRACTION, targetValue = 0f),
         )
     }
 

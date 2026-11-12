@@ -1,0 +1,31 @@
+# Behavior Contract: Given main, when search opens, then its input is focused before typing.
+# Typing must reach the query without a second tap; keyboard visibility is also captured via dumpsys.
+# Creates a memo with a distinctive probe string, then proves the search
+# surface filters down to it.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- assertVisible:
+    id: "benchmark_input_editor"
+- tapOn:
+    id: "benchmark_input_editor"
+- inputText: "uitest-search-probe-xyzzy"
+- hideKeyboard
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible: "uitest-search-probe-xyzzy"
+- tapOn:
+    id: "benchmark_main_search_button"
+- assertVisible:
+    id: "benchmark_search_input"
+- assertVisible:
+    focused: true
+    childOf:
+      id: "benchmark_search_input"
+- inputText: "xyzzy"
+- assertVisible: "xyzzy"
+- assertVisible: "uitest-search-probe-xyzzy"
+- takeScreenshot: search-result

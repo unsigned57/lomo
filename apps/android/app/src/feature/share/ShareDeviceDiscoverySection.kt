@@ -19,11 +19,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.WifiFind
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -38,7 +36,10 @@ import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.LanShareDiscoveryDiagnostics
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.component.common.LomoButton
+import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 import kotlinx.collections.immutable.ImmutableList
 private const val DEVICE_DISCOVERY_OFFSET_DIVISOR = 4
 private val DEVICE_DISCOVERY_ICON_SIZE = 20.dp
@@ -54,11 +55,10 @@ internal data class DeviceDiscoveryRecoveryAffordance(
 internal fun resolveDeviceDiscoveryRecoveryAffordance(
     fallbackAction: CapabilityRecoveryAction?,
     canRetryAfterRecovery: Boolean,
-): DeviceDiscoveryRecoveryAffordance =
-    DeviceDiscoveryRecoveryAffordance(
-        showRetry = canRetryAfterRecovery,
-        fallbackAction = fallbackAction,
-    )
+): DeviceDiscoveryRecoveryAffordance = DeviceDiscoveryRecoveryAffordance(
+    showRetry = canRetryAfterRecovery,
+    fallbackAction = fallbackAction,
+)
 
 @Composable
 internal fun DeviceDiscoverySection(
@@ -74,7 +74,7 @@ internal fun DeviceDiscoverySection(
     onDeviceClick: (DiscoveredDevice) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
+    val motionScheme = LocalLomoMotion.current.layout
     val contentState =
         resolveDeviceDiscoveryContentState(
             discoveredDeviceCount = devices.size,
@@ -86,11 +86,11 @@ internal fun DeviceDiscoverySection(
     AnimatedVisibility(
         visible = showDevicesSection,
         enter =
-            fadeIn(motionScheme.defaultEffectsSpec()) +
-                slideInVertically(
-                    initialOffsetY = { it / DEVICE_DISCOVERY_OFFSET_DIVISOR },
-                    animationSpec = motionScheme.defaultSpatialSpec(),
-                ),
+        fadeIn(motionScheme.defaultEffectsSpec()) +
+            slideInVertically(
+                initialOffsetY = { it / DEVICE_DISCOVERY_OFFSET_DIVISOR },
+                animationSpec = motionScheme.defaultSpatialSpec(),
+            ),
         exit = fadeOut(motionScheme.defaultEffectsSpec()),
     ) {
         DeviceDiscoveryHeader(
@@ -115,23 +115,26 @@ internal fun DeviceDiscoverySection(
                     searchHint = searchHint,
                     modifier = Modifier.fillMaxSize(),
                 )
+
             DeviceDiscoveryContentState.PermissionDenied ->
                 DevicePermissionRequiredState(
                     recoveryAffordance =
-                        resolveDeviceDiscoveryRecoveryAffordance(
-                            fallbackAction = lanSharePermissionRecoveryAction(CapabilityRecoveryDecision.Denied),
-                            canRetryAfterRecovery = canRetryLanSharePermissionRecovery(),
-                        ),
+                    resolveDeviceDiscoveryRecoveryAffordance(
+                        fallbackAction = lanSharePermissionRecoveryAction(CapabilityRecoveryDecision.Denied),
+                        canRetryAfterRecovery = canRetryLanSharePermissionRecovery(),
+                    ),
                     onRequestLanSharePermissions = onRequestLanSharePermissions,
                     onExecuteRecoveryAction = onExecuteRecoveryAction,
                     modifier = Modifier.fillMaxSize(),
                 )
+
             DeviceDiscoveryContentState.StartupFailed ->
                 DeviceDiscoveryErrorState(
                     message = discoveryError.orEmpty(),
                     onRetry = onRequestLanSharePermissions,
                     modifier = Modifier.fillMaxSize(),
                 )
+
             DeviceDiscoveryContentState.Devices ->
                 DeviceDiscoveryList(
                     devices = devices,
@@ -144,10 +147,7 @@ internal fun DeviceDiscoverySection(
 }
 
 @Composable
-private fun DeviceSearchingState(
-    searchHint: DeviceDiscoverySearchHint,
-    modifier: Modifier = Modifier,
-) {
+private fun DeviceSearchingState(searchHint: DeviceDiscoverySearchHint, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -169,18 +169,14 @@ private fun DeviceSearchingState(
     }
 }
 
-private fun DeviceDiscoverySearchHint.stringResId(): Int =
-    when (this) {
-        DeviceDiscoverySearchHint.SameWifi -> R.string.share_searching_hint
-        DeviceDiscoverySearchHint.ProbeBackoff -> R.string.share_searching_probe_backoff_hint
-        DeviceDiscoverySearchHint.DegradedRoute -> R.string.share_searching_degraded_route_hint
-    }
+private fun DeviceDiscoverySearchHint.stringResId(): Int = when (this) {
+    DeviceDiscoverySearchHint.SameWifi -> R.string.share_searching_hint
+    DeviceDiscoverySearchHint.ProbeBackoff -> R.string.share_searching_probe_backoff_hint
+    DeviceDiscoverySearchHint.DegradedRoute -> R.string.share_searching_degraded_route_hint
+}
 
 @Composable
-private fun DeviceDiscoveryHeader(
-    devices: ImmutableList<DiscoveredDevice>,
-    showSearchingIndicator: Boolean,
-) {
+private fun DeviceDiscoveryHeader(devices: ImmutableList<DiscoveredDevice>, showSearchingIndicator: Boolean) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -236,23 +232,19 @@ private fun DevicePermissionRequiredState(
 }
 
 @Composable
-private fun recoveryActionLabel(action: CapabilityRecoveryAction?): String? =
-    when (action) {
-        CapabilityRecoveryAction.OpenAppSettings -> stringResource(R.string.share_open_settings)
-        CapabilityRecoveryAction.RequestRuntimePermissions,
-        is CapabilityRecoveryAction.OpenSettings,
-        CapabilityRecoveryAction.SelectSafTree,
-        CapabilityRecoveryAction.SelectSafDocument,
-        null,
-        -> null
-    }
+private fun recoveryActionLabel(action: CapabilityRecoveryAction?): String? = when (action) {
+    CapabilityRecoveryAction.OpenAppSettings -> stringResource(R.string.share_open_settings)
+
+    CapabilityRecoveryAction.RequestRuntimePermissions,
+    is CapabilityRecoveryAction.OpenSettings,
+    CapabilityRecoveryAction.SelectSafTree,
+    CapabilityRecoveryAction.SelectSafDocument,
+    null,
+    -> null
+}
 
 @Composable
-private fun DeviceDiscoveryErrorState(
-    message: String,
-    onRetry: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun DeviceDiscoveryErrorState(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     DeviceDiscoveryPlaceholder(
         title = message,
         message = stringResource(R.string.share_searching_hint),
@@ -301,12 +293,12 @@ private fun DeviceDiscoveryPlaceholder(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (primaryActionLabel != null && onPrimaryAction != null) {
-                Button(onClick = onPrimaryAction) {
+                LomoButton(onClick = onPrimaryAction) {
                     Text(primaryActionLabel)
                 }
             }
             if (secondaryActionLabel != null && onSecondaryAction != null) {
-                TextButton(onClick = onSecondaryAction) {
+                LomoTextButton(onClick = onSecondaryAction) {
                     Text(secondaryActionLabel)
                 }
             }

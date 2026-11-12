@@ -31,9 +31,8 @@ import kotlin.coroutines.coroutineContext
  * Engine readiness stays the durable write authority; this lease is the barrier that makes a switch
  * observable to writers instead of racing them.
  */
-class ProcessWorkspaceMutationLease(
-    private val engineReadinessRepository: EngineReadinessRepository,
-) : WorkspaceMutationLease {
+class ProcessWorkspaceMutationLease(private val engineReadinessRepository: EngineReadinessRepository) :
+    WorkspaceMutationLease {
     private val monitor = Any()
     private val transitionMutex = Mutex()
     private val admissionsOpen = MutableStateFlow(true)
@@ -45,21 +44,19 @@ class ProcessWorkspaceMutationLease(
     /** Exposed for drains that need to observe when a transition opens or closes admissions. */
     val transitionOpen: StateFlow<Boolean> = admissionsOpen.asStateFlow()
 
-    override fun isWritable(): Boolean =
-        synchronized(monitor) {
-            engineReadinessRepository.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) &&
-                engineReadinessRepository.projectionFreshness.value.permitsWrites()
-        }
+    override fun isWritable(): Boolean = synchronized(monitor) {
+        engineReadinessRepository.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) &&
+            engineReadinessRepository.projectionFreshness.value.permitsWrites()
+    }
 
-    override fun isWritableFlow(): Flow<Boolean> =
-        combine(
-            engineReadinessRepository.readiness,
-            admissionsOpen,
-        ) { readiness, open ->
-            readiness.isWritable(writeFrozen = !open)
-        }.combine(engineReadinessRepository.projectionFreshness) { writable, freshness ->
-            writable && freshness.permitsWrites()
-        }.distinctUntilChanged()
+    override fun isWritableFlow(): Flow<Boolean> = combine(
+        engineReadinessRepository.readiness,
+        admissionsOpen,
+    ) { readiness, open ->
+        readiness.isWritable(writeFrozen = !open)
+    }.combine(engineReadinessRepository.projectionFreshness) { writable, freshness ->
+        writable && freshness.permitsWrites()
+    }.distinctUntilChanged()
 
     override suspend fun <T> withWrite(block: suspend (WorkspaceAuthority) -> T): T {
         currentAdmission()?.let { held -> return block(held) }
@@ -81,40 +78,37 @@ class ProcessWorkspaceMutationLease(
         }
     }
 
-    override suspend fun <T> withExclusiveTransition(block: suspend () -> T): T =
-        transitionMutex.withLock {
-            closeAdmissions()
-            try {
-                // Every writer admitted before admissions closed must finish before the workspace can
-                // change; a switch that skipped this would let an old writer commit into a new engine.
-                drained.first { it }
-                block()
-            } finally {
-                openAdmissions()
-            }
+    override suspend fun <T> withExclusiveTransition(block: suspend () -> T): T = transitionMutex.withLock {
+        closeAdmissions()
+        try {
+            // Every writer admitted before admissions closed must finish before the workspace can
+            // change; a switch that skipped this would let an old writer commit into a new engine.
+            drained.first { it }
+            block()
+        } finally {
+            openAdmissions()
         }
+    }
 
-    private fun admit(): WorkspaceAuthority =
-        synchronized(monitor) {
-            engineReadinessRepository.readiness.value.requireWritable(
-                writeFrozen = !admissionsOpen.value,
-            )
-            check(engineReadinessRepository.projectionFreshness.value.permitsWrites()) {
-                "Workspace projection is not verified; writes are blocked until indexing commits"
-            }
+    private fun admit(): WorkspaceAuthority = synchronized(monitor) {
+        engineReadinessRepository.readiness.value.requireWritable(
+            writeFrozen = !admissionsOpen.value,
+        )
+        check(engineReadinessRepository.projectionFreshness.value.permitsWrites()) {
+            "Workspace projection is not verified; writes are blocked until indexing commits"
+        }
+        registerLocked()
+    }
+
+    private fun admitOrNull(): WorkspaceAuthority? = synchronized(monitor) {
+        if (!engineReadinessRepository.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) ||
+            !engineReadinessRepository.projectionFreshness.value.permitsWrites()
+        ) {
+            null
+        } else {
             registerLocked()
         }
-
-    private fun admitOrNull(): WorkspaceAuthority? =
-        synchronized(monitor) {
-            if (!engineReadinessRepository.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) ||
-                !engineReadinessRepository.projectionFreshness.value.permitsWrites()
-            ) {
-                null
-            } else {
-                registerLocked()
-            }
-        }
+    }
 
     /** Records one admitted writer; callers must already hold [monitor]. */
     private fun registerLocked(): WorkspaceAuthority {
@@ -158,13 +152,10 @@ class ProcessWorkspaceMutationLease(
      * second one would deadlock against a transition that has already closed admissions while the
      * outer writer is still running and therefore still keeping the drain waiting.
      */
-    private suspend fun currentAdmission(): WorkspaceAuthority? =
-        coroutineContext[AdmittedWrite]?.authority
+    private suspend fun currentAdmission(): WorkspaceAuthority? = coroutineContext[AdmittedWrite]?.authority
 
     /** Marks the call chain that already holds an admission from this lease. */
-    private class AdmittedWrite(
-        val authority: WorkspaceAuthority,
-    ) : AbstractCoroutineContextElement(AdmittedWrite) {
+    private class AdmittedWrite(val authority: WorkspaceAuthority) : AbstractCoroutineContextElement(AdmittedWrite) {
         companion object Key : CoroutineContext.Key<AdmittedWrite>
     }
 }

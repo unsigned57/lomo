@@ -11,7 +11,9 @@ import kotlinx.coroutines.flow.StateFlow
  * [syncForMemo] and the number of [rebuildAll] reconciliations so tests can assert deterministic
  * scheduling without a real AlarmManager.
  */
-class FakeReminderCoordinator : ReminderCoordinator, MemoMutationReminderScheduler {
+class FakeReminderCoordinator :
+    ReminderCoordinator,
+    MemoMutationReminderScheduler {
     override val globalInterval: StateFlow<ReminderInterval> = MutableStateFlow(ReminderInterval.ONE_MINUTE)
 
     val syncForMemoCalls = mutableListOf<Pair<String, String>>()
@@ -25,10 +27,7 @@ class FakeReminderCoordinator : ReminderCoordinator, MemoMutationReminderSchedul
         syncForMemoCalls += memoId to ""
     }
 
-    override suspend fun cancelForMemo(
-        memoId: String,
-        reminderIds: Set<String>,
-    ) {
+    override suspend fun cancelForMemo(memoId: String, reminderIds: Set<String>) {
         cancelForMemoCalls += memoId to reminderIds
     }
 
@@ -36,18 +35,9 @@ class FakeReminderCoordinator : ReminderCoordinator, MemoMutationReminderSchedul
         rebuildAllCount++
     }
 
-    override suspend fun snooze(
-        memoId: String,
-        reminderId: String,
-    ) = Unit
+    override suspend fun snooze(memoId: String, reminderId: String) = Unit
 
-    override suspend fun markDone(
-        memoId: String,
-        reminderId: String,
-    ) = Unit
+    override suspend fun markDone(memoId: String, reminderId: String) = Unit
 
-    override suspend fun recordFired(
-        memoId: String,
-        reminderId: String,
-    ) = Unit
+    override suspend fun recordFired(memoId: String, reminderId: String) = Unit
 }

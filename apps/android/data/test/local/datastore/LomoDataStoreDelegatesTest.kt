@@ -1,22 +1,19 @@
 package com.lomo.data.local.datastore
 
-
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import com.lomo.data.util.PreferenceKeys
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.StorageTimestampFormats
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import java.nio.file.Files
-import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.booleans.shouldBeTrue
-import io.kotest.matchers.booleans.shouldBeFalse
-import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Behavior Contract:
@@ -50,155 +47,157 @@ import io.kotest.matchers.nulls.shouldBeNull
 @OptIn(ExperimentalCoroutinesApi::class)
 class LomoDataStoreDelegatesTest : DataFunSpec() {
     init {
-        test("root and media stores prefer uris over old directory values") { `root and media stores prefer uris over old directory values`() }
+        test(
+            "root and media stores prefer uris over old directory values",
+        ) { `root and media stores prefer uris over old directory values`() }
 
-        test("storage display and interaction stores persist configured values") { `storage display and interaction stores persist configured values`() }
+        test(
+            "storage display and interaction stores persist configured values",
+        ) { `storage display and interaction stores persist configured values`() }
 
-        test("git webdav and create draft stores persist configuration and clear empty draft") { `git webdav and create draft stores persist configuration and clear empty draft`() }
+        test(
+            "git webdav and create draft stores persist configuration and clear empty draft",
+        ) { `git webdav and create draft stores persist configuration and clear empty draft`() }
     }
 
+    private fun `root and media stores prefer uris over old directory values`() = runTest {
+        val dataStore = newDataStore(backgroundScope)
+        val rootStore = RootLocationStoreImpl(dataStore)
+        val mediaStore = MediaLocationStoreImpl(dataStore)
 
-    private fun `root and media stores prefer uris over old directory values`() =
-        runTest {
-            val dataStore = newDataStore(backgroundScope)
-            val rootStore = RootLocationStoreImpl(dataStore)
-            val mediaStore = MediaLocationStoreImpl(dataStore)
+        rootStore.updateRootDirectory("/vault/root")
+        mediaStore.updateImageDirectory("/vault/images")
+        mediaStore.updateVoiceDirectory("/vault/voice")
 
-            rootStore.updateRootDirectory("/vault/root")
-            mediaStore.updateImageDirectory("/vault/images")
-            mediaStore.updateVoiceDirectory("/vault/voice")
+        rootStore.rootDirectory.first() shouldBe "/vault/root"
+        rootStore.getRootDirectoryOnce() shouldBe "/vault/root"
+        mediaStore.imageDirectory.first() shouldBe "/vault/images"
+        mediaStore.voiceDirectory.first() shouldBe "/vault/voice"
 
-            rootStore.rootDirectory.first() shouldBe "/vault/root"
-            rootStore.getRootDirectoryOnce() shouldBe "/vault/root"
-            mediaStore.imageDirectory.first() shouldBe "/vault/images"
-            mediaStore.voiceDirectory.first() shouldBe "/vault/voice"
+        rootStore.updateRootUri("content://tree/root")
+        mediaStore.updateImageUri("content://tree/images")
+        mediaStore.updateVoiceUri("content://tree/voice")
 
-            rootStore.updateRootUri("content://tree/root")
-            mediaStore.updateImageUri("content://tree/images")
-            mediaStore.updateVoiceUri("content://tree/voice")
+        rootStore.rootUri.first() shouldBe "content://tree/root"
+        rootStore.rootDirectory.first().shouldBeNull()
+        rootStore.getRootDirectoryOnce() shouldBe "content://tree/root"
+        mediaStore.imageUri.first() shouldBe "content://tree/images"
+        mediaStore.imageDirectory.first().shouldBeNull()
+        mediaStore.voiceUri.first() shouldBe "content://tree/voice"
+        mediaStore.voiceDirectory.first().shouldBeNull()
 
-            rootStore.rootUri.first() shouldBe "content://tree/root"
-            rootStore.rootDirectory.first().shouldBeNull()
-            rootStore.getRootDirectoryOnce() shouldBe "content://tree/root"
-            mediaStore.imageUri.first() shouldBe "content://tree/images"
-            mediaStore.imageDirectory.first().shouldBeNull()
-            mediaStore.voiceUri.first() shouldBe "content://tree/voice"
-            mediaStore.voiceDirectory.first().shouldBeNull()
+        rootStore.updateRootDirectory("/vault/root-replaced")
+        mediaStore.updateImageDirectory("/vault/images-replaced")
 
-            rootStore.updateRootDirectory("/vault/root-replaced")
-            mediaStore.updateImageDirectory("/vault/images-replaced")
+        rootStore.rootUri.first().shouldBeNull()
+        rootStore.rootDirectory.first() shouldBe "/vault/root-replaced"
+        rootStore.getRootDirectoryOnce() shouldBe "/vault/root-replaced"
+        mediaStore.imageUri.first().shouldBeNull()
+        mediaStore.imageDirectory.first() shouldBe "/vault/images-replaced"
+    }
 
-            rootStore.rootUri.first().shouldBeNull()
-            rootStore.rootDirectory.first() shouldBe "/vault/root-replaced"
-            rootStore.getRootDirectoryOnce() shouldBe "/vault/root-replaced"
-            mediaStore.imageUri.first().shouldBeNull()
-            mediaStore.imageDirectory.first() shouldBe "/vault/images-replaced"
-        }
+    private fun `storage display and interaction stores persist configured values`() = runTest {
+        val dataStore = newDataStore(backgroundScope)
+        val storageStore = StorageFormatStoreImpl(dataStore)
+        val displayStore = DisplayPreferencesStoreImpl(dataStore)
+        val interactionStore = InteractionPreferencesStoreImpl(dataStore)
 
-    private fun `storage display and interaction stores persist configured values`() =
-        runTest {
-            val dataStore = newDataStore(backgroundScope)
-            val storageStore = StorageFormatStoreImpl(dataStore)
-            val displayStore = DisplayPreferencesStoreImpl(dataStore)
-            val interactionStore = InteractionPreferencesStoreImpl(dataStore)
+        storageStore.updateStorageFilenameFormat("unsupported")
+        storageStore.updateStorageTimestampFormat("bad")
+        displayStore.updateDateFormat("MM/dd/yyyy")
+        displayStore.updateTimeFormat("hh:mm a")
+        displayStore.updateThemeMode("dark")
+        interactionStore.updateHapticFeedbackEnabled(false)
+        interactionStore.updateShowInputHints(enabled = false)
+        interactionStore.updateDoubleTapEditEnabled(enabled = false)
+        interactionStore.updateFreeTextCopyEnabled(enabled = true)
+        interactionStore.updateQuickSaveOnBackEnabled(enabled = false)
 
-            storageStore.updateStorageFilenameFormat("unsupported")
-            storageStore.updateStorageTimestampFormat("bad")
-            displayStore.updateDateFormat("MM/dd/yyyy")
-            displayStore.updateTimeFormat("hh:mm a")
-            displayStore.updateThemeMode("dark")
-            interactionStore.updateHapticFeedbackEnabled(false)
-            interactionStore.updateShowInputHints(enabled = false)
-            interactionStore.updateDoubleTapEditEnabled(enabled = false)
-            interactionStore.updateFreeTextCopyEnabled(enabled = true)
-            interactionStore.updateQuickSaveOnBackEnabled(enabled = false)
+        // Filename tokens persist verbatim: Rust `DateFormat::from_token` is the only
+        // validation gate, so an arbitrary token must read back unmodified.
+        storageStore.storageFilenameFormat.first() shouldBe "unsupported"
+        storageStore.storageTimestampFormat.first() shouldBe StorageTimestampFormats.DEFAULT_PATTERN
+        displayStore.dateFormat.first() shouldBe "MM/dd/yyyy"
+        displayStore.timeFormat.first() shouldBe "hh:mm a"
+        displayStore.themeMode.first() shouldBe "dark"
+        (interactionStore.hapticFeedbackEnabled.first()).shouldBeFalse()
+        (interactionStore.showInputHints.first()).shouldBeFalse()
+        (interactionStore.doubleTapEditEnabled.first()).shouldBeFalse()
+        (interactionStore.freeTextCopyEnabled.first()).shouldBeTrue()
+        (interactionStore.quickSaveOnBackEnabled.first()).shouldBeFalse()
+    }
 
-            // Filename tokens persist verbatim: Rust `DateFormat::from_token` is the only
-            // validation gate, so an arbitrary token must read back unmodified.
-            storageStore.storageFilenameFormat.first() shouldBe "unsupported"
-            storageStore.storageTimestampFormat.first() shouldBe StorageTimestampFormats.DEFAULT_PATTERN
-            displayStore.dateFormat.first() shouldBe "MM/dd/yyyy"
-            displayStore.timeFormat.first() shouldBe "hh:mm a"
-            displayStore.themeMode.first() shouldBe "dark"
-            (interactionStore.hapticFeedbackEnabled.first()).shouldBeFalse()
-            (interactionStore.showInputHints.first()).shouldBeFalse()
-            (interactionStore.doubleTapEditEnabled.first()).shouldBeFalse()
-            (interactionStore.freeTextCopyEnabled.first()).shouldBeTrue()
-            (interactionStore.quickSaveOnBackEnabled.first()).shouldBeFalse()
-        }
+    private fun `git webdav and create draft stores persist configuration and clear empty draft`() = runTest {
+        val dataStore = newDataStore(backgroundScope)
+        val gitBehaviorStore = GitSyncBehaviorStoreImpl(dataStore)
+        val gitIdentityStore = GitIdentityStoreImpl(dataStore)
+        val webDavConnectionStore = WebDavConnectionStoreImpl(dataStore)
+        val webDavScheduleStore = WebDavScheduleStoreImpl(dataStore)
+        val s3ConnectionStore = S3ConnectionStoreImpl(dataStore)
+        val s3ScheduleStore = S3ScheduleStoreImpl(dataStore)
+        val createDraftStore = CreateDraftStoreImpl(dataStore)
 
-    private fun `git webdav and create draft stores persist configuration and clear empty draft`() =
-        runTest {
-            val dataStore = newDataStore(backgroundScope)
-            val gitBehaviorStore = GitSyncBehaviorStoreImpl(dataStore)
-            val gitIdentityStore = GitIdentityStoreImpl(dataStore)
-            val webDavConnectionStore = WebDavConnectionStoreImpl(dataStore)
-            val webDavScheduleStore = WebDavScheduleStoreImpl(dataStore)
-            val s3ConnectionStore = S3ConnectionStoreImpl(dataStore)
-            val s3ScheduleStore = S3ScheduleStoreImpl(dataStore)
-            val createDraftStore = CreateDraftStoreImpl(dataStore)
+        gitBehaviorStore.setRemoteSyncBackendType("git")
+        gitBehaviorStore.updateGitAutoSyncEnabled(true)
+        gitBehaviorStore.updateGitAutoSyncInterval("30m")
+        gitBehaviorStore.updateGitSyncOnRefresh(true)
+        gitIdentityStore.updateGitRemoteUrl("https://example.com/repo.git")
+        gitIdentityStore.updateGitAuthorName("Lomo")
+        gitIdentityStore.updateGitAuthorEmail("lomo@example.com")
+        webDavConnectionStore.updateWebDavProvider("custom")
+        webDavConnectionStore.updateWebDavBaseUrl("https://dav.example.com")
+        webDavConnectionStore.updateWebDavEndpointUrl("https://dav.example.com/notes")
+        webDavConnectionStore.updateWebDavUsername("alice")
+        webDavScheduleStore.updateWebDavAutoSyncEnabled(true)
+        webDavScheduleStore.updateWebDavAutoSyncInterval("2h")
+        webDavScheduleStore.updateWebDavSyncOnRefresh(true)
+        s3ConnectionStore.updateS3EndpointUrl("https://s3.example.com")
+        s3ConnectionStore.updateS3Bucket("vault")
+        s3ConnectionStore.updateS3LocalSyncDirectory("content://tree/primary%3AObsidian")
+        s3ScheduleStore.updateS3AutoSyncEnabled(true)
+        s3ScheduleStore.updateS3AutoSyncInterval("6h")
+        s3ScheduleStore.updateS3SyncOnRefresh(true)
+        createDraftStore.updateMemoCreateDraft("draft body")
 
-            gitBehaviorStore.setRemoteSyncBackendType("git")
-            gitBehaviorStore.updateGitAutoSyncEnabled(true)
-            gitBehaviorStore.updateGitAutoSyncInterval("30m")
-            gitBehaviorStore.updateGitSyncOnRefresh(true)
-            gitIdentityStore.updateGitRemoteUrl("https://example.com/repo.git")
-            gitIdentityStore.updateGitAuthorName("Lomo")
-            gitIdentityStore.updateGitAuthorEmail("lomo@example.com")
-            webDavConnectionStore.updateWebDavProvider("custom")
-            webDavConnectionStore.updateWebDavBaseUrl("https://dav.example.com")
-            webDavConnectionStore.updateWebDavEndpointUrl("https://dav.example.com/notes")
-            webDavConnectionStore.updateWebDavUsername("alice")
-            webDavScheduleStore.updateWebDavAutoSyncEnabled(true)
-            webDavScheduleStore.updateWebDavAutoSyncInterval("2h")
-            webDavScheduleStore.updateWebDavSyncOnRefresh(true)
-            s3ConnectionStore.updateS3EndpointUrl("https://s3.example.com")
-            s3ConnectionStore.updateS3Bucket("vault")
-            s3ConnectionStore.updateS3LocalSyncDirectory("content://tree/primary%3AObsidian")
-            s3ScheduleStore.updateS3AutoSyncEnabled(true)
-            s3ScheduleStore.updateS3AutoSyncInterval("6h")
-            s3ScheduleStore.updateS3SyncOnRefresh(true)
-            createDraftStore.updateMemoCreateDraft("draft body")
+        (gitBehaviorStore.gitSyncEnabled.first()).shouldBeTrue()
+        (gitBehaviorStore.gitAutoSyncEnabled.first()).shouldBeTrue()
+        gitBehaviorStore.gitAutoSyncInterval.first() shouldBe "30m"
+        (gitBehaviorStore.gitSyncOnRefresh.first()).shouldBeTrue()
+        gitBehaviorStore.syncBackendType.first() shouldBe "git"
+        gitIdentityStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
+        gitIdentityStore.gitAuthorName.first() shouldBe "Lomo"
+        gitIdentityStore.gitAuthorEmail.first() shouldBe "lomo@example.com"
+        (webDavConnectionStore.webDavSyncEnabled.first()).shouldBeFalse()
+        webDavConnectionStore.webDavProvider.first() shouldBe "custom"
+        webDavConnectionStore.webDavBaseUrl.first() shouldBe "https://dav.example.com"
+        webDavConnectionStore.webDavEndpointUrl.first() shouldBe "https://dav.example.com/notes"
+        webDavConnectionStore.webDavUsername.first() shouldBe "alice"
+        (webDavScheduleStore.webDavAutoSyncEnabled.first()).shouldBeTrue()
+        webDavScheduleStore.webDavAutoSyncInterval.first() shouldBe "2h"
+        (webDavScheduleStore.webDavSyncOnRefresh.first()).shouldBeTrue()
+        (s3ConnectionStore.s3SyncEnabled.first()).shouldBeFalse()
+        s3ConnectionStore.s3EndpointUrl.first() shouldBe "https://s3.example.com"
+        s3ConnectionStore.s3Bucket.first() shouldBe "vault"
+        s3ConnectionStore.s3LocalSyncDirectory.first() shouldBe "content://tree/primary%3AObsidian"
+        (s3ScheduleStore.s3AutoSyncEnabled.first()).shouldBeTrue()
+        s3ScheduleStore.s3AutoSyncInterval.first() shouldBe "6h"
+        (s3ScheduleStore.s3SyncOnRefresh.first()).shouldBeTrue()
+        createDraftStore.memoCreateDraft.first() shouldBe "draft body"
 
-            (gitBehaviorStore.gitSyncEnabled.first()).shouldBeTrue()
-            (gitBehaviorStore.gitAutoSyncEnabled.first()).shouldBeTrue()
-            gitBehaviorStore.gitAutoSyncInterval.first() shouldBe "30m"
-            (gitBehaviorStore.gitSyncOnRefresh.first()).shouldBeTrue()
-            gitBehaviorStore.syncBackendType.first() shouldBe "git"
-            gitIdentityStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
-            gitIdentityStore.gitAuthorName.first() shouldBe "Lomo"
-            gitIdentityStore.gitAuthorEmail.first() shouldBe "lomo@example.com"
-            (webDavConnectionStore.webDavSyncEnabled.first()).shouldBeFalse()
-            webDavConnectionStore.webDavProvider.first() shouldBe "custom"
-            webDavConnectionStore.webDavBaseUrl.first() shouldBe "https://dav.example.com"
-            webDavConnectionStore.webDavEndpointUrl.first() shouldBe "https://dav.example.com/notes"
-            webDavConnectionStore.webDavUsername.first() shouldBe "alice"
-            (webDavScheduleStore.webDavAutoSyncEnabled.first()).shouldBeTrue()
-            webDavScheduleStore.webDavAutoSyncInterval.first() shouldBe "2h"
-            (webDavScheduleStore.webDavSyncOnRefresh.first()).shouldBeTrue()
-            (s3ConnectionStore.s3SyncEnabled.first()).shouldBeFalse()
-            s3ConnectionStore.s3EndpointUrl.first() shouldBe "https://s3.example.com"
-            s3ConnectionStore.s3Bucket.first() shouldBe "vault"
-            s3ConnectionStore.s3LocalSyncDirectory.first() shouldBe "content://tree/primary%3AObsidian"
-            (s3ScheduleStore.s3AutoSyncEnabled.first()).shouldBeTrue()
-            s3ScheduleStore.s3AutoSyncInterval.first() shouldBe "6h"
-            (s3ScheduleStore.s3SyncOnRefresh.first()).shouldBeTrue()
-            createDraftStore.memoCreateDraft.first() shouldBe "draft body"
+        gitIdentityStore.updateGitRemoteUrl(" ")
+        webDavConnectionStore.updateWebDavBaseUrl(" ")
+        webDavConnectionStore.updateWebDavEndpointUrl(null)
+        webDavConnectionStore.updateWebDavUsername("")
+        s3ConnectionStore.updateS3LocalSyncDirectory(" ")
+        createDraftStore.updateMemoCreateDraft(null)
 
-            gitIdentityStore.updateGitRemoteUrl(" ")
-            webDavConnectionStore.updateWebDavBaseUrl(" ")
-            webDavConnectionStore.updateWebDavEndpointUrl(null)
-            webDavConnectionStore.updateWebDavUsername("")
-            s3ConnectionStore.updateS3LocalSyncDirectory(" ")
-            createDraftStore.updateMemoCreateDraft(null)
-
-            gitIdentityStore.gitRemoteUrl.first().shouldBeNull()
-            webDavConnectionStore.webDavBaseUrl.first().shouldBeNull()
-            webDavConnectionStore.webDavEndpointUrl.first().shouldBeNull()
-            webDavConnectionStore.webDavUsername.first().shouldBeNull()
-            s3ConnectionStore.s3LocalSyncDirectory.first().shouldBeNull()
-            createDraftStore.memoCreateDraft.first().shouldBeNull()
-        }
+        gitIdentityStore.gitRemoteUrl.first().shouldBeNull()
+        webDavConnectionStore.webDavBaseUrl.first().shouldBeNull()
+        webDavConnectionStore.webDavEndpointUrl.first().shouldBeNull()
+        webDavConnectionStore.webDavUsername.first().shouldBeNull()
+        s3ConnectionStore.s3LocalSyncDirectory.first().shouldBeNull()
+        createDraftStore.memoCreateDraft.first().shouldBeNull()
+    }
 
     private fun newDataStore(scope: CoroutineScope): androidx.datastore.core.DataStore<Preferences> {
         val backingFile = tempPreferencesFile()
@@ -208,8 +207,7 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
         )
     }
 
-    private fun tempPreferencesFile(): File =
-        Files.createTempFile("lomo-datastore", ".preferences_pb").toFile().apply {
-            deleteOnExit()
-        }
+    private fun tempPreferencesFile(): File = Files.createTempFile("lomo-datastore", ".preferences_pb").toFile().apply {
+        deleteOnExit()
+    }
 }

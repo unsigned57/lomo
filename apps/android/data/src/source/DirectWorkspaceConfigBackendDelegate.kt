@@ -17,11 +17,7 @@ internal class DirectWorkspaceConfigBackendDelegate(
         directCreateDirectory(rootDir, name, workspaceConfigDispatcher)
 }
 
-private suspend fun directCreateDirectory(
-    rootDir: File,
-    name: String,
-    dispatcher: CoroutineDispatcher,
-): String =
+private suspend fun directCreateDirectory(rootDir: File, name: String, dispatcher: CoroutineDispatcher): String =
     withContext(dispatcher) {
         directEnsureRootExists(rootDir)
         val dir = File(rootDir, name)

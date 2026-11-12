@@ -1,0 +1,8 @@
+# Part of the opt-in two-device LAN journey; run via just uitest lan_share.
+appId: com.lomo.app
+---
+- extendedWaitUntil:
+    visible:
+      id: "benchmark_lan_pairing_code"
+    timeout: 15000
+- takeScreenshot: pairing-code

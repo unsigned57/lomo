@@ -12,12 +12,11 @@ import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
  * composables so each composable stays within the parameter budget.
  */
 internal data class MemoCardBodyState(
+    val onBodyHeightChanged: (Int) -> Unit,
     val renderDocument: MarkdownRenderDocument,
     val presentationPlan: MarkdownIrPresentationPlan?,
     val allowFreeTextCopy: Boolean,
-    val onTapFeedback: (() -> Unit)?,
     val onBodyClick: (() -> Unit)?,
-    val onDoubleClick: (() -> Unit)?,
     val onLongClick: (() -> Unit)?,
     val onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
     val onImageClick: ((String) -> Unit)?,

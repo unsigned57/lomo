@@ -11,71 +11,69 @@ import java.util.Locale
 
 object SettingsErrorPresenter {
     @Composable
-    fun gitSyncErrorMessage(
-        code: GitSyncErrorCode,
-        detail: String?,
-    ): String =
-        when (code) {
-            GitSyncErrorCode.NOT_CONFIGURED ->
-                stringResource(R.string.settings_git_not_configured_message)
-            GitSyncErrorCode.PAT_REQUIRED ->
-                stringResource(R.string.settings_git_pat_required_message)
-            GitSyncErrorCode.DIRECT_PATH_REQUIRED ->
-                stringResource(R.string.settings_git_sync_direct_path_required)
-            GitSyncErrorCode.REMOTE_URL_NOT_CONFIGURED ->
-                stringResource(R.string.settings_git_repository_url_not_configured)
-            GitSyncErrorCode.MEMO_DIRECTORY_NOT_CONFIGURED ->
-                stringResource(R.string.settings_git_memo_directory_not_configured)
-            GitSyncErrorCode.NOT_A_GIT_REPOSITORY ->
-                stringResource(R.string.settings_git_repository_not_initialized)
-            GitSyncErrorCode.CONFLICT ->
-                stringResource(R.string.settings_git_sync_conflict_summary)
-            GitSyncErrorCode.CREDENTIAL_UNREADABLE,
-            GitSyncErrorCode.CREDENTIAL_UNAUTHORIZED,
-            GitSyncErrorCode.UNKNOWN ->
-                sanitizedDetail(detail) ?: stringResource(R.string.error_unknown)
-        }
+    fun gitSyncErrorMessage(code: GitSyncErrorCode, detail: String?): String = when (code) {
+        GitSyncErrorCode.NOT_CONFIGURED ->
+            stringResource(R.string.settings_git_not_configured_message)
+
+        GitSyncErrorCode.PAT_REQUIRED ->
+            stringResource(R.string.settings_git_pat_required_message)
+
+        GitSyncErrorCode.DIRECT_PATH_REQUIRED ->
+            stringResource(R.string.settings_git_sync_direct_path_required)
+
+        GitSyncErrorCode.REMOTE_URL_NOT_CONFIGURED ->
+            stringResource(R.string.settings_git_repository_url_not_configured)
+
+        GitSyncErrorCode.MEMO_DIRECTORY_NOT_CONFIGURED ->
+            stringResource(R.string.settings_git_memo_directory_not_configured)
+
+        GitSyncErrorCode.NOT_A_GIT_REPOSITORY ->
+            stringResource(R.string.settings_git_repository_not_initialized)
+
+        GitSyncErrorCode.CONFLICT ->
+            stringResource(R.string.settings_git_sync_conflict_summary)
+
+        GitSyncErrorCode.CREDENTIAL_UNREADABLE,
+        GitSyncErrorCode.CREDENTIAL_UNAUTHORIZED,
+        GitSyncErrorCode.UNKNOWN,
+        ->
+            sanitizedDetail(detail) ?: stringResource(R.string.error_unknown)
+    }
 
     @Composable
-    fun webDavSyncErrorMessage(
-        code: WebDavSyncErrorCode,
-        detail: String?,
-    ): String =
-        when (code) {
-            WebDavSyncErrorCode.NOT_CONFIGURED ->
-                stringResource(R.string.settings_webdav_not_configured_message)
-            WebDavSyncErrorCode.CONNECTION_FAILED,
-            WebDavSyncErrorCode.UNKNOWN,
-            -> sanitizedDetail(detail) ?: stringResource(R.string.error_unknown)
-        }
+    fun webDavSyncErrorMessage(code: WebDavSyncErrorCode, detail: String?): String = when (code) {
+        WebDavSyncErrorCode.NOT_CONFIGURED ->
+            stringResource(R.string.settings_webdav_not_configured_message)
+
+        WebDavSyncErrorCode.CONNECTION_FAILED,
+        WebDavSyncErrorCode.UNKNOWN,
+        -> sanitizedDetail(detail) ?: stringResource(R.string.error_unknown)
+    }
 
     @Composable
-    fun s3SyncErrorMessage(
-        code: S3SyncErrorCode,
-        detail: String?,
-    ): String =
-        when (code) {
-            S3SyncErrorCode.NOT_CONFIGURED ->
-                stringResource(R.string.settings_s3_not_configured_message)
-            S3SyncErrorCode.AUTH_FAILED ->
-                sanitizedDetail(detail) ?: stringResource(R.string.settings_s3_auth_failed_message)
-            S3SyncErrorCode.BUCKET_ACCESS_FAILED ->
-                sanitizedDetail(detail) ?: stringResource(R.string.settings_s3_bucket_access_failed_message)
-            S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION ->
-                stringResource(R.string.settings_s3_remote_layout_violation_message)
-            S3SyncErrorCode.ENCRYPTION_FAILED ->
-                sanitizedDetail(detail) ?: stringResource(R.string.settings_s3_encryption_failed_message)
-            S3SyncErrorCode.CONNECTION_FAILED,
-            S3SyncErrorCode.UNKNOWN,
-            -> sanitizedDetail(detail) ?: stringResource(R.string.error_unknown)
-        }
+    fun s3SyncErrorMessage(code: S3SyncErrorCode, detail: String?): String = when (code) {
+        S3SyncErrorCode.NOT_CONFIGURED ->
+            stringResource(R.string.settings_s3_not_configured_message)
+
+        S3SyncErrorCode.AUTH_FAILED ->
+            sanitizedDetail(detail) ?: stringResource(R.string.settings_s3_auth_failed_message)
+
+        S3SyncErrorCode.BUCKET_ACCESS_FAILED ->
+            sanitizedDetail(detail) ?: stringResource(R.string.settings_s3_bucket_access_failed_message)
+
+        S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION ->
+            stringResource(R.string.settings_s3_remote_layout_violation_message)
+
+        S3SyncErrorCode.ENCRYPTION_FAILED ->
+            sanitizedDetail(detail) ?: stringResource(R.string.settings_s3_encryption_failed_message)
+
+        S3SyncErrorCode.CONNECTION_FAILED,
+        S3SyncErrorCode.UNKNOWN,
+        -> sanitizedDetail(detail) ?: stringResource(R.string.error_unknown)
+    }
 
     @Composable
-    internal fun relativeSyncSubtitle(
-        lastSyncTime: Long,
-        syncedResId: Int,
-        neverResId: Int,
-    ): String {
+    internal fun relativeSyncSubtitle(lastSyncTime: Long, syncedResId: Int, neverResId: Int): String {
         if (lastSyncTime <= 0) return stringResource(neverResId)
         val relative =
             DateUtils
@@ -83,7 +81,7 @@ object SettingsErrorPresenter {
                     lastSyncTime,
                     System.currentTimeMillis(),
                     DateUtils.MINUTE_IN_MILLIS,
-        ).toString()
+                ).toString()
         return stringResource(syncedResId, relative)
     }
 }
@@ -103,13 +101,11 @@ private fun sanitizedDetail(rawDetail: String?): String? {
         ?: lines.firstOrNull { !it.isBareExceptionNoise() && !it.isGenericFailureWrapper() }
 }
 
-private fun isActionableErrorDetailLine(line: String): Boolean =
-    line.isNotBlank() &&
-        !line.isBareExceptionNoise() &&
-        !line.isGenericFailureWrapper()
+private fun isActionableErrorDetailLine(line: String): Boolean = line.isNotBlank() &&
+    !line.isBareExceptionNoise() &&
+    !line.isGenericFailureWrapper()
 
-private fun String.isBareExceptionNoise(): Boolean =
-    matches(Regex("""[\w.$]+(?:Exception|Error)(?::)?"""))
+private fun String.isBareExceptionNoise(): Boolean = matches(Regex("""[\w.$]+(?:Exception|Error)(?::)?"""))
 
 private fun String.isGenericFailureWrapper(): Boolean {
     val normalized = lowercase(Locale.ROOT)

@@ -33,27 +33,26 @@ fun Modifier.lomoListItemPhaseMotion(
     onEnterSettled: () -> Unit,
     exitPhase: LomoListExitPhase?,
     onExitSettled: () -> Unit,
-): Modifier =
-    lomoListItemPhaseMotionInternal(
-        isEntering = isEntering,
-        onEnterSettled = onEnterSettled,
-        exitPhase = exitPhase,
-        onExitSettled = onExitSettled,
-    )
+    isHeld: Boolean = false,
+): Modifier = lomoListItemPhaseMotionInternal(
+    isEntering = isEntering,
+    onEnterSettled = onEnterSettled,
+    exitPhase = exitPhase,
+    onExitSettled = onExitSettled,
+    isHeld = isHeld,
+)
 
 /**
  * Applies the row-level two-phase exit motion directly to a lazy item root.
  */
 @Composable
-fun Modifier.lomoListItemExitPhaseMotion(
-    exitPhase: LomoListExitPhase?,
-    onExitSettled: () -> Unit,
-): Modifier =
+fun Modifier.lomoListItemExitPhaseMotion(exitPhase: LomoListExitPhase?, onExitSettled: () -> Unit): Modifier =
     lomoListItemPhaseMotionInternal(
         isEntering = false,
         onEnterSettled = null,
         exitPhase = exitPhase,
         onExitSettled = onExitSettled,
+        isHeld = false,
     )
 
 @Composable
@@ -62,16 +61,19 @@ private fun Modifier.lomoListItemPhaseMotionInternal(
     onEnterSettled: (() -> Unit)?,
     exitPhase: LomoListExitPhase?,
     onExitSettled: () -> Unit,
+    isHeld: Boolean,
 ): Modifier {
+    val motionSpecs = rememberLomoListItemMotionSpecs()
     val isExitAnimationRunning = exitPhase == LomoListExitPhase.Exiting
     val isExitHidden = exitPhase == LomoListExitPhase.Hidden
+    val isHidden = isExitHidden || (isHeld && exitPhase == null)
     val activeDirection = TwoPhaseAnimationPlanner.activeDirection(
         isEntering = isEntering,
         isExiting = isExitAnimationRunning,
     )
     val initialValue =
         when {
-            isExitHidden -> 0f
+            isHidden -> 0f
             isEntering && !isExitAnimationRunning -> 0f
             else -> 1f
         }
@@ -81,10 +83,14 @@ private fun Modifier.lomoListItemPhaseMotionInternal(
     val exitPolicy = remember { TwoPhaseSettlePolicy() }
     val currentOnEnterSettled by rememberUpdatedState(onEnterSettled)
     val currentOnExitSettled by rememberUpdatedState(onExitSettled)
-    val currentActiveDirection by rememberUpdatedState(activeDirection)
 
-    LaunchedEffect(activeDirection, isExitHidden) {
+    LaunchedEffect(activeDirection, isHidden, motionSpecs) {
         when {
+            isHidden && !isExitHidden -> {
+                alpha.snapTo(0f)
+                heightFraction.snapTo(0f)
+            }
+
             isExitHidden -> {
                 currentOnEnterSettled?.let { settleEnter ->
                     enterPolicy.markSettled(settleEnter)
@@ -93,6 +99,7 @@ private fun Modifier.lomoListItemPhaseMotionInternal(
                 heightFraction.snapTo(0f)
                 alpha.snapTo(0f)
             }
+
             activeDirection == TwoPhaseDirection.ENTER -> {
                 exitPolicy.markRollback()
                 enterPolicy.markStarted()
@@ -103,11 +110,13 @@ private fun Modifier.lomoListItemPhaseMotionInternal(
                     direction = TwoPhaseDirection.ENTER,
                     alpha = alpha,
                     heightFraction = heightFraction,
+                    motionSpecs = motionSpecs,
                 )
                 enterPolicy.markSettled {
                     currentOnEnterSettled?.invoke()
                 }
             }
+
             activeDirection == TwoPhaseDirection.EXIT -> {
                 currentOnEnterSettled?.let { settleEnter ->
                     enterPolicy.markSettled(settleEnter)
@@ -117,11 +126,13 @@ private fun Modifier.lomoListItemPhaseMotionInternal(
                     direction = TwoPhaseDirection.EXIT,
                     alpha = alpha,
                     heightFraction = heightFraction,
+                    motionSpecs = motionSpecs,
                 )
                 exitPolicy.markSettled {
                     currentOnExitSettled()
                 }
             }
+
             else -> {
                 enterPolicy.markRollback()
                 exitPolicy.markRollback()
@@ -131,6 +142,41 @@ private fun Modifier.lomoListItemPhaseMotionInternal(
         }
     }
 
+    ListItemPhaseDisposalEffect(
+        activeDirection,
+        enterPolicy,
+        exitPolicy,
+        currentOnEnterSettled,
+        currentOnExitSettled,
+    )
+
+    return this
+        .graphicsLayer {
+            this.alpha = if (isHidden) 0f else alpha.value
+            this.compositingStrategy = CompositingStrategy.ModulateAlpha
+        }
+        .clipToBounds()
+        .layout { measurable, constraints ->
+            val placeable = measurable.measure(constraints)
+            val fraction = if (isHidden) 0f else heightFraction.value
+            val animatedHeight = (placeable.height * fraction).roundToInt()
+            layout(placeable.width, animatedHeight) {
+                placeable.place(0, 0)
+            }
+        }
+}
+
+@Composable
+private fun ListItemPhaseDisposalEffect(
+    activeDirection: TwoPhaseDirection?,
+    enterPolicy: TwoPhaseSettlePolicy,
+    exitPolicy: TwoPhaseSettlePolicy,
+    onEnterSettled: (() -> Unit)?,
+    onExitSettled: () -> Unit,
+) {
+    val currentActiveDirection by rememberUpdatedState(activeDirection)
+    val currentOnEnterSettled by rememberUpdatedState(onEnterSettled)
+    val currentOnExitSettled by rememberUpdatedState(onExitSettled)
     DisposableEffect(Unit) {
         onDispose {
             when (currentActiveDirection) {
@@ -138,50 +184,39 @@ private fun Modifier.lomoListItemPhaseMotionInternal(
                     enterPolicy.markDisposed(isActive = true) {
                         currentOnEnterSettled?.invoke()
                     }
+
                 TwoPhaseDirection.EXIT ->
                     exitPolicy.markDisposed(isActive = true) {
                         currentOnExitSettled()
                     }
+
                 null -> Unit
             }
         }
     }
-
-    return this
-        .graphicsLayer {
-            this.alpha = alpha.value
-            this.compositingStrategy = CompositingStrategy.ModulateAlpha
-        }
-        .clipToBounds()
-        .layout { measurable, constraints ->
-            val placeable = measurable.measure(constraints)
-            val animatedHeight = (placeable.height * heightFraction.value).roundToInt()
-            layout(placeable.width, animatedHeight) {
-                placeable.place(0, 0)
-            }
-        }
 }
 
-private suspend fun runListItemPhaseAnimation(
+internal suspend fun runListItemPhaseAnimation(
     direction: TwoPhaseDirection,
     alpha: Animatable<Float, *>,
     heightFraction: Animatable<Float, *>,
+    motionSpecs: LomoListItemMotionSpecs,
 ) {
-    val steps = TwoPhaseAnimationPlanner.plan(direction)
-    for (step in steps) {
+    for (step in TwoPhaseAnimationPlanner.plan(direction)) {
         when (step.property) {
             TwoPhaseProperty.ALPHA ->
                 alpha.animateTo(
                     targetValue = step.targetValue,
                     animationSpec = when (direction) {
-                        TwoPhaseDirection.ENTER -> LomoListItemMotionSpecs.fadeInSpec
-                        TwoPhaseDirection.EXIT -> LomoListItemMotionSpecs.fadeOutSpec
+                        TwoPhaseDirection.ENTER -> motionSpecs.fadeInSpec
+                        TwoPhaseDirection.EXIT -> motionSpecs.fadeOutSpec
                     },
                 )
+
             TwoPhaseProperty.HEIGHT_FRACTION ->
                 heightFraction.animateTo(
                     targetValue = step.targetValue,
-                    animationSpec = LomoListItemMotionSpecs.heightFractionSpec,
+                    animationSpec = motionSpecs.heightFractionSpec,
                 )
         }
     }

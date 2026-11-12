@@ -47,87 +47,86 @@ private class FakeSessionNativeBridge : SessionNativeBridge {
         return outcome
     }
 
-    private fun ready(): SessionSearchOutcome =
-        SessionSearchOutcome.Ready(
-            SessionSearchPage(
-                queryEpoch = 1uL,
-                mode = SessionSearchMode.FUZZY,
-                items = emptyList(),
-                nextCursor = null,
-            ),
-        )
+    private fun ready(): SessionSearchOutcome = SessionSearchOutcome.Ready(
+        SessionSearchPage(
+            queryEpoch = 1uL,
+            mode = SessionSearchMode.FUZZY,
+            items = emptyList(),
+            nextCursor = null,
+        ),
+    )
 }
 
-class SessionSearchPagingSourceTest : FunSpec({
-    fun source(session: FakeSessionNativeBridge): SessionSearchPagingSource =
-        SessionSearchPagingSource(
+class SessionSearchPagingSourceTest :
+    FunSpec({
+        fun source(session: FakeSessionNativeBridge): SessionSearchPagingSource = SessionSearchPagingSource(
             session = session,
             filters = StoreMemoFilters(),
             queryEpoch = 1uL,
             text = "needle",
         )
 
-    test("refresh load carries no cursor") {
-        val session = FakeSessionNativeBridge()
-        val result =
-            source(session).load(
-                PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false),
-            )
-        result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        session.requests.single().cursor.shouldBeNull()
-    }
+        test("refresh load carries no cursor") {
+            val session = FakeSessionNativeBridge()
+            val result =
+                source(session).load(
+                    PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false),
+                )
+            result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            session.requests.single().cursor.shouldBeNull()
+        }
 
-    test("append load passes its cursor key through") {
-        val session = FakeSessionNativeBridge()
-        val result =
-            source(session).load(
-                PagingSource.LoadParams.Append(
-                    key = "cursor-9",
-                    loadSize = 30,
-                    placeholdersEnabled = false,
-                ),
-            )
-        result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        session.requests.single().cursor?.encoded shouldBe "cursor-9"
-    }
+        test("append load passes its cursor key through") {
+            val session = FakeSessionNativeBridge()
+            val result =
+                source(session).load(
+                    PagingSource.LoadParams.Append(
+                        key = "cursor-9",
+                        loadSize = 30,
+                        placeholdersEnabled = false,
+                    ),
+                )
+            result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            session.requests.single().cursor?.encoded shouldBe "cursor-9"
+        }
 
-    test("refresh identity key is not reinterpreted as a page cursor") {
-        val session = FakeSessionNativeBridge()
-        val result =
-            source(session).load(
-                PagingSource.LoadParams.Refresh(
-                    key = "memo-id-1",
-                    loadSize = 30,
-                    placeholdersEnabled = false,
-                ),
-            )
-        result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        session.requests.single().cursor.shouldBeNull()
-    }
+        test("refresh identity key is not reinterpreted as a page cursor") {
+            val session = FakeSessionNativeBridge()
+            val result =
+                source(session).load(
+                    PagingSource.LoadParams.Refresh(
+                        key = "memo-id-1",
+                        loadSize = 30,
+                        placeholdersEnabled = false,
+                    ),
+                )
+            result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            session.requests.single().cursor.shouldBeNull()
+        }
 
-    test("prepend is rejected because search paging moves forward only") {
-        val session = FakeSessionNativeBridge()
-        val result =
-            source(session).load(
-                PagingSource.LoadParams.Prepend(
-                    key = "cursor-1",
-                    loadSize = 30,
-                    placeholdersEnabled = false,
-                ),
-            )
-        result.shouldBeInstanceOf<PagingSource.LoadResult.Error<String, com.lomo.domain.model.Memo>>()
-        session.requests.isEmpty() shouldBe true
-    }
+        test("prepend is rejected because search paging moves forward only") {
+            val session = FakeSessionNativeBridge()
+            val result =
+                source(session).load(
+                    PagingSource.LoadParams.Prepend(
+                        key = "cursor-1",
+                        loadSize = 30,
+                        placeholdersEnabled = false,
+                    ),
+                )
+            result.shouldBeInstanceOf<PagingSource.LoadResult.Error<String, com.lomo.domain.model.Memo>>()
+            session.requests.isEmpty() shouldBe true
+        }
 
-    test("discarded epoch invalidates the paging source") {
-        val session =
-            FakeSessionNativeBridge().apply {
-                outcome = SessionSearchOutcome.Discarded(queryEpoch = 1uL, activeEpoch = 2uL)
-            }
-        val result =
-            source(session).load(
-                PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false),
-            )
-        result.shouldBeInstanceOf<PagingSource.LoadResult.Invalid<String, com.lomo.domain.model.Memo>>()
-    }
-})
+        test("discarded epoch invalidates the paging source") {
+            val session =
+                FakeSessionNativeBridge().apply {
+                    outcome = SessionSearchOutcome.Discarded(queryEpoch = 1uL, activeEpoch = 2uL)
+                }
+            val result =
+                source(session).load(
+                    PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false),
+                )
+            result.shouldBeInstanceOf<PagingSource.LoadResult.Invalid<String, com.lomo.domain.model.Memo>>()
+        }
+    })

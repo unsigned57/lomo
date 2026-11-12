@@ -20,11 +20,7 @@ data class ShareAttachmentInfo(
     val size: Long,
 )
 
-data class LanTrustedPeer(
-    val deviceId: String,
-    val displayName: String,
-    val pairedAtMs: Long,
-)
+data class LanTrustedPeer(val deviceId: String, val displayName: String, val pairedAtMs: Long)
 
 data class LanPairingRequest(
     val pairingId: String,
@@ -59,22 +55,13 @@ sealed interface LanReceivedItemResult {
     val itemId: String
     val itemIndex: Int
 
-    data class Pending(
-        override val itemId: String,
-        override val itemIndex: Int,
-    ) : LanReceivedItemResult
+    data class Pending(override val itemId: String, override val itemIndex: Int) : LanReceivedItemResult
 
-    data class Committed(
-        override val itemId: String,
-        override val itemIndex: Int,
-        val memoId: String,
-    ) : LanReceivedItemResult
+    data class Committed(override val itemId: String, override val itemIndex: Int, val memoId: String) :
+        LanReceivedItemResult
 
-    data class Failed(
-        override val itemId: String,
-        override val itemIndex: Int,
-        val code: String,
-    ) : LanReceivedItemResult
+    data class Failed(override val itemId: String, override val itemIndex: Int, val code: String) :
+        LanReceivedItemResult
 }
 
 /**
@@ -115,23 +102,13 @@ sealed interface ShareTransferState {
 
     data object Sending : ShareTransferState
 
-    data class WaitingPairing(
-        val deviceName: String,
-    ) : ShareTransferState
+    data class WaitingPairing(val deviceName: String) : ShareTransferState
 
-    data class WaitingApproval(
-        val deviceName: String,
-    ) : ShareTransferState
+    data class WaitingApproval(val deviceName: String) : ShareTransferState
 
-    data class Transferring(
-        val progress: Float,
-    ) : ShareTransferState
+    data class Transferring(val progress: Float) : ShareTransferState
 
-    data class Success(
-        val deviceName: String,
-    ) : ShareTransferState
+    data class Success(val deviceName: String) : ShareTransferState
 
-    data class Error(
-        val error: ShareTransferError,
-    ) : ShareTransferState
+    data class Error(val error: ShareTransferError) : ShareTransferState
 }

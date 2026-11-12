@@ -2,23 +2,20 @@ package com.lomo.detektrules
 
 import dev.detekt.api.Config
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtNamedFunction
-import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 
-internal class ViewModelSingleStateFlowRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "A screen ViewModel must expose at most one in-VM built screen-state machine StateFlow<XxxState> " +
-        "(combine/stateIn chain or backing asStateFlow exposure); re-exposures of dependency-owned " +
-        "StateFlow<XxxState> are satellites and do not count. Mutable* state must stay private, and var is " +
-        "reserved for Job cancellation handles. See quality/udf-contract.md.",
-) {
+internal class ViewModelSingleStateFlowRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "A screen ViewModel must expose at most one in-VM built screen-state machine StateFlow<XxxState> " +
+            "(combine/stateIn chain or backing asStateFlow exposure); re-exposures of dependency-owned " +
+            "StateFlow<XxxState> are satellites and do not count. Mutable* state must stay private, and var is " +
+            "reserved for Job cancellation handles. See quality/udf-contract.md.",
+    ) {
     private val sessionFacadeMarker = Regex("""behavior-contract:\s*session-facade-ok""")
     private val machineFlowTypePattern =
         Regex("""(?<![A-Za-z])StateFlow<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\??\s*>\s*$""")
@@ -136,17 +133,13 @@ internal class ViewModelSingleStateFlowRule(
         return MachineFlows(built = built, delegated = delegated)
     }
 
-    private data class MachineFlows(
-        val built: List<KtProperty>,
-        val delegated: List<KtProperty>,
-    )
+    private data class MachineFlows(val built: List<KtProperty>, val delegated: List<KtProperty>)
 
-    private fun KtClass.primaryConstructorDependencyNames(): Set<String> =
-        getPrimaryConstructor()
-            ?.valueParameters
-            ?.mapNotNull { parameter -> parameter.name }
-            .orEmpty()
-            .toSet()
+    private fun KtClass.primaryConstructorDependencyNames(): Set<String> = getPrimaryConstructor()
+        ?.valueParameters
+        ?.mapNotNull { parameter -> parameter.name }
+        .orEmpty()
+        .toSet()
 
     private fun KtExpression.isBuiltMachineInitializer(): Boolean {
         val text = text
@@ -154,12 +147,11 @@ internal class ViewModelSingleStateFlowRule(
     }
 }
 
-internal class NoInSituRevisionBypassRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "In-situ snapshot fetching before mutations (TOCTOU) is forbidden; expectedRevision must originate from the UI edit session baseline.",
-) {
+internal class NoInSituRevisionBypassRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "In-situ snapshot fetching before mutations (TOCTOU) is forbidden; expectedRevision must originate from the UI edit session baseline.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*in-situ-read-ok""")
 
     override fun visitNamedFunction(function: KtNamedFunction) {
@@ -182,7 +174,9 @@ internal class NoInSituRevisionBypassRule(
 
         // Detect in-situ read patterns: reading snapshot right inside mutation function
         val inSituReadPatterns = listOf(
-            Regex("""(?:val|var)\s+(\w+)\s*=\s*(?:port|queryRepository|adapter)\.(?:getMemo|requireMemoSnapshot|queryMemos)"""),
+            Regex(
+                """(?:val|var)\s+(\w+)\s*=\s*(?:port|queryRepository|adapter)\.(?:getMemo|requireMemoSnapshot|queryMemos)""",
+            ),
             Regex("""(?:val|var)\s+(\w+)\s*=\s*.*?\.(?:getMemo|requireMemoSnapshot)"""),
         )
 
@@ -201,8 +195,10 @@ internal class NoInSituRevisionBypassRule(
                     reportElement(
                         function,
                         "Optimistic concurrency bypass (Audit U2 / TOCTOU) in '${function.name}': " +
-                            "calling '${match.value.trim()}' and piping its revision/fingerprint into mutation expectedRevision. " +
-                            "Mutations must verify against the caller's session baseline, not an on-the-spot re-read. " +
+                            "calling '${match.value.trim()}' and piping its revision/fingerprint into mutation " +
+                            "expectedRevision. " +
+                            "Mutations must verify against the caller's session baseline, not an on-the-spot " +
+                            "re-read. " +
                             "Pass expectedRevision/expectedFingerprint from caller or document with '// behavior-contract: in-situ-read-ok: <reason>'.",
                     )
                     break

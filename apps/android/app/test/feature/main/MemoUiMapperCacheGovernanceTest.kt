@@ -78,12 +78,11 @@ class MemoUiMapperCacheGovernanceTest : AppFunSpec() {
         }
     }
 
-    private fun memo(id: String): Memo =
-        Memo(
-            id = id,
-            timestamp = 1L,
-            content = "content-$id",
-            rawContent = "content-$id",
-            dateKey = "2026_04_02",
-        )
+    private fun memo(id: String): Memo = Memo(
+        id = id,
+        timestamp = 1L,
+        content = "content-$id",
+        rawContent = "content-$id",
+        dateKey = "2026_04_02",
+    )
 }

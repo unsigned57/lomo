@@ -43,14 +43,14 @@ import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.DiscoveredDevice
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import java.io.File
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -145,7 +145,9 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
             engine.networkFacts.last().candidates shouldBe listOf(LanBindCandidate("192.168.43.1", 0u))
         }
 
-        test("given one committable item fails when the inbox processes then the sibling still commits and the service stays up") {
+        test(
+            "given one committable item fails when the inbox processes then the sibling still commits and the service stays up",
+        ) {
             val engine = FakeLanCoordinatorEngine(
                 inboxes = ArrayDeque(
                     listOf(
@@ -191,7 +193,9 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
             }
         }
 
-        test("given the pump reports rejected connections when services run then the failure is observable without stopping the service") {
+        test(
+            "given the pump reports rejected connections when services run then the failure is observable without stopping the service",
+        ) {
             val engine = FakeLanCoordinatorEngine(
                 inboxes = ArrayDeque(
                     listOf(
@@ -233,7 +237,9 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
             }
         }
 
-        test("given a rejected NSD record when discovery runs then the rejection is observable without stopping discovery") {
+        test(
+            "given a rejected NSD record when discovery runs then the rejection is observable without stopping discovery",
+        ) {
             val engine = FakeLanCoordinatorEngine()
             val discovery = FakeDiscoveryCoordinator()
             runTest {
@@ -283,29 +289,25 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
         lease: FakeLanRuntimeMulticastLease,
         scope: CoroutineScope = CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined),
         dispatcher: CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Unconfined,
-    ): LanRuntimeCoordinator =
-        LanRuntimeCoordinator(
-            engine = engine,
-            discovery = FakeDiscoveryCoordinator(),
-            deviceKey = FakeLanDeviceKey(),
-            scope = scope,
-            networkMonitor = network,
-            multicastLease = lease,
-            dispatcher = dispatcher,
-        )
+    ): LanRuntimeCoordinator = LanRuntimeCoordinator(
+        engine = engine,
+        discovery = FakeDiscoveryCoordinator(),
+        deviceKey = FakeLanDeviceKey(),
+        scope = scope,
+        networkMonitor = network,
+        multicastLease = lease,
+        dispatcher = dispatcher,
+    )
 }
 
 private class FakeLanDeviceKey : LanDeviceKey {
     override fun publicIdentity(displayName: String): LanDeviceIdentity =
         LanDeviceIdentity(ByteArray(65) { 4 }, displayName)
 
-    override fun sign(challenge: LanSigningChallenge): ByteArray =
-        challenge.transcriptToSign + 1
+    override fun sign(challenge: LanSigningChallenge): ByteArray = challenge.transcriptToSign + 1
 }
 
-private class FakeLanRuntimeNetworkMonitor(
-    snapshot: LanPlatformNetworkSnapshot,
-) : LanRuntimeNetworkMonitor {
+private class FakeLanRuntimeNetworkMonitor(snapshot: LanPlatformNetworkSnapshot) : LanRuntimeNetworkMonitor {
     private var current = snapshot
     private var callback: ((LanPlatformNetworkSnapshot) -> Unit)? = null
     override fun snapshot(): LanPlatformNetworkSnapshot = current
@@ -342,12 +344,7 @@ private class FakeDiscoveryCoordinator : com.lomo.data.share.LanShareDiscoveryCo
     fun rejectNextRecord() {
         _rejectedRecordCount.value += 1
     }
-    override fun registerService(
-        port: Int,
-        deviceName: String,
-        deviceId: String,
-        protocolVersion: UInt,
-    ): Boolean = true
+    override fun registerService(port: Int, deviceName: String, deviceId: String, protocolVersion: UInt): Boolean = true
     override fun unregisterService() = Unit
     override fun startDiscovery(deviceId: String): Boolean = true
     override fun stopDiscovery() {
@@ -371,8 +368,7 @@ private class FakeLanCoordinatorEngine(
     val networkFacts = mutableListOf<LanNetworkFacts>()
     private var waitGeneration = 0uL
 
-    override fun configureLanIdentity(identity: LanDeviceIdentity) =
-        LanLocalIdentity("local-1", identity.displayName)
+    override fun configureLanIdentity(identity: LanDeviceIdentity) = LanLocalIdentity("local-1", identity.displayName)
 
     override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) {
         networkFacts += snapshot
@@ -384,43 +380,39 @@ private class FakeLanCoordinatorEngine(
         return LanServiceState(LanServicePhase.Listening, "192.168.1.8:1234")
     }
 
-    override fun lanProtocolLimits(): LanProtocolLimits =
-        LanProtocolLimits(
-            protocolVersion = 3u,
-            pairingTtlMs = 120_000L,
-            sessionTtlMs = 60_000L,
-            approvalTtlMs = 900_000L,
-        )
+    override fun lanProtocolLimits(): LanProtocolLimits = LanProtocolLimits(
+        protocolVersion = 3u,
+        pairingTtlMs = 120_000L,
+        sessionTtlMs = 60_000L,
+        approvalTtlMs = 900_000L,
+    )
 
     override fun stopLanService(): LanServiceState {
         stopCalls += 1
         return LanServiceState(LanServicePhase.Stopped, null)
     }
 
-    override suspend fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
-        when {
-            inboxes.isNotEmpty() -> {
-                waitGeneration += 1uL
-                LanInboxWait(
-                    waitGeneration,
-                    inboxes.removeFirst(),
-                    rejectionCounts.removeFirstOrNull() ?: 0uL,
-                    rejectionDiagnostics.removeFirstOrNull(),
-                )
-            }
-            failWhenEmpty -> error("poll failed")
-            else -> kotlinx.coroutines.awaitCancellation()
+    override suspend fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait = when {
+        inboxes.isNotEmpty() -> {
+            waitGeneration += 1uL
+            LanInboxWait(
+                waitGeneration,
+                inboxes.removeFirst(),
+                rejectionCounts.removeFirstOrNull() ?: 0uL,
+                rejectionDiagnostics.removeFirstOrNull(),
+            )
         }
+
+        failWhenEmpty -> error("poll failed")
+
+        else -> kotlinx.coroutines.awaitCancellation()
+    }
 
     override fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long) {
         signedSessionIds += sessionId
     }
 
-    override fun resolveReceivedLanItem(
-        batchId: String,
-        itemIndex: UInt,
-        resolution: LanReceivedItemResolution,
-    ) {
+    override fun resolveReceivedLanItem(batchId: String, itemIndex: UInt, resolution: LanReceivedItemResolution) {
         val key = "$batchId:$itemIndex"
         when (resolution) {
             is LanReceivedItemResolution.Commit -> {
@@ -429,6 +421,7 @@ private class FakeLanCoordinatorEngine(
                 }
                 committedItems += key
             }
+
             is LanReceivedItemResolution.Fail -> failedItems += key
         }
     }

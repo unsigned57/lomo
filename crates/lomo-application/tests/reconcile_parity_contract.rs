@@ -635,6 +635,12 @@ mod tests {
                     chronology_epoch_ms: None,
                 })
                 .expect("create active");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let victim = ctx
                 .session
                 .create_memo(CreateMemoRequest {
@@ -649,6 +655,12 @@ mod tests {
                 })
                 .expect("create victim");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .delete_memo(DeleteMemoRequest {
                     operation_id: OperationId::parse("anchor-del").expect("op"),
                     memo_id: victim.memo_id.clone(),
@@ -656,12 +668,21 @@ mod tests {
                     trashed_at_ms: Some(1_757_500_000_000),
                 })
                 .expect("trash victim");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
 
             append_block(
                 &ctx.workspace.join("2026_09_10.md"),
                 "12:02:00",
                 "appended third",
             );
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session.rebuild_projection().expect("reconcile");
             assert!(
                 projected_ids(&ctx, false).contains(active.memo_id.as_str()),
@@ -691,6 +712,12 @@ mod tests {
                     chronology_epoch_ms: None,
                 })
                 .expect("create active");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let victim = ctx
                 .session
                 .create_memo(CreateMemoRequest {
@@ -705,6 +732,12 @@ mod tests {
                 })
                 .expect("create victim");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .delete_memo(DeleteMemoRequest {
                     operation_id: OperationId::parse("anchor2-del").expect("op"),
                     memo_id: victim.memo_id.clone(),
@@ -712,10 +745,19 @@ mod tests {
                     trashed_at_ms: Some(1_757_500_000_000),
                 })
                 .expect("trash victim");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
 
             // Move the live fingerprint forward while the victim sits trashed, then remove the
             // document entirely: the live row keeps the last canonical fingerprint while the
             // durable record can only attest the trash-time one.
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             append_block(
                 &ctx.workspace.join("2026_09_10.md"),
                 "12:02:00",
@@ -751,6 +793,12 @@ mod tests {
                     chronology_epoch_ms: None,
                 })
                 .expect("create");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let deleted = ctx
                 .session
                 .delete_memo(DeleteMemoRequest {
@@ -760,10 +808,22 @@ mod tests {
                     trashed_at_ms: Some(1_757_500_000_000),
                 })
                 .expect("delete");
-            let record_rel =
-                trash_record_relative_path(created.memo_id.as_str()).expect("trash record path");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            let record_rel = trash_record_relative_path(created.memo_id.as_str(), file)
+                .expect("trash record path");
             let record_abs = ctx.workspace.join(record_rel.as_str());
             let record_bytes = fs::read(&record_abs).expect("read durable trash record");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             (
                 created.memo_id.clone(),
                 PermanentDeleteManyTarget {
@@ -804,8 +864,20 @@ mod tests {
                     targets: vec![target],
                 })
                 .expect("purge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let purge_rel =
                 lomo_store::purge_record_relative_path(memo_id.as_str()).expect("purge path");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             assert!(
                 ctx.workspace.join(purge_rel.as_str()).is_file(),
                 "permanent delete writes a durable tombstone"
@@ -837,9 +909,18 @@ mod tests {
             ctx.session
                 .permanently_delete_many(&PermanentDeleteManyRequest {
                     operation_id: OperationId::parse("pur1-purge").expect("op"),
-                    targets: vec![target],
+                    targets: vec![target.clone()],
                 })
                 .expect("purge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let purge_rel =
                 lomo_store::purge_record_relative_path(memo_id.as_str()).expect("purge path");
             assert!(
@@ -849,7 +930,8 @@ mod tests {
 
             // Peer sync replays the pre-purge trash record; the watcher reports exactly that
             // path — the tombstone in a sibling directory is outside the observed scope.
-            let record_rel = trash_record_relative_path(memo_id.as_str()).expect("trash path");
+            let record_rel = trash_record_relative_path(memo_id.as_str(), &target.source_path)
+                .expect("trash path");
             let record_abs = ctx.workspace.join(record_rel.as_str());
             let record = decode_trash_record(&record_bytes).expect("decode");
             write_trash_record_atomic(&record_abs, &record).expect("restore record");
@@ -884,6 +966,15 @@ mod tests {
                     targets: vec![target],
                 })
                 .expect("purge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let purge_rel =
                 lomo_store::purge_record_relative_path(memo_id.as_str()).expect("purge path");
             let purge_abs = ctx.workspace.join(purge_rel.as_str());
@@ -931,21 +1022,34 @@ mod tests {
             ctx.session
                 .permanently_delete_many(&PermanentDeleteManyRequest {
                     operation_id: OperationId::parse("pur2-purge").expect("op"),
-                    targets: vec![target],
+                    targets: vec![target.clone()],
                 })
                 .expect("purge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session
                 .rebuild_projection()
                 .expect("reconcile tombstone");
             let purge_rel =
                 lomo_store::purge_record_relative_path(memo_id.as_str()).expect("purge path");
             fs::remove_file(ctx.workspace.join(purge_rel.as_str())).expect("lift tombstone");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let blob = ctx.workspace.join(".lomo/unknown-layout/blob.bin");
             fs::create_dir_all(blob.parent().expect("parent")).expect("blob dir");
             fs::write(&blob, b"opaque").expect("blob");
             ctx.session.rebuild_projection().expect("gated reconcile");
 
-            let record_rel = trash_record_relative_path(memo_id.as_str()).expect("trash path");
+            let record_rel = trash_record_relative_path(memo_id.as_str(), &target.source_path)
+                .expect("trash path");
             let record_abs = ctx.workspace.join(record_rel.as_str());
             let record = decode_trash_record(&record_bytes).expect("decode");
             write_trash_record_atomic(&record_abs, &record).expect("restore record");
@@ -980,19 +1084,32 @@ mod tests {
             ctx.session
                 .permanently_delete_many(&PermanentDeleteManyRequest {
                     operation_id: OperationId::parse("res-purge").expect("op"),
-                    targets: vec![target],
+                    targets: vec![target.clone()],
                 })
                 .expect("purge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let purge_rel =
                 lomo_store::purge_record_relative_path(memo_id.as_str()).expect("purge path");
             fs::remove_file(ctx.workspace.join(purge_rel.as_str())).expect("lift tombstone");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let blob = ctx.workspace.join(".lomo/unknown-layout/blob.bin");
             fs::create_dir_all(blob.parent().expect("parent")).expect("blob dir");
             fs::write(&blob, b"opaque").expect("blob");
             ctx.session.rebuild_projection().expect("gated reconcile");
 
             // The lifted tombstone lets a re-delivered trash record claim the memo again.
-            let record_rel = trash_record_relative_path(memo_id.as_str()).expect("trash path");
+            let record_rel = trash_record_relative_path(memo_id.as_str(), &target.source_path)
+                .expect("trash path");
             let record_abs = ctx.workspace.join(record_rel.as_str());
             let record = decode_trash_record(&record_bytes).expect("decode");
             write_trash_record_atomic(&record_abs, &record).expect("restore record");
@@ -1197,6 +1314,12 @@ mod tests {
                 })
                 .expect("create");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .update_memo(UpdateMemoRequest {
                     operation_id: OperationId::parse("att-update").expect("op"),
                     memo_id: created.memo_id.clone(),
@@ -1205,6 +1328,12 @@ mod tests {
                     pending_promotes: Vec::new(),
                 })
                 .expect("update writes history retaining the reference");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
 
             // External change to an unrelated document: the scoped pass must leave the materialized
             // attachment state byte-identical to a cold scan of the same durable facts.
@@ -1239,6 +1368,12 @@ mod tests {
                 })
                 .expect("create");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .update_memo(UpdateMemoRequest {
                     operation_id: OperationId::parse("hist-update").expect("op"),
                     memo_id: created.memo_id.clone(),
@@ -1247,9 +1382,18 @@ mod tests {
                     pending_promotes: Vec::new(),
                 })
                 .expect("update");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
 
             // Delete one durable history head record: a removal the committed revision_index can
             // attribute to its owner keeps the reconcile scoped.
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let mut removed = 0_usize;
             for entry in fs::read_dir(ctx.workspace.join(".lomo/history/v2/heads"))
                 .expect("history heads dir")
@@ -1401,6 +1545,7 @@ mod tests {
                                 .push(path.as_str().to_owned());
                         }
                         PlatformAction::Stat { .. }
+                        | PlatformAction::Inspect { .. }
                         | PlatformAction::ListChildren { .. }
                         | PlatformAction::EnsureDirectory { .. }
                         | PlatformAction::WriteFromExchange { .. }
@@ -1712,7 +1857,8 @@ mod tests {
 
         /// Writes a durable trash record for `memo_id` at its canonical hashed path.
         fn write_trash_record(workspace: &Path, record: &TrashRecordV1) {
-            let rel = trash_record_relative_path(&record.memo_id).expect("trash path");
+            let rel = trash_record_relative_path(&record.memo_id, &record.source_path)
+                .expect("trash path");
             let abs = workspace.join(rel.as_str());
             fs::create_dir_all(abs.parent().expect("record dir")).expect("record dir");
             write_trash_record_atomic(&abs, record).expect("write record");
@@ -1903,7 +2049,7 @@ mod tests {
         /// behind. The next reconcile must certify the commit's own writes inside ONE
         /// bounded scoped pass, and the pass after that must cost zero document/record
         /// reads (the fixed `.lomo/layout_head.rec` validation read is the per-entry
-        /// preamble `recover_pending` pays, not projection drift). An unbounded or
+        /// preamble every reconcile pays, not projection drift). An unbounded or
         /// never-converging trail means every mutation pays a growing re-read tax.
         #[test]
         fn commit_written_files_converge_within_one_bounded_pass() {
@@ -1924,6 +2070,12 @@ mod tests {
                     chronology_epoch_ms: None,
                 })
                 .expect("create");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
 
             ctx.counting.reset();
             let first = ctx
@@ -2005,7 +2157,7 @@ mod tests {
 
             ctx.session
                 .reconcile_observed_paths(&[
-                    RelativeWorkspacePath::parse(".lomo/trash").expect("trash dir")
+                    RelativeWorkspacePath::parse(".trash").expect("trash dir")
                 ])
                 .expect("directory-scoped reconcile");
 
@@ -2017,7 +2169,7 @@ mod tests {
                 summaries(&ctx.session, false)
                     .iter()
                     .all(|summary| summary.source_path != "2026_09_11.md"),
-                "an unobserved document must not be covered by a `.lomo/trash` prefix"
+                "an unobserved document must not be covered by a `.trash` prefix"
             );
 
             // The deferred document converges on the next digest-diffed pass — deferral
@@ -2132,6 +2284,12 @@ mod tests {
                     trashed_at_ms: Some(1_757_500_000_000),
                 })
                 .expect("delete over a standing tombstone");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             assert!(
                 !projected_ids(&ctx, true).contains(&target)
                     && !projected_ids(&ctx, false).contains(&target),

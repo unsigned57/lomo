@@ -12,16 +12,24 @@ import io.kotest.matchers.shouldNotBe
  * Behavior Contract:
  * Capability: readable Expressive memo typography and seed-derived color roles; owner: ui-components; P1.
  * Scenarios: Given default or scaled reading preferences, when resolving memo styles, then reading,
- * editing and summaries share 16sp/24sp metrics with the user's multipliers applied.
+ * editing and summaries share 14sp/21sp metrics with the user's multipliers applied.
  * Given saturated and neutral seeds, when resolving either theme, then text remains legible and
  * fixed accent roles derive from the selected seed instead of Material's unrelated default purple.
  * Observable outcomes: resolved text metrics, color contrast and fixed accent colors.
- * TDD proof: run this spec before implementing the Expressive theme; record RED/GREEN in the handoff.
+ * TDD proof: `./kotlin test --include-module=ui-components` observed RED against 15sp/22sp before
+ * updating MemoTypography to 14sp/21sp; rerun for GREEN.
+ * Test Change Justification:
+ * Reason category: user-requested smaller default reading size.
+ * Old behavior/assertion being replaced: 15sp/22sp defaults and 22.5sp/41.25sp scaled metrics.
+ * Why old assertion is no longer correct: the user found 15sp too large; 14sp (M3 bodyMedium) keeps a 2sp step above
+ *   12sp metadata, and the 1.5 line-height ratio (21sp) keeps CJK prose airy.
+ * Coverage preserved by: baseline parity and independent font/line multipliers, plus color tests.
+ * Why this is not fitting the test to the implementation: derives expected values directly from the 14sp/21sp base role and the existing user multipliers (1.5x font, 1.25x line height).
  * Excludes: OEM glyph rendering, screenshots and wallpaper extraction.
  */
 class ExpressiveReadingContractTest : UiComponentsFunSpec() {
     init {
-        test("given default reading preferences when resolving memo styles then all surfaces use 16sp by 24sp") {
+        test("given default reading preferences when resolving memo styles then all surfaces use 14sp by 21sp") {
             val typography = buildAppTypography(FontFamily.SansSerif)
             val scales = TypographyScales()
             listOf(
@@ -30,17 +38,19 @@ class ExpressiveReadingContractTest : UiComponentsFunSpec() {
                 typography.memoSummaryTextStyle(scales),
                 typography.memoHintTextStyle(scales),
             ).forEach { style ->
-                style.fontSize shouldBe 16.sp
-                style.lineHeight shouldBe 24.sp
+                style.fontSize shouldBe 14.sp
+                style.lineHeight shouldBe 21.sp
             }
         }
 
-        test("given customized reading preferences when resolving a memo then font and line multipliers remain effective") {
+        test(
+            "given customized reading preferences when resolving a memo then font and line multipliers remain effective",
+        ) {
             val style = buildAppTypography(FontFamily.SansSerif).memoBodyTextStyle(
                 TypographyScales(fontSizeScale = 1.5f, lineHeightScale = 1.25f),
             )
-            style.fontSize shouldBe 24.sp
-            style.lineHeight shouldBe 45.sp
+            style.fontSize shouldBe 21.sp
+            style.lineHeight shouldBe 39.375.sp
         }
 
         test("given different seeds when resolving fixed accents then fixed roles belong to each seed") {

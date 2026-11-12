@@ -1,16 +1,12 @@
 package com.lomo.app.feature.main
 
-import com.lomo.app.testing.fakes.testMemoUiMapper
-import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
-
 import androidx.lifecycle.ViewModel
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
+import app.cash.turbine.test
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.media.AudioPlayerManager
-import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.FakeImageMapProvider
-import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
@@ -25,20 +21,18 @@ import com.lomo.app.testing.fakes.FakeS3SyncRepository
 import com.lomo.app.testing.fakes.FakeSyncInboxRepository
 import com.lomo.app.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.app.testing.fakes.FakeWebDavSyncRepository
-import com.lomo.domain.model.Memo
+import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
+import com.lomo.app.testing.fakes.testMemoUiMapper
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
-import com.lomo.domain.model.ProjectionFreshness
-import com.lomo.domain.usecase.SingleDispatcherProvider
-import com.lomo.domain.model.MemoRevision
-import com.lomo.domain.model.MemoRevisionPage
 import com.lomo.domain.model.MemoSortOption
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.GetCurrentAppBuildVersionUseCase
 import com.lomo.domain.usecase.GitUnifiedSyncProvider
@@ -53,35 +47,25 @@ import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.S3UnifiedSyncProvider
 import com.lomo.domain.usecase.SetMemoPinnedUseCase
+import com.lomo.domain.usecase.SingleDispatcherProvider
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.SyncProviderRegistry
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
-import com.lomo.domain.usecase.UpdateMemoContentUseCase
-import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import com.lomo.domain.usecase.WebDavUnifiedSyncProvider
 import io.kotest.matchers.shouldBe
-import io.mockk.clearMocks
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
-import java.time.LocalDate
-import java.time.ZoneId
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -91,9 +75,20 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.time.LocalDate
+import java.time.ZoneId
 
 /*
  * Behavior Contract:
+ * Test Change Justification:
+ * Reason category: explicit activation input adaptation.
+ * Old behavior/assertion being replaced: root-only activations implicitly read attachment candidates from a journal.
+ * Why old assertion is no longer correct: activation now receives a prepared attachment change explicitly;
+ * these existing root-only calls select the committed attachment configuration with a null change.
+ * Coverage preserved by: every existing mount, state and failure assertion is retained without weakening.
+ * Why this is not fitting the test to the implementation: stale pending candidates must not influence restoration.
+ * TDD proof: Regression preservation - transaction-green-first.log and verification-green.log under
+ * target/lomo/reports/manual/directory-selection/; index-validation-red.log exposes premature activation.
  * - Unit under test: MainViewModel
  * - Owning layer: app
  * - Priority tier: P1
@@ -110,6 +105,8 @@ import kotlinx.coroutines.test.runTest
  *   occurs, then navigation lifecycle alone does not rebuild the workspace projection.
  * - Given a manual refresh is already running, when another pull-to-refresh command arrives, then
  *   only one refresh executes and the observable refreshing state returns to false on completion.
+ * - Given background sync starts without a user refresh, then isSyncing is true while the pull indicator stays idle.
+ * - Given manual refresh completes or is cancelled while background sync continues, then the pull indicator returns to idle.
  * - Given an image directory is already configured at cold start, when Main initializes, then the
  *   ViewModel does not issue a second image-cache refresh; startup maintenance owns warmup.
 
@@ -117,6 +114,8 @@ import kotlinx.coroutines.test.runTest
  * - Given navigation requests open or focus memos, when the ViewModel queues app actions, then the
  *   memo actions are emitted in command order.
  * - Given a delete operation is triggered, when the repository completes, then visual stability collapse markers are removed.
+ * - Given an image viewer memo outside gallery paging, when its task commits, then the complete
+ *   viewer snapshot follows that publication without collecting a gallery page.
  * - Given a memo has a reminder, when the user marks it done, then the repository is updated via the reminder coordinator.
  * - Given read-only SQLite recovery, when the user exports diagnostics or rebuilds the derived
  *   index, then a secret-free report event is emitted and successful rebuild returns the screen to
@@ -129,6 +128,7 @@ import kotlinx.coroutines.test.runTest
  * - appActionEvents correctly sequence memo navigation requests (Open/Focus).
  *
  * TDD proof:
+ * - Refresh indicator regression: RED/GREEN `./kotlin test --include-module=app --include-classes=com.lomo.app.feature.main.MainViewModelTest`; RED expects false but background sync reports true.
  * - Fails before the fix when image-directory changes are not debounced, when concurrent gallery image-cache sync requests are not coalesced, when gallery initial loading is exposed as a true empty state, when observed root changes still route through the ordinary sync refresh pipeline, when image-map changes do not remap paged main-list rows, when cold-start Paging waits for the restored root before starting, when an asynchronously restored cold-start root is treated as a root switch, rebuilds the workspace, or recreates the DB paging source, when Paging queries an unreadable first projection, when Main collection mutations are still locally owned instead of delegated to common collection state, or when marking a reminder as done is not propagated through ViewModel to ReminderCoordinator.
  * TDD proof: RED on 2026-09-12 because Main still resolved root by a second DataStore read and issued a startup image-cache refresh in parallel with StartupMaintenanceUseCase.
  *
@@ -141,6 +141,20 @@ import kotlinx.coroutines.test.runTest
  * - Why old assertion is no longer correct: the MainScreen now uses LomoList animation components, paging source, and common collection state holders, while the managed session solely owns projection rebuilds for a committed switch.
  * - Coverage preserved by: all ViewModel scenarios retained for memo loading, filter, paging, and image-map behaviors.
  * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state transitions and paging behaviors, not internal animation or widget mechanics.
+ *
+ * Test Change Justification:
+ * - Reason category: M3 Expressive filter-sheet contract realigned sort control semantics.
+ * - Old behavior/assertion being replaced: "sort option toggles ascending and descending on
+ *   repeated taps" — one fused control both switched the option and flipped direction, and a
+ *   newly selected option force-reset direction to ascending.
+ * - Why old assertion is no longer correct: the sort option is now a required single-choice
+ *   connected ButtonGroup and direction is a separate ToggleButton axis, so re-selecting the
+ *   active option is a no-op and option switches preserve the independently owned direction.
+ * - Coverage preserved by: the replacement scenario still asserts option switching, direction
+ *   mutation, no-unselect protection, and option/direction independence through the same
+ *   ViewModel-facing mutators.
+ * - Why this is not fitting the test to the implementation: it asserts the filter model's
+ *   observable axes (which option, which direction), not which widget produced the mutation.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest : AppFunSpec() {
@@ -214,6 +228,27 @@ class MainViewModelTest : AppFunSpec() {
             createdViewModels.clear()
         }
 
+        test(
+            "given a memo outside gallery paging when its task commits then the viewer snapshot follows the updated body",
+        ) {
+            runTest(testDispatcher) {
+                val original = memo(id = "viewer-task", date = LocalDate.of(2026, 10, 27), hour = 10)
+                    .copy(content = "- [ ] viewer task", rawContent = "- [ ] viewer task")
+                repository.setActiveMemos(listOf(original))
+                val viewModel = createViewModel()
+                testDispatcher.scheduler.advanceUntilIdle()
+                viewModel.observeMemoUiModel(original.id)
+                    .filterNotNull()
+                    .distinctUntilChangedBy { it.memo.content }
+                    .test {
+                        awaitItem().memo.content shouldBe "- [ ] viewer task"
+                        repository.replaceMemoContent(original, "- [x] viewer task")
+                        awaitItem().memo.content shouldBe "- [x] viewer task"
+                        cancelAndIgnoreRemainingEvents()
+                    }
+            }
+        }
+
         test("initial search query is empty") {
             runTest(testDispatcher) {
                 val viewModel = createViewModel()
@@ -233,29 +268,29 @@ class MainViewModelTest : AppFunSpec() {
         }
 
         test("date filter updates paged main list source instead of collecting full memo flow") {
-                runTest(testDispatcher) {
-                    val memoDate = LocalDate.of(2026, 3, 1)
+            runTest(testDispatcher) {
+                val memoDate = LocalDate.of(2026, 3, 1)
                 // FakeMemoStore already handles this
                 // Main list paging is already driven by activeMemos in FakeMemoStore
 
-                    val viewModel = createViewModel()
-                    val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
-                    val collectJob =
-                        backgroundScope.launch {
-                            viewModel.pagedUiMemos.take(2).toList(pagingEmissions)
-                        }
+                val viewModel = createViewModel()
+                val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
+                val collectJob =
+                    backgroundScope.launch {
+                        viewModel.pagedUiMemos.take(2).toList(pagingEmissions)
+                    }
 
-                    runCurrent()
-                    viewModel.filterMemosByDate(memoDate)
-                    advanceUntilIdle()
+                runCurrent()
+                viewModel.filterMemosByDate(memoDate)
+                advanceUntilIdle()
 
-                    repository.verifyMainListPagingSourceCalled(
-                        query = "",
-                        filter = MemoListFilter(startDate = memoDate, endDate = memoDate),
-                    )
-                    (pagingEmissions.size) shouldBe (2)
-                    collectJob.cancel()
-                }
+                repository.verifyMainListPagingSourceCalled(
+                    query = "",
+                    filter = MemoListFilter(startDate = memoDate, endDate = memoDate),
+                )
+                (pagingEmissions.size) shouldBe (2)
+                collectJob.cancel()
+            }
 
             /*
              * Test Change Justification:
@@ -279,11 +314,11 @@ class MainViewModelTest : AppFunSpec() {
                     Memo(
                         id = "memo-paged-image",
                         timestamp =
-                            memoDate
-                                .atTime(10, 0)
-                                .atZone(ZoneId.systemDefault())
-                                .toInstant()
-                                .toEpochMilli(),
+                        memoDate
+                            .atTime(10, 0)
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant()
+                            .toEpochMilli(),
                         content = "![img](foo.png)",
                         rawContent = "![img](foo.png)",
                         dateKey = "2026_03_08",
@@ -314,7 +349,7 @@ class MainViewModelTest : AppFunSpec() {
 
                 imageMapFlow.value =
                     imageMapFlow.value +
-                        ("bar.png" to unrelatedUri)
+                    ("bar.png" to unrelatedUri)
                 runCurrent()
                 advanceUntilIdle()
 
@@ -324,49 +359,51 @@ class MainViewModelTest : AppFunSpec() {
         }
 
         test("pagedUiMemos does not emit new paging data when allMemos list changes without ui dependency change") {
-                runTest(testDispatcher) {
-                    val memoDate = LocalDate.of(2026, 3, 8)
-                    val pagedMemo =
-                        Memo(
-                            id = "memo-paged-stable",
-                            timestamp =
-                                memoDate
-                                    .atTime(10, 0)
-                                    .atZone(ZoneId.systemDefault())
-                                    .toInstant()
-                                    .toEpochMilli(),
-                            content = "plain text",
-                            rawContent = "plain text",
-                            dateKey = "2026_03_08",
-                            localDate = memoDate,
-                        )
+            runTest(testDispatcher) {
+                val memoDate = LocalDate.of(2026, 3, 8)
+                val pagedMemo =
+                    Memo(
+                        id = "memo-paged-stable",
+                        timestamp =
+                        memoDate
+                            .atTime(10, 0)
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant()
+                            .toEpochMilli(),
+                        content = "plain text",
+                        rawContent = "plain text",
+                        dateKey = "2026_03_08",
+                        localDate = memoDate,
+                    )
                 repository.setActiveMemos(listOf(pagedMemo))
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/root"))
 
-                    val viewModel = createViewModel()
-                    val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
-                    val collectJob =
-                        backgroundScope.launch {
-                            viewModel.pagedUiMemos.take(2).toList(pagingEmissions)
-                        }
+                val viewModel = createViewModel()
+                val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
+                val collectJob =
+                    backgroundScope.launch {
+                        viewModel.pagedUiMemos.take(2).toList(pagingEmissions)
+                    }
 
-                    advanceUntilIdle()
-                    (pagingEmissions.size) shouldBe (1)
+                advanceUntilIdle()
+                (pagingEmissions.size) shouldBe (1)
 
-                    repository.setActiveMemos(listOf(
-                            pagedMemo,
-                            pagedMemo.copy(
-                                id = "memo-extra",
-                                timestamp = pagedMemo.timestamp - 1,
-                                content = "no image markup either",
-                                rawContent = "no image markup either",
-                            ),
-                        ))
-                    advanceUntilIdle()
+                repository.setActiveMemos(
+                    listOf(
+                        pagedMemo,
+                        pagedMemo.copy(
+                            id = "memo-extra",
+                            timestamp = pagedMemo.timestamp - 1,
+                            content = "no image markup either",
+                            rawContent = "no image markup either",
+                        ),
+                    ),
+                )
+                advanceUntilIdle()
 
-                    (pagingEmissions.size) shouldBe (1)
-                    collectJob.cancel()
-                }
+                (pagingEmissions.size) shouldBe (1)
+                collectJob.cancel()
+            }
         }
 
         test("delete keeps collapse marker until paged animation settles after repository removal") {
@@ -493,21 +530,29 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("sort option toggles ascending and descending on repeated taps") {
+        test("sort option is a required single choice and direction is a separate axis") {
             runTest(testDispatcher) {
                 val viewModel = createViewModel()
 
                 viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
                 (viewModel.memoListFilter.value.sortOption) shouldBe (MemoSortOption.UPDATED_TIME)
-                ((viewModel.memoListFilter.value.sortAscending)) shouldBe true
+                ((viewModel.memoListFilter.value.sortAscending)) shouldBe false
 
+                // Re-selecting the active option is a no-op; it must not toggle direction.
                 viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
                 (viewModel.memoListFilter.value.sortOption) shouldBe (MemoSortOption.UPDATED_TIME)
                 ((viewModel.memoListFilter.value.sortAscending)) shouldBe false
 
+                viewModel.updateMemoSortDirection(true)
+                ((viewModel.memoListFilter.value.sortAscending)) shouldBe true
+
+                // Switching options preserves the independently owned direction.
                 viewModel.updateMemoSortOption(MemoSortOption.CREATED_TIME)
                 (viewModel.memoListFilter.value.sortOption) shouldBe (MemoSortOption.CREATED_TIME)
                 ((viewModel.memoListFilter.value.sortAscending)) shouldBe true
+
+                viewModel.updateMemoSortDirection(false)
+                ((viewModel.memoListFilter.value.sortAscending)) shouldBe false
             }
         }
 
@@ -617,7 +662,7 @@ class MainViewModelTest : AppFunSpec() {
         test("uiState is ready when root exists") {
             runTest(testDispatcher) {
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/root"))
-                engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/root"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/root"), mediaChange = null)
                 val viewModel = createViewModel()
                 testDispatcher.scheduler.runCurrent()
 
@@ -627,14 +672,14 @@ class MainViewModelTest : AppFunSpec() {
 
         test("uiState stays opening when readiness has no committed workspace authority") {
             runTest(testDispatcher) {
-                engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/root"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/root"), mediaChange = null)
                 engineReadinessRepository.clearAuthority()
                 val viewModel = createViewModel()
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 viewModel.uiState.value shouldBe MainViewModel.MainScreenState.OpeningEngine
 
-                engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/root"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/root"), mediaChange = null)
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 viewModel.uiState.value shouldBe MainViewModel.MainScreenState.Ready
@@ -677,7 +722,11 @@ class MainViewModelTest : AppFunSpec() {
 
                 (viewModel.searchQuery.value) shouldBe ("")
                 (viewModel.memoListFilter.value) shouldBe (MemoListFilter())
-                (viewModel.appActionEvents.value.single().payload) shouldBe (MainViewModel.AppAction.FocusMemo("memo-focus"))
+                (viewModel.appActionEvents.value.single().payload) shouldBe (
+                    MainViewModel.AppAction.FocusMemo(
+                        "memo-focus",
+                    )
+                    )
             }
         }
 
@@ -703,14 +752,14 @@ class MainViewModelTest : AppFunSpec() {
                     com.lomo.domain.model.SyncConflictSet(
                         source = SyncBackendType.GIT,
                         files =
-                            listOf(
-                                com.lomo.domain.model.SyncConflictFile(
-                                    relativePath = "2026_03_26.md",
-                                    localContent = "local",
-                                    remoteContent = "remote",
-                                    isBinary = false,
-                                ),
+                        listOf(
+                            com.lomo.domain.model.SyncConflictFile(
+                                relativePath = "2026_03_26.md",
+                                localContent = "local",
+                                remoteContent = "remote",
+                                isBinary = false,
                             ),
+                        ),
                         timestamp = 123L,
                     )
                 repository.refreshMemosFailure = com.lomo.domain.usecase.SyncConflictException(conflict)
@@ -733,6 +782,27 @@ class MainViewModelTest : AppFunSpec() {
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 (viewModel.errorMessage.value) shouldBe ("Failed to refresh memos: refresh failed")
+            }
+        }
+
+        test("given background sync when no refresh was requested then the pull indicator stays idle") {
+            runTest(testDispatcher) {
+                val viewModel = createViewModel()
+                val refreshCollection = backgroundScope.launch { viewModel.isRefreshing.collect() }
+                val syncCollection = backgroundScope.launch { viewModel.isSyncing.collect() }
+                runCurrent()
+
+                repository.setSyncing(true)
+                runCurrent()
+
+                viewModel.isSyncing.value shouldBe true
+                viewModel.isRefreshing.value shouldBe false
+
+                repository.setSyncing(false)
+                runCurrent()
+                viewModel.isRefreshing.value shouldBe false
+                refreshCollection.cancel()
+                syncCollection.cancel()
             }
         }
 
@@ -762,6 +832,48 @@ class MainViewModelTest : AppFunSpec() {
 
                 viewModel.isRefreshing.value shouldBe false
                 stateCollection.cancel()
+            }
+        }
+
+        test("given manual refresh during background sync when it finishes then the pull indicator stops") {
+            runTest(testDispatcher) {
+                syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.NONE)
+                val refreshGate = CompletableDeferred<Unit>()
+                repository.refreshMemosGate = refreshGate
+                repository.setSyncing(true)
+                val viewModel = createViewModel()
+                val collection = backgroundScope.launch { viewModel.isRefreshing.collect() }
+                runCurrent()
+
+                val refresh = async { viewModel.refresh() }
+                runCurrent()
+                viewModel.isRefreshing.value shouldBe true
+
+                refreshGate.complete(Unit)
+                refresh.await()
+                runCurrent()
+                viewModel.isRefreshing.value shouldBe false
+                collection.cancel()
+            }
+        }
+
+        test("given manual refresh when cancelled then the pull indicator returns to idle") {
+            runTest(testDispatcher) {
+                syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.NONE)
+                repository.refreshMemosGate = CompletableDeferred()
+                val viewModel = createViewModel()
+                val collection = backgroundScope.launch { viewModel.isRefreshing.collect() }
+                runCurrent()
+
+                val refresh = async { viewModel.refresh() }
+                runCurrent()
+                viewModel.isRefreshing.value shouldBe true
+                refresh.cancel()
+                refresh.join()
+                runCurrent()
+                viewModel.isRefreshing.value shouldBe false
+                viewModel.errorMessage.value shouldBe null
+                collection.cancel()
             }
         }
 
@@ -827,7 +939,7 @@ class MainViewModelTest : AppFunSpec() {
         test("observed root echo never duplicates the session-owned projection rebuild") {
             runTest(testDispatcher) {
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/one"))
-                engineReadinessRepository.activateWorkspace(StorageLocation("/root/one"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/root/one"), mediaChange = null)
 
                 val viewModel = createViewModel()
                 testDispatcher.scheduler.advanceUntilIdle()
@@ -835,7 +947,7 @@ class MainViewModelTest : AppFunSpec() {
                 mediaRepository.resetRecordedCalls()
                 workspaceStateResolver.rebuildCount = 0
 
-                engineReadinessRepository.activateWorkspace(StorageLocation("/root/two"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/root/two"), mediaChange = null)
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/two"))
                 testDispatcher.scheduler.advanceUntilIdle()
 
@@ -849,14 +961,14 @@ class MainViewModelTest : AppFunSpec() {
         test("observed root change does not rebuild while a workspace transition holds the lease") {
             runTest(testDispatcher) {
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/one"))
-                engineReadinessRepository.activateWorkspace(StorageLocation("/root/one"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/root/one"), mediaChange = null)
 
                 createViewModel()
                 testDispatcher.scheduler.advanceUntilIdle()
                 workspaceStateResolver.rebuildCount = 0
 
                 workspaceMutationLease.withExclusiveTransition {
-                    engineReadinessRepository.activateWorkspace(StorageLocation("/root/two"))
+                    engineReadinessRepository.activateWorkspace(StorageLocation("/root/two"), mediaChange = null)
                     appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/two"))
                     testDispatcher.scheduler.advanceUntilIdle()
 
@@ -866,17 +978,17 @@ class MainViewModelTest : AppFunSpec() {
         }
 
         test("restored root on cold start does not rebuild workspace as a root change") {
-                runTest(testDispatcher) {
-                    appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/current"))
-                    engineReadinessRepository.activateWorkspace(StorageLocation("/root/current"))
+            runTest(testDispatcher) {
+                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/current"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/root/current"), mediaChange = null)
                 appVersionRepository.lastAppVersion = CURRENT_APP_VERSION
 
-                    val viewModel = createViewModel()
-                    testDispatcher.scheduler.advanceUntilIdle()
+                val viewModel = createViewModel()
+                testDispatcher.scheduler.advanceUntilIdle()
 
-                    (viewModel.uiState.value) shouldBe (MainViewModel.MainScreenState.Ready)
-                    workspaceStateResolver.rebuildCount shouldBe 0
-                }
+                (viewModel.uiState.value) shouldBe (MainViewModel.MainScreenState.Ready)
+                workspaceStateResolver.rebuildCount shouldBe 0
+            }
 
             /*
              * Test Change Justification:
@@ -902,7 +1014,7 @@ class MainViewModelTest : AppFunSpec() {
 
                 (viewModel.uiState.value) shouldBe (MainViewModel.MainScreenState.Loading)
 
-                engineReadinessRepository.activateWorkspace(StorageLocation("/root/current"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/root/current"), mediaChange = null)
                 advanceUntilIdle()
 
                 (viewModel.uiState.value) shouldBe (MainViewModel.MainScreenState.Ready)
@@ -966,7 +1078,9 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("given a memo reminder when user marks reminder done then repository is updated via reminder coordinator") {
+        test(
+            "given a memo reminder when user marks reminder done then repository is updated via reminder coordinator",
+        ) {
             runTest(testDispatcher) {
                 val viewModel = createViewModel()
                 viewModel.markReminderDone("memo-id-1", "@2026-05-22-17:51x5")
@@ -978,7 +1092,9 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("given SQLite recovery when export and rebuild are requested then report emits and readiness returns Ready") {
+        test(
+            "given SQLite recovery when export and rebuild are requested then report emits and readiness returns Ready",
+        ) {
             runTest(testDispatcher) {
                 val recovery =
                     EngineReadiness.ReadOnlyRecovery(
@@ -1016,7 +1132,9 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("given a recovery mount without a workspace location when retry is requested then an observable reason is presented") {
+        test(
+            "given a recovery mount without a workspace location when retry is requested then an observable reason is presented",
+        ) {
             runTest(testDispatcher) {
                 engineReadinessRepository.publish(
                     EngineReadiness.ReadOnlyRecovery(
@@ -1038,13 +1156,15 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("given a recovery mount with a workspace location when retry is requested then the engine reopens at the mount location") {
+        test(
+            "given a recovery mount with a workspace location when retry is requested then the engine reopens at the mount location",
+        ) {
             runTest(testDispatcher) {
                 appConfigRepository.setLocation(
                     com.lomo.domain.model.StorageArea.ROOT,
                     StorageLocation("/workspace-a"),
                 )
-                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace-a"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace-a"), mediaChange = null)
                 engineReadinessRepository.publish(
                     EngineReadiness.ReadOnlyRecovery(
                         category = EngineFailureCategory.CORRUPTION,
@@ -1096,7 +1216,7 @@ class MainViewModelTest : AppFunSpec() {
                         ),
                     ),
                 )
-                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace-a"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace-a"), mediaChange = null)
                 val imageMapFlow =
                     MutableStateFlow(
                         mapOf("image.png" to mockk<android.net.Uri>(relaxed = true)),
@@ -1153,57 +1273,67 @@ class MainViewModelTest : AppFunSpec() {
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                 sidebarStateHolder = sidebarStateHolder,
                 versionHistoryCoordinator =
-                    MainVersionHistoryCoordinator(
-                        loadMemoRevisionHistoryUseCase = LoadMemoRevisionHistoryUseCase(memoVersionRepository),
-                        restoreMemoRevisionUseCase =
-                            RestoreMemoRevisionUseCase(
-                                com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
-                            ),
+                MainVersionHistoryCoordinator(
+                    loadMemoRevisionHistoryUseCase = LoadMemoRevisionHistoryUseCase(memoVersionRepository),
+                    restoreMemoRevisionUseCase =
+                    RestoreMemoRevisionUseCase(
+                        com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
                     ),
+                ),
                 memoUiMapper = memoUiMapper,
                 imageMapProvider = imageMapProvider,
                 mainMemoMutationCoordinator =
-                    MainMemoMutationCoordinator(
-                        deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository)),
-                        toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(com.lomo.app.testing.fakes.FakeMarkdownWorkspaceRepository(), com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository)),
+                MainMemoMutationCoordinator(
+                    deleteMemoUseCase = DeleteMemoUseCase(
+                        com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
                     ),
+                    toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(
+                        com.lomo.app.testing.fakes.FakeMarkdownWorkspaceRepository(),
+                    ),
+                ),
                 workspaceCoordinator =
-                    MainWorkspaceCoordinator(
-                        initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
-                        refreshMemosUseCase =
-                            RefreshMemosUseCase(
-                                SyncAndRebuildUseCase(
-                                    memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
-                                    syncProviderRegistry = syncProviderRegistry(),
-                                    syncPolicyRepository = syncPolicyRepository,
-                                ),
-                            ),
-                        switchRootStorageUseCase = switchRootStorageUseCase,
-                        mediaRepository = mediaRepository,
-                        engineReadinessRepository = engineReadinessRepository,
+                MainWorkspaceCoordinator(
+                    initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
+                    refreshMemosUseCase =
+                    RefreshMemosUseCase(
+                        SyncAndRebuildUseCase(
+                            memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
+                            syncProviderRegistry = syncProviderRegistry(),
+                            syncPolicyRepository = syncPolicyRepository,
+                        ),
                     ),
+                    switchRootStorageUseCase = switchRootStorageUseCase,
+                    mediaRepository = mediaRepository,
+                    engineReadinessRepository = engineReadinessRepository,
+                ),
                 startupCoordinator =
-                    MainStartupCoordinator(
-                        getCurrentAppBuildVersionUseCase = GetCurrentAppBuildVersionUseCase(appRuntimeInfoRepository),
-                        startupMaintenanceUseCase =
-                            StartupMaintenanceUseCase(
-                                mediaRepository = mediaRepository,
-                                initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
-                                syncAndRebuildUseCase =
-                                    SyncAndRebuildUseCase(
-                                        memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
-                                        syncProviderRegistry = syncProviderRegistry(),
-                                        syncPolicyRepository = syncPolicyRepository,
-                                    ),
-                                syncProviderRegistry = syncProviderRegistry(),
-                                appVersionRepository = appVersionRepository,
-                                syncInboxRepository = syncInboxRepository,
+                MainStartupCoordinator(
+                    getCurrentAppBuildVersionUseCase = GetCurrentAppBuildVersionUseCase(appRuntimeInfoRepository),
+                    startupMaintenanceUseCase = {
+                        StartupMaintenanceUseCase(
+                            mediaRepository = mediaRepository,
+                            initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                                appConfigRepository,
+                                mediaRepository,
                             ),
-                        appConfigStateProvider =
-                            appConfigStateProvider,
-                        audioPlayerManager = audioPlayerManager,
-                        observeWorkspaceSessionUseCase =
-                            ObserveWorkspaceSessionUseCase(engineReadinessRepository),
+                            syncAndRebuildUseCase =
+                            SyncAndRebuildUseCase(
+                                memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(
+                                    repository,
+                                ),
+                                syncProviderRegistry = syncProviderRegistry(),
+                                syncPolicyRepository = syncPolicyRepository,
+                            ),
+                            syncProviderRegistry = syncProviderRegistry(),
+                            appVersionRepository = appVersionRepository,
+                            syncInboxRepository = syncInboxRepository,
+                        )
+                    },
+                    appConfigStateProvider =
+                    appConfigStateProvider,
+                    audioPlayerManager = audioPlayerManager,
+                    observeWorkspaceSessionUseCase =
+                    ObserveWorkspaceSessionUseCase(engineReadinessRepository),
                 ),
                 markReminderDoneUseCase = MarkReminderDoneUseCase(reminderCoordinator),
                 dispatcherProvider = dispatcherProvider,
@@ -1222,7 +1352,7 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
     }
-    
+
     private fun mainMemoListQueryUseCase(): MainMemoListQueryUseCase {
         val fakeQueryRepository = com.lomo.app.testing.fakes.FakeMemoQueryRepository(repository)
         return MainMemoListQueryUseCase(
@@ -1231,73 +1361,66 @@ class MainViewModelTest : AppFunSpec() {
         )
     }
 
-    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =
-        ObserveActiveDayCountUseCase(
-            com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(repository),
-        )
+    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase = ObserveActiveDayCountUseCase(
+        com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(repository),
+    )
 
-    private fun setMemoPinnedUseCase(): SetMemoPinnedUseCase =
-        SetMemoPinnedUseCase(
-            com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
-        )
+    private fun setMemoPinnedUseCase(): SetMemoPinnedUseCase = SetMemoPinnedUseCase(
+        com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
+    )
 
     private fun createAppConfigStateProvider(): com.lomo.app.feature.common.AppConfigStateProvider =
         com.lomo.app.feature.common.AppConfigStateProvider(
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             appPreferencesSnapshotRepository = appConfigRepository,
             customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-            customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
+            customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(
+                com.lomo.app.testing.fakes.FakeCustomFontStore(),
+            ),
             preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
             appScope = CoroutineScope(SupervisorJob() + testDispatcher),
         )
 
-    private fun syncProviderRegistry(): SyncProviderRegistry =
-        SyncProviderRegistry(
-            providers =
-                setOf(
-                    GitUnifiedSyncProvider(gitSyncRepo),
-                    WebDavUnifiedSyncProvider(webDavSyncRepository),
-                    S3UnifiedSyncProvider(s3SyncRepository),
-                    InboxUnifiedSyncProvider(syncInboxRepository, appConfigRepository),
-                ),
-        )
+    private fun syncProviderRegistry(): SyncProviderRegistry = SyncProviderRegistry(
+        providers =
+        setOf(
+            GitUnifiedSyncProvider(gitSyncRepo),
+            WebDavUnifiedSyncProvider(webDavSyncRepository),
+            S3UnifiedSyncProvider(s3SyncRepository),
+            InboxUnifiedSyncProvider(syncInboxRepository, appConfigRepository),
+        ),
+    )
 
     private fun clearViewModel(viewModel: MainViewModel) {
         ViewModel::class.java.getDeclaredMethod("clear\$lifecycle_viewmodel").invoke(viewModel)
         testDispatcher.scheduler.advanceUntilIdle()
     }
 
-    private fun memo(
-        id: String,
-        date: LocalDate,
-        hour: Int,
-    ): Memo =
-        Memo(
-            id = id,
-            timestamp =
-                date
-                    .atTime(hour, 0)
-                    .atZone(ZoneId.systemDefault())
-                    .toInstant()
-                    .toEpochMilli(),
-            content = id,
-            rawContent = id,
-            dateKey = date.toString().replace("-", "_"),
-            localDate = date,
-        )
+    private fun memo(id: String, date: LocalDate, hour: Int): Memo = Memo(
+        id = id,
+        timestamp =
+        date
+            .atTime(hour, 0)
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli(),
+        content = id,
+        rawContent = id,
+        dateKey = date.toString().replace("-", "_"),
+        localDate = date,
+    )
 
     private fun fixedPagingSource(memos: List<Memo>): PagingSource<String, Memo> =
         object : PagingSource<String, Memo>() {
             override val jumpingSupported: Boolean = true
 
-            override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> =
-                LoadResult.Page(
-                    data = memos,
-                    prevKey = null,
-                    nextKey = null,
-                    itemsBefore = 0,
-                    itemsAfter = 0,
-                )
+            override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> = LoadResult.Page(
+                data = memos,
+                prevKey = null,
+                nextKey = null,
+                itemsBefore = 0,
+                itemsAfter = 0,
+            )
 
             override fun getRefreshKey(state: PagingState<String, Memo>): String? = null
         }

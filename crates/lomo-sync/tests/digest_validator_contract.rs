@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract (T34/B04 content digest vs conditional-update token separation)
 //!
 //! Capability: `RemotePathEntry` keeps content identity (`RemoteDigestFact`) strictly separate
@@ -45,7 +53,7 @@ mod tests {
     }
 
     fn digest_of(bytes: &[u8]) -> ContentDigest {
-        ContentDigest::parse(&format!("{:x}", Sha256::digest(bytes))).expect("digest")
+        ContentDigest::parse(&lomo_core::hex_encode(&Sha256::digest(bytes))).expect("digest")
     }
 
     fn path(raw: &str) -> SyncPath {

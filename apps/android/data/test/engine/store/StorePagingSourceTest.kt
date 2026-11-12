@@ -13,7 +13,8 @@ package com.lomo.data.engine.store
  * - Given a subsequent cursor, when load runs, then the following page is returned.
  * - Given the store throws, when load runs, then LoadResult.Error is returned.
  * - Given a registered source, when a matching store commit is published, then the source is invalidated.
- * - Given a viewport away from the true head, when getRefreshKey runs, then the closest memo id is returned.
+ * - Given an access anchor, when getRefreshKey runs, then the load starts half a refresh page
+ *   before it so visible predecessors survive a mutation refresh.
  * - Given the true head, when getRefreshKey runs, then null is returned so refresh starts at head.
  * - Given a pending focus identity, when getRefreshKey runs, then that identity wins over the viewport anchor.
  * - Given a refresh identity, when load runs, then the store is queried from that memo id.
@@ -27,13 +28,26 @@ package com.lomo.data.engine.store
  * - Fails before StorePagingSource maps StorePort pages and failures into Paging LoadResult.
  * - A-PAGING-001 RED: StoreInvalidationBus previously advanced only a Flow tick and left active
  *   PagingSource instances valid after a workspace mutation/rebuild.
- * - Fails while getRefreshKey is null and LoadResult.Page omits itemsBefore/itemsAfter.
+ * - Refresh-window RED: expected null but was m6; expected m305 but was m320.
+ *   ./kotlin test --include-module=data --include-classes='com.lomo.data.engine.store.StorePagingSourceTest'
+ *   Evidence: target/lomo/reports/manual/list-motion/refresh-red.stdout.log.
+ *   GREEN: same command after centering the refresh window; explicit focus priority is retained.
  *
  * Excludes:
  * - Real BoltFFI handle lifecycle and device UI scrolling.
  *
  * Test Change Justification:
- * - Reason category: systemic behavior replacement.
+ * - Reason category: product contract corrected.
+ * - Old behavior/assertion being replaced: ordinary refresh returned the last accessed identity,
+ *   including m2 at absolute rank 1; focus consumption then returned that same forward-only key.
+ * - Why old assertion is no longer correct: a forward page beginning at the accessed row excludes
+ *   its visible predecessors, causing placeholder flashes and a second layout movement.
+ * - Coverage preserved by: head, deep window, explicit-focus precedence/consumption, cursor,
+ *   failure and invalidation scenarios remain covered.
+ * - Why this is not fitting the test to the implementation: refresh must cover the current
+ *   viewport and maintain explicit focus; expected keys derive from page bounds and source rank.
+ *
+ * Earlier placeholder-count justification:
  * - Old behavior/assertion being replaced: Refresh.key was unused and LoadResult.Page omitted ranks.
  * - Why old assertion is no longer correct: user position is memo identity plus rank in the current
  *   query; exclusive cursors stay on append/prepend only.
@@ -46,11 +60,11 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.lomo.data.repository.StoreInvalidationBus
-import kotlinx.coroutines.CancellationException
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import kotlinx.coroutines.CancellationException
 
 private class FakeStorePort : StorePort {
     var pages: MutableList<StoreMemoPage> = mutableListOf()
@@ -84,54 +98,43 @@ private class FakeStorePort : StorePort {
 
     override fun queryCount(query: StoreMemoQuery): Long = 0L
 
-    override fun sidebarProjection(): StoreSidebarProjection =
-        StoreSidebarProjection(1u, 0, emptyList(), emptyList())
+    override fun sidebarProjection(): StoreSidebarProjection = StoreSidebarProjection(1u, 0, emptyList(), emptyList())
 
-    override fun queryReminderPlan(nowUtcMs: Long): StoreReminderPlan =
-        StoreReminderPlan(emptyList(), 0, "gen-test")
+    override fun queryReminderPlan(nowUtcMs: Long): StoreReminderPlan = StoreReminderPlan(emptyList(), 0, "gen-test")
 
     override fun applyMemoCommand(
         command: StoreMemoCommand,
-        onPublication: (StoreMemoCommit) -> Unit,
+        onPublication: (com.lomo.data.engine.store.StoreMemoCommandPublication) -> Unit,
     ): StoreMemoCommit = error("not used")
 
-    override fun permanentDeleteMany(
-        operationId: String,
-        targets: List<StoreMemoDeleteTarget>,
-    ): StoreMemoBatchCommit = error("not used")
+    override fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit =
+        error("not used")
 
-    override fun commitDocumentMutation(
-        mutation: com.lomo.domain.model.MemoDocumentMutation,
-    ): StoreMemoCommit = error("not used")
-
-
-    override fun snoozeReminder(
-        opaqueId: String,
-        interval: com.lomo.domain.model.ReminderInterval,
-    ) = error("reminder snooze is not expected")
+    override fun snoozeReminder(opaqueId: String, interval: com.lomo.domain.model.ReminderInterval) =
+        error("reminder snooze is not expected")
 
     override fun recoverReminderSnooze() = error("reminder snooze recovery is not expected")
 
-    override fun startRebuild(batchSize: Int): StoreRebuildResult =
-        StoreRebuildResult(
-            memosIndexed = 0,
-            fileCount = 0,
-            attachmentCount = 0,
-            workspaceDigest = "empty",
-            storeDigest = "empty",
-            corruptLomoIsolated = 0,
-            highWaterRevision = 0,
-            rewritten = false,
-        )
+    override fun startRebuild(batchSize: Int): StoreRebuildResult = StoreRebuildResult(
+        memosIndexed = 0,
+        fileCount = 0,
+        attachmentCount = 0,
+        workspaceDigest = "empty",
+        storeDigest = "empty",
+        corruptLomoIsolated = 0,
+        highWaterRevision = 0,
+        rewritten = false,
+    )
 }
 
-class StorePagingSourceTest : FunSpec({
-    test("first page returns items and next cursor key") {
-        val port =
-            FakeStorePort().apply {
-                pages +=
-                    StoreMemoPage(
-                        items =
+class StorePagingSourceTest :
+    FunSpec({
+        test("first page returns items and next cursor key") {
+            val port =
+                FakeStorePort().apply {
+                    pages +=
+                        StoreMemoPage(
+                            items =
                             listOf(
                                 StoreMemoSummary(
                                     memoId = "m1",
@@ -150,160 +153,202 @@ class StorePagingSourceTest : FunSpec({
                                     imageUrls = listOf("images/cover.png"),
                                 ),
                             ),
-                        nextCursor = StorePageCursor("cursor-2"),
-                        highWaterRevision = 9L,
-                        queryFingerprint = "q",
-                        itemsBefore = 0,
-                        itemsAfter = 4,
-                    )
+                            nextCursor = StorePageCursor("cursor-2"),
+                            highWaterRevision = 9L,
+                            queryFingerprint = "q",
+                            itemsBefore = 0,
+                            itemsAfter = 4,
+                        )
+                }
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val result = source.load(
+                PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false),
+            )
+            val page =
+                result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            page.data.size shouldBe 1
+            page.data[0].id shouldBe "m1"
+            page.data[0].tags shouldBe listOf("ship")
+            page.data[0].imageUrls shouldBe listOf("images/cover.png")
+            page.nextKey shouldBe "cursor-2"
+            page.prevKey.shouldBeNull()
+            page.itemsBefore shouldBe 0
+            page.itemsAfter shouldBe 4
+        }
+
+        test("empty page ends paging") {
+            val port = FakeStorePort()
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val result = source.load(
+                PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false),
+            )
+            val page =
+                result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            page.data.isEmpty() shouldBe true
+            page.nextKey.shouldBeNull()
+        }
+
+        test("store failure surfaces as LoadResult.Error") {
+            val port = FakeStorePort().apply { throwOnLoad = true }
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val result = source.load(
+                PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false),
+            )
+            result.shouldBeInstanceOf<PagingSource.LoadResult.Error<String, com.lomo.domain.model.Memo>>()
+        }
+
+        test("caller cancellation propagates instead of becoming a paging error") {
+            val port = FakeStorePort().apply { cancelOnLoad = true }
+            val source = StorePagingSource(port, StoreMemoQuery())
+
+            io.kotest.assertions.throwables.shouldThrow<CancellationException> {
+                source.load(
+                    PagingSource.LoadParams.Refresh(
+                        key = null,
+                        loadSize = 30,
+                        placeholdersEnabled = false,
+                    ),
+                )
             }
-        val source = StorePagingSource(port, StoreMemoQuery())
-        val result = source.load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false))
-        val page =
-            result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        page.data.size shouldBe 1
-        page.data[0].id shouldBe "m1"
-        page.data[0].tags shouldBe listOf("ship")
-        page.data[0].imageUrls shouldBe listOf("images/cover.png")
-        page.nextKey shouldBe "cursor-2"
-        page.prevKey.shouldBeNull()
-        page.itemsBefore shouldBe 0
-        page.itemsAfter shouldBe 4
-    }
+        }
 
-    test("empty page ends paging") {
-        val port = FakeStorePort()
-        val source = StorePagingSource(port, StoreMemoQuery())
-        val result = source.load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false))
-        val page =
-            result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        page.data.isEmpty() shouldBe true
-        page.nextKey.shouldBeNull()
-    }
+        test("invalidation bus invalidates a registered paging source") {
+            val bus = StoreInvalidationBus()
+            val source =
+                StorePagingSource(
+                    FakeStorePort(),
+                    StoreMemoQuery(),
+                    registerInvalidation = { pagingSource ->
+                        bus.register(pagingSource)
+                    },
+                )
 
-    test("store failure surfaces as LoadResult.Error") {
-        val port = FakeStorePort().apply { throwOnLoad = true }
-        val source = StorePagingSource(port, StoreMemoQuery())
-        val result = source.load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false))
-        result.shouldBeInstanceOf<PagingSource.LoadResult.Error<String, com.lomo.domain.model.Memo>>()
-    }
-
-    test("caller cancellation propagates instead of becoming a paging error") {
-        val port = FakeStorePort().apply { cancelOnLoad = true }
-        val source = StorePagingSource(port, StoreMemoQuery())
-
-        io.kotest.assertions.throwables.shouldThrow<CancellationException> {
-            source.load(
-                PagingSource.LoadParams.Refresh(
-                    key = null,
-                    loadSize = 30,
-                    placeholdersEnabled = false,
+            source.invalid shouldBe false
+            bus.publish(
+                StoreMemoCommit(
+                    operationId = "op-1",
+                    memoId = "m1",
+                    coreRevision = 1L,
+                    eventSequence = 1L,
+                    contentRevision = 1L,
+                    fileFingerprint = "fp",
+                    scopes = listOf(StoreInvalidationScope.MemoList),
+                    idempotentReplay = false,
                 ),
             )
+            source.invalid shouldBe true
         }
-    }
 
-    test("invalidation bus invalidates a registered paging source") {
-        val bus = StoreInvalidationBus()
-        val source =
-            StorePagingSource(
-                FakeStorePort(),
-                StoreMemoQuery(),
-                registerInvalidation = { pagingSource ->
-                    bus.register(pagingSource)
-                },
-            )
+        test("refresh at the true head uses a null key so the next generation loads from head") {
+            val port =
+                FakeStorePort().apply {
+                    pages += samplePage(ids = listOf("m1", "m2"), itemsBefore = 0, itemsAfter = 3)
+                }
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val loaded =
+                source
+                    .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
+                    .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            val state =
+                PagingState(
+                    pages = listOf(loaded),
+                    anchorPosition = 0,
+                    config = PagingConfig(pageSize = 30, enablePlaceholders = true),
+                    leadingPlaceholderCount = 0,
+                )
+            source.getRefreshKey(state).shouldBeNull()
+        }
 
-        source.invalid shouldBe false
-        bus.publish(
-            StoreMemoCommit(
-                operationId = "op-1",
-                memoId = "m1",
-                coreRevision = 1L,
-                eventSequence = 1L,
-                contentRevision = 1L,
-                fileFingerprint = "fp",
-                scopes = listOf(StoreInvalidationScope.MemoList),
-                idempotentReplay = false,
-            ),
-        )
-        source.invalid shouldBe true
-    }
+        test("refresh near the head retains predecessors rather than starting at the last accessed row") {
+            val port =
+                FakeStorePort().apply {
+                    pages += samplePage(ids = listOf("m1", "m2"), itemsBefore = 0, itemsAfter = 3)
+                }
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val loaded =
+                source
+                    .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
+                    .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            val state =
+                PagingState(
+                    pages = listOf(loaded),
+                    anchorPosition = 1,
+                    config = PagingConfig(pageSize = 30, enablePlaceholders = true),
+                    leadingPlaceholderCount = 0,
+                )
+            source.getRefreshKey(state).shouldBeNull()
+        }
 
-    test("refresh at the true head uses a null key so the next generation loads from head") {
-        val port =
-            FakeStorePort().apply {
-                pages += samplePage(ids = listOf("m1", "m2"), itemsBefore = 0, itemsAfter = 3)
+        test("pending focus identity wins over the viewport refresh key") {
+            val port =
+                FakeStorePort().apply {
+                    pages += samplePage(ids = listOf("m1", "m2"), itemsBefore = 0, itemsAfter = 3)
+                }
+            val pending = java.util.concurrent.atomic.AtomicReference("focus-deep")
+            val source =
+                StorePagingSource(
+                    port = port,
+                    query = StoreMemoQuery(),
+                    consumeRefreshIdentity = { pending.getAndSet(null) },
+                )
+            val loaded =
+                source
+                    .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
+                    .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            val state =
+                PagingState(
+                    pages = listOf(loaded),
+                    anchorPosition = 1,
+                    config = PagingConfig(pageSize = 30, enablePlaceholders = true),
+                    leadingPlaceholderCount = 0,
+                )
+
+            source.getRefreshKey(state) shouldBe "focus-deep"
+            source.getRefreshKey(state).shouldBeNull()
+        }
+
+        test(
+            "given a visible head range when a bottom row supplied the paging anchor then refresh still covers the rows above it",
+        ) {
+            val port = FakeStorePort().apply {
+                pages += samplePage(ids = (0 until 30).map { "m$it" }, itemsBefore = 0, itemsAfter = 70)
             }
-        val source = StorePagingSource(port, StoreMemoQuery())
-        val loaded =
-            source
-                .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val loaded = source.load(PagingSource.LoadParams.Refresh(null, 30, true))
                 .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        val state =
-            PagingState(
+            val state = PagingState(
                 pages = listOf(loaded),
-                anchorPosition = 0,
-                config = PagingConfig(pageSize = 30, enablePlaceholders = true),
-                leadingPlaceholderCount = 0,
-            )
-        source.getRefreshKey(state).shouldBeNull()
-    }
-
-    test("refresh away from head uses the closest memo identity") {
-        val port =
-            FakeStorePort().apply {
-                pages += samplePage(ids = listOf("m1", "m2"), itemsBefore = 0, itemsAfter = 3)
-            }
-        val source = StorePagingSource(port, StoreMemoQuery())
-        val loaded =
-            source
-                .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
-                .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        val state =
-            PagingState(
-                pages = listOf(loaded),
-                anchorPosition = 1,
-                config = PagingConfig(pageSize = 30, enablePlaceholders = true),
-                leadingPlaceholderCount = 0,
-            )
-        source.getRefreshKey(state) shouldBe "m2"
-    }
-
-    test("pending focus identity wins over the viewport refresh key") {
-        val port =
-            FakeStorePort().apply {
-                pages += samplePage(ids = listOf("m1", "m2"), itemsBefore = 0, itemsAfter = 3)
-            }
-        val pending = java.util.concurrent.atomic.AtomicReference("focus-deep")
-        val source =
-            StorePagingSource(
-                port = port,
-                query = StoreMemoQuery(),
-                consumeRefreshIdentity = { pending.getAndSet(null) },
-            )
-        val loaded =
-            source
-                .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
-                .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        val state =
-            PagingState(
-                pages = listOf(loaded),
-                anchorPosition = 1,
-                config = PagingConfig(pageSize = 30, enablePlaceholders = true),
+                anchorPosition = 6,
+                config = PagingConfig(pageSize = 30, initialLoadSize = 30, enablePlaceholders = true),
                 leadingPlaceholderCount = 0,
             )
 
-        source.getRefreshKey(state) shouldBe "focus-deep"
-        source.getRefreshKey(state) shouldBe "m2"
-    }
+            source.getRefreshKey(state) shouldBe null
+        }
 
-    test("preview rows carry the store projected character count") {
-        val port =
-            FakeStorePort().apply {
-                pages +=
-                    StoreMemoPage(
-                        items =
+        test("given a deep loaded window when refreshing then the forward page starts before the access anchor") {
+            val port = FakeStorePort().apply {
+                pages += samplePage(ids = (300 until 330).map { "m$it" }, itemsBefore = 300, itemsAfter = 670)
+            }
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val loaded = source.load(PagingSource.LoadParams.Refresh("m300", 30, true))
+                .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            val state = PagingState(
+                pages = listOf(loaded),
+                anchorPosition = 320,
+                config = PagingConfig(pageSize = 30, initialLoadSize = 30, enablePlaceholders = true),
+                leadingPlaceholderCount = 300,
+            )
+
+            source.getRefreshKey(state) shouldBe "m305"
+        }
+
+        test("preview rows carry the store projected character count") {
+            val port =
+                FakeStorePort().apply {
+                    pages +=
+                        StoreMemoPage(
+                            items =
                             listOf(
                                 StoreMemoSummary(
                                     memoId = "m1",
@@ -321,81 +366,81 @@ class StorePagingSourceTest : FunSpec({
                                     charCount = 900L,
                                 ),
                             ),
-                        nextCursor = null,
-                        highWaterRevision = 1L,
-                        queryFingerprint = "fp",
-                    )
-            }
-        val source = StorePagingSource(port, StoreMemoQuery())
-        val result =
-            source
-                .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
-                .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+                            nextCursor = null,
+                            highWaterRevision = 1L,
+                            queryFingerprint = "fp",
+                        )
+                }
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val result =
+                source
+                    .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
+                    .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
 
-        result.data.single().projectedCharCount shouldBe 900L
-        result.data.single().content shouldBe "short"
-    }
+            result.data.single().projectedCharCount shouldBe 900L
+            result.data.single().content shouldBe "short"
+        }
 
-    test("append load queries the store forward from the page cursor") {
-        val port =
-            FakeStorePort().apply {
-                pages += samplePage(ids = listOf("m1"), itemsBefore = 0, itemsAfter = 4)
-                pages += samplePage(ids = listOf("m2"), itemsBefore = 1, itemsAfter = 3)
-            }
-        val source = StorePagingSource(port, StoreMemoQuery())
-        val result =
-            source.load(
-                PagingSource.LoadParams.Append(key = "cursor-next", loadSize = 30, placeholdersEnabled = true),
-            )
-        result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        port.lastCursor?.encoded shouldBe "cursor-next"
-        port.lastStartMemoId.shouldBeNull()
-        port.lastBackward shouldBe false
-    }
-
-    test("refresh load starts at the requested memo identity") {
-        val port =
-            FakeStorePort().apply {
-                pages += samplePage(ids = listOf("m3"), itemsBefore = 2, itemsAfter = 2)
-            }
-        val source = StorePagingSource(port, StoreMemoQuery())
-        val result =
-            source.load(
-                PagingSource.LoadParams.Refresh(key = "m3", loadSize = 30, placeholdersEnabled = true),
-            )
-        val page =
+        test("append load queries the store forward from the page cursor") {
+            val port =
+                FakeStorePort().apply {
+                    pages += samplePage(ids = listOf("m1"), itemsBefore = 0, itemsAfter = 4)
+                    pages += samplePage(ids = listOf("m2"), itemsBefore = 1, itemsAfter = 3)
+                }
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val result =
+                source.load(
+                    PagingSource.LoadParams.Append(key = "cursor-next", loadSize = 30, placeholdersEnabled = true),
+                )
             result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        port.lastStartMemoId shouldBe "m3"
-        port.lastCursor.shouldBeNull()
-        port.lastBackward shouldBe false
-        page.itemsBefore shouldBe 2
-        page.itemsAfter shouldBe 2
-        page.data[0].id shouldBe "m3"
-    }
+            port.lastCursor?.encoded shouldBe "cursor-next"
+            port.lastStartMemoId.shouldBeNull()
+            port.lastBackward shouldBe false
+        }
 
-    test("prepend load queries the store backward from the page cursor") {
-        val port =
-            FakeStorePort().apply {
-                pages += samplePage(ids = listOf("m1"), itemsBefore = 0, itemsAfter = 4)
-                pages +=
-                    samplePage(
-                        ids = listOf("m0"),
-                        itemsBefore = 0,
-                        itemsAfter = 4,
-                        prevCursor = null,
-                    )
-            }
-        val source = StorePagingSource(port, StoreMemoQuery())
-        val result =
-            source.load(
-                PagingSource.LoadParams.Prepend(key = "cursor-prev", loadSize = 30, placeholdersEnabled = true),
-            )
-        result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
-        port.lastCursor?.encoded shouldBe "cursor-prev"
-        port.lastStartMemoId.shouldBeNull()
-        port.lastBackward shouldBe true
-    }
-})
+        test("refresh load starts at the requested memo identity") {
+            val port =
+                FakeStorePort().apply {
+                    pages += samplePage(ids = listOf("m3"), itemsBefore = 2, itemsAfter = 2)
+                }
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val result =
+                source.load(
+                    PagingSource.LoadParams.Refresh(key = "m3", loadSize = 30, placeholdersEnabled = true),
+                )
+            val page =
+                result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            port.lastStartMemoId shouldBe "m3"
+            port.lastCursor.shouldBeNull()
+            port.lastBackward shouldBe false
+            page.itemsBefore shouldBe 2
+            page.itemsAfter shouldBe 2
+            page.data[0].id shouldBe "m3"
+        }
+
+        test("prepend load queries the store backward from the page cursor") {
+            val port =
+                FakeStorePort().apply {
+                    pages += samplePage(ids = listOf("m1"), itemsBefore = 0, itemsAfter = 4)
+                    pages +=
+                        samplePage(
+                            ids = listOf("m0"),
+                            itemsBefore = 0,
+                            itemsAfter = 4,
+                            prevCursor = null,
+                        )
+                }
+            val source = StorePagingSource(port, StoreMemoQuery())
+            val result =
+                source.load(
+                    PagingSource.LoadParams.Prepend(key = "cursor-prev", loadSize = 30, placeholdersEnabled = true),
+                )
+            result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+            port.lastCursor?.encoded shouldBe "cursor-prev"
+            port.lastStartMemoId.shouldBeNull()
+            port.lastBackward shouldBe true
+        }
+    })
 
 private fun samplePage(
     ids: List<String>,
@@ -403,29 +448,28 @@ private fun samplePage(
     itemsAfter: Long,
     prevCursor: StorePageCursor? = if (itemsBefore > 0) StorePageCursor("prev") else null,
     nextCursor: StorePageCursor? = if (itemsAfter > 0) StorePageCursor("next") else null,
-): StoreMemoPage =
-    StoreMemoPage(
-        items =
-            ids.map { id ->
-                StoreMemoSummary(
-                    memoId = id,
-                    sourcePath = "memos/${id}.md",
-                    fileFingerprint = "fp-$id",
-                    updatedAtMs = 2L,
-                    createdAtMs = 1L,
-                    hasTodo = false,
-                    hasUrl = false,
-                    hasAttachment = false,
-                    isPinned = false,
-                    isTrashed = false,
-                    bodyPreview = id,
-                    contentRevision = 1L,
-                )
-            },
-        nextCursor = nextCursor,
-        highWaterRevision = 9L,
-        queryFingerprint = "q",
-        prevCursor = prevCursor,
-        itemsBefore = itemsBefore,
-        itemsAfter = itemsAfter,
-    )
+): StoreMemoPage = StoreMemoPage(
+    items =
+    ids.map { id ->
+        StoreMemoSummary(
+            memoId = id,
+            sourcePath = "memos/$id.md",
+            fileFingerprint = "fp-$id",
+            updatedAtMs = 2L,
+            createdAtMs = 1L,
+            hasTodo = false,
+            hasUrl = false,
+            hasAttachment = false,
+            isPinned = false,
+            isTrashed = false,
+            bodyPreview = id,
+            contentRevision = 1L,
+        )
+    },
+    nextCursor = nextCursor,
+    highWaterRevision = 9L,
+    queryFingerprint = "q",
+    prevCursor = prevCursor,
+    itemsBefore = itemsBefore,
+    itemsAfter = itemsAfter,
+)

@@ -5,7 +5,7 @@
 //
 // Probes replay the exact graph shapes `ResolvedCallGraphRule` emits into
 // `contract_violations`; a RED result means the gate accepts the evasion shape.
-// Live-facts evidence (target/lomo/reports/detekt/symbols, 2026-09 audit): domain roots already
+// Live-facts evidence (reports/detekt/symbols, 2026-09 audit): domain roots already
 // include `CalendarHeatmapThresholds.{equals,hashCode,toString}` and data roots include
 // `*.close` overrides of `AutoCloseable`; `LomoEngine.close`/`shutdown` reachability bottoms
 // out on the `BoltFfiNativeEnginePort.close` override root alone.

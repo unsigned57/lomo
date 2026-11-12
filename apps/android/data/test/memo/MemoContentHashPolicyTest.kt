@@ -1,13 +1,13 @@
 package com.lomo.data.memo
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,8 +15,6 @@ package com.lomo.data.memo
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
-
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
@@ -33,15 +31,20 @@ import io.kotest.matchers.shouldNotBe
  */
 class MemoContentHashPolicyTest : DataFunSpec() {
     init {
-        test("hashHex produces 64-character lowercase hex string (SHA-256 output shape)") { `hashHex produces 64-character lowercase hex string (SHA-256 output shape)`() }
+        test(
+            "hashHex produces 64-character lowercase hex string (SHA-256 output shape)",
+        ) { `hashHex produces 64-character lowercase hex string (SHA-256 output shape)`() }
 
         test("hashHex is deterministic for the same input") { `hashHex is deterministic for the same input`() }
 
-        test("hashHex produces different values for different inputs") { `hashHex produces different values for different inputs`() }
+        test(
+            "hashHex produces different values for different inputs",
+        ) { `hashHex produces different values for different inputs`() }
 
-        test("hashHex trims surrounding whitespace before hashing") { `hashHex trims surrounding whitespace before hashing`() }
+        test(
+            "hashHex trims surrounding whitespace before hashing",
+        ) { `hashHex trims surrounding whitespace before hashing`() }
     }
-
 
     private fun `hashHex produces 64-character lowercase hex string (SHA-256 output shape)`() {
         val hash = MemoContentHashPolicy.hashHex("hello")

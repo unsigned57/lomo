@@ -9,30 +9,19 @@ sealed interface AudioPlaybackFailure {
     val source: String
 
     /** The source could not be resolved to a playable URI (missing file, stale mapping). */
-    data class Resolve(
-        override val source: String,
-    ) : AudioPlaybackFailure
+    data class Resolve(override val source: String) : AudioPlaybackFailure
 
     /** The player failed while preparing/starting the resolved media. */
-    data class Start(
-        override val source: String,
-    ) : AudioPlaybackFailure
+    data class Start(override val source: String) : AudioPlaybackFailure
 
     /** The player reported an error mid-playback. */
-    data class Playback(
-        override val source: String,
-    ) : AudioPlaybackFailure
+    data class Playback(override val source: String) : AudioPlaybackFailure
 
     /** Access was denied (permission revoked or protected storage). */
-    data class PermissionDenied(
-        override val source: String,
-    ) : AudioPlaybackFailure
+    data class PermissionDenied(override val source: String) : AudioPlaybackFailure
 }
 
-fun classifyPlaybackStartFailure(
-    source: String,
-    error: Throwable,
-): AudioPlaybackFailure =
+fun classifyPlaybackStartFailure(source: String, error: Throwable): AudioPlaybackFailure =
     if (error is SecurityException) {
         AudioPlaybackFailure.PermissionDenied(source)
     } else {

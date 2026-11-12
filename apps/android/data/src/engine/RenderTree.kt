@@ -13,14 +13,11 @@ import com.lomo.nativebridge.RenderNodeKind
  Render-tree to domain markdown-block conversion (validation helpers live in WorkspaceRenderValidation).
  */
 
-internal data class RenderTree(
-    val node: RenderNode,
-    val children: MutableList<RenderTree> = mutableListOf(),
-)
+internal data class RenderTree(val node: RenderNode, val children: MutableList<RenderTree> = mutableListOf())
 
 internal fun List<RenderNode>.toRenderTrees(sourceLength: ULong): List<RenderTree> {
     val roots = mutableListOf<RenderTree>()
-    val stack = mutableListOf<RenderTree>()
+    val stack = ArrayDeque<RenderTree>()
     forEachIndexed { index, node ->
         node.validateTransportNode(sourceLength)
         val depth = node.depth.toInt()
@@ -48,49 +45,56 @@ internal fun List<RenderNode>.toRenderTrees(sourceLength: ULong): List<RenderTre
     return roots
 }
 
-internal fun RenderTree.toBlock(): MarkdownRenderBlock =
-    when (node.kind) {
-        RenderNodeKind.PARAGRAPH ->
-            MarkdownRenderBlock.Paragraph(node.sourceSpan(), children.map(RenderTree::toInline))
-        RenderNodeKind.HEADING ->
-            MarkdownRenderBlock.Heading(
-                sourceSpan = node.sourceSpan(),
-                level = node.level.required("render_heading_level_missing", "heading level"),
-                inlines = children.map(RenderTree::toInline),
-            )
-        RenderNodeKind.BLOCK_QUOTE ->
-            MarkdownRenderBlock.BlockQuote(node.sourceSpan(), children.map(RenderTree::toBlock))
-        RenderNodeKind.LIST ->
-            MarkdownRenderBlock.ListBlock(
-                sourceSpan = node.sourceSpan(),
-                ordered = node.ordered.required("render_list_order_missing", "list ordered flag"),
-                startNumber = node.listStart.required("render_list_start_missing", "list start"),
-                items = children.map(RenderTree::toListItem),
-            )
-        RenderNodeKind.CODE_BLOCK -> {
-            requireLeaf()
-            MarkdownRenderBlock.CodeBlock(
-                sourceSpan = node.sourceSpan(),
-                language = node.title,
-                literal = node.text.required("render_code_literal_missing", "code literal"),
-            )
-        }
-        RenderNodeKind.THEMATIC_BREAK -> {
-            requireLeaf()
-            MarkdownRenderBlock.ThematicBreak(node.sourceSpan())
-        }
-        RenderNodeKind.TABLE -> toTable()
-        RenderNodeKind.HTML_BLOCK -> {
-            requireLeaf()
-            MarkdownRenderBlock.HtmlBlock(
-                sourceSpan = node.sourceSpan(),
-                literal = node.text.required("render_html_literal_missing", "HTML literal"),
-            )
-        }
-        else -> failRenderBoundary("render_block_kind_invalid") {
-            "${node.kind} cannot appear where a block is required"
-        }
+internal fun RenderTree.toBlock(): MarkdownRenderBlock = when (node.kind) {
+    RenderNodeKind.PARAGRAPH ->
+        MarkdownRenderBlock.Paragraph(node.sourceSpan(), children.map(RenderTree::toInline))
+
+    RenderNodeKind.HEADING ->
+        MarkdownRenderBlock.Heading(
+            sourceSpan = node.sourceSpan(),
+            level = node.level.required("render_heading_level_missing", "heading level"),
+            inlines = children.map(RenderTree::toInline),
+        )
+
+    RenderNodeKind.BLOCK_QUOTE ->
+        MarkdownRenderBlock.BlockQuote(node.sourceSpan(), children.map(RenderTree::toBlock))
+
+    RenderNodeKind.LIST ->
+        MarkdownRenderBlock.ListBlock(
+            sourceSpan = node.sourceSpan(),
+            ordered = node.ordered.required("render_list_order_missing", "list ordered flag"),
+            startNumber = node.listStart.required("render_list_start_missing", "list start"),
+            items = children.map(RenderTree::toListItem),
+        )
+
+    RenderNodeKind.CODE_BLOCK -> {
+        requireLeaf()
+        MarkdownRenderBlock.CodeBlock(
+            sourceSpan = node.sourceSpan(),
+            language = node.title,
+            literal = node.text.required("render_code_literal_missing", "code literal"),
+        )
     }
+
+    RenderNodeKind.THEMATIC_BREAK -> {
+        requireLeaf()
+        MarkdownRenderBlock.ThematicBreak(node.sourceSpan())
+    }
+
+    RenderNodeKind.TABLE -> toTable()
+
+    RenderNodeKind.HTML_BLOCK -> {
+        requireLeaf()
+        MarkdownRenderBlock.HtmlBlock(
+            sourceSpan = node.sourceSpan(),
+            literal = node.text.required("render_html_literal_missing", "HTML literal"),
+        )
+    }
+
+    else -> failRenderBoundary("render_block_kind_invalid") {
+        "${node.kind} cannot appear where a block is required"
+    }
+}
 
 private fun RenderTree.toListItem(): MarkdownRenderListItem {
     requireRenderBoundary(node.kind == RenderNodeKind.LIST_ITEM, "render_list_child_invalid") {
@@ -117,11 +121,13 @@ private fun RenderTree.toTable(): MarkdownRenderBlock.Table {
     children.forEach { child ->
         when (child.node.kind) {
             RenderNodeKind.TABLE_HEADER_CELL -> header += child.toTableCell()
+
             RenderNodeKind.TABLE_CELL -> {
                 val rowIndex =
                     child.node.level.required("render_table_row_index_missing", "table row index")
                 rowsByIndex.getOrPut(rowIndex) { mutableListOf() } += child.toTableCell()
             }
+
             else -> failRenderBoundary("render_table_child_invalid") {
                 "a table may contain only header-cell and cell nodes"
             }
@@ -139,72 +145,85 @@ private fun RenderTree.toTable(): MarkdownRenderBlock.Table {
     )
 }
 
-private fun RenderTree.toTableCell(): MarkdownRenderTableCell =
-    MarkdownRenderTableCell(
-        sourceSpan = node.sourceSpan(),
-        inlines = children.map(RenderTree::toInline),
-    )
+private fun RenderTree.toTableCell(): MarkdownRenderTableCell = MarkdownRenderTableCell(
+    sourceSpan = node.sourceSpan(),
+    inlines = children.map(RenderTree::toInline),
+)
 
-private fun RenderTree.toInline(): MarkdownRenderInline =
-    when (node.kind) {
-        RenderNodeKind.TEXT -> leafText { span, value -> MarkdownRenderInline.Text(span, value) }
-        RenderNodeKind.STRONG ->
-            MarkdownRenderInline.Strong(node.sourceSpan(), children.map(RenderTree::toInline))
-        RenderNodeKind.EMPHASIS ->
-            MarkdownRenderInline.Emphasis(node.sourceSpan(), children.map(RenderTree::toInline))
-        RenderNodeKind.STRIKETHROUGH ->
-            MarkdownRenderInline.Strikethrough(node.sourceSpan(), children.map(RenderTree::toInline))
-        RenderNodeKind.HIGHLIGHT ->
-            MarkdownRenderInline.Highlight(node.sourceSpan(), children.map(RenderTree::toInline))
-        RenderNodeKind.CODE -> leafText { span, value -> MarkdownRenderInline.Code(span, value) }
-        RenderNodeKind.LINK ->
-            MarkdownRenderInline.Link(
-                sourceSpan = node.sourceSpan(),
-                destination = node.destination.required("render_link_destination_missing", "link destination"),
-                title = node.title,
-                inlines = children.map(RenderTree::toInline),
-            )
-        RenderNodeKind.IMAGE -> {
-            requireLeaf()
-            MarkdownRenderInline.Image(
-                sourceSpan = node.sourceSpan(),
-                destination = node.destination.required("render_image_destination_missing", "image destination"),
-                title = node.title,
-                altText = node.text.required("render_image_alt_missing", "image alt text"),
-                mediaClass =
-                    node.mediaClass
-                        .required("render_image_media_class_missing", "image media class")
-                        .toDomainMediaClass(),
-            )
-        }
-        RenderNodeKind.TAG ->
-            leafText { span, value -> MarkdownRenderInline.Tag(sourceSpan = span, name = value) }
-        RenderNodeKind.REMINDER ->
-            leafText { span, value -> MarkdownRenderInline.Reminder(sourceSpan = span, token = value) }
-        RenderNodeKind.WIKI_REFERENCE ->
-            MarkdownRenderInline.WikiReference(
-                sourceSpan = node.sourceSpan(),
-                target = node.destination.required("render_wiki_target_missing", "wiki target"),
-                inlines = children.map(RenderTree::toInline),
-            )
-        RenderNodeKind.SOFT_BREAK -> {
-            requireLeaf()
-            MarkdownRenderInline.SoftBreak(node.sourceSpan())
-        }
-        RenderNodeKind.HARD_BREAK -> {
-            requireLeaf()
-            MarkdownRenderInline.HardBreak(node.sourceSpan())
-        }
-        RenderNodeKind.HTML_INLINE ->
-            leafText { span, value -> MarkdownRenderInline.HtmlInline(sourceSpan = span, literal = value) }
-        else -> failRenderBoundary("render_inline_kind_invalid") {
-            "${node.kind} cannot appear where an inline is required"
-        }
+private fun RenderTree.toInline(): MarkdownRenderInline = when (node.kind) {
+    RenderNodeKind.TEXT -> leafText { span, value -> MarkdownRenderInline.Text(span, value) }
+
+    RenderNodeKind.STRONG ->
+        MarkdownRenderInline.Strong(node.sourceSpan(), children.map(RenderTree::toInline))
+
+    RenderNodeKind.EMPHASIS ->
+        MarkdownRenderInline.Emphasis(node.sourceSpan(), children.map(RenderTree::toInline))
+
+    RenderNodeKind.STRIKETHROUGH ->
+        MarkdownRenderInline.Strikethrough(node.sourceSpan(), children.map(RenderTree::toInline))
+
+    RenderNodeKind.UNDERLINE ->
+        MarkdownRenderInline.Underline(node.sourceSpan(), children.map(RenderTree::toInline))
+
+    RenderNodeKind.HIGHLIGHT ->
+        MarkdownRenderInline.Highlight(node.sourceSpan(), children.map(RenderTree::toInline))
+
+    RenderNodeKind.CODE -> leafText { span, value -> MarkdownRenderInline.Code(span, value) }
+
+    RenderNodeKind.LINK ->
+        MarkdownRenderInline.Link(
+            sourceSpan = node.sourceSpan(),
+            destination = node.destination.required("render_link_destination_missing", "link destination"),
+            title = node.title,
+            inlines = children.map(RenderTree::toInline),
+        )
+
+    RenderNodeKind.IMAGE -> {
+        requireLeaf()
+        MarkdownRenderInline.Image(
+            sourceSpan = node.sourceSpan(),
+            destination = node.destination.required("render_image_destination_missing", "image destination"),
+            title = node.title,
+            altText = node.text.required("render_image_alt_missing", "image alt text"),
+            mediaClass =
+            node.mediaClass
+                .required("render_image_media_class_missing", "image media class")
+                .toDomainMediaClass(),
+        )
     }
 
-private inline fun <T : MarkdownRenderInline> RenderTree.leafText(
-    factory: (MarkdownSourceSpan, String) -> T,
-): T {
+    RenderNodeKind.TAG ->
+        leafText { span, value -> MarkdownRenderInline.Tag(sourceSpan = span, name = value) }
+
+    RenderNodeKind.REMINDER ->
+        leafText { span, value -> MarkdownRenderInline.Reminder(sourceSpan = span, token = value) }
+
+    RenderNodeKind.WIKI_REFERENCE ->
+        MarkdownRenderInline.WikiReference(
+            sourceSpan = node.sourceSpan(),
+            target = node.destination.required("render_wiki_target_missing", "wiki target"),
+            inlines = children.map(RenderTree::toInline),
+        )
+
+    RenderNodeKind.SOFT_BREAK -> {
+        requireLeaf()
+        MarkdownRenderInline.SoftBreak(node.sourceSpan())
+    }
+
+    RenderNodeKind.HARD_BREAK -> {
+        requireLeaf()
+        MarkdownRenderInline.HardBreak(node.sourceSpan())
+    }
+
+    RenderNodeKind.HTML_INLINE ->
+        leafText { span, value -> MarkdownRenderInline.HtmlInline(sourceSpan = span, literal = value) }
+
+    else -> failRenderBoundary("render_inline_kind_invalid") {
+        "${node.kind} cannot appear where an inline is required"
+    }
+}
+
+private inline fun <T : MarkdownRenderInline> RenderTree.leafText(factory: (MarkdownSourceSpan, String) -> T): T {
     requireLeaf()
     return factory(
         node.sourceSpan(),

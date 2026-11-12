@@ -11,21 +11,19 @@ import com.lomo.app.feature.main.MainMemoFilterSheet
  * filter panel without owning any mutator callbacks themselves.
  */
 @Composable
-fun MemoFilterSheetHost(
-    visible: Boolean,
-    controller: MemoListFilterController,
-    onDismiss: () -> Unit,
-) {
+fun MemoFilterSheetHost(visible: Boolean, controller: MemoListFilterController, onDismiss: () -> Unit) {
     if (!visible) return
     val filter by controller.filter.collectAsStateWithLifecycle()
     MainMemoFilterSheet(
         filter = filter,
         onSortOptionSelected = controller.onSortOptionSelected,
+        onSortDirectionSelected = controller.onSortDirectionSelected,
         onStartDateSelected = controller.onStartDateSelected,
         onEndDateSelected = controller.onEndDateSelected,
         onHasTodoChanged = controller.onHasTodoChanged,
         onHasAttachmentChanged = controller.onHasAttachmentChanged,
         onHasUrlChanged = controller.onHasUrlChanged,
+        onResetFilter = controller.clearFilter,
         onDismiss = onDismiss,
     )
 }

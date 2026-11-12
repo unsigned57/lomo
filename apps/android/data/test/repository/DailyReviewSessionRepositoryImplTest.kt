@@ -31,6 +31,13 @@ import java.time.LocalDate
  * - Fails before the fix when session fields are read via multiple sequential first() calls and can
  *   observe torn state.
  *
+ * Test Change Justification:
+ * Reason category: persist user-selected review options with the daily session.
+ * Old behavior/assertion being replaced: three-field session write fixture.
+ * Why old assertion is no longer correct: restoring a page requires the same filters and order.
+ * Coverage preserved by: atomic date/seed/page assertions plus options round-trip and invalid-state tests.
+ * Why this is not fitting the test to the implementation: asserts restored query identity, not codec bytes.
+ *
  * Excludes:
  * - DataStore file I/O internals and date parsing outside the repository boundary.
  */
@@ -65,6 +72,24 @@ class DailyReviewSessionRepositoryImplTest : DataFunSpec() {
             }
         }
 
+        test("given custom review options when saving and reopening then the same query is restored") {
+            runTest {
+                val store = DailyReviewStoreFixture()
+                val repository = DailyReviewSessionRepositoryImpl(store.dataStore)
+                val options = com.lomo.domain.model.DailyReviewOptions(
+                    sort = com.lomo.domain.model.DailyReviewSort.RANDOM,
+                    filter = com.lomo.domain.model.MemoListFilter(
+                        startDate = LocalDate.of(2025, 1, 1),
+                        hasAttachment = false,
+                        hasTodo = true,
+                    ),
+                )
+                val session = DailyReviewSession(LocalDate.of(2026, 4, 27), 19L, 7, options)
+                repository.saveSession(session)
+                repository.getSession() shouldBe session
+            }
+        }
+
         test("saveSession writes date seed and page index to datastore") {
             runTest {
                 val store = DailyReviewStoreFixture()
@@ -93,12 +118,14 @@ private data class DailyReviewUpdate(
     val date: String?,
     val seed: Long?,
     val pageIndex: Int?,
+    val options: String? = encodeReviewOptions(com.lomo.domain.model.DailyReviewOptions()),
 )
 
 private class DailyReviewStoreFixture {
     var date: String? = null
     var seed: Long? = null
     var pageIndex: Int? = null
+    var options: String? = null
     var lastUpdate: DailyReviewUpdate? = null
 
     val dataStore: LomoDataStore = mockk()
@@ -107,12 +134,18 @@ private class DailyReviewStoreFixture {
         every { dataStore.dailyReviewSessionDate } answers { flowOf(date) }
         every { dataStore.dailyReviewSessionSeed } answers { flowOf(seed) }
         every { dataStore.dailyReviewSessionPageIndex } answers { flowOf(pageIndex) }
-        coEvery { dataStore.updateDailyReviewSession(any(), any(), any()) } answers {
+        every { dataStore.dailyReviewSessionOptions } answers { flowOf(options) }
+        coEvery { dataStore.updateDailyReviewSession(any(), any(), any(), any()) } answers {
+            date = arg(0)
+            seed = arg(1)
+            pageIndex = arg(2)
+            options = arg(3)
             lastUpdate =
                 DailyReviewUpdate(
                     date = arg(0),
                     seed = arg(1),
                     pageIndex = arg(2),
+                    options = arg(3),
                 )
         }
     }

@@ -4,9 +4,7 @@ import com.lomo.domain.model.ShareAttachmentExtractionResult
 import com.lomo.domain.model.markdown.MarkdownAttachment
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 
-class ExtractShareAttachmentsUseCase(
-    private val markdownWorkspaceRepository: MarkdownWorkspaceRepository,
-) {
+class ExtractShareAttachmentsUseCase(private val markdownWorkspaceRepository: MarkdownWorkspaceRepository) {
     operator fun invoke(content: String): ShareAttachmentExtractionResult {
         // Share contracts extract every owner-classified attachment — image, video, audio, and
         // generic file — filtered only by locality, never by extension re-classification.
@@ -23,8 +21,7 @@ class ExtractShareAttachmentsUseCase(
         )
     }
 
-    private fun isLocalAttachmentPath(path: String): Boolean =
-        path.isNotEmpty() &&
-            !path.startsWith("http://", ignoreCase = true) &&
-            !path.startsWith("https://", ignoreCase = true)
+    private fun isLocalAttachmentPath(path: String): Boolean = path.isNotEmpty() &&
+        !path.startsWith("http://", ignoreCase = true) &&
+        !path.startsWith("https://", ignoreCase = true)
 }

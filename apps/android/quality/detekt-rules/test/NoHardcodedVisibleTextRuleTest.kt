@@ -23,7 +23,7 @@ package com.lomo.detektrules
  *
  * Excludes:
  * - Android XML hardcoded text, full Toolchain static-analysis task wiring, runtime locale selection, and resource key parity.
- 
+
  * Test Change Justification:
  * - Reason category: mechanical layout path update.
  * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
@@ -46,18 +46,19 @@ import java.nio.file.Files
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 
-class NoHardcodedVisibleTextRuleTest : FunSpec({
-    test("registers hardcoded visible text rule in the architecture rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
+class NoHardcodedVisibleTextRuleTest :
+    FunSpec({
+        test("registers hardcoded visible text rule in the architecture rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
 
-        rules[RuleName("NoHardcodedVisibleText")].shouldNotBeNull()
-    }
+            rules[RuleName("NoHardcodedVisibleText")].shouldNotBeNull()
+        }
 
-    test("reports Compose visible text and content descriptions backed by literals") {
-        val findings =
-            rule().findingsForSource(
-                relativePath = "app/src/feature/sample/BadText.kt",
-                code =
+        test("reports Compose visible text and content descriptions backed by literals") {
+            val findings =
+                rule().findingsForSource(
+                    relativePath = "app/src/feature/sample/BadText.kt",
+                    code =
                     """
                     package com.lomo.app.feature.sample
 
@@ -71,18 +72,18 @@ class NoHardcodedVisibleTextRuleTest : FunSpec({
                         Icon(imageVector = icon(), contentDescription = "Save memo")
                     }
                     """,
-            )
+                )
 
-        findings.shouldHaveSize(2)
-        findings[0].message shouldContain "string resource"
-        findings[1].message shouldContain "string resource"
-    }
+            findings.shouldHaveSize(2)
+            findings[0].message shouldContain "string resource"
+            findings[1].message shouldContain "string resource"
+        }
 
-    test("reports Android feedback and clipboard labels backed by literals") {
-        val findings =
-            rule().findingsForSource(
-                relativePath = "app/src/feature/sample/BadFeedback.kt",
-                code =
+        test("reports Android feedback and clipboard labels backed by literals") {
+            val findings =
+                rule().findingsForSource(
+                    relativePath = "app/src/feature/sample/BadFeedback.kt",
+                    code =
                     """
                     package com.lomo.app.feature.sample
 
@@ -101,19 +102,19 @@ class NoHardcodedVisibleTextRuleTest : FunSpec({
                         ClipData.newPlainText("Lomo Memo", content)
                     }
                     """,
-            )
+                )
 
-        findings.shouldHaveSize(3)
-        findings.map { it.message }.toString() shouldContain "Copied"
-        findings.map { it.message }.toString() shouldContain "Saved"
-        findings.map { it.message }.toString() shouldContain "Lomo Memo"
-    }
+            findings.shouldHaveSize(3)
+            findings.map { it.message }.toString() shouldContain "Copied"
+            findings.map { it.message }.toString() shouldContain "Saved"
+            findings.map { it.message }.toString() shouldContain "Lomo Memo"
+        }
 
-    test("allows resource backed copy and non-copy source literals") {
-        val findings =
-            rule().findingsForSource(
-                relativePath = "ui-components/src/component/sample/GoodText.kt",
-                code =
+        test("allows resource backed copy and non-copy source literals") {
+            val findings =
+                rule().findingsForSource(
+                    relativePath = "ui-components/src/component/sample/GoodText.kt",
+                    code =
                     """
                     package com.lomo.ui.component.sample
 
@@ -141,23 +142,18 @@ class NoHardcodedVisibleTextRuleTest : FunSpec({
                         Toast.makeText(context, context.getString(R.string.action_copy), Toast.LENGTH_SHORT).show()
                     }
                     """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
-})
+            findings shouldBe emptyList()
+        }
+    })
 
-private fun rule(
-    config: Config = Config.empty,
-): Rule =
+private fun rule(config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName("NoHardcodedVisibleText")]) {
         "Expected NoHardcodedVisibleText to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<dev.detekt.api.Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<dev.detekt.api.Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

@@ -72,7 +72,9 @@ class ReminderIntervalSharedPreferencesMigrationTest : DataFunSpec() {
             }
         }
 
-        test("given main store value plus leftover legacy file when migration runs then main wins and file is deleted") {
+        test(
+            "given main store value plus leftover legacy file when migration runs then main wins and file is deleted",
+        ) {
             runTest {
                 var deleted = false
                 val migration =

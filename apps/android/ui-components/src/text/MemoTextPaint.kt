@@ -20,19 +20,10 @@ import kotlin.math.ceil
 private const val BOLD_WEIGHT_THRESHOLD = 600
 private const val DEFAULT_MEMO_TEXT_SIZE_SP = 14
 
-internal data class MemoLineMetrics(
-    val lineHeightPx: Float,
-    val baselinePx: Float,
-)
+internal data class MemoLineMetrics(val lineHeightPx: Float, val baselinePx: Float)
 
-internal class AndroidMemoTextMeasurer(
-    private val paint: TextPaint,
-) : MemoTextMeasurer {
-    override fun measureText(
-        text: String,
-        start: Int,
-        end: Int,
-    ): Float = paint.measureText(text, start, end)
+internal class AndroidMemoTextMeasurer(private val paint: TextPaint) : MemoTextMeasurer {
+    override fun measureText(text: String, start: Int, end: Int): Float = paint.measureText(text, start, end)
 }
 
 internal fun TextStyle.toBaseTextPaint(density: Density, customTypeface: Typeface? = null): TextPaint =
@@ -58,15 +49,12 @@ internal fun TextStyle.toGlyphTextPaint(
         paint.typeface = resolveTypeface(spanStyle, customTypeface)
         paint.isUnderlineText =
             linkStyle?.isUnderlineText == true ||
-                spanStyle.textDecoration?.contains(TextDecoration.Underline) == true
+            spanStyle.textDecoration?.contains(TextDecoration.Underline) == true
         paint.isStrikeThruText = spanStyle.textDecoration?.contains(TextDecoration.LineThrough) == true
     }
 }
 
-internal fun TextStyle.resolveLineMetrics(
-    density: Density,
-    paint: TextPaint,
-): MemoLineMetrics {
+internal fun TextStyle.resolveLineMetrics(density: Density, paint: TextPaint): MemoLineMetrics {
     val fontMetrics = paint.fontMetrics
     val naturalHeight = fontMetrics.descent - fontMetrics.ascent
     val lineHeight =
@@ -84,15 +72,14 @@ internal fun TextStyle.resolveLineMetrics(
     )
 }
 
-internal fun TextStyle.resolveMemoLetterSpacingPx(density: Density): Float =
-    with(density) {
-        when {
-            letterSpacing == TextUnit.Unspecified -> 0f
-            letterSpacing.type == TextUnitType.Sp -> letterSpacing.toPx()
-            letterSpacing.type == TextUnitType.Em -> resolveFontSizePx(this) * letterSpacing.value
-            else -> 0f
-        }
+internal fun TextStyle.resolveMemoLetterSpacingPx(density: Density): Float = with(density) {
+    when {
+        letterSpacing == TextUnit.Unspecified -> 0f
+        letterSpacing.type == TextUnitType.Sp -> letterSpacing.toPx()
+        letterSpacing.type == TextUnitType.Em -> resolveFontSizePx(this) * letterSpacing.value
+        else -> 0f
     }
+}
 
 internal fun TextStyle.resolvePlatformTypeface(customTypeface: Typeface? = null): Typeface {
     val italic = fontStyle == FontStyle.Italic
@@ -111,25 +98,20 @@ internal fun TextStyle.resolvePlatformTypeface(customTypeface: Typeface? = null)
     }
 }
 
-internal fun resolveMemoTypefaceStyle(
-    weight: Int,
-    italic: Boolean,
-): Int =
-    when {
-        weight >= BOLD_WEIGHT_THRESHOLD && italic -> Typeface.BOLD_ITALIC
-        weight >= BOLD_WEIGHT_THRESHOLD -> Typeface.BOLD
-        italic -> Typeface.ITALIC
-        else -> Typeface.NORMAL
-    }
+internal fun resolveMemoTypefaceStyle(weight: Int, italic: Boolean): Int = when {
+    weight >= BOLD_WEIGHT_THRESHOLD && italic -> Typeface.BOLD_ITALIC
+    weight >= BOLD_WEIGHT_THRESHOLD -> Typeface.BOLD
+    italic -> Typeface.ITALIC
+    else -> Typeface.NORMAL
+}
 
-private fun TextStyle.resolveFontSizePx(density: Density): Float =
-    with(density) {
-        if (fontSize == TextUnit.Unspecified) {
-            DEFAULT_MEMO_TEXT_SIZE_SP.sp.toPx()
-        } else {
-            fontSize.toPx()
-        }
+internal fun TextStyle.resolveFontSizePx(density: Density): Float = with(density) {
+    if (fontSize == TextUnit.Unspecified) {
+        DEFAULT_MEMO_TEXT_SIZE_SP.sp.toPx()
+    } else {
+        fontSize.toPx()
     }
+}
 
 private fun TextStyle.resolveTypeface(spanStyle: SpanStyle, customTypeface: Typeface? = null): Typeface {
     val resolvedFontFamily = spanStyle.fontFamily ?: fontFamily
@@ -151,12 +133,8 @@ private fun TextStyle.resolveTypeface(spanStyle: SpanStyle, customTypeface: Type
     }
 }
 
-private fun TextStyle.resolveGlyphColor(
-    spanStyle: SpanStyle,
-    linkStyle: MemoUrlVisualStyle?,
-): Color =
-    when {
-        linkStyle != null -> linkStyle.color
-        spanStyle.color != Color.Unspecified -> spanStyle.color
-        else -> color
-    }
+private fun TextStyle.resolveGlyphColor(spanStyle: SpanStyle, linkStyle: MemoUrlVisualStyle?): Color = when {
+    linkStyle != null -> linkStyle.color
+    spanStyle.color != Color.Unspecified -> spanStyle.color
+    else -> color
+}

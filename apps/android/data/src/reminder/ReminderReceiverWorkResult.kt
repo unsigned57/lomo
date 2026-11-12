@@ -5,7 +5,5 @@ sealed interface ReminderReceiverWorkResult {
 
     data object Cancelled : ReminderReceiverWorkResult
 
-    data class Failed(
-        val cause: Throwable,
-    ) : ReminderReceiverWorkResult
+    data class Failed(val cause: Throwable) : ReminderReceiverWorkResult
 }

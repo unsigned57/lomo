@@ -14,9 +14,7 @@ import java.util.ArrayDeque
  * Relative paths always use `/` as the separator so they can be used uniformly with the direct
  * file backend and later passed to [safResolveRelativeDocument] for lookup.
  */
-internal fun safWalkMainMarkdownFiles(
-    documentAccess: SafDocumentAccess,
-): List<Pair<DocumentFile, String>> {
+internal fun safWalkMainMarkdownFiles(documentAccess: SafDocumentAccess): List<Pair<DocumentFile, String>> {
     val root = documentAccess.root() ?: return emptyList()
     val queue = ArrayDeque<Pair<DocumentFile, String>>().apply { add(root to "") }
     val results = mutableListOf<Pair<DocumentFile, String>>()
@@ -49,10 +47,7 @@ private fun visitDocumentChild(
  * top-level `.trash` directory. Uses DocumentsContract child-document queries so it is faster than
  * walking DocumentFile trees for large workspaces.
  */
-internal fun safQueryMainMarkdownMetadataRecursive(
-    context: Context,
-    rootUri: Uri,
-): List<FileMetadata> {
+internal fun safQueryMainMarkdownMetadataRecursive(context: Context, rootUri: Uri): List<FileMetadata> {
     val results = mutableListOf<FileMetadata>()
     val rootDocId = DocumentsContract.getTreeDocumentId(rootUri)
     val queue = ArrayDeque<Pair<String, String>>().apply { add(rootDocId to "") }
@@ -89,12 +84,15 @@ private fun processMetadataRow(
     val relativePath = if (prefix.isEmpty()) row.name else "$prefix/${row.name}"
     return when {
         row.isDirectory && prefix.isEmpty() && row.name == SAF_TRASH_DIR_NAME -> null
+
         row.isDirectory -> {
             queue.add(row.docId to relativePath)
             null
         }
+
         row.name.endsWith(SAF_MARKDOWN_SUFFIX) ->
             FileMetadata(filename = relativePath, lastModified = row.lastModified, size = row.size)
+
         else -> null
     }
 }

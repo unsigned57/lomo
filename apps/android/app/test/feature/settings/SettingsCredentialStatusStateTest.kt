@@ -8,8 +8,6 @@ import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoMutationRepository
@@ -61,17 +59,17 @@ class SettingsCredentialStatusStateTest : AppFunSpec() {
                 val coordinator =
                     SettingsGitCoordinator(
                         gitSyncSettingsUseCase =
-                            GitSyncSettingsUseCase(
-                                gitSyncRepository = repository,
+                        GitSyncSettingsUseCase(
+                            gitSyncRepository = repository,
+                            syncPolicyRepository = NoOpSyncPolicyRepository(),
+                            syncAndRebuildUseCase =
+                            SyncAndRebuildUseCase(
+                                memoRepository = NoOpMemoMutationRepository(),
+                                syncProviderRegistry = SyncProviderRegistry(emptySet()),
                                 syncPolicyRepository = NoOpSyncPolicyRepository(),
-                                syncAndRebuildUseCase =
-                                    SyncAndRebuildUseCase(
-                                        memoRepository = NoOpMemoMutationRepository(),
-                                        syncProviderRegistry = SyncProviderRegistry(emptySet()),
-                                        syncPolicyRepository = NoOpSyncPolicyRepository(),
-                                    ),
-                                gitRemoteUrlUseCase = GitRemoteUrlUseCase(),
                             ),
+                            gitRemoteUrlUseCase = GitRemoteUrlUseCase(),
+                        ),
                         credentialCoordinator = SettingsCredentialCoordinator(credentialRepository),
                         scope = backgroundScope,
                     )
@@ -85,9 +83,7 @@ class SettingsCredentialStatusStateTest : AppFunSpec() {
     }
 }
 
-private class FakeGitCredentialStatusRepository(
-    private val tokenStatus: StoredCredentialStatus,
-) : GitSyncRepository {
+private class FakeGitCredentialStatusRepository(private val tokenStatus: StoredCredentialStatus) : GitSyncRepository {
     override fun isGitSyncEnabled(): Flow<Boolean> = flowOf(false)
 
     override fun getRemoteUrl(): Flow<String?> = flowOf(null)
@@ -110,10 +106,7 @@ private class FakeGitCredentialStatusRepository(
 
     override suspend fun getTokenStatus(): StoredCredentialStatus = tokenStatus
 
-    override suspend fun setAuthorInfo(
-        name: String,
-        email: String,
-    ) = Unit
+    override suspend fun setAuthorInfo(name: String, email: String) = Unit
 
     override fun getAuthorName(): Flow<String> = flowOf("")
 
@@ -151,12 +144,9 @@ private class NoOpSyncPolicyRepository : SyncPolicyRepository {
 private class NoOpMemoMutationRepository : MemoMutationRepository {
     override suspend fun refreshMemos() = Unit
 
-    override suspend fun commitDocumentMutation(
-        mutation: com.lomo.domain.model.MemoDocumentMutation,
-    ) = Unit
-
     override suspend fun saveMemo(
         attempt: com.lomo.domain.model.MemoCreateAttempt,
+        onAccepted: (String) -> Unit,
     ): Memo = Memo(
         id = attempt.timestampMillis.toString(),
         timestamp = attempt.timestampMillis,
@@ -165,9 +155,7 @@ private class NoOpMemoMutationRepository : MemoMutationRepository {
         dateKey = "test",
     )
 
-    override suspend fun updateMemo(
-        attempt: com.lomo.domain.model.MemoUpdateAttempt,
-    ) = Unit
+    override suspend fun updateMemo(attempt: com.lomo.domain.model.MemoUpdateAttempt) = Unit
 
     override suspend fun deleteMemo(
         memo: com.lomo.domain.model.Memo,

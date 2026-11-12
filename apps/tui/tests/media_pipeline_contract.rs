@@ -1,3 +1,26 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
+// Behavior Contract:
+// Capability: external image URLs remain display destinations without entering local attachment paths.
+// Given a remote image, when a summary and TUI card are read, then its URL is retained and local attachments stay empty.
+// Observable outcomes: summary destinations, typed attachment paths, local media staging failures.
+// Test Change Justification:
+// Reason category: image summary contract now preserves Markdown presentation order and remote URLs.
+// Old behavior/assertion being replaced: external destinations required an empty image_urls summary.
+// Why old assertion is no longer correct: image_urls is a viewer projection, not the local protection set.
+// Coverage preserved by: the existing card.attachments.is_empty assertion and external-path rejection checks.
+// Why this is not fitting the test to the implementation: remote display must never grant filesystem authority.
+// TDD proof: RED just check reported external_image_destination_never_enters_the_local_attachment_path_set;
+// GREEN cargo test -p lomo-tui --test media_pipeline_contract --locked.
+// Excludes: Android rendering and remote image fetching.
+
 // adversarial-audit: terminal image pipeline — probe → load → encode → place → emit.
 //
 // Claims under test (each test locks a behavior contract, not a style preference):
@@ -45,7 +68,7 @@ mod tests {
     /// The picker the probe reports on a capable terminal: queried font metrics
     /// plus an explicit protocol answer, constructed without touching stdio.
     fn probed_picker(protocol: ProtocolType) -> Picker {
-        let mut picker = Picker::from_fontsize((8, 16));
+        let mut picker = crate::support::picker_with_font_size((8, 16));
         picker.set_protocol_type(protocol);
         picker
     }
@@ -141,10 +164,10 @@ mod tests {
             )
             .expect("projection page");
         let item = page.items.first().expect("one projected memo");
-        assert!(
-            item.image_urls.is_empty(),
-            "an external destination produces no local image row: {:?}",
-            item.image_urls
+        assert_eq!(
+            item.image_urls,
+            ["https://example.com/remote.png"],
+            "presentation destinations preserve remote URLs without making them local files"
         );
 
         // The external destination names no workspace file: no attachment key,

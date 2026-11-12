@@ -20,12 +20,13 @@ use lomo_core::{
 use lomo_sync::{
     self as sync, ConflictPage, ConflictPathRecord, ConflictPathStatus, ConflictResolution,
     ConflictSession, ConflictSessionPresence, ConflictSessionState, RemoteSyncPort,
-    ResolvedLocalPullMutation, SyncBackendConfig, SyncBackendKind, SyncCyclePlanSummary, SyncPaths,
-    advance_baseline_after_local_pull, collect_resolved_local_pull_mutations,
-    connect_sync_remote_port, list_sync_conflicts, read_baseline, read_conflict_artifact,
-    read_conflict_session_state, read_cycle_state, request_sync_cycle_cancel,
-    reset_sync_control_tree, resolve_sync_conflicts, run_composed_sync_cycle,
-    run_composed_sync_cycle_with_remote_port,
+    ResolvedLocalPullMutation, StoreLocalSnapshotPort, SyncBackendConfig, SyncBackendKind,
+    SyncCyclePlanSummary, SyncPaths, advance_baseline_after_local_pull,
+    collect_resolved_local_pull_mutations, connect_sync_remote_port, list_sync_conflicts,
+    read_baseline, read_conflict_artifact, read_conflict_session_state, read_cycle_state,
+    request_sync_cycle_cancel, reset_sync_control_tree, resolve_sync_conflicts,
+    run_composed_sync_cycle, run_composed_sync_cycle_with_local_port,
+    run_composed_sync_cycle_with_ports, run_composed_sync_cycle_with_remote_port,
 };
 use lomo_workspace::MemoId;
 
@@ -81,10 +82,15 @@ fn require_workspace_root(workspace_root: &str) -> Result<&Path, EngineError> {
     Ok(Path::new(workspace_root))
 }
 
+fn private_sync_paths(workspace: &Path, state: &Path) -> SyncPaths {
+    let mut paths = SyncPaths::for_control_root(state);
+    paths.workspace_root = workspace.to_path_buf();
+    paths
+}
+
 fn acquire_workspace_cycle_lock(
-    workspace_root: &Path,
+    paths: &SyncPaths,
 ) -> Result<lomo_platform_fs::ProcessFileLock, EngineError> {
-    let paths = SyncPaths::for_workspace(workspace_root);
     paths.ensure_layout().map_err(EngineError::from)?;
     match lomo_platform_fs::ProcessFileLock::try_acquire(&paths.cycle_lock) {
         Ok(lock) => Ok(lock),
@@ -439,6 +445,7 @@ fn resolution_from_dto(dto: &SyncConflictResolutionDto) -> Result<ConflictResolu
 )]
 pub fn sync_list_conflicts(
     workspace_root: String,
+    private_state_root: String,
     cursor: u32,
     limit: u32,
 ) -> Result<SyncConflictPageDto, EngineError> {
@@ -454,7 +461,7 @@ pub fn sync_list_conflicts(
             "conflict page limit must be 1..=100",
         )));
     }
-    let paths = SyncPaths::for_workspace(Path::new(&workspace_root));
+    let paths = private_sync_paths(Path::new(&workspace_root), Path::new(&private_state_root));
     let page =
         list_sync_conflicts(&paths, cursor as usize, limit as usize).map_err(EngineError::from)?;
     page_to_dto(page).map_err(EngineError::from)
@@ -477,6 +484,7 @@ pub fn sync_list_conflicts(
 )]
 pub fn sync_read_conflict_artifact(
     workspace_root: String,
+    private_state_root: String,
     artifact_ref: String,
 ) -> Result<Vec<u8>, EngineError> {
     if workspace_root.is_empty() || workspace_root.len() > 4096 {
@@ -491,7 +499,7 @@ pub fn sync_read_conflict_artifact(
             "conflict artifact ref must be non-empty and bounded",
         )));
     }
-    let paths = SyncPaths::for_workspace(Path::new(&workspace_root));
+    let paths = private_sync_paths(Path::new(&workspace_root), Path::new(&private_state_root));
     read_conflict_artifact(&paths, &artifact_ref).map_err(EngineError::from)
 }
 
@@ -558,6 +566,7 @@ fn choice_name(choice: sync::ConflictSuggestionChoice) -> String {
 )]
 pub fn sync_resolve_conflicts(
     workspace_root: String,
+    private_state_root: String,
     expected_revision: u64,
     resolutions: Vec<SyncConflictResolutionDto>,
 ) -> Result<SyncConflictResolveResultDto, EngineError> {
@@ -596,7 +605,7 @@ pub fn sync_resolve_conflicts(
         .map(resolution_from_dto)
         .collect::<Result<Vec<_>, _>>()
         .map_err(EngineError::from)?;
-    let paths = SyncPaths::for_workspace(Path::new(&workspace_root));
+    let paths = private_sync_paths(Path::new(&workspace_root), Path::new(&private_state_root));
     let result =
         resolve_sync_conflicts(&paths, expected_revision, &mapped).map_err(EngineError::from)?;
     Ok(SyncConflictResolveResultDto {
@@ -881,12 +890,14 @@ fn backend_config_from_dto(dto: &SyncBackendConfigDto) -> Result<SyncBackendConf
 )]
 pub fn sync_run_cycle(
     workspace_root: String,
+    private_state_root: String,
     config: SyncBackendConfigDto,
     secret_lease_id: String,
     apply_remote: bool,
 ) -> Result<SyncCyclePlanSummaryDto, EngineError> {
     execute_composed_sync_cycle(
         &workspace_root,
+        Path::new(&private_state_root),
         &config,
         &secret_lease_id,
         apply_remote,
@@ -896,6 +907,17 @@ pub fn sync_run_cycle(
 
 #[export]
 impl LomoEngine {
+    /// Resolves sync control storage from the active owner, never from the user directory.
+    ///
+    /// # Errors
+    /// Rejects a different workspace or unavailable session.
+    #[expect(clippy::needless_pass_by_value, reason = "BoltFFI instance wire type")]
+    pub fn sync_private_state_root(&self, workspace_root: String) -> Result<String, EngineError> {
+        require_engine_direct_workspace(self, Path::new(&workspace_root))?;
+        let session = crate::session_ffi::session_arc(self)?;
+        Ok(session.private_state_dir().to_string_lossy().into_owned())
+    }
+
     /// Runs one composed sync cycle, then applies pending `KeepRemote`/Merged local pulls through
     /// the open [`WorkspaceSession`].
     ///
@@ -918,6 +940,7 @@ impl LomoEngine {
         let session = crate::session_ffi::session_arc(self)?;
         execute_composed_sync_cycle(
             &workspace_root,
+            session.private_state_dir(),
             &config,
             &secret_lease_id,
             apply_remote,
@@ -936,9 +959,12 @@ impl LomoEngine {
     clippy::needless_pass_by_value,
     reason = "BoltFFI free-function boundary requires owned String wire types"
 )]
-pub fn sync_workspace_generation(workspace_root: String) -> Result<String, EngineError> {
-    let workspace = require_workspace_root(&workspace_root)?;
-    lomo_workspace::load_workspace_generation(workspace)
+pub fn sync_workspace_generation(
+    workspace_root: String,
+    private_state_root: String,
+) -> Result<String, EngineError> {
+    require_workspace_root(&workspace_root)?;
+    lomo_workspace::load_workspace_generation(Path::new(&private_state_root))
         .map(|id| id.as_str().to_owned())
         .map_err(EngineError::from)
 }
@@ -956,10 +982,13 @@ pub fn sync_workspace_generation(workspace_root: String) -> Result<String, Engin
     clippy::needless_pass_by_value,
     reason = "BoltFFI free-function boundary requires owned String wire types"
 )]
-pub fn sync_reset_control_tree(workspace_root: String) -> Result<(), EngineError> {
+pub fn sync_reset_control_tree(
+    workspace_root: String,
+    private_state_root: String,
+) -> Result<(), EngineError> {
     let workspace = require_workspace_root(&workspace_root)?;
-    let _cycle_lock = acquire_workspace_cycle_lock(workspace)?;
-    let paths = SyncPaths::for_workspace(workspace);
+    let paths = private_sync_paths(workspace, Path::new(&private_state_root));
+    let _cycle_lock = acquire_workspace_cycle_lock(&paths)?;
     reset_sync_control_tree(&paths).map_err(EngineError::from)
 }
 
@@ -978,9 +1007,12 @@ pub fn sync_reset_control_tree(workspace_root: String) -> Result<(), EngineError
     clippy::needless_pass_by_value,
     reason = "BoltFFI free-function boundary requires owned String wire types"
 )]
-pub fn sync_cycle_status(workspace_root: String) -> Result<SyncCycleStatusDto, EngineError> {
+pub fn sync_cycle_status(
+    workspace_root: String,
+    private_state_root: String,
+) -> Result<SyncCycleStatusDto, EngineError> {
     let workspace = require_workspace_root(&workspace_root)?;
-    let paths = SyncPaths::for_workspace(workspace);
+    let paths = private_sync_paths(workspace, Path::new(&private_state_root));
     let record = read_cycle_state(&paths).map_err(EngineError::from)?;
     Ok(cycle_record_to_dto(record))
 }
@@ -999,9 +1031,12 @@ pub fn sync_cycle_status(workspace_root: String) -> Result<SyncCycleStatusDto, E
     clippy::needless_pass_by_value,
     reason = "BoltFFI free-function boundary requires owned String wire types"
 )]
-pub fn sync_request_cancel(workspace_root: String) -> Result<SyncCycleStatusDto, EngineError> {
+pub fn sync_request_cancel(
+    workspace_root: String,
+    private_state_root: String,
+) -> Result<SyncCycleStatusDto, EngineError> {
     let workspace = require_workspace_root(&workspace_root)?;
-    let paths = SyncPaths::for_workspace(workspace);
+    let paths = private_sync_paths(workspace, Path::new(&private_state_root));
     let record = request_sync_cycle_cancel(&paths).map_err(EngineError::from)?;
     Ok(cycle_record_to_dto(Some(record)))
 }
@@ -1024,6 +1059,7 @@ pub fn sync_request_cancel(workspace_root: String) -> Result<SyncCycleStatusDto,
 )]
 pub fn sync_probe_backend(
     workspace_root: String,
+    private_state_root: String,
     config: SyncBackendConfigDto,
     secret_lease_id: String,
 ) -> Result<SyncBackendProbeDto, EngineError> {
@@ -1031,11 +1067,11 @@ pub fn sync_probe_backend(
     let config = backend_config_from_dto(&config)?;
     let secret_owned = resolve_secret_material(&secret_lease_id)?;
     let secret_ref = secret_owned.as_deref();
-    let _cycle_lock = acquire_workspace_cycle_lock(workspace)?;
-    let paths = SyncPaths::for_workspace(workspace);
+    let paths = private_sync_paths(workspace, Path::new(&private_state_root));
+    let _cycle_lock = acquire_workspace_cycle_lock(&paths)?;
 
     let remote: Box<dyn RemoteSyncPort> = if matches!(config, SyncBackendConfig::Git { .. }) {
-        Box::new(connect_git_port(workspace, &config, secret_ref)?)
+        Box::new(connect_git_port(&paths, &config, secret_ref)?)
     } else {
         connect_sync_remote_port(workspace, &paths, &config, secret_ref)
             .map_err(EngineError::from)?
@@ -1072,14 +1108,18 @@ fn run_composed_git_cycle(
     secret_material: Option<&[u8]>,
     apply_remote: bool,
 ) -> Result<SyncCyclePlanSummary, LomoError> {
-    let remote = connect_git_port(workspace_root, config, secret_material)?;
+    let remote = connect_git_port(
+        &SyncPaths::for_control_root(workspace_root),
+        config,
+        secret_material,
+    )?;
     run_composed_sync_cycle_with_remote_port(workspace_root, config, &remote, apply_remote)
 }
 
 /// Builds the `lomo-git` remote port for a Git backend (composition + probe share one
 /// construction path so `testConnection` exercises the same adapter as a real cycle).
 fn connect_git_port(
-    workspace_root: &Path,
+    paths: &SyncPaths,
     config: &SyncBackendConfig,
     secret_material: Option<&[u8]>,
 ) -> Result<lomo_git::GitAdapter<lomo_git::WorkspaceFileGitObjectSource>, LomoError> {
@@ -1125,7 +1165,6 @@ fn connect_git_port(
         username.trim().to_owned()
     };
 
-    let paths = SyncPaths::for_workspace(workspace_root);
     let mirror_dir = paths.git_mirror.clone();
     std::fs::create_dir_all(&paths.root).map_err(|err| {
         boundary_err(
@@ -1134,7 +1173,7 @@ fn connect_git_port(
         )
     })?;
 
-    let objects = lomo_git::WorkspaceFileGitObjectSource::new(workspace_root.to_path_buf());
+    let objects = lomo_git::WorkspaceFileGitObjectSource::new(paths.workspace_root.clone());
     lomo_git::connect_workspace_git(
         remote_url.trim(),
         branch.trim(),
@@ -1163,6 +1202,7 @@ fn resolve_secret_material(secret_lease_id: &str) -> Result<Option<Vec<u8>>, Eng
 
 fn execute_composed_sync_cycle(
     workspace_root: &str,
+    private_state_root: &Path,
     config_dto: &SyncBackendConfigDto,
     secret_lease_id: &str,
     apply_remote: bool,
@@ -1170,16 +1210,46 @@ fn execute_composed_sync_cycle(
 ) -> Result<SyncCyclePlanSummaryDto, EngineError> {
     let workspace = require_workspace_root(workspace_root)?;
     let config = backend_config_from_dto(config_dto)?;
+    let paths = private_sync_paths(workspace, private_state_root);
 
     let secret_owned = resolve_secret_material(secret_lease_id)?;
     let secret_ref = secret_owned.as_deref();
-    let _cycle_lock = acquire_workspace_cycle_lock(workspace)?;
+    let _cycle_lock = acquire_workspace_cycle_lock(&paths)?;
 
     if apply_remote && session.is_none() {
-        refuse_sessionless_local_pulls(workspace)?;
+        refuse_sessionless_local_pulls(&paths)?;
     }
 
-    let summary = if matches!(config, SyncBackendConfig::Git { .. }) {
+    let summary = if let Some(session) = session {
+        let snapshot = session
+            .snapshot_sync_documents()
+            .map_err(EngineError::from)?;
+        let local = StoreLocalSnapshotPort::from_store_snapshot(
+            snapshot.generation.as_str(),
+            snapshot.documents.into_iter().map(|entry| {
+                (
+                    entry.path.as_str().to_owned(),
+                    entry.fingerprint.as_str().to_owned(),
+                )
+            }),
+        )
+        .map_err(EngineError::from)?;
+        if matches!(config, SyncBackendConfig::Git { .. }) {
+            let remote =
+                connect_git_port(&paths, &config, secret_ref).map_err(EngineError::from)?;
+            run_composed_sync_cycle_with_ports(&paths, &config, &local, &remote, apply_remote)
+                .map_err(EngineError::from)?
+        } else {
+            run_composed_sync_cycle_with_local_port(
+                &paths,
+                &config,
+                &local,
+                secret_ref,
+                apply_remote,
+            )
+            .map_err(EngineError::from)?
+        }
+    } else if matches!(config, SyncBackendConfig::Git { .. }) {
         run_composed_git_cycle(workspace, &config, secret_ref, apply_remote)
             .map_err(EngineError::from)?
     } else {
@@ -1188,13 +1258,13 @@ fn execute_composed_sync_cycle(
     };
 
     if apply_remote && let Some(session) = session {
-        apply_resolved_local_pulls_via_session(workspace, session)?;
+        apply_resolved_local_pulls_via_session(&paths, session)?;
     }
     Ok(cycle_summary_to_dto(summary))
 }
 
-fn refuse_sessionless_local_pulls(workspace: &Path) -> Result<(), EngineError> {
-    let pulls = pending_resolved_local_pulls(workspace)?;
+fn refuse_sessionless_local_pulls(paths: &SyncPaths) -> Result<(), EngineError> {
+    let pulls = pending_resolved_local_pulls(paths)?;
     if pulls.is_empty() {
         Ok(())
     } else {
@@ -1206,13 +1276,12 @@ fn refuse_sessionless_local_pulls(workspace: &Path) -> Result<(), EngineError> {
 }
 
 fn pending_resolved_local_pulls(
-    workspace: &Path,
+    paths: &SyncPaths,
 ) -> Result<Vec<ResolvedLocalPullMutation>, EngineError> {
-    let paths = SyncPaths::for_workspace(workspace);
-    match read_conflict_session_state(&paths).map_err(EngineError::from)? {
+    match read_conflict_session_state(paths).map_err(EngineError::from)? {
         ConflictSessionState::Absent => Ok(Vec::new()),
         ConflictSessionState::Present(session) => {
-            collect_resolved_local_pull_mutations(&paths, &session).map_err(EngineError::from)
+            collect_resolved_local_pull_mutations(paths, &session).map_err(EngineError::from)
         }
     }
 }
@@ -1263,24 +1332,23 @@ fn workspace_paths_match(left: &Path, right: &Path) -> Result<bool, EngineError>
 }
 
 fn apply_resolved_local_pulls_via_session(
-    workspace: &Path,
+    paths: &SyncPaths,
     session: &WorkspaceSession,
 ) -> Result<(), EngineError> {
-    let paths = SyncPaths::for_workspace(workspace);
-    let conflict = match read_conflict_session_state(&paths).map_err(EngineError::from)? {
+    let conflict = match read_conflict_session_state(paths).map_err(EngineError::from)? {
         ConflictSessionState::Absent => return Ok(()),
         ConflictSessionState::Present(session_state) => session_state,
     };
     let mutations =
-        collect_resolved_local_pull_mutations(&paths, &conflict).map_err(EngineError::from)?;
+        collect_resolved_local_pull_mutations(paths, &conflict).map_err(EngineError::from)?;
     if mutations.is_empty() {
         return Ok(());
     }
     for mutation in &mutations {
         apply_one_local_pull(session, &conflict, mutation)?;
     }
-    let baseline = read_baseline(&paths).map_err(EngineError::from)?;
-    advance_baseline_after_local_pull(&paths, conflict.conflict_revision, baseline, &mutations)
+    let baseline = read_baseline(paths).map_err(EngineError::from)?;
+    advance_baseline_after_local_pull(paths, conflict.conflict_revision, baseline, &mutations)
         .map_err(EngineError::from)?;
     Ok(())
 }

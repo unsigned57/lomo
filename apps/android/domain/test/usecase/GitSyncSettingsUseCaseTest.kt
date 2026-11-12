@@ -1,13 +1,13 @@
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,8 +16,6 @@ package com.lomo.domain.usecase
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
-import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncPhase
@@ -28,8 +26,6 @@ import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import io.kotest.assertions.fail
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.types.shouldBeInstanceOf
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 
@@ -59,11 +55,11 @@ class GitSyncSettingsUseCaseTest : DomainFunSpec() {
                     gitSyncRepository = gitSyncRepository,
                     syncPolicyRepository = syncPolicyRepository,
                     syncAndRebuildUseCase =
-                        SyncAndRebuildUseCase(
-                            memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                            syncProviderRegistry = SyncProviderRegistry(emptySet()),
-                            syncPolicyRepository = syncPolicyRepository,
-                        ),
+                    SyncAndRebuildUseCase(
+                        memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
+                        syncProviderRegistry = SyncProviderRegistry(emptySet()),
+                        syncPolicyRepository = syncPolicyRepository,
+                    ),
                     gitRemoteUrlUseCase = GitRemoteUrlUseCase(),
                 )
         }

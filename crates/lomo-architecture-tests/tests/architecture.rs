@@ -628,8 +628,9 @@ mod tests {
         // Cargo.toml `workspace.dependencies.boltffi_core` compiles the runtime —
         // two writes of one (git, rev) pin. A one-sided bump passes the bindings
         // digest (it only triggers a rebuild) but splits the CLI from the ABI.
-        let violations = policy::boltffi_pin_violations(&read("tools.toml"), &read("Cargo.toml"))
-            .expect("BoltFFI pin manifests must parse");
+        let violations =
+            policy::boltffi_pin_violations(&read("quality/tools.toml"), &read("Cargo.toml"))
+                .expect("BoltFFI pin manifests must parse");
         assert!(violations.is_empty(), "{violations:#?}");
     }
 

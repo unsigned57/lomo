@@ -1,11 +1,10 @@
 package com.lomo.app.feature.settings
-import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
-
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
 import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
 import com.lomo.app.testing.fakes.FakeSyncInboxRepository
+import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CustomFontImportResult
@@ -49,7 +48,7 @@ import kotlinx.coroutines.test.runTest
  *   - A-SW-003 RED: settings root updates still expected the obsolete second rebuild owner.
  *
  * - Excludes: Datastore file serialization, Android system settings integration.
- 
+
  * Test Change Justification:
  * - Reason category: workspace activation and projection ownership contract.
  * - Old behavior/assertion being replaced: settings root changes expected SwitchRootStorageUseCase to
@@ -64,7 +63,12 @@ import kotlinx.coroutines.test.runTest
 class SettingsAppConfigCoordinatorTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
     private val workspaceStateResolver = FakeWorkspaceStateResolver()
-    private val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, workspaceStateResolver, FakeWorkspaceMutationLease(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository())
+    private val switchRootStorageUseCase = SwitchRootStorageUseCase(
+        appConfigRepository,
+        workspaceStateResolver,
+        FakeWorkspaceMutationLease(),
+        com.lomo.app.testing.fakes.FakeEngineReadinessRepository(),
+    )
 
     private class FakeWorkspaceStateResolver : WorkspaceStateResolver {
         var rebuildCallCount = 0
@@ -187,7 +191,9 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                 appConfigRepository.currentLocation(StorageArea.SYNC_INBOX) shouldBe StorageLocation("/sync-inbox")
 
                 coordinator.updateSyncInboxUri("content://tree/sync-inbox")
-                appConfigRepository.currentLocation(StorageArea.SYNC_INBOX) shouldBe StorageLocation("content://tree/sync-inbox")
+                appConfigRepository.currentLocation(
+                    StorageArea.SYNC_INBOX,
+                ) shouldBe StorageLocation("content://tree/sync-inbox")
             }
         }
 

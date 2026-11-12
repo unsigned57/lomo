@@ -1,9 +1,6 @@
 package com.lomo.ui.text
 
-internal data class MemoTextSelectionState(
-    val anchorOffset: Int?,
-    val focusOffset: Int?,
-) {
+internal data class MemoTextSelectionState(val anchorOffset: Int?, val focusOffset: Int?) {
     val hasSelection: Boolean
         get() = selectedRange != null
 
@@ -38,10 +35,7 @@ internal data class MemoTextSelectionState(
     }
 }
 
-internal data class MemoTextSelectionEndpoint(
-    val blockKey: Any,
-    val offset: Int,
-)
+internal data class MemoTextSelectionEndpoint(val blockKey: Any, val offset: Int)
 
 /**
  * Selection state shared by every paragraph inside a memo card's free-copy scope.
@@ -62,11 +56,7 @@ internal data class MemoMultiParagraphSelection(
         return start.offset != end.offset
     }
 
-    fun selectedRangeForBlock(
-        blockKey: Any,
-        blockTextLength: Int,
-        blockOrder: List<Any>,
-    ): IntRange? {
+    fun selectedRangeForBlock(blockKey: Any, blockTextLength: Int, blockOrder: List<Any>): IntRange? {
         val (start, end) = resolveForwardEndpoints(blockOrder) ?: return null
         return if (start.blockKey == end.blockKey) {
             resolveSingleBlockRange(blockKey, start, end, blockTextLength)
@@ -100,14 +90,17 @@ internal data class MemoMultiParagraphSelection(
         if (startIndex < 0 || endIndex < 0 || targetIndex < 0) return null
         return when {
             targetIndex < startIndex || targetIndex > endIndex -> null
+
             targetIndex == startIndex -> {
                 val lo = start.offset.coerceIn(0, blockTextLength)
                 if (lo >= blockTextLength) null else lo until blockTextLength
             }
+
             targetIndex == endIndex -> {
                 val hi = end.offset.coerceIn(0, blockTextLength)
                 if (hi <= 0) null else 0 until hi
             }
+
             else -> 0 until blockTextLength
         }
     }
@@ -147,11 +140,7 @@ internal data class MemoMultiParagraphSelection(
     }
 }
 
-internal data class MemoTextLinkRange(
-    val start: Int,
-    val end: Int,
-    val url: String,
-) {
+internal data class MemoTextLinkRange(val start: Int, val end: Int, val url: String) {
     fun contains(offset: Int): Boolean = offset in start until end
 }
 

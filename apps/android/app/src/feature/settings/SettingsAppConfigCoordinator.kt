@@ -1,14 +1,17 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.common.appWhileSubscribed
-
-import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CalendarHeatmapThresholds
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.CustomFontImportResult
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.CustomFontSource
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.QuickBallAction
+import com.lomo.domain.model.QuickBallConfig
+import com.lomo.domain.model.QuickBallGesture
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
@@ -87,6 +90,15 @@ class SettingsAppConfigCoordinator(
             .getColorSource()
             .stateIn(scope, appWhileSubscribed(), ColorSource.default())
 
+    val pureBlackDark: StateFlow<Boolean> =
+        appConfigRepository.isPureBlackDarkEnabled()
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.PURE_BLACK_DARK)
+
+    val contrastLevel: StateFlow<ContrastLevel> =
+        appConfigRepository
+            .getContrastLevel()
+            .stateIn(scope, appWhileSubscribed(), ContrastLevel.default())
+
     val colorHistory: StateFlow<List<Int>> =
         appConfigRepository
             .getColorHistory()
@@ -142,19 +154,18 @@ class SettingsAppConfigCoordinator(
             .isFreeTextCopyEnabled()
             .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.FREE_TEXT_COPY_ENABLED)
 
-    val memoActionAutoReorderEnabled: StateFlow<Boolean> =
-        appConfigRepository
-            .isMemoActionAutoReorderEnabled()
-            .stateIn(
-                scope,
-                appWhileSubscribed(),
-                PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
-            )
-
     val quickSaveOnBackEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isQuickSaveOnBackEnabled()
             .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED)
+
+    val quickBallConfig: StateFlow<QuickBallConfig> =
+        appConfigRepository.getQuickBallConfig().stateIn(scope, appWhileSubscribed(), QuickBallConfig.defaults())
+
+    val updateQuickBallAction: suspend (QuickBallGesture, QuickBallAction) -> Unit =
+        appConfigRepository::setQuickBallAction
+
+    val resetQuickBallConfig: suspend () -> Unit = appConfigRepository::resetQuickBallConfig
 
     val scrollbarEnabled: StateFlow<Boolean> =
         appConfigRepository
@@ -233,7 +244,7 @@ class SettingsAppConfigCoordinator(
 
     val updateImageDirectory: suspend (String) -> Unit =
         { path ->
-            appConfigRepository.applyLocation(
+            switchRootStorageUseCase.updateMediaLocation(
                 StorageAreaUpdate(
                     area = StorageArea.IMAGE,
                     location = StorageLocation(path),
@@ -243,7 +254,7 @@ class SettingsAppConfigCoordinator(
 
     val updateImageUri: suspend (String) -> Unit =
         { uriString ->
-            appConfigRepository.applyLocation(
+            switchRootStorageUseCase.updateMediaLocation(
                 StorageAreaUpdate(
                     area = StorageArea.IMAGE,
                     location = StorageLocation(uriString),
@@ -253,7 +264,7 @@ class SettingsAppConfigCoordinator(
 
     val updateVoiceDirectory: suspend (String) -> Unit =
         { path ->
-            appConfigRepository.applyLocation(
+            switchRootStorageUseCase.updateMediaLocation(
                 StorageAreaUpdate(
                     area = StorageArea.VOICE,
                     location = StorageLocation(path),
@@ -263,7 +274,7 @@ class SettingsAppConfigCoordinator(
 
     val updateVoiceUri: suspend (String) -> Unit =
         { uriString ->
-            appConfigRepository.applyLocation(
+            switchRootStorageUseCase.updateMediaLocation(
                 StorageAreaUpdate(
                     area = StorageArea.VOICE,
                     location = StorageLocation(uriString),
@@ -307,6 +318,12 @@ class SettingsAppConfigCoordinator(
 
     val updateColorSource: suspend (ColorSource) -> Unit =
         { source -> appConfigRepository.setColorSource(source) }
+
+    val updatePureBlackDark: suspend (Boolean) -> Unit =
+        { enabled -> appConfigRepository.setPureBlackDarkEnabled(enabled) }
+
+    val updateContrastLevel: suspend (ContrastLevel) -> Unit =
+        { level -> appConfigRepository.setContrastLevel(level) }
 
     val updateFontPreference: suspend (FontPreference) -> Unit =
         { preference -> appConfigRepository.setFontPreference(preference) }
@@ -362,9 +379,6 @@ class SettingsAppConfigCoordinator(
 
     val updateFreeTextCopyEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setFreeTextCopyEnabled(enabled) }
-
-    val updateMemoActionAutoReorderEnabled: suspend (Boolean) -> Unit =
-        { enabled -> appConfigRepository.setMemoActionAutoReorderEnabled(enabled) }
 
     val updateQuickSaveOnBackEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setQuickSaveOnBackEnabled(enabled) }

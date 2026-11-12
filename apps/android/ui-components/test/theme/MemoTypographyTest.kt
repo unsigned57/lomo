@@ -3,23 +3,26 @@ package com.lomo.ui.theme
 /*
  * Behavior Contract:
  * Test Change Justification:
- * Reason category: User-approved behavior change.
- * Old behavior/assertion being replaced: compact memo defaults of 14sp with 16/20sp line heights.
- * Why old assertion is no longer correct: the approved Expressive reading baseline is 16sp/24sp.
- * Coverage preserved by: body/editor/summary/hint parity, scaling, CJK alignment and spacing assertions.
- * Why this is not fitting the test to the implementation: the new defaults were fixed in the approved plan.
+ * Reason category: user-requested smaller default reading size.
+ * Old behavior/assertion being replaced: memo body/editor/summary/hint used 15sp/22sp.
+ * Why old assertion is no longer correct: the user found 15sp too large; 14sp/21sp keeps a 2sp step above 12sp header
+ *   timestamps and tag pills, and the 1.5 line-height ratio keeps CJK prose airy with the 6dp paragraph spacing.
+ * Coverage preserved by: shared body/editor/summary/hint metrics, CJK layout and user scaling remain covered.
+ * Why this is not fitting the test to the implementation: 14sp/21sp/6dp is the requested reading size, asserted
+ *   before MemoTypography changed.
  * - Unit under test: MemoTypography memo text tokens
  * - Capability: memo reading typography keeps one Expressive baseline across body, editor, hint
  *   and summary styles, with CJK glyphs aligned proportionally.
  * - Scenarios:
- *   1. Given memo body/editor/hint/summary styles, when resolved, then they keep the tightened
- *      reading spacing and the compact memo line-height rhythm.
+ *   1. Given memo body/editor/hint/summary styles, when resolved, then they keep the balanced
+ *      14sp/21sp reading rhythm and 6dp paragraph block spacing.
  *   2. Given CJK glyphs in editor or hint styles, when rendered, then line-height aligns
  *      proportionally and Android font padding is disabled so CJK characters share the same
  *      in-line balance as Latin.
  * - Observable outcomes: TextStyle.fontSize, lineHeight, letterSpacing, lineHeightStyle, platformStyle
  *   and memoParagraphBlockSpacing.
- * - TDD proof: Fails before the CJK alignment fix because lineHeightStyle on memoEditorTextStyle/memoHintTextStyle is Center instead of Proportional.
+ * - TDD proof: `./kotlin test --include-module=ui-components --include-classes=com.lomo.ui.theme.MemoTypographyTest` fails when MemoTypography returns 15sp/22sp instead of 14sp/21sp/6dp.
+ * - Earlier TDD proof: Fails before the CJK alignment fix because lineHeightStyle on memoEditorTextStyle/memoHintTextStyle is Center instead of Proportional.
  * - Excludes: MaterialTheme composition wiring, OEM font rendering differences, BasicTextField layout.
  */
 
@@ -55,8 +58,8 @@ class MemoTypographyTest : UiComponentsFunSpec() {
             val editor = typography.memoEditorTextStyle(defaultScales)
             val hint = typography.memoHintTextStyle(defaultScales)
 
-            (body.fontSize) shouldBe (16.sp)
-            (body.lineHeight) shouldBe (24.sp)
+            (body.fontSize) shouldBe (14.sp)
+            (body.lineHeight) shouldBe (21.sp)
             (body.letterSpacing) shouldBe (0.1.sp)
 
             (editor.fontSize) shouldBe (body.fontSize)
@@ -71,13 +74,13 @@ class MemoTypographyTest : UiComponentsFunSpec() {
         test("memo summary shares the Expressive reading rhythm") {
             val summary = typography.memoSummaryTextStyle(defaultScales)
 
-            (summary.fontSize) shouldBe (16.sp)
-            (summary.lineHeight) shouldBe (24.sp)
+            (summary.fontSize) shouldBe (14.sp)
+            (summary.lineHeight) shouldBe (21.sp)
             (summary.letterSpacing) shouldBe (0.1.sp)
         }
 
-        test("memo paragraph block spacing stays clearly larger than the compact line rhythm") {
-            (memoParagraphBlockSpacing(defaultScales)) shouldBe (8.dp)
+        test("memo paragraph block spacing stays clearly balanced with the reading line rhythm") {
+            (memoParagraphBlockSpacing(defaultScales)) shouldBe (6.dp)
         }
 
         test("memo editor style aligns CJK glyphs proportionally and disables Android font padding") {

@@ -49,11 +49,11 @@ internal fun ShaderUpdateProgressBackdrop(modifier: Modifier = Modifier) {
 
         Canvas(
             modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        MaterialTheme.colorScheme.surface.copy(alpha = SHADER_SURFACE_OVERLAY_ALPHA),
-                    ),
+            Modifier
+                .fillMaxSize()
+                .background(
+                    MaterialTheme.colorScheme.surface.copy(alpha = SHADER_SURFACE_OVERLAY_ALPHA),
+                ),
         ) {
             shader.setFloatUniform("resolution", size.width, size.height)
             shader.setFloatUniform("time", timeSeconds)

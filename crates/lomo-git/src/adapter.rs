@@ -446,7 +446,7 @@ impl<S: GitObjectSource> GitAdapter<S> {
                         code: "git_object_exceeds_budget".to_owned(),
                     };
                 }
-                let digest_hex = format!("{:x}", Sha256::digest(blob.content()));
+                let digest_hex = lomo_core::hex_encode(&Sha256::digest(blob.content()));
                 if digest_hex == expected_digest.as_str() {
                     VerifyStatus::Verified {
                         path: path.clone(),
@@ -615,7 +615,7 @@ impl<S: GitObjectSource> GitAdapter<S> {
                 "object source length drifted between open and stream end",
             ));
         }
-        let digest_hex = format!("{:x}", hasher.finalize());
+        let digest_hex = lomo_core::hex_encode(&hasher.finalize());
         if digest_hex != expected_digest.as_str() {
             return Err(validation(
                 "git_object_source_digest_mismatch",
@@ -936,7 +936,7 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
     ) -> Result<Option<Vec<u8>>, LomoError> {
         match self.read_remote_blob(path)? {
             Some((bytes, _oid)) => {
-                let digest_hex = format!("{:x}", Sha256::digest(&bytes));
+                let digest_hex = lomo_core::hex_encode(&Sha256::digest(&bytes));
                 if digest_hex != expected_digest.as_str() {
                     return Err(validation(
                         "git_object_digest_mismatch",

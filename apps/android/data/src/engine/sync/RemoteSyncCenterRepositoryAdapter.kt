@@ -1,7 +1,8 @@
 package com.lomo.data.engine.sync
 
-import com.lomo.domain.model.RemoteSyncBackendLabel
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.sync.SyncConflictSuggestionPort
+import com.lomo.domain.model.RemoteSyncBackendLabel
 import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
 import com.lomo.domain.model.RemoteSyncCenterFailure
 import com.lomo.domain.model.RemoteSyncConfigSummary
@@ -24,7 +25,6 @@ import com.lomo.data.engine.sync.RemoteSyncConflictPath as DataConflictPath
 import com.lomo.data.engine.sync.RemoteSyncConflictPathStatus as DataPathStatus
 import com.lomo.data.engine.sync.RemoteSyncConflictResolution as DataConflictResolution
 import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult as DataConflictResolveResult
-import com.lomo.data.sync.SyncConflictSuggestionPort
 import com.lomo.data.engine.sync.RemoteSyncConflictSessionState as DataConflictSession
 
 /**
@@ -59,28 +59,22 @@ class RemoteSyncCenterRepositoryAdapter(
     override suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress =
         mapBoundary { remoteSync.requestCancel(workspaceRoot).toSessionProgress() }
 
-    override fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage =
-        mapBoundary {
-            remoteSync.listConflicts(workspaceRoot, cursor, limit).toDomain()
-        }
+    override fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage = mapBoundary {
+        remoteSync.listConflicts(workspaceRoot, cursor, limit).toDomain()
+    }
 
     override fun resolveConflicts(
         workspaceRoot: String,
         expectedRevision: Long,
         resolutions: List<RemoteSyncConflictResolution>,
-    ): RemoteSyncConflictResolveResult =
-        mapBoundary {
-            remoteSync
-                .resolveConflicts(
-                    workspaceRoot = workspaceRoot,
-                    expectedRevision = expectedRevision,
-                    resolutions = resolutions.map { it.toData() },
-                ).toDomain()
-        }
+    ): RemoteSyncConflictResolveResult = mapBoundary {
+        remoteSync
+            .resolveConflicts(
+                workspaceRoot = workspaceRoot,
+                expectedRevision = expectedRevision,
+                resolutions = resolutions.map { it.toData() },
+            ).toDomain()
+    }
 
     override fun markdownConflictFacts(
         workspaceRoot: String,
@@ -101,13 +95,13 @@ class RemoteSyncCenterRepositoryAdapter(
                 remoteBody = remoteBody,
                 mergedDraft = mergedDraft,
                 suggestion =
-                    suggestionPort.suggest(
-                        localBody = localBody,
-                        remoteBody = remoteBody,
-                        localLastModifiedMs = null,
-                        remoteLastModifiedMs = null,
-                        isBinary = false,
-                    ),
+                suggestionPort.suggest(
+                    localBody = localBody,
+                    remoteBody = remoteBody,
+                    localLastModifiedMs = null,
+                    remoteLastModifiedMs = null,
+                    isBinary = false,
+                ),
             )
         }
     }
@@ -130,10 +124,7 @@ class RemoteSyncCenterRepositoryAdapter(
         )
     }
 
-    private fun readUtf8Artifact(
-        workspaceRoot: String,
-        artifactRef: String?,
-    ): String? {
+    private fun readUtf8Artifact(workspaceRoot: String, artifactRef: String?): String? {
         if (artifactRef.isNullOrBlank()) {
             return null
         }
@@ -148,10 +139,7 @@ class RemoteSyncCenterRepositoryAdapter(
  * Production-shaped path uses [SyncNativeBridge.readConflictArtifact]; host tests inject fakes.
  */
 interface ConflictArtifactSource {
-    fun readArtifact(
-        workspaceRoot: String,
-        artifactRef: String,
-    ): ByteArray
+    fun readArtifact(workspaceRoot: String, artifactRef: String): ByteArray
 }
 
 /**
@@ -159,13 +147,8 @@ interface ConflictArtifactSource {
  *
  * Maps [RemoteSyncBoundaryFailure] from the bridge edge.
  */
-class BridgeConflictArtifactSource(
-    private val bridge: SyncNativeBridge,
-) : ConflictArtifactSource {
-    override fun readArtifact(
-        workspaceRoot: String,
-        artifactRef: String,
-    ): ByteArray {
+class BridgeConflictArtifactSource(private val bridge: SyncNativeBridge) : ConflictArtifactSource {
+    override fun readArtifact(workspaceRoot: String, artifactRef: String): ByteArray {
         require(workspaceRoot.isNotBlank()) { "workspace root must be non-blank" }
         require(artifactRef.isNotBlank()) { "artifact ref must be non-blank" }
         return try {
@@ -207,85 +190,80 @@ internal fun decodeStrictUtf8(bytes: ByteArray): String {
     }
 }
 
-private inline fun <T> mapBoundary(block: () -> T): T =
-    try {
-        block()
-    } catch (error: RemoteSyncBoundaryFailure) {
-        throw error.toCenterFailure()
-    }
+private inline fun <T> mapBoundary(block: () -> T): T = try {
+    block()
+} catch (error: RemoteSyncBoundaryFailure) {
+    throw error.toCenterFailure()
+}
 
-private fun RemoteSyncBoundaryFailure.toCenterFailure(): RemoteSyncCenterFailure =
-    RemoteSyncCenterFailure(
-        category = category,
-        code = code,
-        retryDisposition = retryDisposition,
-        diagnostic = diagnostic,
-        operationId = operationId,
-        jobId = jobId,
-    )
+private fun RemoteSyncBoundaryFailure.toCenterFailure(): RemoteSyncCenterFailure = RemoteSyncCenterFailure(
+    category = category,
+    code = code,
+    retryDisposition = retryDisposition,
+    diagnostic = diagnostic,
+    operationId = operationId,
+    jobId = jobId,
+)
 
-private fun DataConflictPage.toDomain(): RemoteSyncConflictPage =
-    RemoteSyncConflictPage(
-        session = session.toDomain(),
-        sessionId = sessionId,
-        conflictRevision = conflictRevision,
-        items = items.map { it.toDomain() },
-        nextCursor = nextCursor,
-    )
+private fun DataConflictPage.toDomain(): RemoteSyncConflictPage = RemoteSyncConflictPage(
+    session = session.toDomain(),
+    sessionId = sessionId,
+    conflictRevision = conflictRevision,
+    items = items.map { it.toDomain() },
+    nextCursor = nextCursor,
+)
 
-private fun DataConflictSession.toDomain(): RemoteSyncConflictSessionState =
-    when (this) {
-        DataConflictSession.Absent -> RemoteSyncConflictSessionState.Absent
-        DataConflictSession.Present -> RemoteSyncConflictSessionState.Present
-    }
+private fun DataConflictSession.toDomain(): RemoteSyncConflictSessionState = when (this) {
+    DataConflictSession.Absent -> RemoteSyncConflictSessionState.Absent
+    DataConflictSession.Present -> RemoteSyncConflictSessionState.Present
+}
 
-private fun DataConflictPath.toDomain(): RemoteSyncConflictPath =
-    RemoteSyncConflictPath(
-        path = path,
-        kind = kind,
-        localDigest = localDigest,
-        remoteDigest = remoteDigest,
-        baselineDigest = baselineDigest,
-        remoteTokenPresent = remoteTokenPresent,
-        localArtifactRef = localArtifactRef,
-        remoteArtifactRef = remoteArtifactRef,
-        baselineArtifactRef = baselineArtifactRef,
-        status = status.toDomain(),
-    )
+private fun DataConflictPath.toDomain(): RemoteSyncConflictPath = RemoteSyncConflictPath(
+    path = path,
+    kind = kind,
+    localDigest = localDigest,
+    remoteDigest = remoteDigest,
+    baselineDigest = baselineDigest,
+    remoteTokenPresent = remoteTokenPresent,
+    localArtifactRef = localArtifactRef,
+    remoteArtifactRef = remoteArtifactRef,
+    baselineArtifactRef = baselineArtifactRef,
+    status = status.toDomain(),
+)
 
-private fun DataPathStatus.toDomain(): RemoteSyncConflictPathStatus =
-    when (this) {
-        DataPathStatus.Open -> RemoteSyncConflictPathStatus.Open
-        DataPathStatus.ResolvedKeepLocal -> RemoteSyncConflictPathStatus.ResolvedKeepLocal
-        DataPathStatus.ResolvedKeepRemote -> RemoteSyncConflictPathStatus.ResolvedKeepRemote
-        DataPathStatus.ResolvedMerged -> RemoteSyncConflictPathStatus.ResolvedMerged
-        DataPathStatus.SkippedForNow -> RemoteSyncConflictPathStatus.SkippedForNow
-    }
+private fun DataPathStatus.toDomain(): RemoteSyncConflictPathStatus = when (this) {
+    DataPathStatus.Open -> RemoteSyncConflictPathStatus.Open
+    DataPathStatus.ResolvedKeepLocal -> RemoteSyncConflictPathStatus.ResolvedKeepLocal
+    DataPathStatus.ResolvedKeepRemote -> RemoteSyncConflictPathStatus.ResolvedKeepRemote
+    DataPathStatus.ResolvedMerged -> RemoteSyncConflictPathStatus.ResolvedMerged
+    DataPathStatus.SkippedForNow -> RemoteSyncConflictPathStatus.SkippedForNow
+}
 
-private fun RemoteSyncConflictResolution.toData(): DataConflictResolution =
-    DataConflictResolution(
-        path = path,
-        kind = kind,
-        mergedBody = mergedBody,
-    )
+private fun RemoteSyncConflictResolution.toData(): DataConflictResolution = DataConflictResolution(
+    path = path,
+    kind = kind,
+    mergedBody = mergedBody,
+)
 
-private fun DataConflictResolveResult.toDomain(): RemoteSyncConflictResolveResult =
-    RemoteSyncConflictResolveResult(
-        sessionId = sessionId,
-        conflictRevision = conflictRevision,
-        appliedPaths = appliedPaths,
-    )
+private fun DataConflictResolveResult.toDomain(): RemoteSyncConflictResolveResult = RemoteSyncConflictResolveResult(
+    sessionId = sessionId,
+    conflictRevision = conflictRevision,
+    appliedPaths = appliedPaths,
+)
 
-private fun SyncBackendType.toRemoteSyncBackendLabel(): RemoteSyncBackendLabel =
-    when (this) {
-        SyncBackendType.GIT -> RemoteSyncBackendLabel.Git
-        SyncBackendType.WEBDAV -> RemoteSyncBackendLabel.WebDav
-        SyncBackendType.S3 -> RemoteSyncBackendLabel.S3
-        SyncBackendType.NONE,
-        SyncBackendType.INBOX,
-        -> RemoteSyncBackendLabel.None
-        SyncBackendType.UNKNOWN -> RemoteSyncBackendLabel.Unknown
-    }
+private fun SyncBackendType.toRemoteSyncBackendLabel(): RemoteSyncBackendLabel = when (this) {
+    SyncBackendType.GIT -> RemoteSyncBackendLabel.Git
+
+    SyncBackendType.WEBDAV -> RemoteSyncBackendLabel.WebDav
+
+    SyncBackendType.S3 -> RemoteSyncBackendLabel.S3
+
+    SyncBackendType.NONE,
+    SyncBackendType.INBOX,
+    -> RemoteSyncBackendLabel.None
+
+    SyncBackendType.UNKNOWN -> RemoteSyncBackendLabel.Unknown
+}
 
 /**
  * Persisted remote-sync config read surface for the Sync Center projection.
@@ -300,28 +278,26 @@ interface RemoteSyncConfigSource {
     suspend fun schedulePolicyLabel(backend: SyncBackendType): String?
 }
 
-class DataStoreRemoteSyncConfigSource(
-    private val dataStore: LomoDataStore,
-) : RemoteSyncConfigSource {
+class DataStoreRemoteSyncConfigSource(private val dataStore: LomoDataStore) : RemoteSyncConfigSource {
     override suspend fun backendType(): SyncBackendType =
         SyncBackendType.fromStorageValue(dataStore.syncBackendType.first())
 
-    override suspend fun schedulePolicyLabel(backend: SyncBackendType): String? =
-        when (backend) {
-            SyncBackendType.GIT ->
-                scheduleLabel(dataStore.gitAutoSyncEnabled.first(), dataStore.gitAutoSyncInterval.first())
-            SyncBackendType.WEBDAV ->
-                scheduleLabel(dataStore.webDavAutoSyncEnabled.first(), dataStore.webDavAutoSyncInterval.first())
-            SyncBackendType.S3 ->
-                scheduleLabel(dataStore.s3AutoSyncEnabled.first(), dataStore.s3AutoSyncInterval.first())
-            SyncBackendType.NONE,
-            SyncBackendType.INBOX,
-            SyncBackendType.UNKNOWN,
-            -> null
-        }
+    override suspend fun schedulePolicyLabel(backend: SyncBackendType): String? = when (backend) {
+        SyncBackendType.GIT ->
+            scheduleLabel(dataStore.gitAutoSyncEnabled.first(), dataStore.gitAutoSyncInterval.first())
 
-    private fun scheduleLabel(
-        autoEnabled: Boolean,
-        interval: String,
-    ): String = if (autoEnabled) "auto:$interval" else "manual"
+        SyncBackendType.WEBDAV ->
+            scheduleLabel(dataStore.webDavAutoSyncEnabled.first(), dataStore.webDavAutoSyncInterval.first())
+
+        SyncBackendType.S3 ->
+            scheduleLabel(dataStore.s3AutoSyncEnabled.first(), dataStore.s3AutoSyncInterval.first())
+
+        SyncBackendType.NONE,
+        SyncBackendType.INBOX,
+        SyncBackendType.UNKNOWN,
+        -> null
+    }
+
+    private fun scheduleLabel(autoEnabled: Boolean, interval: String): String =
+        if (autoEnabled) "auto:$interval" else "manual"
 }

@@ -2,6 +2,17 @@ package com.lomo.data.engine
 
 /*
  * Behavior Contract:
+ * - Close refuses new readers and invokes the owner's wake action before draining old readers.
+ *   A wake failure still releases the handle and surfaces the failure.
+ * Test Change Justification:
+ * Reason category: native retirement must interrupt long-lived observations before draining.
+ * Old behavior/assertion being replaced: constructing a lease without an explicit wake owner.
+ * Why old assertion is no longer correct: a native inbox wait cannot wake itself while close
+ *   waits behind its read lease. Readers in the original tests have no native wait to interrupt.
+ * Coverage preserved by: all original ordering/rejection/double-close assertions, plus the
+ *   native port and managed-session blocked-observer RED/GREEN tests and wake-failure cleanup.
+ * Why this is not fitting the test to the implementation: the release device's empty-root
+ *   delay and two controlled timeout failures independently demonstrate the lifecycle inversion.
  * - Unit under test: NativeHandleLease.
  * - Owning layer: data.
  * - Priority tier: P0.
@@ -37,13 +48,25 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class NativeHandleLeaseTest : DataFunSpec() {
     init {
+        test(
+            "given reader interruption fails when closing then handle release still runs and the failure is surfaced",
+        ) {
+            val failure = IllegalStateException("native wake failed")
+            val lease = NativeHandleLease { throw failure }
+            var released = false
+            shouldThrow<IllegalStateException> {
+                lease.closeOnce { released = true }
+            } shouldBe failure
+            released shouldBe true
+            shouldThrow<IllegalStateException> { lease.withRead { error("closed handle") } }
+        }
         test("given open lease when withRead runs then block value is returned") {
-            val lease = NativeHandleLease()
+            val lease = NativeHandleLease { }
             lease.withRead { 7 } shouldBe 7
         }
 
         test("given closed lease when withRead is requested then boundary rejects") {
-            val lease = NativeHandleLease()
+            val lease = NativeHandleLease { }
             val closed = lease.closeOnce { }
             closed shouldBe true
             shouldThrow<IllegalStateException> {
@@ -52,7 +75,7 @@ class NativeHandleLeaseTest : DataFunSpec() {
         }
 
         test("given in-flight reader when close starts then close waits for reader then runs once") {
-            val lease = NativeHandleLease()
+            val lease = NativeHandleLease { }
             val readerEntered = CountDownLatch(1)
             val releaseReader = CountDownLatch(1)
             val closeStarted = CountDownLatch(1)
@@ -97,7 +120,7 @@ class NativeHandleLeaseTest : DataFunSpec() {
         }
 
         test("given concurrent close when both threads call closeOnce then body runs once") {
-            val lease = NativeHandleLease()
+            val lease = NativeHandleLease { }
             val bodyCount = AtomicInteger(0)
             val barrier = CyclicBarrier(2)
             val workers =

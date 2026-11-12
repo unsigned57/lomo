@@ -78,10 +78,10 @@ class NsdResolvedDeviceMapperTest : DataFunSpec() {
                 mapResolvedLanShareDevice(
                     serviceName = "Lomo-Phone",
                     hostAddresses =
-                        listOf(
-                            InetAddress.getByName("fd00::25"),
-                            InetAddress.getByName("192.168.1.26"),
-                        ),
+                    listOf(
+                        InetAddress.getByName("fd00::25"),
+                        InetAddress.getByName("192.168.1.26"),
+                    ),
                     port = 1082,
                     attributes = v2Attributes(PEER_C_DEVICE_ID),
                     localDeviceId = LOCAL_DEVICE_ID,
@@ -108,62 +108,64 @@ class NsdResolvedDeviceMapperTest : DataFunSpec() {
 
         test("resolved self invalid identity and incomplete endpoints are ignored") {
             mapResolvedLanShareDevice(
-                    serviceName = "Lomo-Local",
-                    hostAddresses = listOf(InetAddress.getByName("192.168.1.27")),
-                    port = 1083,
-                    attributes = v2Attributes(LOCAL_DEVICE_ID),
-                    localDeviceId = LOCAL_DEVICE_ID,
-                    expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
-                ).shouldBeNull()
+                serviceName = "Lomo-Local",
+                hostAddresses = listOf(InetAddress.getByName("192.168.1.27")),
+                port = 1083,
+                attributes = v2Attributes(LOCAL_DEVICE_ID),
+                localDeviceId = LOCAL_DEVICE_ID,
+                expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
+            ).shouldBeNull()
             mapResolvedLanShareDevice(
-                    serviceName = "Lomo-NoUuid",
-                    hostAddresses = listOf(InetAddress.getByName("192.168.1.29")),
-                    port = 1083,
-                    attributes = emptyMap(),
-                    localDeviceId = LOCAL_DEVICE_ID,
-                    expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
-                ).shouldBeNull()
+                serviceName = "Lomo-NoUuid",
+                hostAddresses = listOf(InetAddress.getByName("192.168.1.29")),
+                port = 1083,
+                attributes = emptyMap(),
+                localDeviceId = LOCAL_DEVICE_ID,
+                expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
+            ).shouldBeNull()
             mapResolvedLanShareDevice(
-                    serviceName = "Lomo-BadUuid",
-                    hostAddresses = listOf(InetAddress.getByName("192.168.1.30")),
-                    port = 1083,
-                    attributes = v2Attributes("g".repeat(64)),
-                    localDeviceId = LOCAL_DEVICE_ID,
-                    expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
-                ).shouldBeNull()
+                serviceName = "Lomo-BadUuid",
+                hostAddresses = listOf(InetAddress.getByName("192.168.1.30")),
+                port = 1083,
+                attributes = v2Attributes("g".repeat(64)),
+                localDeviceId = LOCAL_DEVICE_ID,
+                expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
+            ).shouldBeNull()
             mapResolvedLanShareDevice(
-                    serviceName = "Lomo-NoHost",
-                    hostAddresses = emptyList(),
-                    port = 1084,
-                    attributes = v2Attributes(PEER_E_DEVICE_ID),
-                    localDeviceId = LOCAL_DEVICE_ID,
-                    expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
-                ).shouldBeNull()
+                serviceName = "Lomo-NoHost",
+                hostAddresses = emptyList(),
+                port = 1084,
+                attributes = v2Attributes(PEER_E_DEVICE_ID),
+                localDeviceId = LOCAL_DEVICE_ID,
+                expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
+            ).shouldBeNull()
             mapResolvedLanShareDevice(
-                    serviceName = "Lomo-NoPort",
-                    hostAddresses = listOf(InetAddress.getByName("192.168.1.28")),
-                    port = 0,
-                    attributes = v2Attributes(PEER_F_DEVICE_ID),
-                    localDeviceId = LOCAL_DEVICE_ID,
-                    expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
-                ).shouldBeNull()
+                serviceName = "Lomo-NoPort",
+                hostAddresses = listOf(InetAddress.getByName("192.168.1.28")),
+                port = 0,
+                attributes = v2Attributes(PEER_F_DEVICE_ID),
+                localDeviceId = LOCAL_DEVICE_ID,
+                expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
+            ).shouldBeNull()
             mapResolvedLanShareDevice(
-                    serviceName = "Lomo-V1",
-                    hostAddresses = listOf(InetAddress.getByName("192.168.1.31")),
-                    port = 1083,
-                    attributes = mapOf("device_id" to PEER_F_DEVICE_ID.toByteArray(), "protocol_version" to "1".toByteArray()),
-                    localDeviceId = LOCAL_DEVICE_ID,
-                    expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
-                ).shouldBeNull()
+                serviceName = "Lomo-V1",
+                hostAddresses = listOf(InetAddress.getByName("192.168.1.31")),
+                port = 1083,
+                attributes = mapOf(
+                    "device_id" to PEER_F_DEVICE_ID.toByteArray(),
+                    "protocol_version" to "1".toByteArray(),
+                ),
+                localDeviceId = LOCAL_DEVICE_ID,
+                expectedProtocolVersion = ACTIVE_PROTOCOL_VERSION,
+            ).shouldBeNull()
         }
     }
 }
 
-private fun v2Attributes(deviceId: String): Map<String, ByteArray> =
-    mapOf(
-        "device_id" to deviceId.toByteArray(Charsets.UTF_8),
-        "protocol_version" to ACTIVE_PROTOCOL_VERSION.toByteArray(Charsets.UTF_8),
-    )
+private fun v2Attributes(deviceId: String): Map<String, ByteArray> = mapOf(
+    "device_id" to deviceId.toByteArray(Charsets.UTF_8),
+    "protocol_version" to ACTIVE_PROTOCOL_VERSION.toByteArray(Charsets.UTF_8),
+)
 
 private const val ACTIVE_PROTOCOL_VERSION = "3"
 

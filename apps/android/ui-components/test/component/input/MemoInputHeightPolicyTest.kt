@@ -1,10 +1,10 @@
 package com.lomo.ui.component.input
 
-import com.lomo.ui.testing.UiComponentsFunSpec
-import io.kotest.matchers.shouldBe
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -17,25 +17,25 @@ import androidx.compose.ui.unit.sp
 class MemoInputHeightPolicyTest : UiComponentsFunSpec() {
     init {
         test("minimum content height uses explicit line height across the configured minimum lines") {
-        val minHeight =
-            resolveMemoInputMinimumContentHeightPx(
-                style = TextStyle(fontSize = 14.sp, lineHeight = 16.sp),
-                density = Density(density = 1f),
-            )
+            val minHeight =
+                resolveMemoInputMinimumContentHeightPx(
+                    style = TextStyle(fontSize = 14.sp, lineHeight = 16.sp),
+                    density = Density(density = 1f),
+                )
 
-        (minHeight) shouldBe (48)
+            (minHeight) shouldBe (48)
         }
     }
 
     init {
         test("minimum content height falls back to font size when line height is unspecified") {
-        val minHeight =
-            resolveMemoInputMinimumContentHeightPx(
-                style = TextStyle(fontSize = 18.sp),
-                density = Density(density = 1f),
-            )
+            val minHeight =
+                resolveMemoInputMinimumContentHeightPx(
+                    style = TextStyle(fontSize = 18.sp),
+                    density = Density(density = 1f),
+                )
 
-        (minHeight) shouldBe (54)
+            (minHeight) shouldBe (54)
         }
     }
 }

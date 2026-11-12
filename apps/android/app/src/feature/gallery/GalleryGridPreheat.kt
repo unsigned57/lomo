@@ -80,11 +80,7 @@ internal fun GalleryGridPreheatEffect(
     }
 }
 
-private data class GalleryBandViewport(
-    val firstVisible: Int,
-    val visibleCount: Int,
-    val viewportWidthPx: Int,
-)
+private data class GalleryBandViewport(val firstVisible: Int, val visibleCount: Int, val viewportWidthPx: Int)
 
 private const val GALLERY_TILE_SPAN_DENOMINATOR = 2
 private const val GALLERY_TILE_PRELOAD_MIN_EDGE_PX = 96

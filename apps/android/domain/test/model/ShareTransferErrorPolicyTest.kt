@@ -1,6 +1,6 @@
 package com.lomo.domain.model
 
-/**
+/*
  * Behavior Contract:
  * Capability: ShareTransferErrorPolicy
  * Scenarios: Given canonical error construction and structured engine rejections, when the policy
@@ -27,48 +27,55 @@ import io.kotest.matchers.shouldBe
 class ShareTransferErrorPolicyTest : DomainFunSpec() {
     init {
         test("policy builders preserve expected codes and payload fields") {
-            ShareTransferErrorPolicy.pairingRequiredBeforeSend() shouldBe ShareTransferError(code = ShareTransferErrorCode.PAIRING_REQUIRED)
+            ShareTransferErrorPolicy.pairingRequiredBeforeSend() shouldBe ShareTransferError(
+                code = ShareTransferErrorCode.PAIRING_REQUIRED,
+            )
             ShareTransferErrorPolicy.missingAttachments(2) shouldBe ShareTransferError(
-                    code = ShareTransferErrorCode.ATTACHMENT_RESOLVE_FAILED,
-                    missingAttachmentCount = 2,
-                )
-            ShareTransferErrorPolicy.tooManyAttachments() shouldBe ShareTransferError(code = ShareTransferErrorCode.TOO_MANY_ATTACHMENTS)
-            ShareTransferErrorPolicy.attachmentTooLarge() shouldBe ShareTransferError(code = ShareTransferErrorCode.ATTACHMENT_TOO_LARGE)
-            ShareTransferErrorPolicy.attachmentsTooLarge() shouldBe ShareTransferError(code = ShareTransferErrorCode.ATTACHMENTS_TOO_LARGE)
-            ShareTransferErrorPolicy.unsupportedAttachmentType() shouldBe ShareTransferError(code = ShareTransferErrorCode.UNSUPPORTED_ATTACHMENT_TYPE)
+                code = ShareTransferErrorCode.ATTACHMENT_RESOLVE_FAILED,
+                missingAttachmentCount = 2,
+            )
+            ShareTransferErrorPolicy.tooManyAttachments() shouldBe ShareTransferError(
+                code = ShareTransferErrorCode.TOO_MANY_ATTACHMENTS,
+            )
+            ShareTransferErrorPolicy.attachmentTooLarge() shouldBe ShareTransferError(
+                code = ShareTransferErrorCode.ATTACHMENT_TOO_LARGE,
+            )
+            ShareTransferErrorPolicy.attachmentsTooLarge() shouldBe ShareTransferError(
+                code = ShareTransferErrorCode.ATTACHMENTS_TOO_LARGE,
+            )
+            ShareTransferErrorPolicy.unsupportedAttachmentType() shouldBe ShareTransferError(
+                code = ShareTransferErrorCode.UNSUPPORTED_ATTACHMENT_TYPE,
+            )
             ShareTransferErrorPolicy.transferRejected("Pixel") shouldBe ShareTransferError(
-                    code = ShareTransferErrorCode.TRANSFER_REJECTED,
-                    deviceName = "Pixel",
-                )
+                code = ShareTransferErrorCode.TRANSFER_REJECTED,
+                deviceName = "Pixel",
+            )
         }
 
         test("connection and generic policies trim detail while preserving null") {
             ShareTransferErrorPolicy.connectionFailed("  network timeout  ") shouldBe ShareTransferError(
-                    code = ShareTransferErrorCode.CONNECTION_FAILED,
-                    detail = "network timeout",
-                )
+                code = ShareTransferErrorCode.CONNECTION_FAILED,
+                detail = "network timeout",
+            )
             ShareTransferErrorPolicy.protocolFailed("Pixel", "  opaque ") shouldBe ShareTransferError(
-                    code = ShareTransferErrorCode.PROTOCOL_FAILED,
-                    detail = "opaque",
-                    deviceName = "Pixel",
-                )
+                code = ShareTransferErrorCode.PROTOCOL_FAILED,
+                detail = "opaque",
+                deviceName = "Pixel",
+            )
             ShareTransferErrorPolicy.connectionFailed(null).detail shouldBe null
             ShareTransferErrorPolicy.protocolFailed(null, null).detail shouldBe null
         }
 
         test("engine failures keep wire code and disposition while mapping to distinct buckets") {
-            fun failure(
-                category: EngineFailureCategory,
-                code: String,
-                diagnostic: String = "diag",
-            ) = EngineCommandFailure(
-                category = category,
-                code = code,
-                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-                operationId = null,
-                jobId = null,
-                diagnostic = diagnostic,
-            )
+            fun failure(category: EngineFailureCategory, code: String, diagnostic: String = "diag") =
+                EngineCommandFailure(
+                    category = category,
+                    code = code,
+                    retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                    operationId = null,
+                    jobId = null,
+                    diagnostic = diagnostic,
+                )
 
             ShareTransferErrorPolicy.fromEngineFailure(
                 failure(EngineFailureCategory.AUTHENTICATION, "lan_peer_revoked"),

@@ -20,18 +20,16 @@ import com.lomo.data.sync.SyncWorkNetworkRequirement
 
 internal const val SYNC_WORK_MAX_RETRY_ATTEMPTS_INPUT_KEY = "sync_work_max_retry_attempts"
 
-internal fun connectedNetworkConstraints(): Constraints =
-    Constraints
-        .Builder()
-        .setRequiredNetworkType(NetworkType.CONNECTED)
-        .build()
+internal fun connectedNetworkConstraints(): Constraints = Constraints
+    .Builder()
+    .setRequiredNetworkType(NetworkType.CONNECTED)
+    .build()
 
-internal fun unmeteredChargingConstraints(): Constraints =
-    Constraints
-        .Builder()
-        .setRequiredNetworkType(NetworkType.UNMETERED)
-        .setRequiresCharging(true)
-        .build()
+internal fun unmeteredChargingConstraints(): Constraints = Constraints
+    .Builder()
+    .setRequiredNetworkType(NetworkType.UNMETERED)
+    .setRequiresCharging(true)
+    .build()
 
 internal inline fun <reified T : ListenableWorker> buildPeriodicSyncWorkRequest(
     scheduledWork: SyncScheduledWork,
@@ -74,31 +72,27 @@ internal inline fun <reified T : ListenableWorker> WorkManager.enqueueSyncSchedu
     }
 }
 
-private fun SyncExistingWorkPolicy.toPeriodicWorkPolicy(): ExistingPeriodicWorkPolicy =
-    when (this) {
-        SyncExistingWorkPolicy.Replace -> ExistingPeriodicWorkPolicy.REPLACE
-    }
+private fun SyncExistingWorkPolicy.toPeriodicWorkPolicy(): ExistingPeriodicWorkPolicy = when (this) {
+    SyncExistingWorkPolicy.Replace -> ExistingPeriodicWorkPolicy.REPLACE
+}
 
-private fun SyncExistingWorkPolicy.toOneTimeWorkPolicy(): ExistingWorkPolicy =
-    when (this) {
-        SyncExistingWorkPolicy.Replace -> ExistingWorkPolicy.REPLACE
-    }
+private fun SyncExistingWorkPolicy.toOneTimeWorkPolicy(): ExistingWorkPolicy = when (this) {
+    SyncExistingWorkPolicy.Replace -> ExistingWorkPolicy.REPLACE
+}
 
-private fun SyncWorkNetworkRequirement.toWorkConstraints(): Constraints =
-    when (this) {
-        SyncWorkNetworkRequirement.Connected -> connectedNetworkConstraints()
-        SyncWorkNetworkRequirement.UnmeteredCharging -> unmeteredChargingConstraints()
-    }
+private fun SyncWorkNetworkRequirement.toWorkConstraints(): Constraints = when (this) {
+    SyncWorkNetworkRequirement.Connected -> connectedNetworkConstraints()
+    SyncWorkNetworkRequirement.UnmeteredCharging -> unmeteredChargingConstraints()
+}
 
 internal inline fun <reified T : ListenableWorker> buildOneTimeSyncWorkRequest(
     scheduledWork: SyncScheduledWork,
     inputData: Data? = null,
-): OneTimeWorkRequest =
-    OneTimeWorkRequestBuilder<T>()
-        .applyScheduledWorkPolicy(
-            scheduledWork = scheduledWork,
-            inputData = inputData,
-        ).build()
+): OneTimeWorkRequest = OneTimeWorkRequestBuilder<T>()
+    .applyScheduledWorkPolicy(
+        scheduledWork = scheduledWork,
+        inputData = inputData,
+    ).build()
 
 private fun <BuilderT : androidx.work.WorkRequest.Builder<BuilderT, *>> BuilderT.applyScheduledWorkPolicy(
     scheduledWork: SyncScheduledWork,
@@ -120,8 +114,7 @@ private fun Data?.withRetryPolicy(scheduledWork: SyncScheduledWork): Data {
     return builder.build()
 }
 
-private fun SyncWorkBackoffPolicy.toWorkBackoffPolicy(): BackoffPolicy =
-    when (this) {
-        SyncWorkBackoffPolicy.Exponential -> BackoffPolicy.EXPONENTIAL
-        SyncWorkBackoffPolicy.Linear -> BackoffPolicy.LINEAR
-    }
+private fun SyncWorkBackoffPolicy.toWorkBackoffPolicy(): BackoffPolicy = when (this) {
+    SyncWorkBackoffPolicy.Exponential -> BackoffPolicy.EXPONENTIAL
+    SyncWorkBackoffPolicy.Linear -> BackoffPolicy.LINEAR
+}

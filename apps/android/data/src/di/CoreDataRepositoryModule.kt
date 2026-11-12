@@ -1,51 +1,49 @@
 package com.lomo.data.di
 
 import android.content.Context
-
-import com.lomo.data.repository.AppPreferencesSnapshotRepositoryImpl
-import com.lomo.data.repository.CommittedMediaLocationSink
-import com.lomo.data.repository.DailyReviewSessionRepositoryImpl
-import com.lomo.data.repository.DataStoreMigrationSettingsStore
-import com.lomo.data.repository.NativeWorkspaceSyncGenerationProvider
 import com.lomo.data.engine.ManagedEngineSession
 import com.lomo.data.engine.archive.ArchivePort
 import com.lomo.data.engine.archive.BoltFfiArchivePort
 import com.lomo.data.engine.media.BoltFfiMediaPort
 import com.lomo.data.engine.media.MediaPort
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
+import com.lomo.data.git.GitCredentialStore
+import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.local.datastore.LomoLanSharePreferencesStore
+import com.lomo.data.repository.AppPreferencesSnapshotRepositoryImpl
+import com.lomo.data.repository.ColorSchemePreferencesRepositoryImpl
+import com.lomo.data.repository.CommittedMediaLocationSink
+import com.lomo.data.repository.DailyReviewSessionRepositoryImpl
+import com.lomo.data.repository.DataStoreMigrationSettingsStore
+import com.lomo.data.repository.DateTimePreferencesRepositoryImpl
+import com.lomo.data.repository.DirectorySettingsRepositoryImpl
+import com.lomo.data.repository.FontPreferencesRepositoryImpl
+import com.lomo.data.repository.InputToolbarPreferencesRepositoryImpl
+import com.lomo.data.repository.InteractionBehaviorPreferencesRepositoryImpl
+import com.lomo.data.repository.InteractionPreferencesRepositoryImpl
 import com.lomo.data.repository.MediaEdgeRepository
 import com.lomo.data.repository.MediaEdgeRepositoryDependencies
+import com.lomo.data.repository.MemoCreateDraftRepositoryImpl
+import com.lomo.data.repository.MemoEditDraftRepositoryImpl
+import com.lomo.data.repository.MemoSnapshotPreferencesRepositoryImpl
 import com.lomo.data.repository.MigrationSettingsStore
+import com.lomo.data.repository.NativeWorkspaceSyncGenerationProvider
+import com.lomo.data.repository.PreferencesRepositoryDelegates
+import com.lomo.data.repository.PreferencesRepositoryImpl
+import com.lomo.data.repository.ProcessWorkspaceMutationLease
+import com.lomo.data.repository.SecurityAndDisplayPreferencesDelegates
+import com.lomo.data.repository.SecurityPreferencesRepositoryImpl
 import com.lomo.data.repository.SettingsRepositoryImpl
-import com.lomo.data.repository.WorkspaceArchiveEdgeRepository
+import com.lomo.data.repository.ShareCardPreferencesRepositoryImpl
 import com.lomo.data.repository.ShareImageRepositoryImpl
+import com.lomo.data.repository.SidebarTagOrderPreferencesRepositoryImpl
+import com.lomo.data.repository.StoragePreferencesRepositoryImpl
+import com.lomo.data.repository.SyncInboxPreferencesRepositoryImpl
 import com.lomo.data.repository.SyncInboxRepositoryDependencies
 import com.lomo.data.repository.SyncInboxRepositoryImpl
 import com.lomo.data.repository.SyncStateResetRepositoryImpl
-import com.lomo.data.repository.ProcessWorkspaceMutationLease
-import com.lomo.data.repository.DirectorySettingsRepositoryImpl
-import com.lomo.data.repository.PreferencesRepositoryDelegates
-import com.lomo.data.repository.PreferencesRepositoryImpl
-import com.lomo.data.repository.SecurityAndDisplayPreferencesDelegates
-import com.lomo.data.repository.DateTimePreferencesRepositoryImpl
-import com.lomo.data.repository.StoragePreferencesRepositoryImpl
-import com.lomo.data.repository.InteractionPreferencesRepositoryImpl
-import com.lomo.data.repository.InteractionBehaviorPreferencesRepositoryImpl
-import com.lomo.data.repository.MemoActionPreferencesRepositoryImpl
-import com.lomo.data.repository.InputToolbarPreferencesRepositoryImpl
-import com.lomo.data.repository.SidebarTagOrderPreferencesRepositoryImpl
-import com.lomo.data.repository.SecurityPreferencesRepositoryImpl
-import com.lomo.data.repository.ShareCardPreferencesRepositoryImpl
-import com.lomo.data.repository.MemoCreateDraftRepositoryImpl
-import com.lomo.data.repository.MemoEditDraftRepositoryImpl
-import com.lomo.data.repository.SyncInboxPreferencesRepositoryImpl
-import com.lomo.data.repository.MemoSnapshotPreferencesRepositoryImpl
 import com.lomo.data.repository.TypographyPreferencesRepositoryImpl
-import com.lomo.data.repository.ColorSchemePreferencesRepositoryImpl
-import com.lomo.data.repository.FontPreferencesRepositoryImpl
-import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.local.datastore.LomoLanSharePreferencesStore
-import com.lomo.data.git.GitCredentialStore
+import com.lomo.data.repository.WorkspaceArchiveEdgeRepository
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.security.AppLockPreferenceSource
 import com.lomo.data.security.DataStoreAppLockPreferenceSource
@@ -74,12 +72,12 @@ import com.lomo.domain.repository.SyncInboxPreferencesRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncStateResetRepository
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
-import org.koin.dsl.module
-import org.koin.core.module.dsl.singleOf
 import org.koin.android.ext.koin.androidContext
+import org.koin.core.module.dsl.singleOf
 import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.binds
+import org.koin.dsl.module
 
 val coreDataRepositoryModule = module {
     singleOf(::ShareImageRepositoryImpl) bind ShareImageRepository::class
@@ -96,7 +94,6 @@ val coreDataRepositoryModule = module {
     single { StoragePreferencesRepositoryImpl(get()) }
     single { InteractionPreferencesRepositoryImpl(get()) }
     single { InteractionBehaviorPreferencesRepositoryImpl(get()) }
-    single { MemoActionPreferencesRepositoryImpl(get()) }
     single { InputToolbarPreferencesRepositoryImpl(get()) }
     single { SidebarTagOrderPreferencesRepositoryImpl(get()) }
     single { SecurityPreferencesRepositoryImpl(get()) }
@@ -115,7 +112,6 @@ val coreDataRepositoryModule = module {
             storagePreferencesRepository = get(),
             interactionPreferencesRepository = get(),
             interactionBehaviorPreferencesRepository = get(),
-            memoActionPreferencesRepository = get(),
             inputToolbarPreferencesRepository = get(),
             sidebarTagOrderPreferencesRepository = get(),
         )
@@ -138,7 +134,7 @@ val coreDataRepositoryModule = module {
         PreferencesRepository::class,
         InteractionPreferencesRepository::class,
         SecurityPreferencesRepository::class,
-        SidebarTagOrderPreferencesRepository::class
+        SidebarTagOrderPreferencesRepository::class,
     )
 
     singleOf(::AppPreferencesSnapshotRepositoryImpl) bind AppPreferencesSnapshotRepository::class
@@ -146,7 +142,6 @@ val coreDataRepositoryModule = module {
 
     single { ProcessWorkspaceMutationLease(engineReadinessRepository = get()) } bind
         com.lomo.domain.repository.WorkspaceMutationLease::class
-
 
     singleOf(::SyncStateResetRepositoryImpl) bind SyncStateResetRepository::class
     singleOf(::NativeWorkspaceSyncGenerationProvider) bind WorkspaceSyncGenerationProvider::class
@@ -171,29 +166,34 @@ val coreDataRepositoryModule = module {
     single<com.lomo.data.engine.media.MediaStageRootProvider> {
         com.lomo.data.engine.media.WorkspaceMediaStageRootProvider(
             context = androidContext(),
-            workspaceRoot = get(),
         )
     }
     single<MediaPort> { BoltFfiMediaPort(bridge = get<ManagedEngineSession>()) }
     single {
         MediaEdgeRepository(
             dependencies =
-                MediaEdgeRepositoryDependencies(
-                    context = androidContext(),
-                    workspaceConfigSource = get(),
-                    mediaStorageDataSource = get(),
-                    mediaPort = get(),
-                    workspaceRoot = get(),
-                    stageRoot = get(),
-                    writeLease = get(),
-                    createDraftRepository = get(),
-                    editDraftRepository = get(),
-                ),
+            MediaEdgeRepositoryDependencies(
+                context = androidContext(),
+                workspaceConfigSource = get(),
+                mediaStorageDataSource = get(),
+                mediaPort = get(),
+                workspaceMount =
+                get<com.lomo.domain.repository.EngineReadinessRepository>().mount,
+                committedLocation = com.lomo.data.engine.CommittedMediaLocationResolver(
+                    mediaRoot = { namespace -> get<ManagedEngineSession>().mediaRootLocations[namespace] },
+                    workspaceLocation = { get<ManagedEngineSession>().activeWorkspaceLocation.value },
+                    documents = get(),
+                )::resolve,
+                stageRoot = get(),
+                writeLease = get(),
+                createDraftRepository = get(),
+                editDraftRepository = get(),
+            ),
             pendingStages = get(),
             dispatcherProvider = get(),
         )
     } binds arrayOf(MediaRepository::class, CommittedMediaLocationSink::class)
-    single<ArchivePort> { BoltFfiArchivePort(bridge = get<ManagedEngineSession>()) }
+    single<ArchivePort> { BoltFfiArchivePort(bridge = get<ManagedEngineSession>(), capabilityRegistry = get()) }
 
     // Credentials / Security
     single { GitCredentialStore(get<Context>()) }
@@ -218,6 +218,7 @@ val coreDataRepositoryModule = module {
         WorkspaceArchiveEdgeRepository(
             context = androidContext(),
             archivePort = get(),
+            workspaceConfigSource = get(),
             workspaceRoot = get(),
             settingsStore = get(),
             invalidation = get(),
@@ -230,16 +231,15 @@ val coreDataRepositoryModule = module {
     single {
         SyncInboxRepositoryImpl(
             dependencies =
-                SyncInboxRepositoryDependencies(
-                    context = androidContext(),
-                    preferencesRepository = get(),
-                    workspaceConfigSource = get(),
-                    pendingReviewStore = get(),
-                    storePort = get(),
-                    pendingStages = get(),
-                    workspaceRoot = get(),
-                    committedMediaSink = get(),
-                ),
+            SyncInboxRepositoryDependencies(
+                context = androidContext(),
+                preferencesRepository = get(),
+                workspaceConfigSource = get(),
+                pendingReviewStore = get(),
+                storePort = get(),
+                pendingStages = get(),
+                committedMediaSink = get(),
+            ),
             writeLease = get(),
             contentProjector = get(),
             suggestionPort = get(),

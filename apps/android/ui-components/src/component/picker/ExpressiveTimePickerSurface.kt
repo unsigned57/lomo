@@ -7,6 +7,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDefaults
+import androidx.compose.material3.TimePickerLayoutType
 import androidx.compose.material3.TimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -22,10 +23,7 @@ import androidx.compose.ui.unit.dp
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExpressiveTimePickerSurface(
-    state: TimePickerState,
-    modifier: Modifier = Modifier,
-) {
+fun ExpressiveTimePickerSurface(state: TimePickerState, modifier: Modifier = Modifier) {
     val colors = TimePickerDefaults.colors(
         selectorColor = MaterialTheme.colorScheme.primary,
         timeSelectorSelectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -38,6 +36,8 @@ fun ExpressiveTimePickerSurface(
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        TimePicker(state = state, colors = colors)
+        // The picker lives in a narrow dialog even when the containing tablet is landscape.
+        // Material's screen-orientation default would choose a horizontal clock that cannot fit.
+        TimePicker(state = state, colors = colors, layoutType = TimePickerLayoutType.Vertical)
     }
 }

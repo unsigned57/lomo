@@ -1,0 +1,29 @@
+# Behavior Contract:
+# Capability: docked sidebar can collapse and reopen; owner: app; P1.
+# Given a wide window, when collapse is pressed, then the feed keeps its FAB and can reopen navigation.
+# RED: ui-followup/sidebar-red.log; run this flow with a width of at least 840 dp.
+# Excludes: compact modal gestures, covered by existing navigation flows.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: ../setup_workspace.yaml
+- runFlow:
+    when:
+      notVisible: "Collapse sidebar"
+    commands:
+      - tapOn:
+          id: "benchmark_main_drawer_button"
+- assertVisible: "Collapse sidebar"
+- assertVisible:
+    id: "benchmark_main_create_fab"
+- tapOn: "Collapse sidebar"
+- assertNotVisible: "Collapse sidebar"
+- assertVisible:
+    id: "benchmark_main_create_fab"
+- takeScreenshot: sidebar-collapsed
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- assertVisible: "Collapse sidebar"
+- assertVisible:
+    id: "benchmark_main_create_fab"
+- takeScreenshot: sidebar-reopened

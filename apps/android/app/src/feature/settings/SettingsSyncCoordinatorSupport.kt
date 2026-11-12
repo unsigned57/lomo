@@ -1,7 +1,6 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.common.appWhileSubscribed
-
 import com.lomo.app.feature.common.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -10,10 +9,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-internal fun <T> Flow<T>.settingsStateIn(
-    scope: CoroutineScope,
-    initialValue: T,
-): StateFlow<T> = stateIn(scope, appWhileSubscribed(), initialValue)
+internal fun <T> Flow<T>.settingsStateIn(scope: CoroutineScope, initialValue: T): StateFlow<T> =
+    stateIn(scope, appWhileSubscribed(), initialValue)
 
 internal inline fun <T, R> Flow<T>.mapSettingsStateIn(
     scope: CoroutineScope,
@@ -25,13 +22,12 @@ internal suspend fun runSettingsOperation(
     fallbackMessage: String,
     specificError: (Throwable) -> SettingsOperationError?,
     action: suspend () -> Unit,
-): SettingsOperationError? =
-    try {
-        action()
-        null
-    } catch (cancellation: CancellationException) {
-        throw cancellation
-    } catch (throwable: Exception) {
-        specificError(throwable)
-            ?: SettingsOperationError.Message(throwable.toUserMessage(fallbackMessage))
-    }
+): SettingsOperationError? = try {
+    action()
+    null
+} catch (cancellation: CancellationException) {
+    throw cancellation
+} catch (throwable: Exception) {
+    specificError(throwable)
+        ?: SettingsOperationError.Message(throwable.toUserMessage(fallbackMessage))
+}

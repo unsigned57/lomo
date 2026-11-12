@@ -1,6 +1,6 @@
 //! `RemoteSyncPort` implementation for `WebDAV` (protocol adapter only).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -58,7 +58,7 @@ impl WebDavObjectSource for MapObjectSource {
                 "webdav object source has no bytes for the ensure-present path",
             )
         })?;
-        let digest = format!("{:x}", Sha256::digest(bytes));
+        let digest = lomo_core::hex_encode(&Sha256::digest(bytes));
         if digest != expected_digest.as_str() {
             return Err(validation(
                 "webdav_object_source_digest_mismatch",
@@ -253,6 +253,7 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
         path: &SyncPath,
         digest: &ContentDigest,
         expected_remote_token: Option<&str>,
+        observed_parents: &mut BTreeSet<String>,
     ) -> PathPublishStatus {
         // A present-but-empty CAS anchor is malformed input, never "no expectation":
         // the named precondition is unverifiable, so the publish fails closed before
@@ -260,7 +261,7 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
         if expected_remote_token.is_some_and(crate::pipeline::remote_cas_token_is_malformed) {
             return PathPublishStatus::PreconditionFailed;
         }
-        if let Err(error) = self.ensure_parent_collections(path.as_str()) {
+        if let Err(error) = self.ensure_parent_collections(path.as_str(), observed_parents) {
             return PathPublishStatus::Failed {
                 code: error.code().to_owned(),
             };
@@ -305,7 +306,11 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
     /// Ensures intermediate collection parents exist (`MKCOL` walk) for nested object keys.
     ///
     /// Host flat-key servers hide this; real Nutstore/Nextcloud require parent collections.
-    fn ensure_parent_collections(&self, relative: &str) -> Result<(), LomoError> {
+    fn ensure_parent_collections(
+        &self,
+        relative: &str,
+        observed_parents: &mut BTreeSet<String>,
+    ) -> Result<(), LomoError> {
         let trimmed = relative.trim_matches('/');
         let Some((parent, _)) = trimmed.rsplit_once('/') else {
             return Ok(());
@@ -322,9 +327,13 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
                 built.push('/');
             }
             built.push_str(segment);
+            if observed_parents.contains(&built) {
+                continue;
+            }
             let collection_rel = format!("{built}/");
             let url = self.transport.endpoint().resolve_path(&collection_rel)?;
             self.transport.mkcol(&url)?;
+            observed_parents.insert(built.clone());
         }
         Ok(())
     }
@@ -559,6 +568,9 @@ impl<S: WebDavObjectSource> RemoteSyncPort for WebDavAdapter<S> {
         // remote cannot honour them — never rely on server leniency mid-batch.
         crate::pipeline::require_remote_capabilities(&batch.intents, self.remote_capabilities()?)?;
         let mut path_results = Vec::with_capacity(batch.intents.len());
+        // Only successful parent observations in this publish are reusable. A later batch
+        // re-observes parents; failures never seed the set and every PUT retains its CAS.
+        let mut observed_parents = BTreeSet::new();
         for intent in &batch.intents {
             match intent {
                 ProviderNeutralIntent::EnsurePresent {
@@ -566,8 +578,12 @@ impl<S: WebDavObjectSource> RemoteSyncPort for WebDavAdapter<S> {
                     digest,
                     expected_remote_token,
                 } => {
-                    let status =
-                        self.publish_ensure_present(path, digest, expected_remote_token.as_deref());
+                    let status = self.publish_ensure_present(
+                        path,
+                        digest,
+                        expected_remote_token.as_deref(),
+                        &mut observed_parents,
+                    );
                     path_results.push((path.clone(), status));
                 }
                 ProviderNeutralIntent::EnsureAbsent {
@@ -693,7 +709,7 @@ fn load_workspace_file_bytes(
                 ),
             }
         })?;
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = lomo_core::hex_encode(&Sha256::digest(&bytes));
     if digest != expected_digest.as_str() {
         return Err(validation(
             "workspace_object_source_digest_mismatch",

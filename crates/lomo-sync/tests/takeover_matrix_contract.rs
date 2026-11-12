@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract — P5-12 host takeover matrix deepen (Wave-11)
 //!
 //! - Unit under test: first-takeover / migration product scenarios on owner planner +
@@ -131,7 +139,7 @@ mod tests {
     }
 
     fn body_digest(body: &[u8]) -> ContentDigest {
-        let hex = format!("{:x}", Sha256::digest(body));
+        let hex = lomo_core::hex_encode(&Sha256::digest(body));
         ContentDigest::parse(&hex).expect("digest")
     }
 
@@ -486,7 +494,7 @@ mod tests {
         let store = Store::open(temporary.path()).expect("open empty");
         let local = store_local_port(&store);
         let local_snap = local.snapshot().expect("local");
-        assert!(local_snap.entries.is_empty());
+        assert_eq!(local_snap.entries, Vec::<LocalPathEntry>::new());
         let remote_snap = RemoteSnapshot::new(
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
@@ -538,7 +546,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         paths.ensure_layout().expect("layout");
 
         let session =
@@ -546,7 +554,7 @@ mod tests {
         write_session(&paths, &session).expect("write session");
 
         // Simulate process restart: new SyncPaths on same root, re-read durable session.
-        let paths_after = SyncPaths::for_workspace(&workspace);
+        let paths_after = SyncPaths::for_control_root(&workspace);
         let loaded = read_session(&paths_after).expect("read after restart");
         assert_eq!(loaded.session_id, "revive-s1");
         assert_eq!(loaded.kind, SessionKind::FirstTakeover);
@@ -570,7 +578,7 @@ mod tests {
     #[test]
     fn first_takeover_plan_only_then_apply_with_verify_safe_ensure_present() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
 
         let body = b"safe-ensure-present-body";

@@ -10,10 +10,6 @@ private const val SAF_MAX_IO_PARALLELISM = 4
 internal fun safIoDispatcher(dispatcherProvider: DispatcherProvider): CoroutineDispatcher =
     dispatcherProvider.io.limitedParallelism(SAF_MAX_IO_PARALLELISM)
 
-internal fun safMatchesMarkdownTarget(
-    name: String?,
-    targetFilename: String?,
-): Boolean =
-    name != null &&
-        name.endsWith(SAF_MARKDOWN_SUFFIX) &&
-        (targetFilename == null || name == targetFilename)
+internal fun safMatchesMarkdownTarget(name: String?, targetFilename: String?): Boolean = name != null &&
+    name.endsWith(SAF_MARKDOWN_SUFFIX) &&
+    (targetFilename == null || name == targetFilename)

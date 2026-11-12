@@ -18,14 +18,14 @@
 
 package com.lomo.app.architecture
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -33,7 +33,6 @@ package com.lomo.app.architecture
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.assertions.withClue
@@ -52,7 +51,9 @@ class AppP0RepositoryBoundaryTest : AppFunSpec() {
                     }
                 }
 
-            withClue("P0 hotspot files must not import domain repositories. Offenders: ${offenders.joinToString()}") { ((offenders.isEmpty())) shouldBe true }
+            withClue(
+                "P0 hotspot files must not import domain repositories. Offenders: ${offenders.joinToString()}",
+            ) { ((offenders.isEmpty())) shouldBe true }
         }
     }
 

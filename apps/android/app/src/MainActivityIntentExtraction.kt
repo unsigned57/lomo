@@ -9,12 +9,11 @@ import com.lomo.domain.model.ReminderDeepLink
 internal fun extractInitialPendingLaunchActions(
     activityInstanceState: ActivityInstanceState,
     intent: Intent?,
-): List<PendingLaunchAction> =
-    if (shouldProcessInitialLaunchIntent(activityInstanceState = activityInstanceState)) {
-        extractPendingLaunchActions(intent = intent)
-    } else {
-        emptyList()
-    }
+): List<PendingLaunchAction> = if (shouldProcessInitialLaunchIntent(activityInstanceState = activityInstanceState)) {
+    extractPendingLaunchActions(intent = intent)
+} else {
+    emptyList()
+}
 
 /**
  * Only a fresh Activity start may extract its launching intent. A restored instance replays
@@ -22,9 +21,8 @@ internal fun extractInitialPendingLaunchActions(
  * still attached on a configuration recreate (no `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY` on e.g.
  * fontScale), so re-extracting it would double-fire every already-dispatched command.
  */
-internal fun shouldProcessInitialLaunchIntent(
-    activityInstanceState: ActivityInstanceState,
-): Boolean = activityInstanceState == ActivityInstanceState.Fresh
+internal fun shouldProcessInitialLaunchIntent(activityInstanceState: ActivityInstanceState): Boolean =
+    activityInstanceState == ActivityInstanceState.Fresh
 
 internal fun extractPendingLaunchActions(intent: Intent?): List<PendingLaunchAction> {
     if (intent == null) {

@@ -3,8 +3,7 @@ package com.lomo.ui.component.picker
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -13,11 +12,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +22,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.component.common.LomoTextButton
 
 /**
  * Shared Material 3 Expressive dialog skeleton used by every Lomo date/time picker
@@ -51,13 +50,17 @@ fun ExpressivePickerDialog(
     content: @Composable () -> Unit,
 ) {
     val windowHeightPx = LocalWindowInfo.current.containerSize.height
+    val windowWidthPx = LocalWindowInfo.current.containerSize.width
+    val dialogWidth = with(LocalDensity.current) {
+        minOf(EXPRESSIVE_PICKER_DIALOG_WIDTH, windowWidthPx.toDp() - 16.dp)
+    }
     val maxDialogHeight = with(LocalDensity.current) {
         (windowHeightPx * MAX_DIALOG_HEIGHT_FRACTION).toDp()
     }
     BasicAlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = modifier.width(EXPRESSIVE_PICKER_DIALOG_WIDTH),
+        modifier = modifier.width(dialogWidth),
     ) {
         Surface(
             shape = MaterialTheme.shapes.extraLarge,
@@ -72,7 +75,7 @@ fun ExpressivePickerDialog(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleLargeEmphasized,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -86,25 +89,23 @@ fun ExpressivePickerDialog(
                 ) {
                     content()
                 }
-                Row(
+                FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
                         .padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     if (neutralLabel != null && onNeutral != null) {
-                        TextButton(onClick = onNeutral) {
+                        LomoTextButton(onClick = onNeutral) {
                             Text(text = neutralLabel)
                         }
-                        Spacer(modifier = Modifier.width(4.dp))
                     }
-                    TextButton(onClick = onDismiss) {
+                    LomoTextButton(onClick = onDismiss) {
                         Text(text = dismissLabel ?: defaultCancelLabel())
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    FilledTonalButton(
+                    LomoFilledTonalButton(
                         enabled = confirmEnabled,
                         onClick = onConfirm,
                     ) {
@@ -117,8 +118,7 @@ fun ExpressivePickerDialog(
 }
 
 @Composable
-private fun defaultCancelLabel(): String =
-    androidx.compose.ui.res.stringResource(android.R.string.cancel)
+private fun defaultCancelLabel(): String = androidx.compose.ui.res.stringResource(android.R.string.cancel)
 
 private val EXPRESSIVE_PICKER_DIALOG_WIDTH = 360.dp
 private const val MAX_DIALOG_HEIGHT_FRACTION = 0.9f

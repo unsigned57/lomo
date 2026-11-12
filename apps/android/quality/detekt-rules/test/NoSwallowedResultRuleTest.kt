@@ -72,7 +72,7 @@ import kotlin.io.path.writeText
  * - Terminals that re-throw (`getOrThrow`) or inspect the exception (`exceptionOrNull`).
  * - Result chains whose terminal value is mapped onward (chain does not end in a silent
  *   value extractor).
- 
+
  * Test Change Justification:
  * - Reason category: mechanical layout path update.
  * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
@@ -80,32 +80,33 @@ import kotlin.io.path.writeText
  * - Coverage preserved by: same Detekt finding contracts and assertion messages.
  * - Why this is not fitting the test to the implementation: only path fixtures changed; rule behavior is unchanged.
 */
-class NoSwallowedResultRuleTest : FunSpec({
-    test("registers NoSwallowedResult in the rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoSwallowedResult")].shouldNotBeNull()
-    }
+class NoSwallowedResultRuleTest :
+    FunSpec({
+        test("registers NoSwallowedResult in the rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoSwallowedResult")].shouldNotBeNull()
+        }
 
-    test("flags runCatching followed by getOrNull in production source") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("flags runCatching followed by getOrNull in production source") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String? = runCatching { compute() }.getOrNull()
 
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Swallowed Result"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Swallowed Result"
+        }
 
-    test("flags runCatching followed by getOrDefault with empty list literal") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("flags runCatching followed by getOrDefault with empty list literal") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun loadList(): List<String> =
@@ -113,15 +114,15 @@ class NoSwallowedResultRuleTest : FunSpec({
 
                 private fun compute(): List<String> = listOf("ok")
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("flags runCatching followed by getOrElse with constant lambda body") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("flags runCatching followed by getOrElse with constant lambda body") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun loadOrNull(): String? =
@@ -129,15 +130,15 @@ class NoSwallowedResultRuleTest : FunSpec({
 
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("flags runCatching followed by map then getOrNull (map does not observe failure)") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("flags runCatching followed by map then getOrNull (map does not observe failure)") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String? =
@@ -145,30 +146,30 @@ class NoSwallowedResultRuleTest : FunSpec({
 
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("ignores runCatching ending in getOrThrow") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("ignores runCatching ending in getOrThrow") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String = runCatching { compute() }.getOrThrow()
 
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("ignores runCatching followed by fold") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("ignores runCatching followed by fold") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String = runCatching { compute() }.fold(
@@ -178,15 +179,15 @@ class NoSwallowedResultRuleTest : FunSpec({
 
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("ignores runCatching with onFailure before silent terminal") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("ignores runCatching with onFailure before silent terminal") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String? =
@@ -197,15 +198,15 @@ class NoSwallowedResultRuleTest : FunSpec({
                 private fun log(t: Throwable) { t.printStackTrace() }
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("ignores runCatching followed by recover before silent terminal") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("ignores runCatching followed by recover before silent terminal") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String? =
@@ -216,15 +217,15 @@ class NoSwallowedResultRuleTest : FunSpec({
                 private fun fallback(): String = "fallback"
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("ignores getOrDefault with non-literal argument (real fallback computation)") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("ignores getOrDefault with non-literal argument (real fallback computation)") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String = runCatching { compute() }.getOrDefault(computeFallback())
@@ -232,15 +233,15 @@ class NoSwallowedResultRuleTest : FunSpec({
                 private fun computeFallback(): String = "f"
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("ignores getOrElse with side-effecting lambda body") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("ignores getOrElse with side-effecting lambda body") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String? =
@@ -249,15 +250,15 @@ class NoSwallowedResultRuleTest : FunSpec({
                 private fun handle(t: Throwable) { t.printStackTrace() }
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("ignores violation with behavior-contract opt-out comment on preceding line") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("ignores violation with behavior-contract opt-out comment on preceding line") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String? {
@@ -267,15 +268,15 @@ class NoSwallowedResultRuleTest : FunSpec({
 
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("ignores violation with same-line trailing behavior-contract opt-out comment") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("ignores violation with same-line trailing behavior-contract opt-out comment") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String? =
@@ -283,15 +284,15 @@ class NoSwallowedResultRuleTest : FunSpec({
 
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("still flags violation when preceding comment lacks the silent-result-ok marker") {
-        val findings =
-            rule("NoSwallowedResult").findingsForMainSource(
-                """
+        test("still flags violation when preceding comment lacks the silent-result-ok marker") {
+            val findings =
+                rule("NoSwallowedResult").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String? {
@@ -301,45 +302,37 @@ class NoSwallowedResultRuleTest : FunSpec({
 
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("does not flag offending pattern in test source") {
-        val findings =
-            rule("NoSwallowedResult").findingsForTestSource(
-                """
+        test("does not flag offending pattern in test source") {
+            val findings =
+                rule("NoSwallowedResult").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 fun load(): String? = runCatching { compute() }.getOrNull()
 
                 private fun compute(): String = "ok"
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
-})
+            findings shouldBe emptyList()
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForMainSource(code: String) =
-    findingsForSource("src/sample/Fixture.kt", code)
+private fun Rule.findingsForMainSource(code: String) = findingsForSource("src/sample/Fixture.kt", code)
 
-private fun Rule.findingsForTestSource(code: String) =
-    findingsForSource("test/sample/Fixture.kt", code)
+private fun Rule.findingsForTestSource(code: String) = findingsForSource("test/sample/Fixture.kt", code)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<dev.detekt.api.Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<dev.detekt.api.Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

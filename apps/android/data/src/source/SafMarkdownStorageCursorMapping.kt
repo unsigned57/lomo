@@ -39,29 +39,28 @@ internal fun safStreamChildDocumentsWithIds(
     documentAccess: SafDocumentAccess,
     rootUri: Uri,
     parentDocId: String,
-): Flow<FileMetadataWithId> =
-    flow {
-        val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
-        val projection =
-            arrayOf(
-                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+): Flow<FileMetadataWithId> = flow {
+    val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
+    val projection =
+        arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+    documentAccess.contentResolver.query(childUri, projection, null, null, null)?.use { cursor ->
+        val indexes =
+            SafCursorColumnIndexes(
+                documentId = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                displayName = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                lastModified = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
             )
-        documentAccess.contentResolver.query(childUri, projection, null, null, null)?.use { cursor ->
-            val indexes =
-                SafCursorColumnIndexes(
-                    documentId = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
-                    displayName = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-                    lastModified = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
-                )
-            while (cursor.moveToNext()) {
-                safMapCursorToMetadataWithId(cursor, indexes, rootUri)?.let { metadata ->
-                    emit(metadata)
-                }
+        while (cursor.moveToNext()) {
+            safMapCursorToMetadataWithId(cursor, indexes, rootUri)?.let { metadata ->
+                emit(metadata)
             }
         }
-    }.flowOn(documentAccess.ioDispatcher)
+    }
+}.flowOn(documentAccess.ioDispatcher)
 
 private fun safMapCursorToMetadataWithId(
     cursor: Cursor,
@@ -89,8 +88,4 @@ internal fun Cursor.getLongOrZero(index: Int): Long = if (index != -1) getLong(i
 
 internal fun Cursor.getLongOrNull(index: Int): Long? = if (index != -1 && !isNull(index)) getLong(index) else null
 
-private data class SafCursorColumnIndexes(
-    val documentId: Int,
-    val displayName: Int,
-    val lastModified: Int,
-)
+private data class SafCursorColumnIndexes(val documentId: Int, val displayName: Int, val lastModified: Int)

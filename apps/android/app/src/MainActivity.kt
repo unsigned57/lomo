@@ -1,9 +1,5 @@
 package com.lomo.app
 
-import androidx.compose.runtime.CompositionLocalProvider
-
-import androidx.compose.material3.MaterialTheme
-
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
@@ -13,6 +9,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,10 +40,10 @@ import com.lomo.ui.media.AudioPlayerController
 import com.lomo.ui.media.LocalAudioPlayerManager
 import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.theme.TypographyScales
-import org.koin.android.ext.android.inject
-import org.koin.androidx.viewmodel.ext.android.viewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
+import org.koin.androidx.viewmodel.ext.android.viewModel
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : AppCompatActivity() {
@@ -56,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private val securitySessionPolicy: SecuritySessionPolicy by inject()
     private val trustedLaunchIntents: TrustedLaunchIntents by inject()
     private val externalAppCommandStore: ExternalAppCommandStore by inject()
+    private val appStartupCoordinator: com.lomo.app.startup.AppStartupCoordinator by inject()
 
     private val viewModel: MainViewModel by viewModel()
     private var currentUiMode by mutableIntStateOf(Configuration.UI_MODE_NIGHT_UNDEFINED)
@@ -89,9 +87,22 @@ class MainActivity : AppCompatActivity() {
             savedInstanceState = savedInstanceState,
         )
         setMainContent()
+        // A real draw admits deferred work even when the first surface is the lock screen.
+        // Remove the listener after traversal: removing it inside onDraw is forbidden by Android.
+        val decorView = window.decorView
+        val observer = decorView.viewTreeObserver
+        observer.addOnDrawListener(object : android.view.ViewTreeObserver.OnDrawListener {
+            override fun onDraw() {
+                decorView.post {
+                    if (observer.isAlive) observer.removeOnDrawListener(this)
+                    appStartupCoordinator.onFirstFrameDrawn()
+                }
+            }
+        })
         // Network service bootstrap is not required for first frame rendering.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                appStartupCoordinator.awaitFirstFrame()
                 if (shareServicesStarted.compareAndSet(false, true)) {
                     shareServiceManager.startServices()
                 }
@@ -123,16 +134,13 @@ class MainActivity : AppCompatActivity() {
         extractPendingLaunchActions(intent = intent).forEach(pendingLaunchCommandQueue::enqueue)
     }
 
-    private fun handleInitialIntent(
-        intent: Intent?,
-        savedInstanceState: Bundle?,
-    ) {
+    private fun handleInitialIntent(intent: Intent?, savedInstanceState: Bundle?) {
         val activityInstanceState =
             if (savedInstanceState == null) {
                 ActivityInstanceState.Fresh
             } else {
                 ActivityInstanceState.Restored
-        }
+            }
         if (shouldProcessInitialLaunchIntent(activityInstanceState = activityInstanceState)) {
             consumeTrustedLaunchExtraction(
                 trustedLaunchIntents.extractTrustedExternalAppCommand(intent),
@@ -150,8 +158,9 @@ class MainActivity : AppCompatActivity() {
         shareServiceManager.stopServices()
     }
 
-    private fun shouldKeepSplashScreenVisible(): Boolean =
-        viewModel.uiState.value is MainViewModel.MainScreenState.Loading
+    private fun shouldKeepSplashScreenVisible(): Boolean = shouldKeepMainSplashVisible(
+        session = securitySessionPolicy.observe().value,
+    )
 
     private fun setMainContent() {
         setContent {
@@ -275,6 +284,8 @@ private fun MainActivityRoot(
     LomoTheme(
         themeMode = appPreferences.themeMode.value,
         colorSource = appPreferences.colorSource,
+        contrastLevel = appPreferences.contrastLevel,
+        pureBlackDark = appPreferences.pureBlackDark,
         fontFamily = appPreferences.customFontFamily,
         typographyScales = typographyScales,
         currentUiMode = currentUiMode,
@@ -286,7 +297,7 @@ private fun MainActivityRoot(
                 pendingLaunchCommands = pendingLaunchCommands,
                 onPendingLaunchCommandConsumed = onPendingLaunchCommandConsumed,
             )
-            val motionScheme = MaterialTheme.motionScheme
+            val motionScheme = com.lomo.ui.theme.LocalLomoMotion.current.layout
             AnimatedContent(
                 targetState = appLockUiState.isGateVisible,
                 label = "AppLockGateTransition",
@@ -330,7 +341,7 @@ private fun UnlockedAppRoot(
     CompositionLocalProvider(
         LocalAudioPlayerManager provides audioPlayerController,
         LocalBenchmarkAnchorConfig provides
-            BenchmarkAnchorConfig(enabled = AppBuildInfo.isDebuggable(context)),
+            BenchmarkAnchorConfig(enabled = AppBuildInfo.benchmarkAnchorsEnabled(context)),
     ) {
         LomoAppRoot(
             shareServiceManager = shareServiceManager,

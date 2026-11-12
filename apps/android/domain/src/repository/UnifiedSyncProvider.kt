@@ -23,8 +23,5 @@ interface UnifiedSyncProvider {
      * Review-session resolution (Sync Inbox only — remote conflicts resolve exclusively through
      * the Rust expected-revision port; remote providers never produce review sessions).
      */
-    suspend fun resolveReview(
-        resolution: SyncReviewResolution,
-        review: SyncReviewSession,
-    ): UnifiedSyncResult
+    suspend fun resolveReview(resolution: SyncReviewResolution, review: SyncReviewSession): UnifiedSyncResult
 }

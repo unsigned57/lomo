@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 // adversarial-audit: feature completeness and operational symmetry probes.
 // Every test asserts the user-visible behavior a complete feature should have;
 // each failure is evidence of a dead end, a one-way operation, or silent state loss.
@@ -499,7 +508,7 @@ mod tests {
             matches!(effect, Some(Effect::PersistDraft { .. })),
             "the discard persists the empty draft"
         );
-        assert!(model.draft.text.text().is_empty());
+        assert_eq!(model.draft.text.text(), "");
     }
 
     /// The History picker opens only while `Browse` owns the focus; a reply

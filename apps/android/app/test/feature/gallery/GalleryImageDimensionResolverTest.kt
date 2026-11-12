@@ -1,6 +1,5 @@
 package com.lomo.app.feature.gallery
 
-import android.content.ContentResolver
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
@@ -45,5 +44,4 @@ class GalleryImageDimensionResolverTest : AppFunSpec() {
             }
         }
     }
-
 }

@@ -5,10 +5,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.style.TextDecoration
 
-internal data class MemoUrlVisualStyle(
-    val color: Color,
-    val isUnderlineText: Boolean,
-)
+internal data class MemoUrlVisualStyle(val color: Color, val isUnderlineText: Boolean)
 
 internal fun resolveMemoUrlVisualStyle(
     text: AnnotatedString,
@@ -33,6 +30,7 @@ internal fun resolveMemoUrlVisualStyle(
     val resolvedColor =
         when {
             linkStyle?.color != null && linkStyle.color != Color.Unspecified -> linkStyle.color
+
             else ->
                 coveringStyles
                     .lastOrNull { it.item.color != Color.Unspecified }

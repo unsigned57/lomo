@@ -1,13 +1,13 @@
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.domain.usecase
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
@@ -25,8 +24,8 @@ import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.domain.testing.fakes.FakeUnifiedSyncProvider
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.collections.shouldContain
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -51,8 +50,8 @@ class RemoteSyncSettingsSharedTest : DomainFunSpec() {
     private val fakeGitProvider = FakeUnifiedSyncProvider(backendType = SyncBackendType.GIT)
     private val fakeInboxProvider = FakeUnifiedSyncProvider(backendType = SyncBackendType.INBOX)
     private val syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(fakeGitProvider, fakeInboxProvider)
+        providers =
+        setOf(fakeGitProvider, fakeInboxProvider),
     )
     private val syncAndRebuildUseCase = SyncAndRebuildUseCase(
         memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),

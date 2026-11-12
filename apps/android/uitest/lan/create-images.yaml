@@ -1,0 +1,24 @@
+# Part of the opt-in two-device LAN journey; run via just uitest lan_share.
+appId: com.lomo.app
+---
+- addMedia:
+    - "../assets/image-1.png"
+    - "../assets/image-2.png"
+- runFlow: begin-memo.yaml
+- tapOn: "Add Image|添加图片"
+- runFlow:
+    when:
+      visible: "Setup Image Storage Directory"
+    commands:
+      - tapOn: "Auto Create|自动创建"
+      - tapOn: "Add Image|添加图片"
+- tapOn:
+    text: "Photo taken on.*"
+    index: 0
+- tapOn:
+    text: "Photo taken on.*"
+    index: 1
+- tapOn: 'Add \(2\)'
+- runFlow: submit-memo.yaml
+- assertNotVisible: "Image failed to load"
+- takeScreenshot: outgoing-images

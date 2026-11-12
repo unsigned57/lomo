@@ -22,9 +22,7 @@ import timber.log.Timber
  * without a build flag to forget to enable. Nothing is uploaded and nothing is persisted by this
  * class; the raw diagnostic never reaches the user-facing message.
  */
-class RingBufferEngineDiagnosticsRecorder(
-    private val capacity: Int = DEFAULT_CAPACITY,
-) : EngineDiagnosticsRecorder {
+class RingBufferEngineDiagnosticsRecorder(private val capacity: Int = DEFAULT_CAPACITY) : EngineDiagnosticsRecorder {
     init {
         require(capacity > 0) { "Diagnostics capacity must be positive" }
     }

@@ -40,7 +40,7 @@ import java.io.IOException
  * - Fails before the fix because the repository still opens java.net.HttpURLConnection through
  *   a connector lambda and cannot be driven by a Ktor MockEngine.
  * Excludes: real network, APK download, install verification, client lease lifecycle.
-  * Test Change Justification:
+ * Test Change Justification:
  * - Reason category: transport implementation migration — java.net.HttpURLConnection replaced
  *   by the single Ktor client stack (AppUpdateHttpClientProvider).
  * - Old behavior/assertion being replaced: the stubbed URLConnection harness driving the
@@ -115,10 +115,10 @@ class AppUpdateRepositoryImplTest : DataFunSpec() {
                             observedUserAgent = request.headers[HttpHeaders.UserAgent]
                             respond(
                                 content =
-                                    ByteReadChannel(
-                                        """{"tag_name":"v1.2.0","html_url":"https://example.com/r","body":"notes","assets":[]}"""
-                                            .encodeToByteArray(),
-                                    ),
+                                ByteReadChannel(
+                                    """{"tag_name":"v1.2.0","html_url":"https://example.com/r","body":"notes","assets":[]}"""
+                                        .encodeToByteArray(),
+                                ),
                                 status = HttpStatusCode.OK,
                                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
                             )
@@ -134,21 +134,19 @@ class AppUpdateRepositoryImplTest : DataFunSpec() {
     }
 }
 
-private suspend fun fetchFailure(repository: AppUpdateRepositoryImpl): AppUpdateFetchFailure =
-    try {
-        repository.fetchLatestRelease()
-        error("expected AppUpdateFetchException")
-    } catch (error: AppUpdateFetchException) {
-        error.failure
-    }
+private suspend fun fetchFailure(repository: AppUpdateRepositoryImpl): AppUpdateFetchFailure = try {
+    repository.fetchLatestRelease()
+    error("expected AppUpdateFetchException")
+} catch (error: AppUpdateFetchException) {
+    error.failure
+}
 
 private fun repositoryWith(engine: MockEngine): AppUpdateRepositoryImpl {
     val client = HttpClient(engine)
     return AppUpdateRepositoryImpl(
         httpClientProvider =
-            object : AppUpdateHttpClientProvider {
-                override suspend fun <T> withHttpClient(block: suspend (HttpClient) -> T): T =
-                    block(client)
-            },
+        object : AppUpdateHttpClientProvider {
+            override suspend fun <T> withHttpClient(block: suspend (HttpClient) -> T): T = block(client)
+        },
     )
 }

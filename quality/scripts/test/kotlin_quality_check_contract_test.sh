@@ -4,6 +4,7 @@ set -euo pipefail
 # Behavior Contract
 # Capability: prove xtask is the only public Rust/Kotlin/native/Android quality orchestrator.
 # Scenarios:
+# - Given no project-local Gradle cache, when formatting, then the verified official wrapper loads.
 # - Given public commands, when Justfile and hooks are inspected, then they call only lomo-xtask.
 # - Given native inputs, when configuration is inspected, then the Rust channel pin
 #   (rust-toolchain.toml + matching rust-version), NDK 29, BoltFFI JNI library identity,
@@ -13,15 +14,28 @@ set -euo pipefail
 #   sufficient without an obsolete separately packaged ktlint artifact.
 # Observable outcomes: missing canonical wiring, retained legacy orchestration, or rejected current
 # detekt packaging fails this script.
+# Cleanup regression RED: just fmt all failed because the ktlint wrapper was only in a deleted project cache.
+# GREEN: same command resolves the official plugin in the standard user cache.
 # TDD proof: failed before xtask because the old Kotlin/Rust shell gates and NDK 28 remained; RED on
 # 2026-08-09 because formatting required ktlint-repackage 2.0.0-alpha.6, which was never published.
 # Excludes: compiling product code and device runtime behavior.
+# Test Change Justification (signing owner):
+# Reason category: signing belongs to the toolchain module configuration.
+# Old behavior/assertion being replaced: android.rs must contain env:LOMO_APK_STORE_PASSWORD.
+# Why old assertion is no longer correct: Amper signs from keystore.properties via module.yaml.
+# Coverage preserved by: signing configuration and post-build signature validation pins, plus
+# the runtime android_signing_contract matrix for missing/incomplete/valid configuration.
+# Why this is not fitting the test to the implementation: the release contract already assigns
+# signing to settings.android.signing; retaining an independent env signing path violates it.
 # Test Change Justification:
-# Reason category: requested retirement of interactive command surfaces.
-# Old behavior/assertion being replaced: install-tui is required and discovery uses just --list.
-# Why old assertion is no longer correct: agents use JSON discovery; installation is not a gate.
-# Coverage preserved by: all quality commands remain required and install-tui is now rejected.
-# Why this is not fitting the test to the implementation: this enforces the requested command contract.
+# Reason category: unified application build entrypoint (`just build <app>`).
+# Old behavior/assertion being replaced: a top-level `android` recipe is required.
+# Why old assertion is no longer correct: per-app recipes retired; `build` now dispatches to
+# android and tui targets through the single xtask registry.
+# Coverage preserved by: `build` is required in the recipe list and every other quality
+# command remains required; retired per-app recipes stay rejected.
+# Why this is not fitting the test to the implementation: the contract still proves the
+# Justfile exposes each public command and delegates only to lomo-xtask.
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
@@ -45,7 +59,7 @@ for file in \
   Justfile \
   Cargo.toml \
   rust-toolchain.toml \
-  tools.toml \
+  quality/tools.toml \
   crates/lomo-xtask/src/quality.rs \
   crates/lomo-xtask/src/native.rs \
   crates/lomo-xtask/src/android.rs \
@@ -55,7 +69,7 @@ for file in \
 done
 
 require_text Justfile 'cargo run --manifest-path Cargo.toml --locked -p lomo-xtask --'
-for command in commands bootstrap fmt dev check bindings native android ci deps perf cache rust-toolchain-bump; do
+for command in commands bootstrap fmt dev check bindings native build ci deps perf cache rust-toolchain-bump; do
   grep -Eq -- "^${command}([[:space:]].*)?:$" Justfile || fail "Justfile recipe missing: $command"
 done
 require_text Justfile '_preflight'
@@ -107,13 +121,16 @@ require_text crates/lomo-xtask/src/tools.rs 'rust_pin::load'
 if grep -Eq 'command\.args\(\[[[:space:]]*"\+[0-9]' crates/lomo-xtask/src/tools.rs; then
   fail "crates/lomo-xtask/src/tools.rs must not hard-code cargo +channel literals"
 fi
-require_text crates/lomo-xtask/src/workspace.rs '29.0.14206865'
+require_text crates/lomo-xtask/src/workspace.rs '30.0.16248370'
 require_text crates/lomo-xtask/src/workspace.rs 'fn lomo_output_dir'
 require_text crates/lomo-xtask/src/native.rs 'liblomo_native_jni.so'
 require_text crates/lomo-xtask/src/native.rs 'Abi::ALL'
 require_text crates/lomo-xtask/src/native.rs 'ReleaseCi'
 require_text crates/lomo-xtask/src/android.rs 'assets/dexopt/baseline.prof'
-require_text crates/lomo-xtask/src/android.rs 'env:LOMO_APK_STORE_PASSWORD'
+require_text apps/android/app/module.yaml 'signing:'
+require_text crates/lomo-xtask/src/android.rs 'validate_signing_config'
+require_text crates/lomo-xtask/src/android.rs 'verify_signature'
+require_text crates/lomo-xtask/src/android.rs 'keystore.properties'
 require_text crates/lomo-xtask/src/quality.rs 'pub fn preflight'
 require_text apps/android/native-bindings/module.yaml 'namespace: com.lomo.nativebridge'
 require_text apps/android/native-bindings/module.yaml 'allWarningsAsErrors: true'
@@ -135,7 +152,8 @@ for legacy in \
   quality/scripts/generate_rust_sync_android_libs.sh \
   quality/scripts/check_rust_sync_apk_packaging.sh \
   quality/scripts/ai_local_maintenance_check.sh \
-  quality/scripts/verified_batch_commit.sh; do
+  quality/scripts/verified_batch_commit.sh \
+  quality/scripts/kotlin_compose_static_analysis.sh; do
   reject_path "$legacy"
 done
 
@@ -149,7 +167,6 @@ for script in \
   quality/scripts/kotlin_detekt_check.sh \
   quality/scripts/kotlin_test_style_check.sh \
   quality/scripts/kotlin_android_lint_check.sh \
-  quality/scripts/kotlin_compose_static_analysis.sh \
   quality/scripts/kotlin_coverage_check.sh \
   quality/scripts/kotlin_detekt_format.sh \
   .githooks/pre-commit \
@@ -161,42 +178,32 @@ if command -v just >/dev/null 2>&1; then
   just --dump --dump-format json >/dev/null
 fi
 
-# Seeds one kotlin_detekt_format.sh environment under $1: the Gradle-cache
-# wrapper layout, the built-rules jar presence stub, a pinned-CLI cache
-# symlink and a stub `java`. The wrapper jar is packaged from the classes
-# tree at $2 — honest fixtures must satisfy the same plugin verification a
-# real cached jar passes (zip validity, identity markers).
+# Seed verified published plugins into the standard cache; no project Gradle cache is needed.
 seed_format_fixture() {
-  local dir="$1" wrapper_classes="$2"
-  local wrapper_dir="$dir/gradle/caches/modules-2/files-2.1/dev.detekt/detekt-rules-ktlint-wrapper/2.0.0-alpha.6/fat"
-  mkdir -p \
-    "$wrapper_dir" \
-    "$dir/build/tasks/_detekt-rules_jarJvm" \
-    "$dir/cache/lomo/detekt" \
-    "$dir/bin" \
-    "$dir/home"
-  jar cf \
-    "$wrapper_dir/detekt-rules-ktlint-wrapper-2.0.0-alpha.6.jar" \
-    -C "$wrapper_classes" .
-  : > "$dir/build/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar"
+  local dir="$1" real_wrapper real_coroutines
+  mkdir -p "$dir/cache/lomo/detekt" "$dir/home"
+  real_wrapper="$(REPO_ROOT="$repo_root" bash -c \
+    'source "$REPO_ROOT/quality/scripts/kotlin_detekt_env.sh" && lomo_detekt_ktlint_jar')"
+  cp "$real_wrapper" "$dir/cache/lomo/detekt/detekt-rules-ktlint-wrapper-2.0.0-alpha.6.jar"
+  real_coroutines="$(REPO_ROOT="$repo_root" bash -c \
+    'source "$REPO_ROOT/quality/scripts/kotlin_detekt_env.sh" && lomo_detekt_coroutines_jar')"
+  cp "$real_coroutines" "$dir/cache/lomo/detekt/detekt-rules-coroutines-2.0.0-alpha.6.jar"
   # The engine jar must carry the pinned digest — format resolves and verifies it
-  # before any tolerated batch, so an empty stub no longer passes. Seed the real
-  # verified jar (resolved under the normal environment) as a symlink: sha1sum
-  # follows the link, and the stubbed `java` below still never executes it.
+  # before any batch. Seed the real verified jar (resolved under the normal environment)
+  # as a symlink; the run executes it for real, because the formatter's canary must be
+  # reported by the actual ktlint rules (a stubbed JVM would make the contract vacuous).
   local real_cli_jar
   real_cli_jar="$(REPO_ROOT="$repo_root" bash -c \
     'source "$REPO_ROOT/quality/scripts/kotlin_detekt_env.sh" && lomo_detekt_cli_jar')" \
     || fail "cannot resolve the pinned detekt CLI jar"
   ln -s "$real_cli_jar" \
     "$dir/cache/lomo/detekt/detekt-cli-2.0.0-alpha.6-all.jar"
-  printf 'package contract\n' > "$dir/Sample.kt"
-  ln -s "$(type -P true)" "$dir/bin/java"
+  printf 'package contract\n\nclass Sample\n' > "$dir/Sample.kt"
 }
 
 run_format_against_fixture() {
   local dir="$1"
-  PATH="$dir/bin:$PATH" \
-    HOME="$dir/home" \
+  HOME="$dir/home" \
     USER=lomo-format-contract-no-host \
     GRADLE_USER_HOME="$dir/gradle" \
     XDG_CACHE_HOME="$dir/cache" \
@@ -208,26 +215,16 @@ run_format_against_fixture() {
 (
   format_contract_dir="$(mktemp -d /tmp/lomo-format-contract.XXXXXX)"
   trap 'rm -rf -- "$format_contract_dir"' EXIT
-  wrapper_classes="$format_contract_dir/wrapper-classes"
-  mkdir -p \
-    "$wrapper_classes/com/pinterest/ktlint/rule/engine/core/api" \
-    "$wrapper_classes/dev/detekt/rules/ktlintwrapper" \
-    "$wrapper_classes/META-INF/services"
-  : > "$wrapper_classes/com/pinterest/ktlint/rule/engine/core/api/Rule.class"
-  : > "$wrapper_classes/dev/detekt/rules/ktlintwrapper/KtlintWrapperProvider.class"
-  printf 'dev.detekt.rules.ktlintwrapper.KtlintWrapperProvider\n' \
-    > "$wrapper_classes/META-INF/services/dev.detekt.api.RuleSetProvider"
-  seed_format_fixture "$format_contract_dir" "$wrapper_classes"
+  seed_format_fixture "$format_contract_dir"
   run_format_against_fixture "$format_contract_dir" >/dev/null
 ) || fail "detekt formatting must accept a fat ktlint wrapper without ktlint-repackage"
 
 (
   tamper_dir="$(mktemp -d /tmp/lomo-format-tamper.XXXXXX)"
   trap 'rm -rf -- "$tamper_dir"' EXIT
-  mkdir -p "$tamper_dir/empty-classes"
-  seed_format_fixture "$tamper_dir" "$tamper_dir/empty-classes"
+  seed_format_fixture "$tamper_dir"
   printf 'gate-state garbage, not a zip archive\n' > \
-    "$tamper_dir/gradle/caches/modules-2/files-2.1/dev.detekt/detekt-rules-ktlint-wrapper/2.0.0-alpha.6/fat/detekt-rules-ktlint-wrapper-2.0.0-alpha.6.jar"
+    "$tamper_dir/cache/lomo/detekt/detekt-rules-ktlint-wrapper-2.0.0-alpha.6.jar"
   if run_format_against_fixture "$tamper_dir" >"$tamper_dir/out.log" 2>&1; then
     echo "xtask-contract: formatting accepted an unverifiable ktlint wrapper jar" >&2
     exit 1

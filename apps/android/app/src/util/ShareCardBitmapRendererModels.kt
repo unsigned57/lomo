@@ -1,11 +1,10 @@
 package com.lomo.app.util
 
-import com.lomo.ui.theme.TypographyScales
-
-import com.lomo.ui.theme.memoBodyTextStyle
 import android.graphics.Bitmap
 import android.text.StaticLayout
 import android.text.TextPaint
+import com.lomo.ui.theme.TypographyScales
+import com.lomo.ui.theme.memoBodyTextStyle
 
 internal const val SHARE_CARD_TIME_PATTERN = "yyyy-MM-dd HH:mm"
 internal const val MAX_SHARE_BITMAP_HEIGHT_PX = 4096
@@ -98,10 +97,7 @@ internal data class ShareCardRenderInput(
     val hasImages: Boolean,
 )
 
-internal data class ShareCardFooterContent(
-    val showFooter: Boolean,
-    val row: ShareCardFooterRow? = null,
-)
+internal data class ShareCardFooterContent(val showFooter: Boolean, val row: ShareCardFooterRow? = null)
 
 internal data class ShareCardFooterRow(
     val startText: String = "",
@@ -194,11 +190,7 @@ internal data class ShareBodyLine(
     val inlineStyles: List<ShareInlineStyleRange> = emptyList(),
 )
 
-internal data class ShareInlineStyleRange(
-    val start: Int,
-    val end: Int,
-    val kind: ShareInlineStyleKind,
-)
+internal data class ShareInlineStyleRange(val start: Int, val end: Int, val kind: ShareInlineStyleKind)
 
 internal enum class ShareInlineStyleKind {
     Bold,

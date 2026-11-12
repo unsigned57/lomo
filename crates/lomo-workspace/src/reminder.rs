@@ -329,7 +329,7 @@ fn opaque_id(
     opaque.update(token_fingerprint.as_str().as_bytes());
     opaque.update([0]);
     opaque.update(fingerprint_ordinal.to_le_bytes());
-    format!("reminder:{:x}", opaque.finalize())
+    format!("reminder:{}", lomo_core::hex_encode(&opaque.finalize()))
 }
 
 /// Definition identity bound to the durable embedded reminder id — stable across token mutations.
@@ -340,5 +340,5 @@ fn opaque_id_embedded(memo_identity: &MemoIdentity, embedded_id: &str) -> String
     opaque.update(b"embedded");
     opaque.update([0]);
     opaque.update(embedded_id.as_bytes());
-    format!("reminder:{:x}", opaque.finalize())
+    format!("reminder:{}", lomo_core::hex_encode(&opaque.finalize()))
 }

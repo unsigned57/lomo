@@ -1,107 +1,75 @@
 package com.lomo.app.feature.main
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material3.FloatingActionButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
-import com.lomo.app.benchmark.BenchmarkAnchorContract
-import com.lomo.ui.benchmark.benchmarkAnchor
+import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
+import com.lomo.app.feature.quickball.QuickBallActionSheet
+import com.lomo.app.feature.quickball.quickBallIcons
+import com.lomo.app.feature.quickball.quickBallLabels
+import com.lomo.domain.model.QuickBallAction
+import com.lomo.domain.model.QuickBallConfig
+import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.component.common.GestureBall
+import com.lomo.ui.theme.LocalLomoMotion
+import kotlinx.collections.immutable.toImmutableList
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-internal fun MainFab(
-    isVisible: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    modifier: Modifier = Modifier,
+internal fun MainQuickBall(
+    visible: Boolean,
+    config: QuickBallConfig,
+    actions: MainScreenActions,
+    onScrollToTop: () -> Unit,
 ) {
-    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-
-    Surface(
-        shape = FloatingActionButtonDefaults.extendedFabShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shadowElevation = 6.dp,
-        tonalElevation = 3.dp,
-        modifier = modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_CREATE_FAB),
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .clip(FloatingActionButtonDefaults.extendedFabShape)
-                    .combinedClickable(
-                        onClick = {
-                            haptic.heavy()
-                            onClick()
-                        },
-                        onLongClick = onLongClick,
-                    ).padding(start = 16.dp, end = if (isVisible) 20.dp else 16.dp)
-                    .height(56.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Rounded.Add,
-                contentDescription =
-                    androidx.compose.ui.res
-                        .stringResource(R.string.fab_new_memo),
-            )
-            MainFabAnimatedLabel(isVisible = isVisible)
+    var menuVisible by remember { mutableStateOf(false) }
+    val execute: (QuickBallAction) -> Unit = { action ->
+        when (action) {
+            QuickBallAction.NEW_MEMO -> actions.onFabClick()
+            QuickBallAction.RECORD -> actions.onRecord()
+            QuickBallAction.LONG_TEXT -> actions.onLongText()
+            QuickBallAction.SCROLL_TOP -> onScrollToTop()
+            QuickBallAction.SEARCH -> actions.onSearch()
+            QuickBallAction.FILTER -> actions.onOpenMemoFilterPanel()
+            QuickBallAction.CLEAR_FILTER -> actions.onClearFilter()
+            QuickBallAction.ACTION_MENU -> menuVisible = true
+            QuickBallAction.DAILY_REVIEW -> actions.onDailyReviewClick()
+            QuickBallAction.GALLERY -> actions.onGalleryClick()
+            QuickBallAction.NONE -> Unit
         }
     }
-}
-
-@Composable
-private fun MainFabAnimatedLabel(isVisible: Boolean) {
-    val motionScheme = MaterialTheme.motionScheme
-    AnimatedVisibility(
-        visible = isVisible,
-        enter =
-            expandHorizontally(
-                animationSpec =
-                    motionScheme.defaultSpatialSpec(),
-            ) +
-                fadeIn(
-                    animationSpec =
-                        motionScheme.defaultEffectsSpec(),
-                ),
-        exit =
-            shrinkHorizontally(
-                animationSpec =
-                    motionScheme.defaultSpatialSpec(),
-            ) +
-                fadeOut(
-                    animationSpec =
-                        motionScheme.defaultEffectsSpec(),
-                ),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text =
-                    androidx.compose.ui.res
-                        .stringResource(R.string.fab_new_memo),
-                style = MaterialTheme.typography.labelLarge,
-            )
-        }
+    val motion = LocalLomoMotion.current.component
+    val appearance = androidx.compose.animation.core.updateTransition(visible, label = "FabVisibility")
+    val appearanceFraction by appearance.animateFloat(
+        transitionSpec = { if (targetState) motion.defaultSpatialSpec() else motion.fastSpatialSpec() },
+        label = "FabAppearance",
+    ) { shown -> if (shown) 1f else 0f }
+    if (appearance.currentState || appearance.targetState) {
+        GestureBall(
+            labels = quickBallLabels(config),
+            icons = quickBallIcons(config),
+            onGesture = { gesture -> if (visible) execute(config.action(gesture)) },
+            modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_CREATE_FAB),
+            appearanceFraction = appearanceFraction,
+        )
+    }
+    if (menuVisible) {
+        QuickBallActionSheet(
+            title = stringResource(R.string.quick_ball_action_menu),
+            actions = QuickBallAction.entries
+                .filter { it != QuickBallAction.NONE && it != QuickBallAction.ACTION_MENU }
+                .toImmutableList(),
+            selectedAction = null,
+            onDismiss = { menuVisible = false },
+            onSelect = { action ->
+                menuVisible = false
+                execute(action)
+            },
+        )
     }
 }

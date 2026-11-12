@@ -66,7 +66,7 @@ impl RevisionId {
         hasher.update(content_digest.as_bytes());
         hasher.update([0]);
         hasher.update(canonical_metadata.as_bytes());
-        Self(format!("{:x}", hasher.finalize()))
+        Self(lomo_core::hex_encode(&hasher.finalize()))
     }
 }
 
@@ -279,7 +279,7 @@ fn state_content_digest(
     hasher.update(pin_operation_id.unwrap_or("").as_bytes());
     hasher.update([0]);
     hasher.update(trash_operation_id.unwrap_or("").as_bytes());
-    format!("{:x}", hasher.finalize())
+    lomo_core::hex_encode(&hasher.finalize())
 }
 
 /// Permanent prune tombstone for a history revision.

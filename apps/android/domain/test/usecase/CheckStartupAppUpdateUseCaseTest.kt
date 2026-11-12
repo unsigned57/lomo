@@ -3,15 +3,14 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.AppUpdateAssetCandidate
 import com.lomo.domain.model.AppUpdateAssetUnsupportedReason
 import com.lomo.domain.model.AppUpdateAssetVerification
+import com.lomo.domain.model.AppUpdateCheckOutcome
+import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeAppRuntimeInfoRepository
 import com.lomo.domain.testing.fakes.FakeAppUpdateRepository
 import com.lomo.domain.testing.fakes.FakePreferencesRepository
 import io.kotest.assertions.assertSoftly
-import com.lomo.domain.model.AppUpdateCheckOutcome
-import com.lomo.domain.model.AppUpdateInfo
-import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import kotlinx.coroutines.test.runTest
@@ -68,35 +67,37 @@ class CheckStartupAppUpdateUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("given startup checks enabled and unsupported first apk plus verified newer apk when checking update then verified metadata is preserved") {
+        test(
+            "given startup checks enabled and unsupported first apk plus verified newer apk when checking update then verified metadata is preserved",
+        ) {
             runTest {
                 val rawNotes = "[FORCE_UPDATE]\r\n" + "A".repeat(3_500)
                 val preferencesRepository = FakePreferencesRepository()
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v9.0.0",
-                                body = rawNotes,
-                                assetCandidates =
-                                    listOf(
-                                        AppUpdateAssetCandidate(
-                                            fileName = "other-app-v9.0.0.apk",
-                                            downloadUrl = "https://example.com/assets/other-app-v9.0.0.apk",
-                                            sizeBytes = 16_384L,
-                                            verification =
-                                                AppUpdateAssetVerification.Unsupported(
-                                                    AppUpdateAssetUnsupportedReason.WRONG_PACKAGE,
-                                                ),
-                                        ),
-                                        verifiedCandidate(
-                                            fileName = "lomo-v9.0.0.apk",
-                                            downloadUrl = "https://example.com/assets/lomo-v9.0.0.apk",
-                                            sizeBytes = 16_384L,
-                                            versionName = "9.0.0",
-                                        ),
+                        latestRelease(
+                            tagName = "v9.0.0",
+                            body = rawNotes,
+                            assetCandidates =
+                            listOf(
+                                AppUpdateAssetCandidate(
+                                    fileName = "other-app-v9.0.0.apk",
+                                    downloadUrl = "https://example.com/assets/other-app-v9.0.0.apk",
+                                    sizeBytes = 16_384L,
+                                    verification =
+                                    AppUpdateAssetVerification.Unsupported(
+                                        AppUpdateAssetUnsupportedReason.WRONG_PACKAGE,
                                     ),
+                                ),
+                                verifiedCandidate(
+                                    fileName = "lomo-v9.0.0.apk",
+                                    downloadUrl = "https://example.com/assets/lomo-v9.0.0.apk",
+                                    sizeBytes = 16_384L,
+                                    versionName = "9.0.0",
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("0.1.0")
 
@@ -119,28 +120,30 @@ class CheckStartupAppUpdateUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("given startup checks enabled and no verified apk candidate when checking update then no installable update is returned") {
+        test(
+            "given startup checks enabled and no verified apk candidate when checking update then no installable update is returned",
+        ) {
             runTest {
                 val preferencesRepository = FakePreferencesRepository()
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v1.1.0",
-                                body = "asset is not for this package",
-                                assetCandidates =
-                                    listOf(
-                                        AppUpdateAssetCandidate(
-                                            fileName = "other-app-v1.1.0.apk",
-                                            downloadUrl = "https://example.com/assets/other-app-v1.1.0.apk",
-                                            sizeBytes = 4_096L,
-                                            verification =
-                                                AppUpdateAssetVerification.Unsupported(
-                                                    AppUpdateAssetUnsupportedReason.WRONG_PACKAGE,
-                                                ),
-                                        ),
+                        latestRelease(
+                            tagName = "v1.1.0",
+                            body = "asset is not for this package",
+                            assetCandidates =
+                            listOf(
+                                AppUpdateAssetCandidate(
+                                    fileName = "other-app-v1.1.0.apk",
+                                    downloadUrl = "https://example.com/assets/other-app-v1.1.0.apk",
+                                    sizeBytes = 4_096L,
+                                    verification =
+                                    AppUpdateAssetVerification.Unsupported(
+                                        AppUpdateAssetUnsupportedReason.WRONG_PACKAGE,
                                     ),
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.0.0")
 
@@ -155,25 +158,27 @@ class CheckStartupAppUpdateUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("given startup checks enabled and same version force marker when checking update then no update is returned") {
+        test(
+            "given startup checks enabled and same version force marker when checking update then no update is returned",
+        ) {
             runTest {
                 val preferencesRepository = FakePreferencesRepository()
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v1.2.3",
-                                body = "[FORCE_UPDATE]\nNo newer version",
-                                assetCandidates =
-                                    listOf(
-                                        verifiedCandidate(
-                                            fileName = "lomo-v1.2.3.apk",
-                                            downloadUrl = "https://example.com/assets/lomo-v1.2.3.apk",
-                                            sizeBytes = 8_192L,
-                                            versionName = "1.2.3",
-                                        ),
-                                    ),
+                        latestRelease(
+                            tagName = "v1.2.3",
+                            body = "[FORCE_UPDATE]\nNo newer version",
+                            assetCandidates =
+                            listOf(
+                                verifiedCandidate(
+                                    fileName = "lomo-v1.2.3.apk",
+                                    downloadUrl = "https://example.com/assets/lomo-v1.2.3.apk",
+                                    sizeBytes = 8_192L,
+                                    versionName = "1.2.3",
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.2.3-debug")
 
@@ -190,34 +195,31 @@ class CheckStartupAppUpdateUseCaseTest : DomainFunSpec() {
     }
 }
 
-private fun AppUpdateCheckOutcome.updateOrNull(): AppUpdateInfo? =
-    (this as? AppUpdateCheckOutcome.Available)?.update
+private fun AppUpdateCheckOutcome.updateOrNull(): AppUpdateInfo? = (this as? AppUpdateCheckOutcome.Available)?.update
 
 private fun latestRelease(
     tagName: String,
     body: String,
     assetCandidates: List<AppUpdateAssetCandidate>,
-): LatestAppRelease =
-    LatestAppRelease(
-        tagName = tagName,
-        htmlUrl = "https://example.com/release",
-        body = body,
-        assetCandidates = assetCandidates,
-    )
+): LatestAppRelease = LatestAppRelease(
+    tagName = tagName,
+    htmlUrl = "https://example.com/release",
+    body = body,
+    assetCandidates = assetCandidates,
+)
 
 private fun verifiedCandidate(
     fileName: String,
     downloadUrl: String,
     sizeBytes: Long,
     versionName: String,
-): AppUpdateAssetCandidate =
-    AppUpdateAssetCandidate(
-        fileName = fileName,
-        downloadUrl = downloadUrl,
-        sizeBytes = sizeBytes,
-        verification =
-            AppUpdateAssetVerification.Verified(
-                packageName = "com.lomo.app",
-                versionName = versionName,
-            ),
-    )
+): AppUpdateAssetCandidate = AppUpdateAssetCandidate(
+    fileName = fileName,
+    downloadUrl = downloadUrl,
+    sizeBytes = sizeBytes,
+    verification =
+    AppUpdateAssetVerification.Verified(
+        packageName = "com.lomo.app",
+        versionName = versionName,
+    ),
+)

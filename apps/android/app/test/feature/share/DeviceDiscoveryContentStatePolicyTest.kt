@@ -58,9 +58,9 @@ class DeviceDiscoveryContentStatePolicyTest : AppFunSpec() {
                 permissionState = LanSharePermissionState.Granted,
                 discoveryError = "Failed to start device discovery",
                 diagnostics =
-                    activeProbeDiagnostics(
-                        state = LanShareActiveProbeState.Scanning,
-                    ),
+                activeProbeDiagnostics(
+                    state = LanShareActiveProbeState.Scanning,
+                ),
             ) shouldBe DeviceDiscoveryContentState.Searching
         }
 
@@ -79,9 +79,9 @@ class DeviceDiscoveryContentStatePolicyTest : AppFunSpec() {
                 permissionState = LanSharePermissionState.Denied,
                 discoveryError = "Failed to start device discovery",
                 diagnostics =
-                    activeProbeDiagnostics(
-                        state = LanShareActiveProbeState.Scanning,
-                    ),
+                activeProbeDiagnostics(
+                    state = LanShareActiveProbeState.Scanning,
+                ),
             ) shouldBe DeviceDiscoveryContentState.PermissionDenied
         }
 
@@ -132,13 +132,11 @@ class DeviceDiscoveryContentStatePolicyTest : AppFunSpec() {
     }
 }
 
-private fun activeProbeDiagnostics(
-    state: LanShareActiveProbeState,
-): LanShareDiscoveryDiagnostics =
+private fun activeProbeDiagnostics(state: LanShareActiveProbeState): LanShareDiscoveryDiagnostics =
     LanShareDiscoveryDiagnostics(
         discoveryDesired = true,
         activeProbe =
-            LanShareActiveProbeDiagnostics(
-                state = state,
-            ),
+        LanShareActiveProbeDiagnostics(
+            state = state,
+        ),
     )

@@ -5,9 +5,7 @@ sealed interface AppUpdateInstallState {
 
     data object Preparing : AppUpdateInstallState
 
-    data class Downloading(
-        val progress: Int,
-    ) : AppUpdateInstallState
+    data class Downloading(val progress: Int) : AppUpdateInstallState
 
     data object Installing : AppUpdateInstallState
 
@@ -15,11 +13,7 @@ sealed interface AppUpdateInstallState {
 
     data object Completed : AppUpdateInstallState
 
-    data class RequiresInstallPermission(
-        val message: String,
-    ) : AppUpdateInstallState
+    data class RequiresInstallPermission(val message: String) : AppUpdateInstallState
 
-    data class Failed(
-        val message: String,
-    ) : AppUpdateInstallState
+    data class Failed(val message: String) : AppUpdateInstallState
 }

@@ -22,30 +22,28 @@ fun <Key : Any, Value : Any> memoPager(
     prefetchDistance: Int = DEFAULT_PREFETCH_DISTANCE,
     enablePlaceholders: Boolean = DEFAULT_ENABLE_PLACEHOLDERS,
     pagingSourceFactory: () -> PagingSource<Key, Value>,
-): Flow<PagingData<Value>> =
-    Pager(
-        config = memoPagingConfig(
-            pageSize = pageSize,
-            initialLoadSize = initialLoadSize,
-            prefetchDistance = prefetchDistance,
-            enablePlaceholders = enablePlaceholders,
-        ),
-        pagingSourceFactory = pagingSourceFactory,
-    ).flow.cachedIn(scope)
+): Flow<PagingData<Value>> = Pager(
+    config = memoPagingConfig(
+        pageSize = pageSize,
+        initialLoadSize = initialLoadSize,
+        prefetchDistance = prefetchDistance,
+        enablePlaceholders = enablePlaceholders,
+    ),
+    pagingSourceFactory = pagingSourceFactory,
+).flow.cachedIn(scope)
 
 internal fun memoPagingConfig(
     pageSize: Int = DEFAULT_PAGE_SIZE,
     initialLoadSize: Int = DEFAULT_INITIAL_LOAD_SIZE,
     prefetchDistance: Int = DEFAULT_PREFETCH_DISTANCE,
     enablePlaceholders: Boolean = DEFAULT_ENABLE_PLACEHOLDERS,
-): PagingConfig =
-    PagingConfig(
-        pageSize = pageSize,
-        initialLoadSize = initialLoadSize,
-        prefetchDistance = prefetchDistance,
-        enablePlaceholders = enablePlaceholders,
-        jumpThreshold = Int.MIN_VALUE,
-    )
+): PagingConfig = PagingConfig(
+    pageSize = pageSize,
+    initialLoadSize = initialLoadSize,
+    prefetchDistance = prefetchDistance,
+    enablePlaceholders = enablePlaceholders,
+    jumpThreshold = Int.MIN_VALUE,
+)
 
 class LoadingAwarePagingSource<Key : Any, Value : Any>(
     private val delegate: PagingSource<Key, Value>,

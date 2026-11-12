@@ -307,7 +307,7 @@ fn write_manifest_entry(
             &format!("cannot encode manifest: {error}"),
         )
     })?;
-    let manifest_digest = format!("{:x}", Sha256::digest(&manifest_json));
+    let manifest_digest = lomo_core::hex_encode(&Sha256::digest(&manifest_json));
     zip.start_file(ARCHIVE_MANIFEST_ENTRY, options)
         .map_err(|error| {
             storage(
@@ -373,7 +373,7 @@ fn check_entry_budget(compressed: u64, uncompressed: u64) -> Result<(), LomoErro
 }
 
 fn extract_entry_to_staging(
-    entry: &mut zip::read::ZipFile<'_>,
+    entry: &mut zip::read::ZipFile<'_, File>,
     dest: &Path,
 ) -> Result<(), LomoError> {
     if let Some(parent) = dest.parent() {
@@ -696,7 +696,12 @@ pub fn archive_inspect(
         if entry.is_dir() {
             continue;
         }
-        let name = reject_zip_path(entry.name())?;
+        let name = reject_zip_path(&entry.name().map_err(|error| {
+            corruption(
+                "archive_entry_name_invalid",
+                &format!("cannot decode zip entry {index} name: {error}"),
+            )
+        })?)?;
         if !seen.insert(name.clone()) {
             // Fail closed without leaving a half-extracted staging tree as a success path.
             drop(fs::remove_dir_all(staging_root));

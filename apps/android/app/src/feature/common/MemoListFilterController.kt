@@ -16,14 +16,18 @@ class MemoListFilterController {
     private val _filter = MutableStateFlow(MemoListFilter())
     val filter: StateFlow<MemoListFilter> = _filter.asStateFlow()
 
+    /**
+     * Required single-choice sort option: selecting an option only changes `sortOption` and never
+     * touches the direction axis — re-selecting the current option is a no-op, not a direction
+     * toggle. Direction is owned by [onSortDirectionSelected].
+     */
     val onSortOptionSelected: (MemoSortOption) -> Unit = { option ->
-        val current = _filter.value
-        _filter.value =
-            if (current.sortOption == option) {
-                current.copy(sortAscending = !current.sortAscending)
-            } else {
-                current.copy(sortOption = option, sortAscending = true)
-            }
+        _filter.value = _filter.value.copy(sortOption = option)
+    }
+
+    /** Dedicated sort-direction axis, driven by the filter sheet's direction toggle. */
+    val onSortDirectionSelected: (Boolean) -> Unit = { ascending ->
+        _filter.value = _filter.value.copy(sortAscending = ascending)
     }
 
     val onStartDateSelected: (LocalDate?) -> Unit = { date ->

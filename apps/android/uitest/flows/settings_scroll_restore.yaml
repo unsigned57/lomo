@@ -1,0 +1,36 @@
+# Behavior Contract:
+# Capability: settings pages retain position and OLED belongs with theme; owner: app; P1.
+# Given a scrolled settings home, when About opens and returns, then its entry remains visible.
+# Given theme preferences, when palette opens, then OLED stays on home and home position restores.
+# RED: ui-followup/settings-red.log; GREEN: this same return assertion on device.
+# Excludes: physical-device frame timing and Activity process restoration.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_settings"
+- scrollUntilVisible:
+    element:
+      text: "About Lomo"
+- tapOn: "About Lomo"
+- back
+- waitForAnimationToEnd
+- assertVisible: "About Lomo"
+- takeScreenshot: settings-restored-position
+- scrollUntilVisible:
+    element:
+      text: "Pure black in dark mode"
+    direction: UP
+    centerElement: true
+- assertVisible: "Theme Mode"
+- tapOn: "Color palette"
+- assertNotVisible: "Pure black in dark mode"
+- back
+- waitForAnimationToEnd
+- assertVisible: "Pure black in dark mode"
+- back
+- assertVisible:
+    id: "benchmark_main_root"

@@ -76,7 +76,7 @@ impl TrashCommandRequest {
         let _path = WorkspaceRelativePath::parse(&self.path)?;
         let _expected = SourceFingerprint::parse(&self.expected_fingerprint)?;
         let _identity = MemoIdentity::parse(self.command.identity())?;
-        let _marker_path = trash_record_relative_path(self.command.identity())?;
+        let _marker_path = trash_record_relative_path(self.command.identity(), &self.path)?;
         if let TrashCommandKind::Trash {
             chronology_epoch_ms,
             ..
@@ -243,7 +243,8 @@ impl JobDriver for TrashCommandDriver {
         };
         let mut actions = vec![source_read];
         if let Some(token) = marker_read_token.as_deref() {
-            let marker_path = trash_record_relative_path(request.command.identity())?;
+            let marker_path =
+                trash_record_relative_path(request.command.identity(), &request.path)?;
             actions.push(plan_read(
                 ctx.next_action_id("trash-marker-read")?,
                 ctx.capability(),
@@ -418,7 +419,7 @@ fn plan_soft_delete(
         write_exchange_bytes(ctx.exchange_root, &marker_write_token, &marker_bytes)?;
     let artifact =
         ExchangeArtifact::new(&marker_write_token, length, Sha256Digest::parse(&digest)?)?;
-    let marker_path = trash_record_relative_path(identity)?;
+    let marker_path = trash_record_relative_path(identity, &state.path)?;
     let directory = WorkspaceRelativePath::parse(TRASH_RECORD_DIRECTORY)?;
     state.phase = TrashCommandPhase::WriteMarker;
     state.marker_write_token = Some(marker_write_token);
@@ -575,7 +576,7 @@ fn plan_marker_delete(
             "trash marker delete requires verified read evidence",
         )
     })?;
-    let marker_path = trash_record_relative_path(identity)?;
+    let marker_path = trash_record_relative_path(identity, &state.path)?;
     state.phase = TrashCommandPhase::DeleteMarker;
     Ok(DriverAdvance::NeedsBatch {
         state_json: encode_state(state)?,
@@ -601,7 +602,7 @@ fn advance_after_marker_delete(
             "trash marker deletion did not publish verified absence",
         ));
     };
-    let expected_path = trash_record_relative_path(state.command.identity())?;
+    let expected_path = trash_record_relative_path(state.command.identity(), &state.path)?;
     if absence.target() != &WorkspaceTarget::Relative(to_core_path(&expected_path)?) {
         return Err(validation(
             "trash_marker_delete_target_mismatch",

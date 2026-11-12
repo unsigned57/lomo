@@ -17,8 +17,8 @@ import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import io.kotest.assertions.withClue
-import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContainAll
 import java.io.File
 
 /*
@@ -113,7 +113,7 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
                         directFacadeInjections +
                         replacementFacadeInjections +
                         sourceFixtureLeaks
-                ).shouldBeEmpty()
+                    ).shouldBeEmpty()
             }
         }
 
@@ -202,17 +202,15 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
         }
     }
 
-    private fun existingTypeLeak(typeName: String): String? =
-        try {
-            "Stale boundary type still exists: ${Class.forName(typeName).name}"
-        } catch (_: ClassNotFoundException) {
-            null
-        }
+    private fun existingTypeLeak(typeName: String): String? = try {
+        "Stale boundary type still exists: ${Class.forName(typeName).name}"
+    } catch (_: ClassNotFoundException) {
+        null
+    }
 
-    private fun Class<*>.constructorParameterTypeNames(): Set<String> =
-        declaredConstructors
-            .flatMap { constructor -> constructor.parameterTypes.map(Class<*>::getName) }
-            .toSet()
+    private fun Class<*>.constructorParameterTypeNames(): Set<String> = declaredConstructors
+        .flatMap { constructor -> constructor.parameterTypes.map(Class<*>::getName) }
+        .toSet()
 
     private fun productionAppFilesGatheringAllMemoPorts(): List<String> {
         val mainSourceRoot = resolveModuleRoot("app").resolve("src")
@@ -235,7 +233,11 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
             val testFakesRoot = moduleRoot.resolve("test")
             testFakesRoot
                 .walkTopDown()
-                .filter { file -> file.isFile && file.extension == "kt" && "fakes" in file.relativeTo(testFakesRoot).path }
+                .filter { file ->
+                    file.isFile && file.extension == "kt" && "fakes" in file.relativeTo(
+                        testFakesRoot,
+                    ).path
+                }
                 .flatMap { file ->
                     val text = file.readText()
                     text.memoCapabilityAggregationScopes()
@@ -256,13 +258,12 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
                     }
             }
 
-    private fun String.fileScope(): SourceScope =
-        SourceScope(
-            kind = "file",
-            name = "<file>",
-            lineNumber = 1,
-            text = this,
-        )
+    private fun String.fileScope(): SourceScope = SourceScope(
+        kind = "file",
+        name = "<file>",
+        lineNumber = 1,
+        text = this,
+    )
 
     private val SourceScope.declaredFunctionNames: Set<String>
         get() =
@@ -271,45 +272,46 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
                 .map { match -> match.groupValues[1] }
                 .toSet()
 
-    private fun String.declarationScopes(): List<SourceScope> =
-        DECLARATION_PATTERN
-            .findAll(this)
-            .map { match ->
-                val declarationStart = match.range.first
-                val indentedEnd =
-                    declarationScopeEnd(
-                        declarationStart = declarationStart,
-                        declarationIndent = leadingWhitespaceAt(declarationStart),
-                    )
-                val openBrace =
-                    indexOf('{', startIndex = declarationStart)
-                        .takeIf { index -> index >= 0 && index < indentedEnd }
-                val scopeEnd = openBrace?.let { braceIndex -> findMatchingBrace(braceIndex) }?.plus(1) ?: indentedEnd
-                SourceScope(
-                    kind = match.groupValues[1],
-                    name = match.groupValues[2],
-                    lineNumber = lineNumberAt(declarationStart),
-                    text = substring(declarationStart, scopeEnd),
+    private fun String.declarationScopes(): List<SourceScope> = DECLARATION_PATTERN
+        .findAll(this)
+        .map { match ->
+            val declarationStart = match.range.first
+            val indentedEnd =
+                declarationScopeEnd(
+                    declarationStart = declarationStart,
+                    declarationIndent = leadingWhitespaceAt(declarationStart),
                 )
-            }.toList()
+            val openBrace =
+                indexOf('{', startIndex = declarationStart)
+                    .takeIf { index -> index >= 0 && index < indentedEnd }
+            val scopeEnd = openBrace?.let { braceIndex -> findMatchingBrace(braceIndex) }?.plus(1) ?: indentedEnd
+            SourceScope(
+                kind = match.groupValues[1],
+                name = match.groupValues[2],
+                lineNumber = lineNumberAt(declarationStart),
+                text = substring(declarationStart, scopeEnd),
+            )
+        }.toList()
 
     private fun String.leadingWhitespaceAt(offset: Int): Int {
         val lineStart = lastIndexOf('\n', startIndex = offset).takeIf { index -> index >= 0 }?.plus(1) ?: 0
         return substring(lineStart, offset).takeWhile(Char::isWhitespace).length
     }
 
-    private fun String.propertyDeclarationScopes(): List<SourceScope> =
-        PROPERTY_DECLARATION_PATTERN
-            .findAll(this)
-            .filter { match -> propertyDeclarationLine(match.range.first).isMemoRepositoryPropertyCandidate() }
-            .map { match ->
-                SourceScope(
-                    kind = match.groupValues[2],
-                    name = match.groupValues[3],
-                    lineNumber = lineNumberAt(match.range.first),
-                    text = substring(match.range.first, propertyDeclarationEnd(match.range.first, match.groupValues[1].length)),
-                )
-            }.toList()
+    private fun String.propertyDeclarationScopes(): List<SourceScope> = PROPERTY_DECLARATION_PATTERN
+        .findAll(this)
+        .filter { match -> propertyDeclarationLine(match.range.first).isMemoRepositoryPropertyCandidate() }
+        .map { match ->
+            SourceScope(
+                kind = match.groupValues[2],
+                name = match.groupValues[3],
+                lineNumber = lineNumberAt(match.range.first),
+                text = substring(
+                    match.range.first,
+                    propertyDeclarationEnd(match.range.first, match.groupValues[1].length),
+                ),
+            )
+        }.toList()
 
     private fun String.propertyDeclarationLine(declarationStart: Int): String {
         val lineEnd = indexOf('\n', startIndex = declarationStart).takeIf { it >= 0 } ?: length
@@ -321,28 +323,17 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
             ALL_MEMO_CAPABILITY_PROPERTY_NAMES.any(this::contains) ||
             ALL_MEMO_FIXTURE_PROPERTY_NAMES.any(this::contains)
 
-    private fun String.declarationScopeEnd(
-        declarationStart: Int,
-        declarationIndent: Int,
-    ): Int =
-        indentedScopeEnd(
-            declarationStart = declarationStart,
-            declarationIndent = declarationIndent,
-        )
+    private fun String.declarationScopeEnd(declarationStart: Int, declarationIndent: Int): Int = indentedScopeEnd(
+        declarationStart = declarationStart,
+        declarationIndent = declarationIndent,
+    )
 
-    private fun String.propertyDeclarationEnd(
-        declarationStart: Int,
-        declarationIndent: Int,
-    ): Int =
-        indentedScopeEnd(
-            declarationStart = declarationStart,
-            declarationIndent = declarationIndent,
-        )
+    private fun String.propertyDeclarationEnd(declarationStart: Int, declarationIndent: Int): Int = indentedScopeEnd(
+        declarationStart = declarationStart,
+        declarationIndent = declarationIndent,
+    )
 
-    private fun String.indentedScopeEnd(
-        declarationStart: Int,
-        declarationIndent: Int,
-    ): Int {
+    private fun String.indentedScopeEnd(declarationStart: Int, declarationIndent: Int): Int {
         var index = declarationStart
         var parenDepth = 0
         var bracketDepth = 0
@@ -351,11 +342,17 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
         while (index < length) {
             when (this[index]) {
                 '(' -> parenDepth += 1
+
                 ')' -> parenDepth -= 1
+
                 '[' -> bracketDepth += 1
+
                 ']' -> bracketDepth -= 1
+
                 '{' -> braceDepth += 1
+
                 '}' -> braceDepth -= 1
+
                 '\n' -> {
                     lastLineEnd = index
                     if (parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
@@ -363,7 +360,9 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
                         val nextLineEnd = indexOf('\n', startIndex = nextLineStart).takeIf { it >= 0 } ?: length
                         val nextLine = substring(nextLineStart, nextLineEnd)
                         val nextIndent = nextLine.takeWhile(Char::isWhitespace).length
-                        if (nextLine.isBlank() || nextIndent <= declarationIndent && nextLine.startsNewDeclaration()) {
+                        if (nextLine.isBlank() ||
+                            (nextIndent <= declarationIndent && nextLine.startsNewDeclaration())
+                        ) {
                             return lastLineEnd
                         }
                     }
@@ -374,16 +373,16 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
         return lastLineEnd
     }
 
-    private fun String.startsNewDeclaration(): Boolean =
-        trimStart().let { line ->
-            NEW_DECLARATION_PREFIXES.any(line::startsWith)
-        }
+    private fun String.startsNewDeclaration(): Boolean = trimStart().let { line ->
+        NEW_DECLARATION_PREFIXES.any(line::startsWith)
+    }
 
     private fun String.findMatchingBrace(openBrace: Int): Int? {
         var depth = 0
         for (index in openBrace until length) {
             when (this[index]) {
                 '{' -> depth += 1
+
                 '}' -> {
                     depth -= 1
                     if (depth == 0) return index
@@ -393,8 +392,7 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
         return null
     }
 
-    private fun String.lineNumberAt(offset: Int): Int =
-        count { index, char -> index < offset && char == '\n' } + 1
+    private fun String.lineNumberAt(offset: Int): Int = count { index, char -> index < offset && char == '\n' } + 1
 
     private inline fun String.count(predicate: (Int, Char) -> Boolean): Int {
         var count = 0
@@ -406,12 +404,7 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
         return count
     }
 
-    private data class SourceScope(
-        val kind: String,
-        val name: String,
-        val lineNumber: Int,
-        val text: String,
-    )
+    private data class SourceScope(val kind: String, val name: String, val lineNumber: Int, val text: String)
 
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."
@@ -500,8 +493,7 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
                     "getGalleryMemosPagingSource",
                     "getRecentMemos",
                     "getMemoCount",
-                    "getDailyReviewCandidateBoundary",
-                    "getDailyReviewCandidatePage",
+                    "getDailyReviewPage",
                     "rankInDefaultMainList",
                     "reanchorMainListToIdentity",
                     "getMemoById",

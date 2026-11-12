@@ -5,12 +5,11 @@ import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 
-internal class NoStatefulRepositoryOrUseCaseRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Repository and UseCase classes must be stateless pipelines over persistent engines; mutable 'var' member properties are forbidden.",
-) {
+internal class NoStatefulRepositoryOrUseCaseRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Repository and UseCase classes must be stateless pipelines over persistent engines; mutable 'var' member properties are forbidden.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*stateful-var-ok""")
 
     override fun visitProperty(property: KtProperty) {
@@ -49,12 +48,11 @@ internal class NoStatefulRepositoryOrUseCaseRule(
     }
 }
 
-internal class NoAdHocMemoryCacheRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Ad-hoc in-memory Map/Cache member properties in Repository and UseCase classes are forbidden without explicit behavior contracts.",
-) {
+internal class NoAdHocMemoryCacheRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Ad-hoc in-memory Map/Cache member properties in Repository and UseCase classes are forbidden without explicit behavior contracts.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*managed-cache-ok""")
     private val cacheTokens = listOf(
         "mutableMapOf",
@@ -87,7 +85,8 @@ internal class NoAdHocMemoryCacheRule(
         reportElement(
             property,
             "Ad-hoc in-memory cache detected in $className: '${property.name}'. " +
-                "Storing state in ad-hoc in-memory collections creates split-authority and cache invalidation desync. " +
+                "Storing state in ad-hoc in-memory collections creates split-authority and cache invalidation " +
+                "desync. " +
                 "Store facts in the persistence engine, bind cache lifetime to revision invalidations, or mark with '// behavior-contract: managed-cache-ok: <reason>'.",
         )
     }

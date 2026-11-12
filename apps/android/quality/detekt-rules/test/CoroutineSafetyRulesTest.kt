@@ -9,7 +9,6 @@ import dev.detekt.test.utils.compileForTest
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -40,19 +39,22 @@ import kotlin.io.path.writeText
  * Excludes:
  * - Runtime coroutine scheduling and Android lifecycle owners.
  */
-class CoroutineSafetyRulesTest : FunSpec({
-    test("registers NoSwallowedCancellationInSuspend, NoUnboundedFlowSharing, and NoUnmanagedCoroutineScope in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoSwallowedCancellationInSuspend")].shouldNotBeNull()
-        rules[RuleName("NoUnboundedFlowSharing")].shouldNotBeNull()
-        rules[RuleName("NoUnmanagedCoroutineScope")].shouldNotBeNull()
-    }
+class CoroutineSafetyRulesTest :
+    FunSpec({
+        test(
+            "registers NoSwallowedCancellationInSuspend, NoUnboundedFlowSharing, and NoUnmanagedCoroutineScope in rule set",
+        ) {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoSwallowedCancellationInSuspend")].shouldNotBeNull()
+            rules[RuleName("NoUnboundedFlowSharing")].shouldNotBeNull()
+            rules[RuleName("NoUnmanagedCoroutineScope")].shouldNotBeNull()
+        }
 
-    test("NoSwallowedCancellationInSuspend: flags catch(e: Exception) in suspend function without rethrow") {
-        val findings =
-            rule("NoSwallowedCancellationInSuspend").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoSwallowedCancellationInSuspend: flags catch(e: Exception) in suspend function without rethrow") {
+            val findings =
+                rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase {
@@ -66,17 +68,17 @@ class CoroutineSafetyRulesTest : FunSpec({
                     private suspend fun doWork() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Swallowed CancellationException"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Swallowed CancellationException"
+        }
 
-    test("NoSwallowedCancellationInSuspend: flags catch(_: Exception) wildcard catch in suspend function") {
-        val findings =
-            rule("NoSwallowedCancellationInSuspend").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoSwallowedCancellationInSuspend: flags catch(_: Exception) wildcard catch in suspend function") {
+            val findings =
+                rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase {
@@ -90,17 +92,17 @@ class CoroutineSafetyRulesTest : FunSpec({
                     private suspend fun doWork() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Swallowed CancellationException"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Swallowed CancellationException"
+        }
 
-    test("NoSwallowedCancellationInSuspend: flags unchecked runCatching in suspend function") {
-        val findings =
-            rule("NoSwallowedCancellationInSuspend").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoSwallowedCancellationInSuspend: flags unchecked runCatching in suspend function") {
+            val findings =
+                rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase {
@@ -112,17 +114,17 @@ class CoroutineSafetyRulesTest : FunSpec({
                     private suspend fun doWork() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Unchecked 'runCatching' in suspend function"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Unchecked 'runCatching' in suspend function"
+        }
 
-    test("NoSwallowedCancellationInSuspend: allows specific non-cancellation exception catch") {
-        val findings =
-            rule("NoSwallowedCancellationInSuspend").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoSwallowedCancellationInSuspend: allows specific non-cancellation exception catch") {
+            val findings =
+                rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
                 import java.io.IOException
 
@@ -137,16 +139,16 @@ class CoroutineSafetyRulesTest : FunSpec({
                     private suspend fun doWork() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoSwallowedCancellationInSuspend: allows catch when explicitly rethrowing CancellationException") {
-        val findings =
-            rule("NoSwallowedCancellationInSuspend").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoSwallowedCancellationInSuspend: allows catch when explicitly rethrowing CancellationException") {
+            val findings =
+                rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
                 import kotlinx.coroutines.CancellationException
 
@@ -162,16 +164,16 @@ class CoroutineSafetyRulesTest : FunSpec({
                     private suspend fun doWork() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoSwallowedCancellationInSuspend: allows broad catch after a CancellationException rethrow clause") {
-        val findings =
-            rule("NoSwallowedCancellationInSuspend").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoSwallowedCancellationInSuspend: allows broad catch after a CancellationException rethrow clause") {
+            val findings =
+                rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
                 import kotlinx.coroutines.CancellationException
 
@@ -188,16 +190,18 @@ class CoroutineSafetyRulesTest : FunSpec({
                     private suspend fun doWork() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoSwallowedCancellationInSuspend: still flags a broad catch when an earlier clause swallows cancellation") {
-        val findings =
-            rule("NoSwallowedCancellationInSuspend").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test(
+            "NoSwallowedCancellationInSuspend: still flags a broad catch when an earlier clause swallows cancellation",
+        ) {
+            val findings =
+                rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
                 import kotlinx.coroutines.CancellationException
 
@@ -214,17 +218,17 @@ class CoroutineSafetyRulesTest : FunSpec({
                     private suspend fun doWork() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Swallowed CancellationException"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Swallowed CancellationException"
+        }
 
-    test("NoSwallowedCancellationInSuspend: allows catch with cancellation-swallowed-ok opt-out") {
-        val findings =
-            rule("NoSwallowedCancellationInSuspend").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoSwallowedCancellationInSuspend: allows catch with cancellation-swallowed-ok opt-out") {
+            val findings =
+                rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase {
@@ -238,16 +242,16 @@ class CoroutineSafetyRulesTest : FunSpec({
                     private suspend fun doWork() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoSwallowedCancellationInSuspend: allows catch in normal non-suspend function") {
-        val findings =
-            rule("NoSwallowedCancellationInSuspend").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoSwallowedCancellationInSuspend: allows catch in normal non-suspend function") {
+            val findings =
+                rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SampleUseCase {
@@ -261,16 +265,16 @@ class CoroutineSafetyRulesTest : FunSpec({
                     private fun doSyncWork() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoUnboundedFlowSharing: flags SharingStarted.Lazily in app/src/ ViewModel") {
-        val findings =
-            rule("NoUnboundedFlowSharing").findingsForSource(
-                "app/src/feature/main/MainViewModel.kt",
-                """
+        test("NoUnboundedFlowSharing: flags SharingStarted.Lazily in app/src/ ViewModel") {
+            val findings =
+                rule("NoUnboundedFlowSharing").findingsForSource(
+                    "app/src/feature/main/MainViewModel.kt",
+                    """
                 package com.lomo.app.feature.main
                 import kotlinx.coroutines.flow.flowOf
                 import kotlinx.coroutines.flow.stateIn
@@ -281,17 +285,17 @@ class CoroutineSafetyRulesTest : FunSpec({
                     val state = flowOf(1).stateIn(scope, SharingStarted.Lazily, 0)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Forbidden SharingStarted.Lazily"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Forbidden SharingStarted.Lazily"
+        }
 
-    test("NoUnboundedFlowSharing: flags SharingStarted.Eagerly in app/src/ ViewModel") {
-        val findings =
-            rule("NoUnboundedFlowSharing").findingsForSource(
-                "app/src/feature/main/MainViewModel.kt",
-                """
+        test("NoUnboundedFlowSharing: flags SharingStarted.Eagerly in app/src/ ViewModel") {
+            val findings =
+                rule("NoUnboundedFlowSharing").findingsForSource(
+                    "app/src/feature/main/MainViewModel.kt",
+                    """
                 package com.lomo.app.feature.main
                 import kotlinx.coroutines.flow.flowOf
                 import kotlinx.coroutines.flow.stateIn
@@ -302,17 +306,17 @@ class CoroutineSafetyRulesTest : FunSpec({
                     val state = flowOf(1).stateIn(scope, SharingStarted.Eagerly, 0)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Forbidden SharingStarted.Eagerly"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Forbidden SharingStarted.Eagerly"
+        }
 
-    test("NoUnboundedFlowSharing: allows SharingStarted.WhileSubscribed in app/src/") {
-        val findings =
-            rule("NoUnboundedFlowSharing").findingsForSource(
-                "app/src/feature/main/MainViewModel.kt",
-                """
+        test("NoUnboundedFlowSharing: allows SharingStarted.WhileSubscribed in app/src/") {
+            val findings =
+                rule("NoUnboundedFlowSharing").findingsForSource(
+                    "app/src/feature/main/MainViewModel.kt",
+                    """
                 package com.lomo.app.feature.main
                 import kotlinx.coroutines.flow.flowOf
                 import kotlinx.coroutines.flow.stateIn
@@ -323,16 +327,16 @@ class CoroutineSafetyRulesTest : FunSpec({
                     val state = flowOf(1).stateIn(scope, SharingStarted.WhileSubscribed(5000), 0)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoUnboundedFlowSharing: allows Eagerly in data/src/ service") {
-        val findings =
-            rule("NoUnboundedFlowSharing").findingsForSource(
-                "data/src/engine/lan/RustLanShareService.kt",
-                """
+        test("NoUnboundedFlowSharing: allows Eagerly in data/src/ service") {
+            val findings =
+                rule("NoUnboundedFlowSharing").findingsForSource(
+                    "data/src/engine/lan/RustLanShareService.kt",
+                    """
                 package com.lomo.data.engine.lan
                 import kotlinx.coroutines.flow.flowOf
                 import kotlinx.coroutines.flow.stateIn
@@ -343,16 +347,16 @@ class CoroutineSafetyRulesTest : FunSpec({
                     val deviceName = flowOf("dev").stateIn(appScope, SharingStarted.Eagerly, "init")
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoUnboundedFlowSharing: allows Eagerly with behavior-contract opt-out") {
-        val findings =
-            rule("NoUnboundedFlowSharing").findingsForSource(
-                "app/src/feature/main/MainViewModel.kt",
-                """
+        test("NoUnboundedFlowSharing: allows Eagerly with behavior-contract opt-out") {
+            val findings =
+                rule("NoUnboundedFlowSharing").findingsForSource(
+                    "app/src/feature/main/MainViewModel.kt",
+                    """
                 package com.lomo.app.feature.main
                 import kotlinx.coroutines.flow.flowOf
                 import kotlinx.coroutines.flow.stateIn
@@ -364,16 +368,16 @@ class CoroutineSafetyRulesTest : FunSpec({
                     val state = flowOf(1).stateIn(scope, SharingStarted.Eagerly, 0)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoUnmanagedCoroutineScope: flags CoroutineScope instantiation in production source") {
-        val findings =
-            rule("NoUnmanagedCoroutineScope").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoUnmanagedCoroutineScope: flags CoroutineScope instantiation in production source") {
+            val findings =
+                rule("NoUnmanagedCoroutineScope").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
                 import kotlinx.coroutines.CoroutineScope
                 import kotlinx.coroutines.Dispatchers
@@ -382,17 +386,17 @@ class CoroutineSafetyRulesTest : FunSpec({
                     val unmanagedScope = CoroutineScope(Dispatchers.IO)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Forbidden unmanaged CoroutineScope"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Forbidden unmanaged CoroutineScope"
+        }
 
-    test("NoUnmanagedCoroutineScope: flags GlobalScope usage in production source") {
-        val findings =
-            rule("NoUnmanagedCoroutineScope").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoUnmanagedCoroutineScope: flags GlobalScope usage in production source") {
+            val findings =
+                rule("NoUnmanagedCoroutineScope").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
                 import kotlinx.coroutines.GlobalScope
                 import kotlinx.coroutines.launch
@@ -403,17 +407,17 @@ class CoroutineSafetyRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Forbidden GlobalScope usage"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Forbidden GlobalScope usage"
+        }
 
-    test("NoUnmanagedCoroutineScope: allows CoroutineScope in DI @Provides @Singleton") {
-        val findings =
-            rule("NoUnmanagedCoroutineScope").findingsForSource(
-                "data/src/di/EngineModule.kt",
-                """
+        test("NoUnmanagedCoroutineScope: allows CoroutineScope in DI @Provides @Singleton") {
+            val findings =
+                rule("NoUnmanagedCoroutineScope").findingsForSource(
+                    "data/src/di/EngineModule.kt",
+                    """
                 package com.lomo.data.di
                 import kotlinx.coroutines.CoroutineScope
                 import kotlinx.coroutines.SupervisorJob
@@ -426,16 +430,16 @@ class CoroutineSafetyRulesTest : FunSpec({
                     fun provideAppScope(): CoroutineScope = CoroutineScope(SupervisorJob())
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoUnmanagedCoroutineScope: allows CoroutineScope with unmanaged-scope-ok opt-out") {
-        val findings =
-            rule("NoUnmanagedCoroutineScope").findingsForSource(
-                "domain/src/usecase/SampleUseCase.kt",
-                """
+        test("NoUnmanagedCoroutineScope: allows CoroutineScope with unmanaged-scope-ok opt-out") {
+            val findings =
+                rule("NoUnmanagedCoroutineScope").findingsForSource(
+                    "domain/src/usecase/SampleUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
                 import kotlinx.coroutines.CoroutineScope
                 import kotlinx.coroutines.Dispatchers
@@ -445,24 +449,18 @@ class CoroutineSafetyRulesTest : FunSpec({
                     val isolatedScope = CoroutineScope(Dispatchers.IO)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
-})
+            findings.shouldHaveSize(0)
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-coroutine-safety-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

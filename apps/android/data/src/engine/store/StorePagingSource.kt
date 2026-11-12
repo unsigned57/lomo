@@ -44,15 +44,15 @@ class StorePagingSource(
                     prevKey = page.prevCursor?.encoded,
                     nextKey = page.nextCursor?.encoded,
                     itemsBefore =
-                        when (params) {
-                            is LoadParams.Append -> LoadResult.Page.COUNT_UNDEFINED
-                            else -> itemsBefore
-                        },
+                    when (params) {
+                        is LoadParams.Append -> LoadResult.Page.COUNT_UNDEFINED
+                        else -> itemsBefore
+                    },
                     itemsAfter =
-                        when (params) {
-                            is LoadParams.Prepend -> LoadResult.Page.COUNT_UNDEFINED
-                            else -> itemsAfter
-                        },
+                    when (params) {
+                        is LoadParams.Prepend -> LoadResult.Page.COUNT_UNDEFINED
+                        else -> itemsAfter
+                    },
                 )
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
@@ -65,10 +65,15 @@ class StorePagingSource(
             return identity
         }
         val anchor = state.anchorPosition ?: return null
-        if (anchor == 0) {
+        // Access hints often come from the bottom visible row. startMemoId is a forward
+        // page origin, so using that row directly would replace its visible predecessors
+        // with placeholders after every mutation. Center the refresh load on the access.
+        val refreshLoadSize = pageSize.coerceAtLeast(state.config.initialLoadSize)
+        val startPosition = (anchor - refreshLoadSize / 2).coerceAtLeast(0)
+        if (startPosition == 0) {
             return null
         }
-        return state.closestItemToPosition(anchor)?.id
+        return state.closestItemToPosition(startPosition)?.id
     }
 
     private fun loadStorePage(params: LoadParams<String>): StoreMemoPage {
@@ -82,6 +87,7 @@ class StorePagingSource(
                     startMemoId = params.key,
                     backward = false,
                 )
+
             is LoadParams.Append ->
                 port.queryMemos(
                     query = query,
@@ -90,6 +96,7 @@ class StorePagingSource(
                     startMemoId = null,
                     backward = false,
                 )
+
             is LoadParams.Prepend ->
                 port.queryMemos(
                     query = query,

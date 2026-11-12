@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 // adversarial-audit: Ready-image demotion re-enters the hydration queue, so an
 // over-budget image set never settles (decode thrash); identity guards are locked too.
 //
@@ -24,7 +33,7 @@ mod tests {
         graphics::{self, ImageState, READY_IMAGE_BUDGET_BYTES, TerminalImage},
         model::{AppModel, CancelToken, TextAnchor, View},
     };
-    use ratatui_image::picker::{Picker, ProtocolType};
+    use ratatui_image::picker::ProtocolType;
     use std::{collections::BTreeMap, sync::Arc};
 
     fn reader_model(paths: &[&str]) -> AppModel {
@@ -46,7 +55,7 @@ mod tests {
     /// accounts the raster `TerminalImage` retains, so the test drives the true
     /// accounting path instead of declaring a size.
     fn resident(columns: u16, rows: u16, font: (u16, u16)) -> TerminalImage {
-        let mut picker = Picker::from_fontsize(font);
+        let mut picker = crate::support::picker_with_font_size(font);
         picker.set_protocol_type(ProtocolType::Halfblocks);
         let png =
             lomo_tui::media::rgba_to_png(16, 16, &[255, 80, 20, 255].repeat(256)).expect("png");

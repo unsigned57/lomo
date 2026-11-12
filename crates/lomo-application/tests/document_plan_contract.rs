@@ -89,7 +89,8 @@ mod tests {
     const DOCUMENT: &str = "2026_09_12.md";
 
     fn create_memo(ctx: &Ctx, operation: &str, content: &str) -> MemoId {
-        ctx.session
+        let committed = ctx
+            .session
             .create_memo(CreateMemoRequest {
                 operation_id: OperationId::parse(operation).expect("op"),
                 relative_path: Some(RelativeWorkspacePath::parse(DOCUMENT).expect("path")),
@@ -100,12 +101,21 @@ mod tests {
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
             })
-            .expect("create")
-            .memo_id
+            .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        committed.memo_id
     }
 
-    /// Reads the durable identity record the document transaction published.
+    /// Reads the durable identity record once every committed transaction converged.
     fn identity_record(ctx: &Ctx) -> MemoIdentityMap {
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let record_path = memo_identity_record_path(
             WorkspaceRootId::Notes,
             &WorkspaceRelativePath::parse(DOCUMENT).expect("path"),
@@ -147,6 +157,9 @@ mod tests {
                 pending_promotes: Vec::new(),
             })
             .expect("update");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
 
         let after = identity_record(&ctx);
         assert_eq!(

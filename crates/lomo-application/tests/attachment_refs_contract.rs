@@ -97,7 +97,8 @@ mod tests {
     }
 
     fn create_memo(ctx: &Ctx, operation: &str, relative_path: &str, content: &str) -> MemoId {
-        ctx.session
+        let committed = ctx
+            .session
             .create_memo(CreateMemoRequest {
                 operation_id: OperationId::parse(operation).expect("op"),
                 relative_path: Some(RelativeWorkspacePath::parse(relative_path).expect("path")),
@@ -108,8 +109,14 @@ mod tests {
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
             })
-            .expect("create")
-            .memo_id
+            .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        committed.memo_id
     }
 
     /// A live memo referencing `media/./pic.png` resolves to `media/pic.png` on every host

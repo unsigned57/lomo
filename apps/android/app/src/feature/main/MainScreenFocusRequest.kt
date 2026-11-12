@@ -6,10 +6,7 @@ import com.lomo.domain.model.MemoListFilter
  * Query/filter epoch for focus retries. A queued focus request is only worth retrying inside the
  * epoch it was issued under; a query or structural filter change produces a different epoch.
  */
-internal data class MainListQueryEpoch(
-    val searchQuery: String,
-    val filter: MemoListFilter,
-)
+internal data class MainListQueryEpoch(val searchQuery: String, val filter: MemoListFilter)
 
 /**
  * Bounded retry discriminator for queued focus requests.
@@ -32,19 +29,20 @@ internal fun resolveMainListFocusRetryKey(
     windowStartIndex: Int,
     visibleMemos: List<MemoUiModel>,
     pendingFocusMemoIds: Set<String>,
-): MainListFocusRetryKey =
-    MainListFocusRetryKey(
-        queryEpoch = MainListQueryEpoch(searchQuery = searchQuery, filter = filter),
-        windowStartIndex = windowStartIndex,
-        windowFirstMemoId = visibleMemos.firstOrNull()?.run { memo.id },
-        windowLastMemoId = visibleMemos.lastOrNull()?.run { memo.id },
-        targetVisible = visibleMemos.any { it.memo.id in pendingFocusMemoIds },
-    )
+): MainListFocusRetryKey = MainListFocusRetryKey(
+    queryEpoch = MainListQueryEpoch(searchQuery = searchQuery, filter = filter),
+    windowStartIndex = windowStartIndex,
+    windowFirstMemoId = visibleMemos.firstOrNull()?.run { memo.id },
+    windowLastMemoId = visibleMemos.lastOrNull()?.run { memo.id },
+    // An empty pending set can never contain a row id: skip the O(loaded) membership scan
+    // that every paging generation would otherwise pay on the composition pass.
+    targetVisible =
+    pendingFocusMemoIds.isNotEmpty() &&
+        visibleMemos.any { it.memo.id in pendingFocusMemoIds },
+)
 
 internal sealed interface MainScreenFocusRequest {
-    data class Immediate(
-        val index: Int,
-    ) : MainScreenFocusRequest
+    data class Immediate(val index: Int) : MainScreenFocusRequest
 
     data object NotFound : MainScreenFocusRequest
 }
@@ -79,22 +77,21 @@ internal suspend fun focusMemoInMainScreen(
     visibleUiMemos: List<MemoUiModel>,
     visibleUiMemoStartIndex: Int = 0,
     positioner: MainScreenFocusPositioner,
-): Boolean =
-    when (
-        val request =
-            resolveMainScreenFocusRequest(
-                memoId = memoId,
-                visibleUiMemos = visibleUiMemos,
-                visibleUiMemoStartIndex = visibleUiMemoStartIndex,
-            )
-    ) {
-        is MainScreenFocusRequest.Immediate -> {
-            positioner.requestPositionAtItem(request.index)
-            true
-        }
-
-        MainScreenFocusRequest.NotFound -> false
+): Boolean = when (
+    val request =
+        resolveMainScreenFocusRequest(
+            memoId = memoId,
+            visibleUiMemos = visibleUiMemos,
+            visibleUiMemoStartIndex = visibleUiMemoStartIndex,
+        )
+) {
+    is MainScreenFocusRequest.Immediate -> {
+        positioner.requestPositionAtItem(request.index)
+        true
     }
+
+    MainScreenFocusRequest.NotFound -> false
+}
 
 internal suspend fun focusMemoInMainScreenWithFallback(
     memoId: String,

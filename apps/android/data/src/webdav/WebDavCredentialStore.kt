@@ -2,17 +2,15 @@ package com.lomo.data.webdav
 
 import android.content.Context
 import com.lomo.data.security.KeystoreBackedPreferences
-import com.lomo.data.security.SecureStringStore
 import com.lomo.data.security.SecureStringReadResult
+import com.lomo.data.security.SecureStringStore
 import com.lomo.data.security.credentialStatus
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialFieldState
 import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.StoredCredentialStatus
-class WebDavCredentialStore private constructor(
-    secureStringStoreFactory: () -> SecureStringStore,
-) {
+class WebDavCredentialStore private constructor(secureStringStoreFactory: () -> SecureStringStore) {
     constructor(
         context: Context,
     ) : this(
@@ -56,10 +54,10 @@ class WebDavCredentialStore private constructor(
             CredentialState(
                 provider = CredentialProvider.WEBDAV,
                 fields =
-                    listOf(
-                        CredentialFieldState(CredentialField.WEBDAV_USERNAME, usernameStatus),
-                        CredentialFieldState(CredentialField.WEBDAV_PASSWORD, passwordStatus),
-                    ),
+                listOf(
+                    CredentialFieldState(CredentialField.WEBDAV_USERNAME, usernameStatus),
+                    CredentialFieldState(CredentialField.WEBDAV_PASSWORD, passwordStatus),
+                ),
             )
 
     companion object {

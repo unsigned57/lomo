@@ -5,10 +5,7 @@ internal enum class LanShareMulticastLockOwner {
     Discovery,
 }
 
-internal class LanShareMulticastLockLease(
-    private val acquireLock: () -> Unit,
-    private val releaseLock: () -> Unit,
-) {
+internal class LanShareMulticastLockLease(private val acquireLock: () -> Unit, private val releaseLock: () -> Unit) {
     private val lock = Any()
     private val activeOwners = mutableSetOf<LanShareMulticastLockOwner>()
 
@@ -20,7 +17,7 @@ internal class LanShareMulticastLockLease(
                 } else {
                     activeOwners.size == 1
                 }
-        }
+            }
         if (shouldAcquire) {
             try {
                 acquireLock()

@@ -15,8 +15,8 @@
 )]
 
 use aes::Aes256;
-use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
-use crypto_secretbox::aead::{Aead, Payload};
+use aes::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
+use crypto_secretbox::aead::{Aead, KeyInit as SecretBoxKeyInit, Payload};
 use crypto_secretbox::{Nonce, XSalsa20Poly1305};
 use scrypt::{Params, scrypt};
 
@@ -27,9 +27,6 @@ const AES_BLOCK: usize = 16;
 const DATA_KEY_LEN: usize = 32;
 const NAME_KEY_LEN: usize = 32;
 const TOTAL_KEY_LEN: usize = DATA_KEY_LEN + NAME_KEY_LEN + AES_BLOCK;
-/// `Params::new` key-length field is capped at 64 in scrypt 0.11 (`PasswordHasher` path). The low-level
-/// `scrypt()` API honors `output.len()` independently — rclone requires 80 bytes.
-const SCRYPT_PARAMS_LEN: usize = 32;
 const SCRYPT_N_LOG2: u8 = 14; // 16384
 const SCRYPT_R: u32 = 8;
 const SCRYPT_P: u32 = 1;
@@ -134,16 +131,12 @@ impl RcloneKeyMaterial {
         } else {
             password2.as_bytes().to_vec()
         };
-        // Params::len is capped at 64 in scrypt 0.11; rclone needs 80 output bytes. The low-level
-        // scrypt() uses output.len() for the derived-key length independently of Params::len.
-        let params = Params::new(SCRYPT_N_LOG2, SCRYPT_R, SCRYPT_P, SCRYPT_PARAMS_LEN).map_err(
-            |_error| {
-                validation(
-                    "rclone_scrypt_params",
-                    "rclone scrypt parameters are invalid",
-                )
-            },
-        )?;
+        let params = Params::new(SCRYPT_N_LOG2, SCRYPT_R, SCRYPT_P).map_err(|_error| {
+            validation(
+                "rclone_scrypt_params",
+                "rclone scrypt parameters are invalid",
+            )
+        })?;
         let mut out = [0_u8; TOTAL_KEY_LEN];
         scrypt(password.as_bytes(), &salt, &params, &mut out).map_err(|_error| {
             validation(

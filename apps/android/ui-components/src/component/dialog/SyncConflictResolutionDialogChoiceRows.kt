@@ -10,12 +10,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncReviewResolutionChoice
-import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableMap

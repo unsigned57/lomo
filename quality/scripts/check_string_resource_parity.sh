@@ -30,27 +30,41 @@ def resource_keys(path):
 
 
 failures = []
-checked_modules = []
+checked = []
+
+
+def module_keys(directory):
+    """Keys of every string/plurals/string-array in any XML of one values directory."""
+    keys = {}
+    for path in sorted(directory.glob("*.xml")):
+        for key in resource_keys(path):
+            if key in keys:
+                failures.append(f"{path.relative_to(repo_root)}: duplicate key {key} (also in {keys[key]})")
+            keys[key] = path.name
+    return set(keys)
+
 
 for module, resource_root in module_resource_roots.items():
     mod_dir = repo_root / "apps/android" / module
     if not mod_dir.exists():
         mod_dir = repo_root / module
-    default_path = mod_dir / resource_root / "values/strings.xml"
-    zh_path = mod_dir / resource_root / "values-zh-rCN/strings.xml"
+    default_dir = mod_dir / resource_root / "values"
+    zh_dir = mod_dir / resource_root / "values-zh-rCN"
+    # Both locales are required for every listed module; a missing directory is a broken
+    # resource layout, never a module to skip.
+    if not default_dir.is_dir():
+        failures.append(f"{module}: missing default values directory {default_dir.relative_to(repo_root)}")
+        continue
+    if not zh_dir.is_dir():
+        failures.append(f"{module}: missing values-zh-rCN directory {zh_dir.relative_to(repo_root)}")
+        continue
 
-    if not default_path.exists() and not zh_path.exists():
+    default_keys = module_keys(default_dir)
+    zh_keys = module_keys(zh_dir)
+    if not default_keys:
+        failures.append(f"{module}: no string resources under {default_dir.relative_to(repo_root)}")
         continue
-    if not default_path.exists():
-        failures.append(f"{module}: missing default strings.xml")
-        continue
-    if not zh_path.exists():
-        failures.append(f"{module}: missing values-zh-rCN/strings.xml")
-        continue
-
-    checked_modules.append(module)
-    default_keys = resource_keys(default_path)
-    zh_keys = resource_keys(zh_path)
+    checked.append(f"{module} ({len(default_keys)} keys)")
 
     missing_zh = sorted(default_keys - zh_keys)
     missing_default = sorted(zh_keys - default_keys)
@@ -70,5 +84,5 @@ if failures:
         print(f"- {failure}", file=sys.stderr)
     sys.exit(1)
 
-print(f"string resource parity OK: {', '.join(checked_modules)}")
+print(f"string resource parity OK: {', '.join(checked)}")
 PY

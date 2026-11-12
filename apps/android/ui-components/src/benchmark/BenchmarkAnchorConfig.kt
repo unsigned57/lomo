@@ -9,9 +9,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 
 @Immutable
-data class BenchmarkAnchorConfig(
-    val enabled: Boolean,
-)
+data class BenchmarkAnchorConfig(val enabled: Boolean)
 
 val LocalBenchmarkAnchorConfig =
     staticCompositionLocalOf {
@@ -27,17 +25,16 @@ fun Modifier.benchmarkAnchor(tag: String?): Modifier =
     }
 
 @Composable
-fun Modifier.benchmarkAnchorRoot(tag: String? = null): Modifier =
-    if (!LocalBenchmarkAnchorConfig.current.enabled) {
-        this
-    } else {
-        val anchored =
-            this.semantics {
-                testTagsAsResourceId = true
-            }
-        if (tag.isNullOrBlank()) {
-            anchored
-        } else {
-            anchored.testTag(tag)
+fun Modifier.benchmarkAnchorRoot(tag: String? = null): Modifier = if (!LocalBenchmarkAnchorConfig.current.enabled) {
+    this
+} else {
+    val anchored =
+        this.semantics {
+            testTagsAsResourceId = true
         }
+    if (tag.isNullOrBlank()) {
+        anchored
+    } else {
+        anchored.testTag(tag)
     }
+}

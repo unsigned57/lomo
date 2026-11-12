@@ -13,8 +13,8 @@ use crate::conflict::{
     merge_conflicts_into_session, read_conflict_session_state,
 };
 use crate::durable::{
-    BaselineHead, SessionKind, SyncIdentityFence, SyncPaths, SyncSession, TombstoneSet,
-    read_baseline, read_session, write_baseline, write_session,
+    BaselineEntry, BaselineHead, SessionKind, SyncIdentityFence, SyncPaths, SyncSession,
+    TombstoneEntry, TombstoneSet, read_baseline, read_session, write_baseline, write_session,
 };
 use crate::error::{resource_limit, validation};
 use crate::limits::{
@@ -249,6 +249,9 @@ pub fn plan_intents_with_atomicity(
         .map(|entry| entry.path.as_str())
         .collect();
 
+    let baseline_index = baseline.path_index();
+    let tombstone_index = tombstones.path_index();
+
     let may_delete = session_kind.may_emit_user_file_delete()
         && matches!(remote.completeness, SnapshotCompleteness::Complete)
         && baseline.is_established();
@@ -262,8 +265,8 @@ pub fn plan_intents_with_atomicity(
         if let Some(intent) = plan_remote_entry(
             entry,
             &local_map,
-            baseline,
-            tombstones,
+            baseline_index.get(entry.path.as_str()).copied(),
+            tombstone_index.get(entry.path.as_str()).copied(),
             may_delete,
             per_path_cas,
         )? {
@@ -282,7 +285,7 @@ pub fn plan_intents_with_atomicity(
         if remote_paths.contains(path_s) {
             continue;
         }
-        if baseline.get(path_s).is_some() {
+        if baseline_index.contains_key(path_s) {
             continue;
         }
         intents.push(ProviderNeutralIntent::EnsurePresent {
@@ -379,6 +382,9 @@ where
         .map(|entry| (entry.path.as_str(), &entry.digest))
         .collect();
 
+    let baseline_index = baseline.path_index();
+    let tombstone_index = tombstones.path_index();
+
     let may_delete = session_kind.may_emit_user_file_delete()
         && matches!(overall_completeness, SnapshotCompleteness::Complete)
         && baseline.is_established();
@@ -417,8 +423,8 @@ where
             if let Some(intent) = plan_remote_entry(
                 entry,
                 &local_map,
-                baseline,
-                tombstones,
+                baseline_index.get(entry.path.as_str()).copied(),
+                tombstone_index.get(entry.path.as_str()).copied(),
                 may_delete,
                 per_path_cas,
             )? {
@@ -439,7 +445,7 @@ where
         if remote_path_keys.contains(path_s) {
             continue;
         }
-        if baseline.get(path_s).is_some() {
+        if baseline_index.contains_key(path_s) {
             continue;
         }
         push_streaming_intent(
@@ -531,8 +537,11 @@ fn split_intents_into_pages(
 
 /// True when the listing proves the remote still holds baseline bytes: either the strong validator
 /// still equals the durable baseline token, or a listing-proven digest equals the baseline digest.
-fn remote_entry_proven_unchanged(entry: &RemotePathEntry, baseline: &BaselineHead) -> bool {
-    let Some(base) = baseline.get(entry.path.as_str()) else {
+fn remote_entry_proven_unchanged(
+    entry: &RemotePathEntry,
+    baseline: Option<&BaselineEntry>,
+) -> bool {
+    let Some(base) = baseline else {
         return false;
     };
     if entry
@@ -552,9 +561,9 @@ fn remote_entry_proven_unchanged(entry: &RemotePathEntry, baseline: &BaselineHea
 fn remote_path_in_sync(
     entry: &RemotePathEntry,
     local_map: &BTreeMap<&str, &ContentDigest>,
-    baseline: &BaselineHead,
+    baseline: Option<&BaselineEntry>,
 ) -> bool {
-    let Some(base) = baseline.get(entry.path.as_str()) else {
+    let Some(base) = baseline else {
         return false;
     };
     entry
@@ -613,8 +622,8 @@ fn ensure_absent_intent(entry: &RemotePathEntry, per_path_cas: bool) -> Provider
 fn plan_remote_entry(
     entry: &RemotePathEntry,
     local_map: &BTreeMap<&str, &ContentDigest>,
-    baseline: &BaselineHead,
-    tombstones: &TombstoneSet,
+    baseline: Option<&BaselineEntry>,
+    tombstone: Option<&TombstoneEntry>,
     may_delete: bool,
     per_path_cas: bool,
 ) -> Result<Option<ProviderNeutralIntent>, LomoError> {
@@ -626,7 +635,7 @@ fn plan_remote_entry(
         }));
     }
     let observed_token = entry.validator.token().map(str::to_owned);
-    if let Some(tombstone) = tombstones.get(path) {
+    if let Some(tombstone) = tombstone {
         let remote_digest = entry.digest.known().ok_or_else(unresolved_remote_digest)?;
         if tombstone.content_digest == remote_digest.as_str() {
             return Ok(may_delete.then(|| ensure_absent_intent(entry, per_path_cas)));
@@ -636,7 +645,6 @@ fn plan_remote_entry(
             None => ContentDigest::parse(&tombstone.content_digest)?,
         };
         let baseline_digest = baseline
-            .get(path)
             .map(|base| ContentDigest::parse(&base.digest))
             .transpose()?;
         return Ok(Some(ProviderNeutralIntent::OpenConflict {
@@ -660,7 +668,6 @@ fn plan_remote_entry(
     };
 
     let baseline_digest = baseline
-        .get(path)
         .map(|base| ContentDigest::parse(&base.digest))
         .transpose()?;
     if remote_entry_proven_unchanged(entry, baseline) {
@@ -1138,18 +1145,26 @@ fn record_observed_user_deletes<'a, I>(
 where
     I: IntoIterator<Item = &'a RemotePathEntry>,
 {
+    let local_paths: BTreeSet<&str> = local_snap
+        .entries
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    let baseline_index = baseline.path_index();
+    let mut tombstone_paths: BTreeSet<String> = tombstones
+        .entries
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect();
     for entry in remote_entries {
         let path = entry.path.as_str();
         if !crate::pipeline::is_owned_sync_user_path(path)
-            || tombstones.contains_path(path)
-            || local_snap
-                .entries
-                .iter()
-                .any(|local| local.path.as_str() == path)
+            || tombstone_paths.contains(path)
+            || local_paths.contains(path)
         {
             continue;
         }
-        let Some(base) = baseline.get(path) else {
+        let Some(base) = baseline_index.get(path) else {
             continue;
         };
         let baseline_digest = ContentDigest::parse(&base.digest)?;
@@ -1166,11 +1181,14 @@ where
                 content_digest: &baseline_digest,
             },
         ) {
-            Ok(_) => tombstones.upsert(
-                path,
-                &session.fence.remote_dataset_id,
-                baseline_digest.as_str(),
-            ),
+            Ok(_) => {
+                tombstones.upsert(
+                    path,
+                    &session.fence.remote_dataset_id,
+                    baseline_digest.as_str(),
+                );
+                tombstone_paths.insert(path.to_owned());
+            }
             Err(error) if error.category() == lomo_core::ErrorCategory::Validation => {}
             Err(error) => return Err(error),
         }
@@ -2224,18 +2242,13 @@ pub fn run_composed_sync_cycle(
             .map(|entry| (entry.path.clone(), entry.digest.clone())),
     )?;
 
-    let paths = SyncPaths::for_workspace(workspace_root);
-    ensure_session_for_composition(&paths, &snap.workspace_generation, config)?;
-    run_cycle_with_record(&paths, config.kind(), apply_remote, || {
-        run_composed_with_remote(
-            workspace_root,
-            &paths,
-            &local,
-            config,
-            secret_material,
-            apply_remote,
-        )
-    })
+    run_composed_sync_cycle_with_local_port(
+        &SyncPaths::for_control_root(workspace_root),
+        config,
+        &local,
+        secret_material,
+        apply_remote,
+    )
 }
 
 /// Runs one production-shaped owner cycle with a **caller-provided** remote port.
@@ -2281,23 +2294,68 @@ pub fn run_composed_sync_cycle_with_remote_port(
             .iter()
             .map(|entry| (entry.path.clone(), entry.digest.clone())),
     )?;
-    let paths = SyncPaths::for_workspace(workspace_root);
-    ensure_session_for_composition(&paths, &snap.workspace_generation, config)?;
-    run_cycle_with_record(&paths, config.kind(), apply_remote, || {
-        inspect_sync_cycle_plan_with_ports(&paths, &local, remote, apply_remote, None)
+    run_composed_sync_cycle_with_ports(
+        &SyncPaths::for_control_root(workspace_root),
+        config,
+        &local,
+        remote,
+        apply_remote,
+    )
+}
+
+/// Runs the provider cycle from a snapshot issued by the active workspace owner.
+///
+/// No store is opened under the document root: hosts with a private projection supply their
+/// own generation-fenced local port. Remote policy and durable cycle recording stay here.
+///
+/// # Errors
+/// Invalid/missing generation fences, identity mismatch, planner and remote failures.
+pub fn run_composed_sync_cycle_with_ports(
+    paths: &SyncPaths,
+    config: &SyncBackendConfig,
+    local: &dyn LocalSyncPort,
+    remote: &dyn RemoteSyncPort,
+    apply_remote: bool,
+) -> Result<SyncCyclePlanSummary, LomoError> {
+    compose_with_local(paths, config, local, apply_remote, |paths| {
+        inspect_sync_cycle_plan_with_ports(paths, local, remote, apply_remote, None)
     })
 }
 
-fn run_composed_with_remote(
-    workspace_root: &std::path::Path,
+/// Composes a protocol adapter after validating the owner-issued local generation fence.
+///
+/// # Errors
+/// Invalid local fences, credentials, remote construction and cycle execution failures.
+pub fn run_composed_sync_cycle_with_local_port(
     paths: &SyncPaths,
-    local: &dyn LocalSyncPort,
     config: &SyncBackendConfig,
+    local: &dyn LocalSyncPort,
     secret_material: Option<&[u8]>,
     apply_remote: bool,
 ) -> Result<SyncCyclePlanSummary, LomoError> {
-    let remote = connect_sync_remote_port(workspace_root, paths, config, secret_material)?;
-    inspect_sync_cycle_plan_with_ports(paths, local, remote.as_ref(), apply_remote, None)
+    compose_with_local(paths, config, local, apply_remote, |paths| {
+        let remote =
+            connect_sync_remote_port(&paths.workspace_root, paths, config, secret_material)?;
+        inspect_sync_cycle_plan_with_ports(paths, local, remote.as_ref(), apply_remote, None)
+    })
+}
+
+fn compose_with_local(
+    paths: &SyncPaths,
+    config: &SyncBackendConfig,
+    local: &dyn LocalSyncPort,
+    apply_remote: bool,
+    run: impl FnOnce(&SyncPaths) -> Result<SyncCyclePlanSummary, LomoError>,
+) -> Result<SyncCyclePlanSummary, LomoError> {
+    let snapshot = local.snapshot()?;
+    let generation = snapshot.workspace_generation.as_deref().ok_or_else(|| {
+        validation(
+            "local_snapshot_generation_empty",
+            "sync requires an owner-issued workspace generation",
+        )
+    })?;
+    ensure_session_for_composition(paths, generation, config)?;
+    run_cycle_with_record(paths, config.kind(), apply_remote, || run(paths))
 }
 
 /// Connects the production remote port for a non-Git backend.
@@ -2389,7 +2447,8 @@ pub fn connect_sync_remote_port(
             let objects = crate::s3::WorkspaceFileObjectSource::new(workspace_root.to_path_buf());
             // Durable multipart sessions bind to the canonical sync identity fence ensured
             // by composition; a stale-generation record aborts + clears instead of resuming.
-            let session = read_session(paths)?;
+            let generation = lomo_workspace::load_workspace_generation(&paths.control_root)?;
+            let fence = checked_composition_fence(paths, generation.as_str(), config)?;
             let remote = crate::s3::connect_workspace_s3(
                 endpoint_url,
                 bucket,
@@ -2399,7 +2458,7 @@ pub fn connect_sync_remote_port(
                 secret,
                 &temp_dir,
                 objects,
-                &session.fence.stable_key(),
+                &fence.stable_key(),
                 std::time::Duration::from_secs(30),
             )?;
             Ok(Box::new(remote))
@@ -2440,22 +2499,46 @@ fn ensure_session_for_composition(
     workspace_generation: &str,
     config: &SyncBackendConfig,
 ) -> Result<(), LomoError> {
+    let fence = checked_composition_fence(paths, workspace_generation, config)?;
+    if session_record_exists(paths)? {
+        return Ok(());
+    }
+    let dataset = lomo_workspace::RemoteDatasetId::parse(config.remote_dataset_id())?;
+    let session = SyncSession::for_first_takeover(fence, &dataset)?;
+    write_session(paths, &session)
+}
+
+/// Derives the same fence before the first cycle and validates every existing session.
+/// Probes may construct an adapter without minting durable cycle state.
+fn checked_composition_fence(
+    paths: &SyncPaths,
+    workspace_generation: &str,
+    config: &SyncBackendConfig,
+) -> Result<SyncIdentityFence, LomoError> {
     let generation = lomo_workspace::WorkspaceGenerationId::parse(workspace_generation)?;
     let dataset = lomo_workspace::RemoteDatasetId::parse(config.remote_dataset_id())?;
-    // Canonical identity: backend kind + endpoint + non-secret identity fields (never secret bytes).
     let canonical = config.canonical_identity();
     let identity =
         lomo_workspace::RemoteIdentityDigest::from_canonical_config_bytes(canonical.as_bytes());
-    if paths.session.exists() {
-        // An existing durable session is only trustworthy under the exact identity triple it
-        // was minted for — a session that survived an endpoint/dataset re-point must refuse,
-        // never silently drive cycles and never be clean-slated here.
-        let session = read_session(paths)?;
-        return session.fence.matches(&generation, &dataset, &identity);
+    if session_record_exists(paths)? {
+        read_session(paths)?
+            .fence
+            .matches(&generation, &dataset, &identity)?;
     }
-    let fence = SyncIdentityFence::from_parts(&generation, &dataset, &identity);
-    let session = SyncSession::for_first_takeover(fence, &dataset)?;
-    write_session(paths, &session)
+    Ok(SyncIdentityFence::from_parts(
+        &generation,
+        &dataset,
+        &identity,
+    ))
+}
+
+fn session_record_exists(paths: &SyncPaths) -> Result<bool, LomoError> {
+    paths.session.try_exists().map_err(|error| {
+        crate::error::storage(
+            "sync_session_stat_failed",
+            &format!("cannot inspect session record: {error}"),
+        )
+    })
 }
 
 fn streaming_intent_count(
@@ -2601,13 +2684,16 @@ where
         .iter()
         .map(|entry| (entry.path.as_str(), &entry.digest))
         .collect();
+    let baseline_index = baseline.path_index();
+    let tombstone_index = tombstones.path_index();
     for entry in entries {
         let path_str = entry.path.as_str();
-        let remote_proven_unchanged = remote_entry_proven_unchanged(entry, baseline);
+        let base = baseline_index.get(path_str).copied();
+        let remote_proven_unchanged = remote_entry_proven_unchanged(entry, base);
         let local_present = local_map.contains_key(path_str);
         if entry.digest.known().is_some()
-            || remote_path_in_sync(entry, &local_map, baseline)
-            || (local_present && remote_proven_unchanged && !tombstones.contains_path(path_str))
+            || remote_path_in_sync(entry, &local_map, base)
+            || (local_present && remote_proven_unchanged && !tombstone_index.contains_key(path_str))
         {
             continue;
         }

@@ -17,7 +17,6 @@ use crate::error::{busy, conflict, corruption, from_sqlite, storage, validation}
 use crate::lomo_format::{MemoCommandKind, WorkspaceLayout};
 use crate::open::{SQLITE_DIR_NAME, create_schema_db, database_path};
 use crate::purge::list_purged_memo_ids;
-use crate::query::recompute_stats;
 use crate::tokenizer::index_tokens;
 use crate::transaction::{WriteGate, memo_command_scopes};
 use lomo_workspace::{
@@ -486,6 +485,24 @@ fn find_publication_receipt(
         }));
     }
     Ok(None)
+}
+
+/// Reports whether the committed-operation index already holds this operation id.
+///
+/// This is the durable terminal witness once the intent journal's bounded retired
+/// window has evicted the operation's receipt: a committed id must expire instead of
+/// re-entering planning as a fresh command.
+pub fn operation_is_witnessed(
+    connection: &Connection,
+    operation_id: &str,
+) -> Result<bool, lomo_core::LomoError> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM saf_mutation_operation WHERE operation_id = ?1)",
+            params![operation_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| from_sqlite(&error))
 }
 
 /// Rebuilds per-target reminder facts from the frozen batch mutation.
@@ -1108,7 +1125,7 @@ fn commit_projection_publication(
         // waits for the next full scan.
         index_scanned_history_revision(&transaction, history)?;
     }
-    recompute_stats(&transaction)?;
+
     let core_revision = crate::read_meta_u64(&transaction, "high_water_revision")?
         .checked_add(1)
         .ok_or_else(|| validation("revision_overflow", "core revision overflow"))?;
@@ -1151,6 +1168,7 @@ pub fn acknowledge_rebuilt_publication(
     connection: &Connection,
     publication: &crate::DocumentPublication,
     clock: crate::ProjectionClock,
+    evidence: crate::RebuiltPublicationEvidence<'_>,
 ) -> Result<SafProjectionCommitResult, lomo_core::LomoError> {
     publication.validate()?;
     let json = serde_json::to_string(publication)
@@ -1173,7 +1191,7 @@ pub fn acknowledge_rebuilt_publication(
         ));
     }
     let (content_revision, file_fingerprint) =
-        verify_rebuilt_publication(&transaction, publication)?;
+        verify_rebuilt_publication(&transaction, publication, evidence)?;
     let mutation = &publication.mutation;
     transaction.execute(
         "INSERT INTO saf_mutation_operation(operation_id,mutation_digest,memo_id,core_revision,event_sequence,content_revision,file_fingerprint) VALUES(?1,?2,?3,?4,?5,?6,?7)",
@@ -1194,23 +1212,97 @@ pub fn acknowledge_rebuilt_publication(
     })
 }
 
-fn verify_rebuilt_publication(
-    connection: &Connection,
+fn publication_fingerprint(
     publication: &crate::DocumentPublication,
-) -> Result<(u64, String), lomo_core::LomoError> {
-    let mutation = &publication.mutation;
-    let current = crate::query::get_projected_memo(connection, &mutation.memo_id)?;
-    let desired_fingerprint = mutation
+) -> Result<&str, lomo_core::LomoError> {
+    publication
+        .mutation
         .projection
         .as_ref()
         .map(|memo| memo.file_fingerprint.as_str())
-        .or(mutation.expected_fingerprint.as_deref())
+        .or(publication.mutation.expected_fingerprint.as_deref())
         .ok_or_else(|| {
             corruption(
                 "recovery_facts_missing",
                 "publication has no source fingerprint",
             )
-        })?;
+        })
+}
+fn verify_recovery_history(
+    connection: &Connection,
+    publication: &crate::DocumentPublication,
+) -> Result<(), lomo_core::LomoError> {
+    if let Some(history) = &publication.history {
+        let found: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM revision_index WHERE memo_id=?1 AND history_record_id=?2 AND revision=?3 AND created_at_ms=?4 AND content=?5 AND file_fingerprint=?6)",
+            params![&history.memo_id, &history.record_id, persisted_revision(history.revision)?, history.created_at_ms, &history.content, &history.file_fingerprint],
+            |row| row.get(0),
+        ).map_err(|error| from_sqlite(&error))?;
+        if !found {
+            return Err(corruption(
+                "recovery_history_mismatch",
+                "rebuilt history differs from the committed immutable object",
+            ));
+        }
+    }
+    Ok(())
+}
+fn verify_rebuilt_publication(
+    connection: &Connection,
+    publication: &crate::DocumentPublication,
+    evidence: crate::RebuiltPublicationEvidence<'_>,
+) -> Result<(u64, String), lomo_core::LomoError> {
+    match evidence {
+        crate::RebuiltPublicationEvidence::Current => verify_current_publication(
+            connection,
+            publication,
+            publication_fingerprint(publication)?,
+        ),
+        crate::RebuiltPublicationEvidence::EditChain {
+            terminal_memo,
+            document_fingerprint,
+        } => {
+            terminal_memo.validate()?;
+            let earlier = &publication.mutation;
+            let terminal = &terminal_memo.mutation;
+            let earlier_source = earlier.projection.as_ref().ok_or_else(|| {
+                corruption("recovery_facts_missing", "edit has no source projection")
+            })?;
+            let terminal_source = terminal.projection.as_ref().ok_or_else(|| {
+                corruption(
+                    "recovery_facts_missing",
+                    "terminal edit has no source projection",
+                )
+            })?;
+            if earlier.kind != SafProjectionMutationKind::Update
+                || terminal.kind != SafProjectionMutationKind::Update
+                || earlier.memo_id != terminal.memo_id
+                || earlier_source.source_path != terminal_source.source_path
+                || earlier.expected_revision > terminal.expected_revision
+            {
+                return Err(corruption(
+                    "recovery_projection_mismatch",
+                    "edit chain does not attest this earlier publication",
+                ));
+            }
+            verify_current_publication(connection, terminal_memo, document_fingerprint)?;
+            verify_recovery_history(connection, publication)?;
+            let revision = earlier
+                .expected_revision
+                .checked_add(1)
+                .ok_or_else(|| validation("revision_overflow", "recovery revision overflow"))?;
+            Ok((revision, publication_fingerprint(publication)?.to_owned()))
+        }
+    }
+}
+
+fn verify_current_publication(
+    connection: &Connection,
+    publication: &crate::DocumentPublication,
+    desired_fingerprint: &str,
+) -> Result<(u64, String), lomo_core::LomoError> {
+    let mutation = &publication.mutation;
+    let current = crate::query::get_projected_memo(connection, &mutation.memo_id)?;
     if mutation.kind == SafProjectionMutationKind::PermanentDelete && current.is_none() {
         return Ok((mutation.expected_revision, desired_fingerprint.to_owned()));
     }
@@ -1282,19 +1374,7 @@ fn verify_rebuilt_publication(
             "rebuilt memo body or path differs from the frozen publication",
         ));
     }
-    if let Some(history) = &publication.history {
-        let found: bool = connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM revision_index WHERE memo_id=?1 AND history_record_id=?2 AND revision=?3 AND created_at_ms=?4 AND content=?5 AND file_fingerprint=?6)",
-            params![&history.memo_id, &history.record_id, persisted_revision(history.revision)?, history.created_at_ms, &history.content, &history.file_fingerprint],
-            |row| row.get(0),
-        ).map_err(|error| from_sqlite(&error))?;
-        if !found {
-            return Err(corruption(
-                "recovery_history_mismatch",
-                "rebuilt history differs from the committed immutable object",
-            ));
-        }
-    }
+    verify_recovery_history(connection, publication)?;
     Ok((expected_revision, desired_fingerprint.to_owned()))
 }
 
@@ -1496,7 +1576,7 @@ pub fn begin_saf_memo_create_on_connection(
 
     let memo_id = allocate_saf_create_identity(&transaction)?;
     insert_pending_memo_row(&transaction, begin, &memo_id)?;
-    recompute_stats(&transaction)?;
+
     let (core_revision, event_sequence) = bump_counters(&transaction)?;
     transaction.commit().map_err(|error| from_sqlite(&error))?;
     Ok(SafMemoCreateBeginResult {
@@ -1623,7 +1703,7 @@ pub fn rollback_saf_memo_create_on_connection(
             "pending create row disappeared between select and delete",
         ));
     }
-    recompute_stats(&transaction)?;
+
     let (core_revision, event_sequence) = bump_counters(&transaction)?;
     transaction.commit().map_err(|error| from_sqlite(&error))?;
     Ok(Some(SafMemoPublication {
@@ -2282,7 +2362,7 @@ impl SafProjectionRebuild {
             )
         })?;
         copy_saf_private_state(&self.live_db, &connection, &self.pin_attested_ids)?;
-        recompute_stats(&connection)?;
+
         crate::write_meta_u64(&connection, "high_water_revision", self.high_water_revision)?;
         crate::write_meta_u64(&connection, "event_sequence", self.event_sequence)?;
         // The committed `file_listing` baseline and its digest meta land in the same build
@@ -2835,8 +2915,6 @@ pub fn apply_scanned_incremental(
         }
     }
 
-    recompute_stats(&transaction)?;
-
     persist_listing_digest(&transaction)?;
 
     let after = projection_state_digest(&transaction)?;
@@ -3109,7 +3187,7 @@ pub fn run_rebuild(
                 )
                 .map_err(|error| from_sqlite(&error))?;
             }
-            recompute_stats(&tail)?;
+
             tail.commit().map_err(|error| from_sqlite(&error))?;
         }
         drop(conn);
@@ -4025,6 +4103,10 @@ fn list_memo_files(workspace_root: &Path) -> Result<Vec<PathBuf>, lomo_core::Lom
         &mut legacy_trash,
     )?;
     let purged = list_purged_memo_ids(workspace_root)?;
+    let recorded: BTreeSet<_> = list_trash_records(workspace_root)?
+        .into_iter()
+        .map(|record| record.memo_id)
+        .collect();
     for path in legacy_trash {
         let memo_id = path
             .file_stem()
@@ -4040,11 +4122,7 @@ fn list_memo_files(workspace_root: &Path) -> Result<Vec<PathBuf>, lomo_core::Lom
         if purged.contains(memo_id) {
             continue;
         }
-        let has_record = {
-            let relative = trash_record_relative_path(memo_id)?;
-            workspace_root.join(relative.as_str()).is_file()
-        };
-        if !has_record {
+        if !recorded.contains(memo_id) {
             out.push(path);
         }
     }
@@ -4071,7 +4149,7 @@ fn list_trash_records(workspace_root: &Path) -> Result<Vec<TrashRecordV1>, lomo_
             )
         })?;
         let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("rec") {
+        if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
             continue;
         }
         let bytes = fs::read(&path).map_err(|error| {
@@ -4084,11 +4162,11 @@ fn list_trash_records(workspace_root: &Path) -> Result<Vec<TrashRecordV1>, lomo_
             )
         })?;
         let record = decode_trash_record(&bytes)?;
-        let expected = trash_record_relative_path(&record.memo_id)?;
+        let expected = trash_record_relative_path(&record.memo_id, &record.source_path)?;
         if path != workspace_root.join(expected.as_str()) {
             return Err(corruption(
                 "trash_record_path_mismatch",
-                "durable trash record is not stored at its canonical hashed path",
+                "durable trash record is not stored at its canonical source-labelled path",
             ));
         }
         records.push(record);
@@ -4311,14 +4389,6 @@ fn index_scanned_memo_with_lifecycle(
     .map_err(|err| from_sqlite(&err))?;
     for tag in &memo.tags {
         rehydrate_tag(conn, &memo.memo_id, tag)?;
-    }
-    for rel in &memo.attachment_paths {
-        if rel.is_empty() || rel.len() > 1024 {
-            return Err(validation(
-                "invalid_attachment_path",
-                "attachment relative path is empty or too long",
-            ));
-        }
     }
     // Destinations that cannot name a workspace file (external objects, root escapes) carry no
     // attachment key and get no `attachment_ref` row.

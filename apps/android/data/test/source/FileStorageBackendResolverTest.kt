@@ -1,28 +1,13 @@
 package com.lomo.data.source
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- *
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import android.content.Context
 import android.net.Uri
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -31,13 +16,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
-import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.types.shouldBeInstanceOf
 
 /*
  * Behavior Contract:
+ * Test Change Justification:
+ * Reason category: remove settings re-reads and the redundant URI marker from scan resolution.
+ * Old behavior/assertion being replaced: the resolver read the latest settings and exposed an extra nullable URI marker.
+ * Why old assertion is no longer correct: scans must resolve their captured selection; WorkspaceVfs already represents Direct or SAF.
+ * Coverage preserved by: backend types and exact Direct paths or SAF URI identity replace the redundant marker assertions.
+ * Why this is not fitting the test to the implementation: the selected location must survive without a second mutable configuration read.
+ * TDD proof: Regression preservation - transaction-green-first.log and verification-green.log in target/lomo/reports/manual/directory-selection/.
  * - Unit under test: FileStorageBackendResolver
  * - Behavior focus: root-backend selection, cache invalidation on root changes, and typed media-root precedence.
  * - Observable outcomes: resolved backend types, returned configured SAF uri markers, nullability for
@@ -104,15 +92,17 @@ class FileStorageBackendResolverTest : DataFunSpec() {
             }
         }
 
-        test("media backend returns direct backend and null marker for typed directory root") {
+        test("given a captured direct image selection when resolved then its backend retains the directory path") {
             runTest {
                 setUpResolver()
                 dataStore.updateImageDirectory("/typed/images")
 
-                val imageRoot = resolver.resolvedMediaRoot(StorageRootType.IMAGE).shouldNotBeNull()
+                val imageRoot = resolver.mediaRootAt(
+                    requireNotNull(dataStore.readStorageRootConfig(StorageRootType.IMAGE).preferredLocation()),
+                )
 
                 imageRoot.backend.shouldBeInstanceOf<VfsStorageBackend>()
-                imageRoot.configuredUriMarker.shouldBeNull()
+                imageRoot.vfs.shouldBeInstanceOf<WorkspaceVfs.Direct>().rootDir.path shouldBe "/typed/images"
             }
         }
 
@@ -121,11 +111,13 @@ class FileStorageBackendResolverTest : DataFunSpec() {
                 setUpResolver()
                 dataStore.updateImageDirectory("/typed/images")
 
-                val resolvedRoot = resolver.resolvedMediaRoot(StorageRootType.IMAGE).shouldNotBeNull()
+                val resolvedRoot = resolver.mediaRootAt(
+                    requireNotNull(dataStore.readStorageRootConfig(StorageRootType.IMAGE).preferredLocation()),
+                )
 
                 resolvedRoot.backend.shouldBeInstanceOf<VfsStorageBackend>()
                 resolvedRoot.vfs.shouldBeInstanceOf<WorkspaceVfs.Direct>().rootDir.path shouldBe "/typed/images"
-                resolvedRoot.configuredUriMarker.shouldBeNull()
+                resolvedRoot.vfs.shouldBeInstanceOf<WorkspaceVfs.Direct>().rootDir.path shouldBe "/typed/images"
             }
         }
 
@@ -134,10 +126,12 @@ class FileStorageBackendResolverTest : DataFunSpec() {
                 setUpResolver()
                 dataStore.updateImageUri("content://tree/images")
 
-                val imageRoot = resolver.resolvedMediaRoot(StorageRootType.IMAGE).shouldNotBeNull()
+                val imageRoot = resolver.mediaRootAt(
+                    requireNotNull(dataStore.readStorageRootConfig(StorageRootType.IMAGE).preferredLocation()),
+                )
 
                 imageRoot.backend.shouldBeInstanceOf<VfsStorageBackend>()
-                imageRoot.configuredUriMarker shouldBe "content://tree/images"
+                imageRoot.vfs.shouldBeInstanceOf<WorkspaceVfs.Saf>().rootUri shouldBe parsedUri("content://tree/images")
             }
         }
     }
@@ -163,13 +157,12 @@ class FileStorageBackendResolverTest : DataFunSpec() {
         resolver = FileStorageBackendResolver(context, dataStore)
     }
 
-    private fun parsedUri(value: String): Uri =
-        uriCache.getOrPut(value) {
-            mockk<Uri>(relaxed = true).apply {
-                every { scheme } returns value.substringBefore(':', "")
-                every { path } returns value.substringAfter("://", value)
-            }
+    private fun parsedUri(value: String): Uri = uriCache.getOrPut(value) {
+        mockk<Uri>(relaxed = true).apply {
+            every { scheme } returns value.substringBefore(':', "")
+            every { path } returns value.substringAfter("://", value)
         }
+    }
 
     private fun createLomoDataStore(scope: CoroutineScope): LomoDataStore {
         val backingFile = Files.createTempFile("lomo-datastore", ".preferences_pb").toFile().apply {
@@ -179,7 +172,9 @@ class FileStorageBackendResolverTest : DataFunSpec() {
             scope = scope,
             produceFile = { backingFile },
         )
-        val constructor = LomoDataStore::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+        val constructor = LomoDataStore::class.java.getDeclaredConstructor(
+            androidx.datastore.core.DataStore::class.java,
+        )
         constructor.isAccessible = true
         return constructor.newInstance(realDataStore)
     }

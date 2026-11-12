@@ -18,14 +18,14 @@
 
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -33,7 +33,6 @@ package com.lomo.domain.usecase
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.StorageArea
@@ -51,37 +50,37 @@ class InitializeWorkspaceUseCaseTest : DomainFunSpec() {
     init {
         test("currentRootLocation returns repository value") {
             runTest {
-                        val expected = StorageLocation("/workspace")
-                        directorySettingsRepository.setLocation(StorageArea.ROOT, expected)
+                val expected = StorageLocation("/workspace")
+                directorySettingsRepository.setLocation(StorageArea.ROOT, expected)
 
-                        val result = useCase.currentRootLocation()
+                val result = useCase.currentRootLocation()
 
-                        result shouldBe expected
-                    }
+                result shouldBe expected
+            }
         }
 
         test("ensureDefaultMediaDirectories creates only image workspace when requested") {
             runTest {
-                        useCase.ensureDefaultMediaDirectories(forImage = true, forVoice = false)
+                useCase.ensureDefaultMediaDirectories(forImage = true, forVoice = false)
 
-                        mediaRepository.ensuredCategories shouldBe listOf(MediaCategory.IMAGE)
-                    }
+                mediaRepository.ensuredCategories shouldBe listOf(MediaCategory.IMAGE)
+            }
         }
 
         test("ensureDefaultMediaDirectories creates only voice workspace when requested") {
             runTest {
-                        useCase.ensureDefaultMediaDirectories(forImage = false, forVoice = true)
+                useCase.ensureDefaultMediaDirectories(forImage = false, forVoice = true)
 
-                        mediaRepository.ensuredCategories shouldBe listOf(MediaCategory.VOICE)
-                    }
+                mediaRepository.ensuredCategories shouldBe listOf(MediaCategory.VOICE)
+            }
         }
 
         test("ensureDefaultMediaDirectories skips creation when both flags are false") {
             runTest {
-                        useCase.ensureDefaultMediaDirectories(forImage = false, forVoice = false)
+                useCase.ensureDefaultMediaDirectories(forImage = false, forVoice = false)
 
-                        mediaRepository.ensuredCategories shouldBe emptyList()
-                    }
+                mediaRepository.ensuredCategories shouldBe emptyList()
+            }
         }
     }
 }

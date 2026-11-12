@@ -1,8 +1,8 @@
 package com.lomo.ui.component.markdown
 
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,23 +34,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import org.jetbrains.compose.resources.stringResource
-import androidx.compose.ui.tooling.preview.Preview
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import coil3.compose.rememberConstraintsSizeResolver
-import kotlinx.collections.immutable.ImmutableList
 import coil3.request.ImageRequest
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.image.rememberRetainedSuccessPainter
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.markdown_image_content_description
 import com.lomo.ui.generated.resources.markdown_image_load_failed
-import com.lomo.ui.theme.LomoTheme
-import com.lomo.ui.util.SynchronizedLruStore
 import com.lomo.ui.util.LocalAnimatedVisibilityScope
 import com.lomo.ui.util.LocalSharedTransitionScope
+import com.lomo.ui.util.SynchronizedLruStore
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.collectLatest
+import org.jetbrains.compose.resources.stringResource
 
 internal object MarkdownImageCache {
     private const val MAX_CACHE_SIZE = 200
@@ -58,10 +56,7 @@ internal object MarkdownImageCache {
 
     fun get(url: String): Float? = cache.get(url)
 
-    fun put(
-        url: String,
-        ratio: Float,
-    ) {
+    fun put(url: String, ratio: Float) {
         cache.put(url, ratio)
     }
 }
@@ -220,9 +215,9 @@ internal fun MarkdownImagePager(
         )
     Column(
         modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = MarkdownImageTokens.VerticalPadding),
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = MarkdownImageTokens.VerticalPadding),
     ) {
         HorizontalPager(
             state = pagerState,
@@ -239,9 +234,9 @@ internal fun MarkdownImagePager(
 
         Row(
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = MarkdownImageTokens.PagerTopPadding),
+            Modifier
+                .fillMaxWidth()
+                .padding(top = MarkdownImageTokens.PagerTopPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         ) {
@@ -260,17 +255,16 @@ private fun Modifier.rememberSharedImageModifier(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     sharedElementKey: String?,
-): Modifier =
-    if (sharedTransitionScope != null && animatedVisibilityScope != null && sharedElementKey != null) {
-        with(sharedTransitionScope) {
-            this@rememberSharedImageModifier.sharedElement(
-                rememberSharedContentState(key = sharedElementKey),
-                animatedVisibilityScope = animatedVisibilityScope,
-            )
-        }
-    } else {
-        this
+): Modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null && sharedElementKey != null) {
+    with(sharedTransitionScope) {
+        this@rememberSharedImageModifier.sharedElement(
+            rememberSharedContentState(key = sharedElementKey),
+            animatedVisibilityScope = animatedVisibilityScope,
+        )
     }
+} else {
+    this
+}
 
 @Composable
 private fun Modifier.rememberImageBlockModifier(
@@ -315,11 +309,11 @@ private fun PagerIndicatorDot(isActive: Boolean) {
 
     Box(
         modifier =
-            Modifier
-                .padding(horizontal = MarkdownImageTokens.IndicatorHorizontalPadding)
-                .size(indicatorSize)
-                .clip(MarkdownImageTokens.IndicatorShape)
-                .background(indicatorColor),
+        Modifier
+            .padding(horizontal = MarkdownImageTokens.IndicatorHorizontalPadding)
+            .size(indicatorSize)
+            .clip(MarkdownImageTokens.IndicatorShape)
+            .background(indicatorColor),
     )
 }
 
@@ -327,13 +321,13 @@ private fun PagerIndicatorDot(isActive: Boolean) {
 private fun ImageLoadingPlaceholder(modifier: Modifier = Modifier) {
     Box(
         modifier =
-            modifier
-                .fillMaxWidth()
-                .heightIn(min = MarkdownImageTokens.LoadingMinHeight)
-                .background(
-                    MarkdownImageTokens.loadingContainerColor(MaterialTheme.colorScheme),
-                    MarkdownImageTokens.Shape,
-                ),
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = MarkdownImageTokens.LoadingMinHeight)
+            .background(
+                MarkdownImageTokens.loadingContainerColor(MaterialTheme.colorScheme),
+                MarkdownImageTokens.Shape,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         ExpressiveLoadingIndicator(
@@ -347,13 +341,13 @@ private fun ImageLoadingPlaceholder(modifier: Modifier = Modifier) {
 private fun ImageErrorPlaceholder(modifier: Modifier = Modifier) {
     Box(
         modifier =
-            modifier
-                .fillMaxWidth()
-                .height(MarkdownImageTokens.ErrorHeight)
-                .background(
-                    MarkdownImageTokens.errorContainerColor(MaterialTheme.colorScheme),
-                    MarkdownImageTokens.Shape,
-                ),
+        modifier
+            .fillMaxWidth()
+            .height(MarkdownImageTokens.ErrorHeight)
+            .background(
+                MarkdownImageTokens.errorContainerColor(MaterialTheme.colorScheme),
+                MarkdownImageTokens.Shape,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -368,13 +362,12 @@ private fun ImageErrorPlaceholder(modifier: Modifier = Modifier) {
 private fun ImageEmptyPlaceholder(modifier: Modifier = Modifier) {
     Box(
         modifier =
-            modifier
-                .fillMaxWidth()
-                .heightIn(min = MarkdownImageTokens.PlaceholderMinHeight)
-                .background(
-                    MarkdownImageTokens.emptyContainerColor(MaterialTheme.colorScheme),
-                    MarkdownImageTokens.Shape,
-                ),
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = MarkdownImageTokens.PlaceholderMinHeight)
+            .background(
+                MarkdownImageTokens.emptyContainerColor(MaterialTheme.colorScheme),
+                MarkdownImageTokens.Shape,
+            ),
     )
 }
-

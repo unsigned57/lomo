@@ -22,7 +22,6 @@ build/
 .cache/
 .kotlin-cli/
 .android-sdk/
-mutants.out/
 *.out.old/
 __pycache__/
 *.pyc
@@ -89,7 +88,8 @@ replay_pid*
 .kotlin/
 
 # Rust workspace build output (Cargo.lock at root is versioned for reproducible gates)
-.cargo/
+.cargo/*
+!.cargo/config.toml
 /target/
 /**/target/
 **/*.rs.bk
@@ -105,14 +105,18 @@ replay_pid*
 # OS
 .DS_Store
 Thumbs.db
-
-# Local manual cargo-mutants sweep results (run_mutants.sh)
-/mutation/
+._*
 
 # Local AI tooling artifacts
 .codex-skill-build/
 .codex
 .commandcode/
+.claude/
+.claude
+.claude.json
+.gemini/
+.cursor/
+.antigravity/
 .local
 .config
 # nextest's serialization policy IS the quality gate: perf_scale_contract must
@@ -125,7 +129,7 @@ Thumbs.db
 .xdg-data
 CLAUDE.md
 task.md
-/audit
+/docs/archive/local-audits/
 /lomo_functional_chains.md
 /docs/superpowers/plans
 .android-task/
@@ -140,3 +144,14 @@ task.md
 /plan2.md
 /plan3.md
 /P0-P1-ADVERSARIAL-AUDIT-2026-07-24.md
+
+# Durable local verification evidence and editor backups
+/reports/
+*.bak
+*.orig
+*.rej
+*~
+*.swp
+*.swo
+*#
+.#*

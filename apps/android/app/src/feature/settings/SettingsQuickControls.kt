@@ -15,11 +15,9 @@ internal fun SettingsStorageQuickGroup(
     onVoiceDirectoryClick: () -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_home_storage_section_title)) {
-        MemoDirectoryRow(subtitle = memoDirectoryLabel, onClick = onMemoDirectoryClick)
-        SettingsDivider()
-        ImageDirectoryRow(subtitle = imageDirectoryLabel, onClick = onImageDirectoryClick)
-        SettingsDivider()
-        VoiceDirectoryRow(subtitle = voiceDirectoryLabel, onClick = onVoiceDirectoryClick)
+        item { MemoDirectoryRow(subtitle = memoDirectoryLabel, onClick = onMemoDirectoryClick) }
+        item { ImageDirectoryRow(subtitle = imageDirectoryLabel, onClick = onImageDirectoryClick) }
+        item { VoiceDirectoryRow(subtitle = voiceDirectoryLabel, onClick = onVoiceDirectoryClick) }
     }
 }
 
@@ -29,29 +27,17 @@ internal fun SettingsPreferencesQuickGroup(
     languageLabel: String,
     colorPaletteLabel: String,
     fontLabel: String,
-    appLockChecked: Boolean,
-    hapticChecked: Boolean,
     onThemeClick: () -> Unit,
     onLanguageClick: () -> Unit,
     onTypographyClick: () -> Unit,
     onColorPaletteClick: () -> Unit,
     onFontClick: () -> Unit,
-    onAppLockChange: (Boolean) -> Unit,
-    onHapticChange: (Boolean) -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_home_preferences_section_title)) {
-        ThemeModeRow(label = themeLabel, onClick = onThemeClick)
-        SettingsDivider()
-        ColorPaletteRow(subtitle = colorPaletteLabel, onClick = onColorPaletteClick)
-        SettingsDivider()
-        FontRow(subtitle = fontLabel, onClick = onFontClick)
-        SettingsDivider()
-        LanguageRow(label = languageLabel, onClick = onLanguageClick)
-        SettingsDivider()
-        TypographyRow(onClick = onTypographyClick)
-        SettingsDivider()
-        AppLockRow(checked = appLockChecked, onCheckedChange = onAppLockChange)
-        SettingsDivider()
-        HapticRow(checked = hapticChecked, onCheckedChange = onHapticChange)
+        item { ThemeModeRow(label = themeLabel, onClick = onThemeClick) }
+        item { ColorPaletteRow(subtitle = colorPaletteLabel, onClick = onColorPaletteClick) }
+        item { FontRow(subtitle = fontLabel, onClick = onFontClick) }
+        item { TypographyRow(onClick = onTypographyClick) }
+        item { LanguageRow(label = languageLabel, onClick = onLanguageClick) }
     }
 }

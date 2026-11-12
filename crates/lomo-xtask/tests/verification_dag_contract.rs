@@ -1,3 +1,14 @@
+//! Test Change Justification:
+//! Reason category: measured profile packaging replaces static class enumeration.
+//! Old behavior/assertion being replaced: require every runtime method in a regenerated profile.
+//! Why old assertion is no longer correct: device-collected hot paths are intentional subsets;
+//! expanding them changes the workload evidence instead of validating the measured input.
+//! Coverage preserved by: official SDK parsing, collection receipt hash checks, unchanged gate
+//! scheduling/output checks and `measured_profiles_contract` rejection/round-trip tests.
+//! Why this is not fitting the test to the implementation: the existing --write workflow could
+//! never satisfy static byte equality; the new tests reject tampering and parser errors while
+//! accepting legitimate measured subsets from the supported collector.
+//!
 // adversarial-audit: gate-wiring and scheduler adversarial probes.
 // The semantic canary `detekt_full_analysis_contract_test.sh` must be reachable from a
 // gate; usecase-reachability must require calls not mentions, and the executor must refuse
@@ -497,39 +508,17 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Baseline profile: regeneration is scheduled and the committed artifact must be
-    // byte-compared against the regenerated evidence — existence alone must not pass.
+    // Measured profile validation must be reachable from the actual repository executor.
     // -----------------------------------------------------------------------
 
     #[test]
-    fn regenerated_baseline_is_compared_to_the_committed_profile() {
+    fn measured_profile_validation_is_wired_into_the_packaging_gate() {
         let source = read("crates/lomo-xtask/src/verification/runner.rs");
-        assert!(
-            source.contains("report_dir.join(\"baseline-profile\")"),
-            "generator must write into the per-run evidence dir"
-        );
-        assert!(
-            source.contains("baselineProfiles/generated.txt"),
-            "verify_outputs maps the artifact to the committed file"
-        );
-        // "fn verify_outputs" appears twice: the CommandRunner trait declaration and the
-        // RepositoryRunner implementation — nth(2) selects the implementation body.
-        let verify = source
-            .split("fn verify_outputs")
-            .nth(2)
-            .expect("verify_outputs implementation exists");
-        let verify_body = verify.split("\n    }\n").next().expect("body");
-        assert!(
-            verify_body.contains("baseline-profile"),
-            "verify_outputs must reach the regenerated evidence copy, otherwise committed \
-             generated.txt only needs to exist and be non-empty — staleness and \
-             hand-edited content are undetectable by this node"
-        );
-        assert!(
-            verify_body.contains("stale") && verify_body.contains("=="),
-            "verify_outputs must fail closed with an explicit stale/hand-edited error when \
-             the committed profile differs byte-for-byte from the regenerated evidence"
-        );
+        assert!(source.contains("crate::profiles::validate_measured_profiles("));
+        assert!(source.contains("cmdline-tools/latest/bin/profgen"));
+        assert!(source.contains("baselineProfiles/generated.txt"));
+        assert!(source.contains("baseline-profile/report.json"));
+        assert!(source.contains("measured profile validation evidence is missing"));
     }
 
     // -----------------------------------------------------------------------
@@ -559,6 +548,35 @@ mod tests {
             "BLIND SPOT: the full-vs-light semantic canary is an orphan — nothing in any gate \
              re-proves that type-resolved analysis actually produces findings"
         );
+    }
+
+    /// A gate self-test that no entrypoint runs proves nothing: the meaningful-test and string
+    /// parity smoke tests existed for months without being executed by any gate.
+    #[test]
+    fn every_quality_self_test_is_wired_into_a_gate() {
+        let entrypoints = [
+            "quality/scripts/kotlin_detekt_check.sh",
+            "quality/scripts/kotlin_android_lint_check.sh",
+            "crates/lomo-xtask/src/quality.rs",
+        ]
+        .map(read)
+        .join("\n");
+        let self_tests = fs::read_dir(root().join("quality/scripts/test"))
+            .expect("quality self-test directory")
+            .map(|entry| entry.expect("self-test entry").path())
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>();
+        assert!(!self_tests.is_empty(), "no quality self-tests found");
+        for path in self_tests {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("self-test file name");
+            assert!(
+                entrypoints.contains(name),
+                "BLIND SPOT: quality/scripts/test/{name} is not run by any gate entrypoint"
+            );
+        }
     }
 
     // ------------------------------------------------------------------

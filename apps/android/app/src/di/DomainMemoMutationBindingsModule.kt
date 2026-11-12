@@ -7,7 +7,6 @@ import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.SetMemoPinnedUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
-import com.lomo.domain.usecase.ToggleMemoTaskUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import org.koin.dsl.module
 
@@ -16,8 +15,7 @@ val domainMemoMutationModule = module {
     single { SetMemoPinnedUseCase(get()) }
     single { SyncAndRebuildUseCase(get(), get(), get()) }
     single { RefreshMemosUseCase(get()) }
-    single { ToggleMemoCheckboxUseCase(workspaceRepository = get(), memoMutationRepository = get()) }
-    single { ToggleMemoTaskUseCase(get()) }
+    single { ToggleMemoCheckboxUseCase(workspaceRepository = get()) }
     single { UpdateMemoContentUseCase(get(), get()) }
     single { CreateMemoUseCase(get(), get(), get(), get()) }
     single { RecordingSessionUseCase(get()) }

@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract (P5-06 S3 backend adapter — host hermetic slice)
 //!
 //! Capability: public [`RemoteSyncPort`] S3 adapter compiles/executes intents only; core owns
@@ -248,7 +256,7 @@ mod tests {
     }
 
     fn simple_etag(body: &[u8]) -> String {
-        let digest = format!("{:x}", Sha256::digest(body));
+        let digest = lomo_core::hex_encode(&Sha256::digest(body));
         let short: String = digest.chars().take(16).collect();
         format!("\"{short}\"")
     }
@@ -888,7 +896,7 @@ mod tests {
     }
 
     fn digest_of(bytes: &[u8]) -> ContentDigest {
-        ContentDigest::parse(&format!("{:x}", Sha256::digest(bytes))).expect("digest")
+        ContentDigest::parse(&lomo_core::hex_encode(&Sha256::digest(bytes))).expect("digest")
     }
 
     fn path(raw: &str) -> SyncPath {
@@ -1109,7 +1117,7 @@ mod tests {
         let server = FaultServer::start();
         let body = b"hello-s3";
         server.put_object("lomo/memo/a.md", body);
-        let content_sha = format!("{:x}", Sha256::digest(body));
+        let content_sha = lomo_core::hex_encode(&Sha256::digest(body));
         let etag = server.etag_of("lomo/memo/a.md");
         assert_ne!(
             etag.trim_matches('"'),
@@ -1698,7 +1706,10 @@ mod tests {
             receipt.path_results[0].1
         );
         assert!(server.has("lomo/memo/big.bin"));
-        assert!(adapter.multipart_sessions_snapshot().is_empty());
+        assert_eq!(
+            adapter.multipart_sessions_snapshot(),
+            Vec::<lomo_sync::MultipartSession>::new()
+        );
         let wire = server.multipart_wire_log();
         assert!(
             wire.iter()
@@ -1892,7 +1903,7 @@ mod tests {
                             "missing shared object",
                         )
                     })?;
-                let digest = format!("{:x}", Sha256::digest(&bytes));
+                let digest = lomo_core::hex_encode(&Sha256::digest(&bytes));
                 if digest != expected_digest.as_str() {
                     return Err(lomo_sync::sync_validation(
                         "s3_object_source_digest_mismatch",
@@ -2368,7 +2379,7 @@ mod tests {
 
         // Plant a path-keyed corrupt LSYN-looking record for the resume path.
         let path_key = "memo/corrupt.bin";
-        let digest_name = format!("{:x}", Sha256::digest(path_key.as_bytes()));
+        let digest_name = lomo_core::hex_encode(&Sha256::digest(path_key.as_bytes()));
         fs::write(
             multipart_dir.join(format!("{digest_name}.rec")),
             b"LSYN\0\0\0\0truncated",
@@ -3101,7 +3112,7 @@ mod tests {
         let canonical_request = format!(
             "HEAD\n/bucket/lomo/a.md\n\n{canonical_headers}\nhost;x-amz-content-sha256;x-amz-date\n{payload_hash}"
         );
-        let canonical_hash = format!("{:x}", Sha256::digest(canonical_request.as_bytes()));
+        let canonical_hash = lomo_core::hex_encode(&Sha256::digest(canonical_request.as_bytes()));
         let date_stamp = amz_date.get(..8).unwrap_or("");
         let string_to_sign = format!(
             "AWS4-HMAC-SHA256\n{amz_date}\n{date_stamp}/us-east-1/s3/aws4_request\n{canonical_hash}"

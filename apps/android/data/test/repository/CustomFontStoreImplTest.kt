@@ -2,14 +2,12 @@ package com.lomo.data.repository
 
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.CustomFontImportResult
-import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.CustomFontNameState
 import com.lomo.domain.model.CustomFontRejection
 import com.lomo.domain.model.CustomFontSource
 import com.lomo.domain.usecase.SingleDispatcherProvider
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.string.shouldStartWith
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -245,25 +243,23 @@ class CustomFontStoreImplTest : DataFunSpec() {
 
 private fun streamOf(bytes: ByteArray): CustomFontSource = CustomFontSource { bytes.inputStream() }
 
-private fun newFontRoot(): File =
-    kotlin.io.path
-        .createTempDirectory("lomo-font-store")
-        .toFile()
-        .apply { deleteOnExit() }
-        .also { File(it, "custom_fonts").mkdirs() }
-        .let { File(it, "custom_fonts") }
+private fun newFontRoot(): File = kotlin.io.path
+    .createTempDirectory("lomo-font-store")
+    .toFile()
+    .apply { deleteOnExit() }
+    .also { File(it, "custom_fonts").mkdirs() }
+    .let { File(it, "custom_fonts") }
 
 private fun newStore(
     fontDir: File,
     validator: FontFileValidator = FontFileValidator { true },
     maxFontFileBytes: Long = MAX_FONT_FILE_BYTES,
-): CustomFontStoreImpl =
-    CustomFontStoreImpl(
-        fontDir = fontDir,
-        fontFileValidator = validator,
-        dispatcherProvider = SingleDispatcherProvider(Dispatchers.Unconfined),
-        maxFontFileBytes = maxFontFileBytes,
-    )
+): CustomFontStoreImpl = CustomFontStoreImpl(
+    fontDir = fontDir,
+    fontFileValidator = validator,
+    dispatcherProvider = SingleDispatcherProvider(Dispatchers.Unconfined),
+    maxFontFileBytes = maxFontFileBytes,
+)
 
 // 0x00010000 sfnt version + a few table records — enough for the magic gate.
 private val VALID_TTF_BYTES: ByteArray =

@@ -1,28 +1,24 @@
 package com.lomo.app.feature.gallery
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateColor
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Transition
-import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lomo.app.feature.main.MemoUiModel
@@ -39,11 +36,14 @@ import com.lomo.app.presentation.markdown.MemoMarkdownMediaAdapter
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.formatAsDateTime
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.glass.GlassStyle
+import dev.chrisbanes.haze.glass.hazeGlass
 
-private const val GALLERY_REEL_PANEL_CONTENT_ALPHA = 0.78f
-private const val GALLERY_REEL_PANEL_COMPACT_ALPHA = 0.72f
-private val GALLERY_REEL_PANEL_TONAL_ELEVATION = 6.dp
+private const val GALLERY_REEL_PANEL_GLASS_TINT_ALPHA = 0.4f
 private val GALLERY_REEL_PANEL_MAX_HEIGHT = 360.dp
 private val GALLERY_REEL_PANEL_CONTENT_TOP_PADDING = 24.dp
 private val GALLERY_REEL_PANEL_CONTENT_BOTTOM_PADDING = AppSpacing.MediumSmall
@@ -61,6 +61,8 @@ private enum class GalleryReelPanelMode {
 
 @Composable
 fun GalleryReelMemoOverlay(
+    hazeState: HazeState,
+    onTagClick: (String) -> Unit,
     memo: MemoUiModel,
     dateFormat: String,
     timeFormat: String,
@@ -72,8 +74,10 @@ fun GalleryReelMemoOverlay(
     val panelMode = rememberGalleryReelPanelMode(memo, showMemoDetails)
     val panelTransition = updateTransition(targetState = panelMode, label = "GalleryReelPanelMode")
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxWidth()) {
         GalleryReelPanelSurface(
+            hazeState = hazeState,
+            onTagClick = onTagClick,
             memo = memo,
             dateFormat = dateFormat,
             timeFormat = timeFormat,
@@ -87,10 +91,7 @@ fun GalleryReelMemoOverlay(
 }
 
 @Composable
-private fun rememberGalleryReelPanelMode(
-    memo: MemoUiModel,
-    showMemoDetails: Boolean,
-): GalleryReelPanelMode {
+private fun rememberGalleryReelPanelMode(memo: MemoUiModel, showMemoDetails: Boolean): GalleryReelPanelMode {
     val plainText = memo.renderDocument.plainText
     return remember(plainText, memo.tags, showMemoDetails) {
         if (showMemoDetails && galleryReelHasDisplayContent(plainText, memo.tags)) {
@@ -101,13 +102,13 @@ private fun rememberGalleryReelPanelMode(
     }
 }
 
-private fun galleryReelHasDisplayContent(
-    plainText: String,
-    tags: List<String>,
-): Boolean = plainText.isNotBlank() || tags.isNotEmpty()
+private fun galleryReelHasDisplayContent(plainText: String, tags: List<String>): Boolean =
+    plainText.isNotBlank() || tags.isNotEmpty()
 
 @Composable
 private fun GalleryReelPanelSurface(
+    hazeState: HazeState,
+    onTagClick: (String) -> Unit,
     memo: MemoUiModel,
     dateFormat: String,
     timeFormat: String,
@@ -117,73 +118,62 @@ private fun GalleryReelPanelSurface(
     modifier: Modifier = Modifier,
     imageIndicator: GalleryReelImageIndicatorState? = null,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
+    val motionScheme = LocalLomoMotion.current.layout
     val targetMode = panelTransition.targetState
-    val containerColor =
-        panelTransition.animateColor(label = "GalleryReelPanelContainerColor") { mode ->
-            val alpha =
-                if (mode == GalleryReelPanelMode.Content) {
-                    GALLERY_REEL_PANEL_CONTENT_ALPHA
-                } else {
-                    GALLERY_REEL_PANEL_COMPACT_ALPHA
-                }
-            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = alpha)
+    val panelShape =
+        if (targetMode == GalleryReelPanelMode.Content) {
+            RoundedCornerShape(
+                topStart = GALLERY_REEL_PANEL_CONTENT_TOP_CORNER,
+                topEnd = GALLERY_REEL_PANEL_CONTENT_TOP_CORNER,
+            )
+        } else {
+            AppShapes.Full
         }
-    val topCorner =
-        panelTransition.animateDp(label = "GalleryReelPanelTopCorner") { mode ->
-            if (mode == GalleryReelPanelMode.Content) {
-                GALLERY_REEL_PANEL_CONTENT_TOP_CORNER
-            } else {
-                GALLERY_REEL_PANEL_CONTENT_TOP_CORNER
-            }
+    val surfaceColor = MaterialTheme.colorScheme.surfaceContainer
+    val glassStyle = remember(panelShape, surfaceColor) {
+        GlassStyle.regular.then {
+            shape(panelShape)
+            backgroundColor(surfaceColor)
+            tint(surfaceColor.copy(alpha = GALLERY_REEL_PANEL_GLASS_TINT_ALPHA))
         }
+    }
 
     Surface(
-        color = containerColor.value,
+        color = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        shape =
-            if (targetMode == GalleryReelPanelMode.Content) {
-                RoundedCornerShape(
-                    topStart = topCorner.value,
-                    topEnd = topCorner.value,
-                    bottomStart = 0.dp,
-                    bottomEnd = 0.dp,
-                )
-            } else {
-                AppShapes.Full
-            },
-        tonalElevation = GALLERY_REEL_PANEL_TONAL_ELEVATION,
+        shape = panelShape,
         modifier =
-            modifier
-                .then(
-                    if (targetMode == GalleryReelPanelMode.Content) {
-                        Modifier.fillMaxWidth()
-                    } else {
-                        Modifier
-                            .padding(
-                                horizontal = GALLERY_REEL_PANEL_COMPACT_HORIZONTAL_INSET,
-                                vertical = 0.dp,
-                            )
-                            .padding(bottom = GALLERY_REEL_PANEL_COMPACT_BOTTOM_INSET)
-                            .navigationBarsPadding()
-                    },
-                )
-                .animateContentSize(
-                    animationSpec =
-                        motionScheme.defaultSpatialSpec(),
-                    alignment = Alignment.BottomCenter,
-                ),
+        modifier
+            .then(
+                if (targetMode == GalleryReelPanelMode.Content) {
+                    Modifier.fillMaxWidth()
+                } else {
+                    Modifier
+                        .padding(
+                            horizontal = GALLERY_REEL_PANEL_COMPACT_HORIZONTAL_INSET,
+                            vertical = 0.dp,
+                        )
+                        .padding(bottom = GALLERY_REEL_PANEL_COMPACT_BOTTOM_INSET)
+                        .navigationBarsPadding()
+                },
+            )
+            .animateContentSize(
+                animationSpec =
+                motionScheme.defaultSpatialSpec(),
+                alignment = Alignment.BottomCenter,
+            )
+            .hazeGlass(input = HazeInput.Sources(hazeState), style = glassStyle),
     ) {
         AnimatedContent(
             targetState = targetMode,
             transitionSpec = {
                 fadeIn(
                     animationSpec =
-                        motionScheme.defaultEffectsSpec(),
+                    motionScheme.defaultEffectsSpec(),
                 ) togetherWith
                     fadeOut(
                         animationSpec =
-                            motionScheme.defaultEffectsSpec(),
+                        motionScheme.defaultEffectsSpec(),
                     )
             },
             label = "GalleryReelPanelContent",
@@ -191,12 +181,14 @@ private fun GalleryReelPanelSurface(
             when (mode) {
                 GalleryReelPanelMode.Content ->
                     GalleryReelTextPanelContent(
+                        onTagClick = onTagClick,
                         memo = memo,
                         dateFormat = dateFormat,
                         timeFormat = timeFormat,
                         imageIndicator = imageIndicator,
                         onTodoClick = onTodoClick,
                     )
+
                 GalleryReelPanelMode.Compact ->
                     GalleryReelCompactPillContent(
                         memo = memo,
@@ -212,6 +204,7 @@ private fun GalleryReelPanelSurface(
 
 @Composable
 private fun GalleryReelTextPanelContent(
+    onTagClick: (String) -> Unit,
     memo: MemoUiModel,
     dateFormat: String,
     timeFormat: String,
@@ -222,17 +215,17 @@ private fun GalleryReelTextPanelContent(
     Column(
         verticalArrangement = Arrangement.spacedBy(AppSpacing.MediumSmall),
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .heightIn(max = GALLERY_REEL_PANEL_MAX_HEIGHT)
-                .navigationBarsPadding()
-                .padding(
-                    start = AppSpacing.Medium,
-                    top = GALLERY_REEL_PANEL_CONTENT_TOP_PADDING,
-                    end = AppSpacing.Medium,
-                    bottom = GALLERY_REEL_PANEL_CONTENT_BOTTOM_PADDING,
-                )
-                .verticalScroll(scrollState),
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = GALLERY_REEL_PANEL_MAX_HEIGHT)
+            .navigationBarsPadding()
+            .padding(
+                start = AppSpacing.Medium,
+                top = GALLERY_REEL_PANEL_CONTENT_TOP_PADDING,
+                end = AppSpacing.Medium,
+                bottom = GALLERY_REEL_PANEL_CONTENT_BOTTOM_PADDING,
+            )
+            .verticalScroll(scrollState),
     ) {
         imageIndicator?.let { state ->
             Box(
@@ -244,8 +237,12 @@ private fun GalleryReelTextPanelContent(
         }
         if (memo.renderDocument.plainText.isNotBlank()) {
             val stableTodoClick = remember(memo.memo, onTodoClick) {
-                { actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan ->
-                    onTodoClick(memo.memo, actionSpan)
+                if (memo.memo.isDeleted) {
+                    null
+                } else {
+                    { actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan ->
+                        onTodoClick(memo.memo, actionSpan)
+                    }
                 }
             }
             MarkdownRenderer(
@@ -259,6 +256,7 @@ private fun GalleryReelTextPanelContent(
             )
         }
         GalleryReelMemoMeta(
+            onTagClick = onTagClick,
             memo = memo,
             dateFormat = dateFormat,
             timeFormat = timeFormat,
@@ -278,10 +276,10 @@ private fun GalleryReelCompactPillContent(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(GALLERY_REEL_PANEL_COMPACT_ROW_SPACING),
         modifier =
-            Modifier.padding(
-                horizontal = GALLERY_REEL_PANEL_COMPACT_PILL_PADDING_HORIZONTAL,
-                vertical = GALLERY_REEL_PANEL_COMPACT_PILL_PADDING_VERTICAL,
-            ),
+        Modifier.padding(
+            horizontal = GALLERY_REEL_PANEL_COMPACT_PILL_PADDING_HORIZONTAL,
+            vertical = GALLERY_REEL_PANEL_COMPACT_PILL_PADDING_VERTICAL,
+        ),
     ) {
         if (showMemoDetails) {
             val dateText = remember(memo.memo.timestamp, dateFormat, timeFormat) {
@@ -308,6 +306,7 @@ private fun GalleryReelCompactPillContent(
 
 @Composable
 private fun GalleryReelMemoMeta(
+    onTagClick: (String) -> Unit,
     memo: MemoUiModel,
     dateFormat: String,
     timeFormat: String,
@@ -330,18 +329,18 @@ private fun GalleryReelMemoMeta(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
             ) {
                 memo.tags.forEach { tag ->
                     AssistChip(
-                        onClick = {},
+                        onClick = { onTagClick(tag) },
                         colors =
-                            AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                labelColor = MaterialTheme.colorScheme.onSurface,
-                            ),
+                        AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            labelColor = MaterialTheme.colorScheme.onSurface,
+                        ),
                         label = {
                             Text(
                                 text = "#$tag",

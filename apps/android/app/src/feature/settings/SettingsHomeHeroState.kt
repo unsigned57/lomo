@@ -23,11 +23,7 @@ sealed interface SettingsHomeHeroState {
 }
 
 /** One provider's enablement and last-known sync facts for the Settings hero card. */
-internal data class HomeHeroProviderFacts(
-    val enabled: Boolean,
-    val lastSync: Long,
-    val syncState: UnifiedSyncState,
-)
+internal data class HomeHeroProviderFacts(val enabled: Boolean, val lastSync: Long, val syncState: UnifiedSyncState)
 
 internal fun computeSettingsHomeHeroState(
     git: HomeHeroProviderFacts,

@@ -17,7 +17,6 @@ import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.SecureDirectoryStream
 import java.nio.file.attribute.BasicFileAttributeView
-import java.nio.file.attribute.BasicFileAttributes
 
 /**
  * File-root document operations bound to a registered Direct grant.
@@ -36,65 +35,65 @@ internal class DirectRootDocumentsGateway {
         grant: DirectCapabilityGrant,
         target: WorkspaceTarget,
         digest: SnapshotDigestMode,
-    ): PlatformDocumentSnapshot? =
-        when (target) {
-            is WorkspaceTarget.Root ->
-                access.snapshotAnchor(grant.canonicalRoot.toPath(), target)
-            is WorkspaceTarget.Relative ->
-                access
-                    .resolveBeneath(grant, target.path)
-                    ?.use { resolved ->
-                        if (!resolved.existed) {
-                            null
-                        } else {
-                            access.snapshot(resolved, target, digest = digest)
-                        }
+    ): PlatformDocumentSnapshot? = when (target) {
+        is WorkspaceTarget.Root ->
+            access.snapshotAnchor(grant.canonicalRoot.toPath(), target)
+
+        is WorkspaceTarget.Relative ->
+            access
+                .resolveBeneath(grant, target.path)
+                ?.use { resolved ->
+                    if (!resolved.existed) {
+                        null
+                    } else {
+                        access.snapshot(resolved, target, digest = digest)
                     }
-        }
+                }
+    }
 
     fun listChildren(
         grant: DirectCapabilityGrant,
         target: WorkspaceTarget,
         cursor: String?,
         pageSize: UInt,
-    ): PlatformMetadataPage =
-        when (target) {
-            is WorkspaceTarget.Root ->
-                access.secureStream(grant.canonicalRoot.toPath()).use { stream ->
-                    listChildrenIn(
-                        stream,
-                        grant.canonicalRoot.toPath(),
-                        "",
-                        grant.stableWorkspaceId.value,
-                        cursor,
-                        pageSize,
-                    )
-                }
-            is WorkspaceTarget.Relative ->
-                access
-                    .resolveBeneath(grant, target.path)
-                    ?.use { resolved ->
-                        if (!resolved.existed) return incompletePage()
-                        val stream =
-                            try {
-                                resolved.openDirectoryStream()
-                            } catch (ignored: IOException) {
-                                // behavior-contract: silent-result-ok: an unlistable directory
-                                // degrades to an incomplete page, never a crash
-                                return incompletePage()
-                            }
-                        stream.use { childStream ->
-                            listChildrenIn(
-                                childStream,
-                                resolved.absolute,
-                                "${target.path}/",
-                                grant.stableWorkspaceId.value,
-                                cursor,
-                                pageSize,
-                            )
+    ): PlatformMetadataPage = when (target) {
+        is WorkspaceTarget.Root ->
+            access.secureStream(grant.canonicalRoot.toPath()).use { stream ->
+                listChildrenIn(
+                    stream,
+                    grant.canonicalRoot.toPath(),
+                    "",
+                    grant.stableWorkspaceId.value,
+                    cursor,
+                    pageSize,
+                )
+            }
+
+        is WorkspaceTarget.Relative ->
+            access
+                .resolveBeneath(grant, target.path)
+                ?.use { resolved ->
+                    if (!resolved.existed) return incompletePage
+                    val stream =
+                        try {
+                            resolved.openDirectoryStream()
+                        } catch (ignored: IOException) {
+                            // behavior-contract: silent-result-ok: an unlistable directory
+                            // degrades to an incomplete page, never a crash
+                            return incompletePage
                         }
-                    } ?: incompletePage()
-        }
+                    stream.use { childStream ->
+                        listChildrenIn(
+                            childStream,
+                            resolved.absolute,
+                            "${target.path}/",
+                            grant.stableWorkspaceId.value,
+                            cursor,
+                            pageSize,
+                        )
+                    }
+                } ?: incompletePage
+    }
 
     /**
      * Keyset page over the pinned directory under the `name ASC` ordering.
@@ -114,54 +113,38 @@ internal class DirectRootDocumentsGateway {
         pageSize: UInt,
     ): PlatformMetadataPage {
         require(pageSize > 0u) { "page size must be non-zero" }
-        val sorted = enumerateSortedChildNames(stream) ?: return incompletePage()
-        val fingerprint =
-            DirectListPageCursor.membershipFingerprint(sorted.map { entry -> entry.toString() })
+        val sorted = enumerateSortedChildNames(stream) ?: return incompletePage
+        val names = sorted.map { entry -> entry.toString() }
         val emitFrom =
             if (cursor == null) {
                 0
             } else {
-                val bound =
-                    DirectListPageCursor.resolveBound(
-                        raw = cursor,
-                        rootId = rootId,
-                        directory = relativePrefix,
-                        membershipFingerprint = fingerprint,
-                    )
-                val boundIndex =
-                    sorted.binarySearchBy(bound) { entry -> entry.toString() }
-                if (boundIndex < 0) {
-                    throw DirectRootAccessException(
-                        category = "validation",
-                        code = "invalid_page_cursor",
-                        diagnostic =
-                            "page cursor bound names a child absent from the fingerprinted set",
-                    )
-                }
-                boundIndex + 1
+                DirectListPageCursor.resolveBoundIndex(
+                    raw = cursor,
+                    rootId = rootId,
+                    directory = relativePrefix,
+                    sortedChildNames = names,
+                ) + 1
             }
         val page = sorted.subList(emitFrom, minOf(emitFrom + pageSize.toInt(), sorted.size))
         val items =
             snapshotPageChildren(access, stream, absolute, relativePrefix, page)
-                ?: return incompletePage()
+                ?: return incompletePage
         val nextCursor =
             if (emitFrom + page.size < sorted.size) {
-                DirectListPageCursor(
+                DirectListPageCursor.mint(
                     rootId = rootId,
                     directory = relativePrefix,
-                    lastName = page.last().toString(),
-                    membershipFingerprint = fingerprint,
-                ).encode()
+                    sortedChildNames = names,
+                    boundIndex = emitFrom + page.size - 1,
+                )
             } else {
                 null
             }
         return PlatformMetadataPage(items = items, nextCursor = nextCursor)
     }
 
-    fun ensureDirectory(
-        grant: DirectCapabilityGrant,
-        path: String,
-    ): PlatformDocumentSnapshot {
+    fun ensureDirectory(grant: DirectCapabilityGrant, path: String): PlatformDocumentSnapshot {
         val segments = path.split('/').filter(String::isNotEmpty)
         require(segments.isNotEmpty()) { "directory path must not be empty" }
         var stream = access.secureStream(grant.canonicalRoot.toPath())
@@ -228,10 +211,7 @@ internal class DirectRootDocumentsGateway {
         }
     }
 
-    fun openRead(
-        grant: DirectCapabilityGrant,
-        path: String,
-    ): PlatformReadHandle {
+    fun openRead(grant: DirectCapabilityGrant, path: String): PlatformReadHandle {
         access.resolveBeneath(grant, path).use { target ->
             if (target == null || !target.existed) {
                 throw DirectRootAccessException(
@@ -255,22 +235,18 @@ internal class DirectRootDocumentsGateway {
                 }
             return PlatformReadHandle(
                 snapshot =
-                    access.snapshot(
-                        target,
-                        WorkspaceTarget.Relative(path),
-                        bytes,
-                        SnapshotDigestMode.CONTENT,
-                    ),
+                access.snapshot(
+                    target,
+                    WorkspaceTarget.Relative(path),
+                    bytes,
+                    SnapshotDigestMode.CONTENT,
+                ),
                 bytes = bytes,
             )
         }
     }
 
-    fun openReadByHandle(
-        grant: DirectCapabilityGrant,
-        path: String,
-        documentHandle: String,
-    ): PlatformReadHandle {
+    fun openReadByHandle(grant: DirectCapabilityGrant, path: String, documentHandle: String): PlatformReadHandle {
         val handle = openRead(grant, path)
         if (handle.snapshot.documentId != documentHandle) {
             throw DirectRootAccessException(
@@ -282,60 +258,80 @@ internal class DirectRootDocumentsGateway {
         return handle
     }
 
+    /**
+     * One descriptor-relative resolution feeds the arbitration observation and the write target:
+     * [arbitrate] runs on the live snapshot before any mutation, then create-vs-replace opens
+     * and the atomic write land on the same pinned path.
+     */
     fun writeFromExchange(
         grant: DirectCapabilityGrant,
         path: String,
         bytes: ByteArray,
         mode: WriteMode,
         mimeType: String?,
-    ): PlatformDocumentSnapshot =
-        access.requireFileTarget(grant, path, mode).use { target ->
-            // behavior-contract: blocking-io-ok: runs on the platform batch executor / native job driver
-            access.writeAtomically(target) { channel ->
-                channel.writeFully(ByteBuffer.wrap(bytes))
-            }
-            access
-                .snapshot(
-                    target,
-                    WorkspaceTarget.Relative(path),
-                    bytes,
-                    SnapshotDigestMode.CONTENT,
-                ).copy(mimeType = mimeType)
-        }
+        arbitrate: WriteArbitration,
+    ): WriteOutcome {
+        arbitrate(stat(grant, WorkspaceTarget.Relative(path), SnapshotDigestMode.CONTENT))
+            ?.let { return WriteOutcome.Satisfied(it) }
+        ensureParentDirectory(grant, path)
+        return WriteOutcome.Written(
+            access.requireFileTarget(grant, path, mode).use { target ->
+                // behavior-contract: blocking-io-ok: runs on the platform batch executor / native job driver
+                access.writeAtomically(target) { channel ->
+                    channel.writeFully(ByteBuffer.wrap(bytes))
+                }
+                access
+                    .snapshot(
+                        target,
+                        WorkspaceTarget.Relative(path),
+                        bytes,
+                        SnapshotDigestMode.CONTENT,
+                    ).copy(mimeType = mimeType)
+            },
+        )
+    }
 
     fun writeFromFile(
         grant: DirectCapabilityGrant,
         path: String,
         source: File,
-        mode: WriteMode,
         mimeType: String?,
-    ): PlatformDocumentSnapshot =
-        access.requireFileTarget(grant, path, mode).use { target ->
-            // behavior-contract: blocking-io-ok: runs on the platform batch executor / native job driver
-            access.writeAtomically(target) { channel ->
-                source.inputStream().use { input ->
-                    val buffer = ByteArray(WRITE_CHUNK_BYTES)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        channel.writeFully(ByteBuffer.wrap(buffer, 0, read))
+        arbitrate: WriteArbitration,
+    ): WriteOutcome {
+        val existing = stat(grant, WorkspaceTarget.Relative(path), SnapshotDigestMode.CONTENT)
+        arbitrate(existing)?.let { return WriteOutcome.Satisfied(it) }
+        val mode = if (existing == null) WriteMode.CREATE else WriteMode.REPLACE
+        ensureParentDirectory(grant, path)
+        return WriteOutcome.Written(
+            access.requireFileTarget(grant, path, mode).use { target ->
+                // behavior-contract: blocking-io-ok: runs on the platform batch executor / native job driver
+                access.writeAtomically(target) { channel ->
+                    source.inputStream().use { input ->
+                        val buffer = ByteArray(WRITE_CHUNK_BYTES)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            channel.writeFully(ByteBuffer.wrap(buffer, 0, read))
+                        }
                     }
                 }
-            }
-            access
-                // The persisted bytes are re-hashed from the descriptor so the receipt verifies
-                // what actually landed, not merely what the stream was asked to write.
-                .snapshot(
-                    target,
-                    WorkspaceTarget.Relative(path),
-                    digest = SnapshotDigestMode.CONTENT,
-                ).copy(mimeType = mimeType)
-        }
+                access
+                    // The persisted bytes are re-hashed from the descriptor so the receipt verifies
+                    // what actually landed, not merely what the stream was asked to write.
+                    .snapshot(
+                        target,
+                        WorkspaceTarget.Relative(path),
+                        digest = SnapshotDigestMode.CONTENT,
+                    ).copy(mimeType = mimeType)
+            },
+        )
+    }
 
     fun move(
         grant: DirectCapabilityGrant,
         source: String,
         target: String,
+        targetGrant: DirectCapabilityGrant = grant,
     ): PlatformDocumentSnapshot {
         access.resolveBeneath(grant, source).use { sourceResolved ->
             if (sourceResolved == null || !sourceResolved.existed) {
@@ -345,7 +341,8 @@ internal class DirectRootDocumentsGateway {
                     diagnostic = "Move source is absent",
                 )
             }
-            access.requireAbsentOrFile(grant, target).use { targetResolved ->
+            ensureParentDirectory(targetGrant, target)
+            access.requireAbsentOrFile(targetGrant, target).use { targetResolved ->
                 try {
                     sourceResolved.moveInto(targetResolved)
                 } catch (unsupported: java.nio.file.AtomicMoveNotSupportedException) {
@@ -368,10 +365,7 @@ internal class DirectRootDocumentsGateway {
         }
     }
 
-    fun delete(
-        grant: DirectCapabilityGrant,
-        path: String,
-    ) {
+    fun delete(grant: DirectCapabilityGrant, path: String) {
         access.resolveBeneath(grant, path).use { target ->
             if (target == null || !target.existed) return
             try {
@@ -386,7 +380,21 @@ internal class DirectRootDocumentsGateway {
         }
     }
 
-    private fun incompletePage(): PlatformMetadataPage =
+    /**
+     * The platform write law is backend-uniform: `lomo-platform-fs` runs
+     * `ensure_parent_directory_beneath` before every write/move target and the SAF writer
+     * calls `ensureDirectory(parentPath)` inside `createFile`/`move`. A Direct target with an
+     * absent parent chain must materialize that chain — descriptor-relative, symlink- and
+     * collision-rejecting through [ensureDirectory] — instead of failing `document_not_found`.
+     */
+    private fun ensureParentDirectory(grant: DirectCapabilityGrant, path: String) {
+        val parent = path.substringBeforeLast('/', missingDelimiterValue = "")
+        if (parent.isNotEmpty()) {
+            ensureDirectory(grant, parent)
+        }
+    }
+
+    private val incompletePage: PlatformMetadataPage =
         PlatformMetadataPage(items = emptyList(), nextCursor = null, incomplete = true)
 
     private companion object {
@@ -399,26 +407,23 @@ internal class DirectRootDocumentsGateway {
  * keyset ordering compares each entry's [Path.getFileName] string. `null` marks an unlistable
  * directory — the call site degrades it to an incomplete page, never a crash.
  */
-private fun enumerateSortedChildNames(
-    stream: SecureDirectoryStream<Path>,
-): List<Path>? =
-    try {
-        stream
-            .map { entry -> entry.fileName }
-            .sortedBy { entry -> entry.toString() }
-    } catch (_: IOException) {
-        // behavior-contract: silent-result-ok: an unlistable directory degrades to an
-        // incomplete page at the call site, never a crash.
-        null
-    } catch (_: DirectoryIteratorException) {
-        // behavior-contract: silent-result-ok: an unlistable directory degrades to an
-        // incomplete page at the call site, never a crash.
-        null
-    } catch (_: SecurityException) {
-        // behavior-contract: silent-result-ok: an unlistable directory degrades to an
-        // incomplete page at the call site, never a crash.
-        null
-    }
+private fun enumerateSortedChildNames(stream: SecureDirectoryStream<Path>): List<Path>? = try {
+    stream
+        .map { entry -> entry.fileName }
+        .sortedBy { entry -> entry.toString() }
+} catch (_: IOException) {
+    // behavior-contract: silent-result-ok: an unlistable directory degrades to an
+    // incomplete page at the call site, never a crash.
+    null
+} catch (_: DirectoryIteratorException) {
+    // behavior-contract: silent-result-ok: an unlistable directory degrades to an
+    // incomplete page at the call site, never a crash.
+    null
+} catch (_: SecurityException) {
+    // behavior-contract: silent-result-ok: an unlistable directory degrades to an
+    // incomplete page at the call site, never a crash.
+    null
+}
 
 /**
  * Stat + snapshot pass over the emitted keyset page; every read stays descriptor-relative on the
@@ -432,39 +437,38 @@ private fun snapshotPageChildren(
     absolute: Path,
     relativePrefix: String,
     page: List<Path>,
-): List<PlatformDocumentSnapshot>? =
-    try {
-        page.map { name ->
-            val attributes =
-                stream
-                    .getFileAttributeView(
-                        name,
-                        BasicFileAttributeView::class.java,
-                        LinkOption.NOFOLLOW_LINKS,
-                    ).readAttributes()
-            if (attributes.isSymbolicLink) return null
-            access.snapshotChild(
-                dir = stream,
-                name = name,
-                attributes = attributes,
-                absolute = absolute.resolve(name),
-                target = WorkspaceTarget.Relative("$relativePrefix$name"),
-            )
-        }
-    } catch (_: NoSuchFileException) {
-        // A name vanished between enumeration and stat: the set the cursor bound is no
-        // longer what this page observed, so the listing is untrustworthy, not shorter.
-        // behavior-contract: silent-result-ok: voids to an incomplete page at the call site.
-        null
-    } catch (_: IOException) {
-        // behavior-contract: silent-result-ok: an unreadable child voids the listing to an
-        // incomplete page at the call site, never a shorter one.
-        null
-    } catch (_: SecurityException) {
-        // behavior-contract: silent-result-ok: an unreadable child voids the listing to an
-        // incomplete page at the call site, never a shorter one.
-        null
+): List<PlatformDocumentSnapshot>? = try {
+    page.map { name ->
+        val attributes =
+            stream
+                .getFileAttributeView(
+                    name,
+                    BasicFileAttributeView::class.java,
+                    LinkOption.NOFOLLOW_LINKS,
+                ).readAttributes()
+        if (attributes.isSymbolicLink) return null
+        access.snapshotChild(
+            dir = stream,
+            name = name,
+            attributes = attributes,
+            absolute = absolute.resolve(name),
+            target = WorkspaceTarget.Relative("$relativePrefix$name"),
+        )
     }
+} catch (_: NoSuchFileException) {
+    // A name vanished between enumeration and stat: the set the cursor bound is no
+    // longer what this page observed, so the listing is untrustworthy, not shorter.
+    // behavior-contract: silent-result-ok: voids to an incomplete page at the call site.
+    null
+} catch (_: IOException) {
+    // behavior-contract: silent-result-ok: an unreadable child voids the listing to an
+    // incomplete page at the call site, never a shorter one.
+    null
+} catch (_: SecurityException) {
+    // behavior-contract: silent-result-ok: an unreadable child voids the listing to an
+    // incomplete page at the call site, never a shorter one.
+    null
+}
 
 private fun FileChannel.writeFully(buffer: ByteBuffer) {
     while (buffer.hasRemaining()) {

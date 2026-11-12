@@ -16,43 +16,37 @@ fun applySyncCenterLoadSuccess(
     config: RemoteSyncConfigSummary,
     session: RemoteSyncSessionProgress,
     page: RemoteSyncConflictPage,
-): SyncCenterUiState =
-    state.copy(
-        load =
-            SyncCenterLoadState.Ready(
-                config = config,
-                session = session,
-                conflictPage = page,
-                items = page.items.toImmutableList(),
-                selectedPath = null,
-                perPathResolutionKind = persistentMapOf(),
-                mergedDrafts = persistentMapOf(),
-                markdownDetailByPath = persistentMapOf(),
-                binaryDetailByPath = persistentMapOf(),
-                isLoadingDetail = false,
-                isResolving = false,
-                lastError = null,
-                appliedPaths = persistentListOf(),
-            ),
-    )
+): SyncCenterUiState = state.copy(
+    load =
+    SyncCenterLoadState.Ready(
+        config = config,
+        session = session,
+        conflictPage = page,
+        items = page.items.toImmutableList(),
+        selectedPath = null,
+        perPathResolutionKind = persistentMapOf(),
+        mergedDrafts = persistentMapOf(),
+        markdownDetailByPath = persistentMapOf(),
+        binaryDetailByPath = persistentMapOf(),
+        isLoadingDetail = false,
+        isResolving = false,
+        lastError = null,
+        appliedPaths = persistentListOf(),
+    ),
+)
 
-fun applySyncCenterLoadFailure(
-    state: SyncCenterUiState,
-    message: String,
-): SyncCenterUiState = state.copy(load = SyncCenterLoadState.Failed(message = message))
+fun applySyncCenterLoadFailure(state: SyncCenterUiState, message: String): SyncCenterUiState =
+    state.copy(load = SyncCenterLoadState.Failed(message = message))
 
-fun applySyncCenterPageAppend(
-    state: SyncCenterUiState,
-    page: RemoteSyncConflictPage,
-): SyncCenterUiState {
+fun applySyncCenterPageAppend(state: SyncCenterUiState, page: RemoteSyncConflictPage): SyncCenterUiState {
     val ready = state.load as? SyncCenterLoadState.Ready ?: return state
     val mergedItems = (ready.items + page.items).distinctBy { it.path }.toImmutableList()
     return state.copy(
         load =
-            ready.copy(
-                conflictPage = page.copy(items = mergedItems),
-                items = mergedItems,
-            ),
+        ready.copy(
+            conflictPage = page.copy(items = mergedItems),
+            items = mergedItems,
+        ),
     )
 }
 
@@ -85,36 +79,36 @@ fun applySyncCenterResolveSuccess(
         ready.selectedPath?.takeIf { path -> remaining.any { it.path == path } }
     return state.copy(
         load =
-            ready.copy(
-                conflictPage =
-                    ready.conflictPage.copy(
-                        sessionId = sessionId,
-                        conflictRevision = conflictRevision,
-                        items = remaining,
-                    ),
+        ready.copy(
+            conflictPage =
+            ready.conflictPage.copy(
+                sessionId = sessionId,
+                conflictRevision = conflictRevision,
                 items = remaining,
-                selectedPath = nextSelected,
-                perPathResolutionKind = nextKinds,
-                mergedDrafts = nextDrafts,
-                markdownDetailByPath = nextMarkdown,
-                binaryDetailByPath = nextBinary,
-                isLoadingDetail = false,
-                isResolving = false,
-                lastError = null,
-                appliedPaths = appliedPaths.toImmutableList(),
-                config =
-                    ready.config.copy(
-                        attentionCount =
-                            remaining.count {
-                                it.status == com.lomo.domain.model.RemoteSyncConflictPathStatus.Open
-                            },
-                    ),
             ),
+            items = remaining,
+            selectedPath = nextSelected,
+            perPathResolutionKind = nextKinds,
+            mergedDrafts = nextDrafts,
+            markdownDetailByPath = nextMarkdown,
+            binaryDetailByPath = nextBinary,
+            isLoadingDetail = false,
+            isResolving = false,
+            lastError = null,
+            appliedPaths = appliedPaths.toImmutableList(),
+            config =
+            ready.config.copy(
+                attentionCount =
+                remaining.count {
+                    it.status == com.lomo.domain.model.RemoteSyncConflictPathStatus.Open
+                },
+            ),
+        ),
         pane =
-            when {
-                nextSelected == null && !state.layout.isListDetail -> SyncCenterPane.Conflicts
-                else -> state.pane
-            },
+        when {
+            nextSelected == null && !state.layout.isListDetail -> SyncCenterPane.Conflicts
+            else -> state.pane
+        },
     )
 }
 
@@ -139,11 +133,11 @@ fun applySyncCenterMarkdownDetailSuccess(
             .toImmutableMap()
     return state.copy(
         load =
-            ready.copy(
-                markdownDetailByPath = nextMap,
-                isLoadingDetail = false,
-                lastError = null,
-            ),
+        ready.copy(
+            markdownDetailByPath = nextMap,
+            isLoadingDetail = false,
+            lastError = null,
+        ),
     )
 }
 
@@ -168,11 +162,11 @@ fun applySyncCenterBinaryDetailSuccess(
             .toImmutableMap()
     return state.copy(
         load =
-            ready.copy(
-                binaryDetailByPath = nextMap,
-                isLoadingDetail = false,
-                lastError = null,
-            ),
+        ready.copy(
+            binaryDetailByPath = nextMap,
+            isLoadingDetail = false,
+            lastError = null,
+        ),
     )
 }
 
@@ -181,21 +175,17 @@ fun applySyncCenterBinaryDetailSuccess(
  *
  * Stale failures for a deselected path only clear the loading flag.
  */
-fun applySyncCenterDetailFailure(
-    state: SyncCenterUiState,
-    path: String,
-    message: String,
-): SyncCenterUiState {
+fun applySyncCenterDetailFailure(state: SyncCenterUiState, path: String, message: String): SyncCenterUiState {
     val ready = state.load as? SyncCenterLoadState.Ready ?: return state
     if (ready.selectedPath != path) {
         return state.copy(load = ready.copy(isLoadingDetail = false))
     }
     return state.copy(
         load =
-            ready.copy(
-                isLoadingDetail = false,
-                lastError = message,
-            ),
+        ready.copy(
+            isLoadingDetail = false,
+            lastError = message,
+        ),
     )
 }
 
@@ -205,24 +195,18 @@ fun applySyncCenterDetailFailure(
  * The record is authoritative — `Cancelling`/`Cancelled` arrive from Rust, not from a
  * presentation flag.
  */
-fun applySyncCenterSessionUpdate(
-    state: SyncCenterUiState,
-    session: RemoteSyncSessionProgress,
-): SyncCenterUiState {
+fun applySyncCenterSessionUpdate(state: SyncCenterUiState, session: RemoteSyncSessionProgress): SyncCenterUiState {
     val ready = state.load as? SyncCenterLoadState.Ready ?: return state
     return state.copy(
         load =
-            ready.copy(
-                session = session,
-                lastError = null,
-            ),
+        ready.copy(
+            session = session,
+            lastError = null,
+        ),
     )
 }
 
-fun applySyncCenterResolveFailure(
-    state: SyncCenterUiState,
-    message: String,
-): SyncCenterUiState {
+fun applySyncCenterResolveFailure(state: SyncCenterUiState, message: String): SyncCenterUiState {
     val ready = state.load as? SyncCenterLoadState.Ready ?: return state
     return state.copy(
         load = ready.copy(isResolving = false, lastError = message),

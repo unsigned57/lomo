@@ -13,7 +13,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
-import com.lomo.domain.model.SyncBackendType
 import kotlinx.coroutines.launch
 
 @Composable
@@ -22,39 +21,38 @@ internal fun rememberStoragePickerActions(
     s3Feature: SettingsS3FeatureViewModel,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
-): StoragePickerActions =
-    StoragePickerActions(
-        openRoot =
-            rememberTreePickerAction(
-                onUriSelected = storageFeature::updateRootUri,
-                snackbarHostState = snackbarHostState,
-                unknownErrorMessage = unknownErrorMessage,
-            ),
-        openImage =
-            rememberTreePickerAction(
-                onUriSelected = storageFeature::updateImageUri,
-                snackbarHostState = snackbarHostState,
-                unknownErrorMessage = unknownErrorMessage,
-            ),
-        openVoice =
-            rememberTreePickerAction(
-                onUriSelected = storageFeature::updateVoiceUri,
-                snackbarHostState = snackbarHostState,
-                unknownErrorMessage = unknownErrorMessage,
-            ),
-        openSyncInbox =
-            rememberTreePickerAction(
-                onUriSelected = storageFeature::updateSyncInboxUri,
-                snackbarHostState = snackbarHostState,
-                unknownErrorMessage = unknownErrorMessage,
-            ),
-        openS3LocalSyncDirectory =
-            rememberTreePickerAction(
-                onUriSelected = s3Feature.updateLocalSyncDirectory,
-                snackbarHostState = snackbarHostState,
-                unknownErrorMessage = unknownErrorMessage,
-            ),
-    )
+): StoragePickerActions = StoragePickerActions(
+    openRoot =
+    rememberTreePickerAction(
+        onUriSelected = storageFeature::updateRootUri,
+        snackbarHostState = snackbarHostState,
+        unknownErrorMessage = unknownErrorMessage,
+    ),
+    openImage =
+    rememberTreePickerAction(
+        onUriSelected = storageFeature::updateImageUri,
+        snackbarHostState = snackbarHostState,
+        unknownErrorMessage = unknownErrorMessage,
+    ),
+    openVoice =
+    rememberTreePickerAction(
+        onUriSelected = storageFeature::updateVoiceUri,
+        snackbarHostState = snackbarHostState,
+        unknownErrorMessage = unknownErrorMessage,
+    ),
+    openSyncInbox =
+    rememberTreePickerAction(
+        onUriSelected = storageFeature::updateSyncInboxUri,
+        snackbarHostState = snackbarHostState,
+        unknownErrorMessage = unknownErrorMessage,
+    ),
+    openS3LocalSyncDirectory =
+    rememberTreePickerAction(
+        onUriSelected = s3Feature.updateLocalSyncDirectory,
+        snackbarHostState = snackbarHostState,
+        unknownErrorMessage = unknownErrorMessage,
+    ),
+)
 
 @Composable
 private fun rememberTreePickerAction(
@@ -171,10 +169,7 @@ internal fun rememberMigrationPickerActions(
     )
 }
 
-internal fun persistTreePermission(
-    context: Context,
-    uri: Uri,
-) {
+internal fun persistTreePermission(context: Context, uri: Uri) {
     val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     context.contentResolver.takePersistableUriPermission(uri, flags)
     check(
@@ -186,10 +181,7 @@ internal fun persistTreePermission(
     ) { "saf_grant_not_persisted" }
 }
 
-private fun persistedTreeMatches(
-    persistedUri: Uri,
-    requestedUri: Uri,
-): Boolean {
+private fun persistedTreeMatches(persistedUri: Uri, requestedUri: Uri): Boolean {
     if (persistedUri == requestedUri || persistedUri.toString() == requestedUri.toString()) return true
     if (!DocumentsContract.isTreeUri(persistedUri) || !DocumentsContract.isTreeUri(requestedUri)) return false
     return DocumentsContract.getTreeDocumentId(persistedUri) ==
@@ -207,9 +199,12 @@ internal fun HandleSettingsOperationError(
         when (val error = operationError) {
             is SettingsOperationError.GitSync ->
                 SettingsErrorPresenter.gitSyncErrorMessage(error.code, error.detail)
+
             is SettingsOperationError.Message -> error.text
+
             is SettingsOperationError.WebDavSync ->
                 SettingsErrorPresenter.webDavSyncErrorMessage(error.code, error.detail)
+
             null -> null
         }
     LaunchedEffect(operationError) {

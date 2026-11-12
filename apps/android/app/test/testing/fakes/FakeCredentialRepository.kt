@@ -3,18 +3,17 @@ package com.lomo.app.testing.fakes
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialFieldState
 import com.lomo.domain.model.CredentialProvider
-import com.lomo.domain.model.CredentialState
-import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.CredentialReadAuthorization
 import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.model.CredentialState
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.repository.CredentialRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class FakeCredentialRepository(
-    initialStates: Map<CredentialProvider, CredentialState> = emptyMap(),
-) : CredentialRepository {
+class FakeCredentialRepository(initialStates: Map<CredentialProvider, CredentialState> = emptyMap()) :
+    CredentialRepository {
     private val providerStates: Map<CredentialProvider, MutableStateFlow<CredentialState>> =
         CredentialProvider.values().associateWith { provider ->
             MutableStateFlow(initialStates[provider] ?: CredentialState(provider, emptyList()))
@@ -30,19 +29,21 @@ class FakeCredentialRepository(
     override suspend fun readSecret(
         field: CredentialField,
         authorization: CredentialReadAuthorization,
-    ): CredentialSecretReadResult =
-        when (authorization) {
-            CredentialReadAuthorization.Authorized ->
-                when (fieldStatus(field)) {
-                    StoredCredentialStatus.Missing -> CredentialSecretReadResult.Missing
-                    StoredCredentialStatus.Present ->
-                        CredentialSecretReadResult.Present(secrets[field].orEmpty())
-                    StoredCredentialStatus.Unreadable,
-                    StoredCredentialStatus.Invalid,
-                    -> CredentialSecretReadResult.Unreadable
-                }
-            is CredentialReadAuthorization.Denied -> CredentialSecretReadResult.Unauthorized(authorization.reason)
-        }
+    ): CredentialSecretReadResult = when (authorization) {
+        CredentialReadAuthorization.Authorized ->
+            when (fieldStatus(field)) {
+                StoredCredentialStatus.Missing -> CredentialSecretReadResult.Missing
+
+                StoredCredentialStatus.Present ->
+                    CredentialSecretReadResult.Present(secrets[field].orEmpty())
+
+                StoredCredentialStatus.Unreadable,
+                StoredCredentialStatus.Invalid,
+                -> CredentialSecretReadResult.Unreadable
+            }
+
+        is CredentialReadAuthorization.Denied -> CredentialSecretReadResult.Unauthorized(authorization.reason)
+    }
 
     override suspend fun writeSecrets(values: Map<CredentialField, String?>) {
         values.forEach { (field, value) ->
@@ -56,10 +57,7 @@ class FakeCredentialRepository(
         }
     }
 
-    fun setFieldStatus(
-        field: CredentialField,
-        status: StoredCredentialStatus,
-    ) {
+    fun setFieldStatus(field: CredentialField, status: StoredCredentialStatus) {
         val provider = field.provider()
         val current = providerStates.getValue(provider).value
         val nextFields =
@@ -80,18 +78,19 @@ class FakeCredentialRepository(
         providerStates.getValue(field.provider()).value.statusFor(field)
 }
 
-private fun CredentialField.provider(): CredentialProvider =
-    when (this) {
-        CredentialField.GIT_TOKEN,
-        CredentialField.GIT_USERNAME,
-        -> CredentialProvider.GIT
-        CredentialField.WEBDAV_USERNAME,
-        CredentialField.WEBDAV_PASSWORD,
-        -> CredentialProvider.WEBDAV
-        CredentialField.S3_ACCESS_KEY_ID,
-        CredentialField.S3_SECRET_ACCESS_KEY,
-        CredentialField.S3_SESSION_TOKEN,
-        CredentialField.S3_ENCRYPTION_PASSWORD,
-        CredentialField.S3_ENCRYPTION_PASSWORD2,
-        -> CredentialProvider.S3
-    }
+private fun CredentialField.provider(): CredentialProvider = when (this) {
+    CredentialField.GIT_TOKEN,
+    CredentialField.GIT_USERNAME,
+    -> CredentialProvider.GIT
+
+    CredentialField.WEBDAV_USERNAME,
+    CredentialField.WEBDAV_PASSWORD,
+    -> CredentialProvider.WEBDAV
+
+    CredentialField.S3_ACCESS_KEY_ID,
+    CredentialField.S3_SECRET_ACCESS_KEY,
+    CredentialField.S3_SESSION_TOKEN,
+    CredentialField.S3_ENCRYPTION_PASSWORD,
+    CredentialField.S3_ENCRYPTION_PASSWORD2,
+    -> CredentialProvider.S3
+}

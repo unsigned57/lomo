@@ -29,13 +29,11 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalTextToolbar
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.round
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
@@ -43,6 +41,7 @@ import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.clipboard_label_memo
 import com.lomo.ui.theme.memoPlatformTextHandleColor
 import com.lomo.ui.util.copyPlainTextAsync
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * A registered selectable block inside a [MemoTextSelectionScope]. The
@@ -64,10 +63,7 @@ internal enum class MemoTextSelectionEndpointKind {
     Focus,
 }
 
-internal data class MemoTextSelectionScopeHandles(
-    val anchorInScope: Offset,
-    val focusInScope: Offset,
-)
+internal data class MemoTextSelectionScopeHandles(val anchorInScope: Offset, val focusInScope: Offset)
 
 /**
  * Tracks every selectable block inside the surrounding card / overlay and
@@ -289,12 +285,12 @@ private fun MemoTextSelectionScopeChrome(registrar: MemoTextSelectionRegistrar) 
         val bottomY = maxOf(anchorWindow.y, focusWindow.y)
         textToolbar.showMenu(
             rect =
-                Rect(
-                    left = left,
-                    top = (topY - toolbarTopOffsetPx).coerceAtLeast(0f),
-                    right = right,
-                    bottom = bottomY,
-                ),
+            Rect(
+                left = left,
+                top = (topY - toolbarTopOffsetPx).coerceAtLeast(0f),
+                right = right,
+                bottom = bottomY,
+            ),
             onCopyRequested = {
                 val selectedText = registrar.selectedTextOrNull()
                 // Clear immediately so the highlight, handles, and toolbar vanish in the same frame
@@ -343,10 +339,7 @@ private fun MemoTextSelectionScopeChrome(registrar: MemoTextSelectionRegistrar) 
     }
 }
 
-private data class HandleWindowPositions(
-    val anchor: Offset,
-    val focus: Offset,
-)
+private data class HandleWindowPositions(val anchor: Offset, val focus: Offset)
 
 @Composable
 private fun MemoTextSelectionScopeHandlePopup(
@@ -381,36 +374,36 @@ private fun MemoTextSelectionScopeHandlePopup(
         popupPositionProvider = positionProvider,
         onDismissRequest = null,
         properties =
-            PopupProperties(
-                focusable = false,
-                clippingEnabled = false,
-                dismissOnBackPress = false,
-                dismissOnClickOutside = false,
-            ),
+        PopupProperties(
+            focusable = false,
+            clippingEnabled = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+        ),
     ) {
         Box(
             modifier =
-                Modifier
-                    .size(MemoTextSelectionHandleTouchSize)
-                    .pointerInput(Unit) {
-                        var dragPositionWindow = currentAnchorWindow
-                        detectDragGestures(
-                            onDragStart = { dragPositionWindow = currentAnchorWindow },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                dragPositionWindow += dragAmount
-                                val coords = currentScopeProvider() ?: return@detectDragGestures
-                                if (!coords.isAttached) return@detectDragGestures
-                                val scopePosition = coords.windowToLocal(dragPositionWindow)
-                                currentOnDragTo(scopePosition)
-                            },
-                        )
-                    }
-                    // A pure tap on the handle (no drag) is absorbed here so it never falls through to
-                    // the scope-root outside-tap clear handler. The lambda is intentionally empty.
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = {})
-                    },
+            Modifier
+                .size(MemoTextSelectionHandleTouchSize)
+                .pointerInput(Unit) {
+                    var dragPositionWindow = currentAnchorWindow
+                    detectDragGestures(
+                        onDragStart = { dragPositionWindow = currentAnchorWindow },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            dragPositionWindow += dragAmount
+                            val coords = currentScopeProvider() ?: return@detectDragGestures
+                            if (!coords.isAttached) return@detectDragGestures
+                            val scopePosition = coords.windowToLocal(dragPositionWindow)
+                            currentOnDragTo(scopePosition)
+                        },
+                    )
+                }
+                // A pure tap on the handle (no drag) is absorbed here so it never falls through to
+                // the scope-root outside-tap clear handler. The lambda is intentionally empty.
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = {})
+                },
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val visualOffset = Offset(visualLeftOffsetPx, 0f)
@@ -423,10 +416,10 @@ private fun MemoTextSelectionScopeHandlePopup(
                     color = color,
                     topLeft = visualOffset + Offset(geometry.shoulderRect.left, geometry.shoulderRect.top),
                     size =
-                        androidx.compose.ui.geometry.Size(
-                            width = geometry.shoulderRect.width,
-                            height = geometry.shoulderRect.height,
-                        ),
+                    androidx.compose.ui.geometry.Size(
+                        width = geometry.shoulderRect.width,
+                        height = geometry.shoulderRect.height,
+                    ),
                 )
             }
         }

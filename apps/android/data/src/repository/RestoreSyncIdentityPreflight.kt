@@ -49,17 +49,14 @@ internal class RestoreSyncIdentityPreflight(
         snapshot: MigrationSettingsSnapshot,
         key: String,
         before: String?,
-    ): String =
-        when (plan) {
-            is OrdinarySettingsRestorePlan.Restore -> snapshot.preferences[key].orEmpty()
-            is OrdinarySettingsRestorePlan.Skip -> before.orEmpty()
-        }
+    ): String = when (plan) {
+        is OrdinarySettingsRestorePlan.Restore -> snapshot.preferences[key].orEmpty()
+        is OrdinarySettingsRestorePlan.Skip -> before.orEmpty()
+    }
 
     /** Post-restore effective credential: absent keys are cleared by the restore's omission-clear. */
-    private fun sensitiveAfter(
-        sensitiveSettings: Map<String, String>,
-        field: CredentialField,
-    ): String = sensitiveSettings[field.migrationSensitiveKey()].orEmpty()
+    private fun sensitiveAfter(sensitiveSettings: Map<String, String>, field: CredentialField): String =
+        sensitiveSettings[field.migrationSensitiveKey()].orEmpty()
 
     /**
      * The stored credential's comparison baseline. [CredentialSecretReadResult.Present] and
@@ -69,41 +66,36 @@ internal class RestoreSyncIdentityPreflight(
      * so it can never certify "unchanged".
      */
     private sealed interface SensitiveBaseline {
-        data class Known(
-            val value: String,
-        ) : SensitiveBaseline
+        data class Known(val value: String) : SensitiveBaseline
 
         data object Undetermined : SensitiveBaseline
     }
 
-    private suspend fun sensitiveBaseline(field: CredentialField): SensitiveBaseline =
-        when (
-            val result =
-                credentialRepository.readSecret(
-                    field = field,
-                    authorization = securitySessionPolicy.authorizeCredentialRead(),
-                )
-        ) {
-            is CredentialSecretReadResult.Present -> SensitiveBaseline.Known(result.value)
-            CredentialSecretReadResult.Missing -> SensitiveBaseline.Known("")
-            CredentialSecretReadResult.Unreadable,
-            is CredentialSecretReadResult.Unauthorized,
-            -> SensitiveBaseline.Undetermined
-        }
+    private suspend fun sensitiveBaseline(field: CredentialField): SensitiveBaseline = when (
+        val result =
+            credentialRepository.readSecret(
+                field = field,
+                authorization = securitySessionPolicy.authorizeCredentialRead(),
+            )
+    ) {
+        is CredentialSecretReadResult.Present -> SensitiveBaseline.Known(result.value)
+
+        CredentialSecretReadResult.Missing -> SensitiveBaseline.Known("")
+
+        CredentialSecretReadResult.Unreadable,
+        is CredentialSecretReadResult.Unauthorized,
+        -> SensitiveBaseline.Undetermined
+    }
 
     /**
      * True when the restore changes the stored credential's identity contribution. An
      * undetermined baseline always moves: if we cannot prove the stored secret already equals
      * the post-restore value, the stale fence must be disposed before the clear/import lands.
      */
-    private fun sensitiveMoved(
-        after: String,
-        baseline: SensitiveBaseline,
-    ): Boolean =
-        when (baseline) {
-            is SensitiveBaseline.Known -> after != baseline.value
-            SensitiveBaseline.Undetermined -> true
-        }
+    private fun sensitiveMoved(after: String, baseline: SensitiveBaseline): Boolean = when (baseline) {
+        is SensitiveBaseline.Known -> after != baseline.value
+        SensitiveBaseline.Undetermined -> true
+    }
 
     private suspend fun gitIdentityMoved(
         snapshot: MigrationSettingsSnapshot,

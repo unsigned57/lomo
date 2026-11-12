@@ -3,47 +3,43 @@ package com.lomo.app.feature.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material.icons.outlined.TextFields
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.util.LocalAppHapticFeedback
 import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalLocale
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.ui.component.common.LomoFilledTonalIconButton
+import com.lomo.ui.component.common.lomoCompactInteractiveHeight
+import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
@@ -54,11 +50,9 @@ private const val SLIDER_RANGE_MAX = 3.0f
 private const val STEP_INCREMENT = 0.05f
 private const val PERCENT_SCALE = 100
 
-internal fun formatTypographyScalePercent(scale: Float): String =
-    "${(scale * PERCENT_SCALE).roundToInt()}%"
+internal fun formatTypographyScalePercent(scale: Float): String = "${(scale * PERCENT_SCALE).roundToInt()}%"
 
-internal fun clampTypographyScale(value: Float): Float =
-    value.coerceIn(SLIDER_RANGE_MIN, SLIDER_RANGE_MAX)
+internal fun clampTypographyScale(value: Float): Float = value.coerceIn(SLIDER_RANGE_MIN, SLIDER_RANGE_MAX)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,7 +62,6 @@ internal fun TypographySettingsPage(
     onBack: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val haptic = LocalAppHapticFeedback.current
 
     val scales = TypographyScales(
         fontSizeScale = uiState.typographyFontSizeScale,
@@ -83,50 +76,23 @@ internal fun TypographySettingsPage(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.TextFields,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.width(AppSpacing.Medium))
-                        Text(stringResource(R.string.settings_typography))
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.medium()
-                        onBack()
-                    }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
+            SettingsPageTopAppBar(
+                title = stringResource(R.string.settings_typography),
                 scrollBehavior = scrollBehavior,
+                onBack = onBack,
             )
         },
     ) { padding ->
         Column(
             modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(
-                        horizontal = AppSpacing.ScreenHorizontalPadding,
-                        vertical = AppSpacing.MediumSmall,
-                    ),
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    horizontal = AppSpacing.ScreenHorizontalPadding,
+                    vertical = AppSpacing.MediumSmall,
+                ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
             TypographyPreviewCard(
@@ -166,11 +132,17 @@ private fun TypographyPreviewCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
+        shape = AppShapes.LargeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 1.dp,
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(
+                text = stringResource(R.string.settings_font_preview_title),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
             val paragraph1 =
                 if (isChinese) {
                     stringResource(R.string.settings_typography_preview_zh_1)
@@ -183,39 +155,54 @@ private fun TypographyPreviewCard(
                 } else {
                     stringResource(R.string.settings_typography_preview_en_2)
                 }
-            Text(text = paragraph1, style = textStyle)
+            Text(
+                text = paragraph1,
+                style = textStyle,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
             Spacer(modifier = Modifier.height(paragraphSpacing))
-            Text(text = paragraph2, style = textStyle)
+            Text(
+                text = paragraph2,
+                style = textStyle,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TypographySliderItem(
-    label: String,
-    value: Float,
-    onValueChange: (Float) -> Unit,
-) {
+private fun TypographySliderItem(label: String, value: Float, onValueChange: (Float) -> Unit) {
     Card(
-        shape = MaterialTheme.shapes.large,
+        shape = AppShapes.LargeIncreased,
         colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
+        CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(text = label, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    text = formatTypographyScalePercent(value),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
                 )
+                Surface(
+                    shape = AppShapes.Full,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                ) {
+                    Text(
+                        text = formatTypographyScalePercent(value),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(8.dp))
             TypographyScaleAdjustmentRow(
@@ -246,23 +233,27 @@ private fun TypographyScaleAdjustmentRow(
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
-        FilledTonalIconButton(
+        LomoFilledTonalIconButton(
             onClick = { onValueChange(clampTypographyScale(value - STEP_INCREMENT)) },
             enabled = value > SLIDER_RANGE_MIN,
-            modifier = Modifier.size(48.dp),
+            modifier =
+            Modifier
+                .lomoCompactInteractiveHeight(36.dp)
+                .size(36.dp),
         ) {
             Icon(
                 imageVector = Icons.Default.Remove,
                 contentDescription = decrementContentDescription,
+                modifier = Modifier.size(18.dp),
             )
         }
         Slider(
             state = sliderState,
             onValueChange = onValueChange,
             modifier =
-                Modifier
-                    .weight(1f)
-                    .padding(horizontal = 8.dp),
+            Modifier
+                .weight(1f)
+                .padding(horizontal = 10.dp),
             track = { state ->
                 SliderDefaults.Track(
                     sliderState = state,
@@ -270,14 +261,18 @@ private fun TypographyScaleAdjustmentRow(
                 )
             },
         )
-        FilledTonalIconButton(
+        LomoFilledTonalIconButton(
             onClick = { onValueChange(clampTypographyScale(value + STEP_INCREMENT)) },
             enabled = value < SLIDER_RANGE_MAX,
-            modifier = Modifier.size(48.dp),
+            modifier =
+            Modifier
+                .lomoCompactInteractiveHeight(36.dp)
+                .size(36.dp),
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = incrementContentDescription,
+                modifier = Modifier.size(18.dp),
             )
         }
     }

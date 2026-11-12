@@ -12,10 +12,10 @@ import com.lomo.domain.model.MemoCreateDraft
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
-import java.nio.file.Files
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 
 /*
  * Behavior Contract:

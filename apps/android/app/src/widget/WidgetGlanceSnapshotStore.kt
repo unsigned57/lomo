@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileInputStream
@@ -21,11 +22,7 @@ private const val WIDGET_PREVIEW_MAX_LENGTH = 4096
 internal const val WIDGET_SNAPSHOT_SCHEMA_VERSION = 2
 
 @Serializable
-internal data class WidgetGlanceSnapshotItem(
-    val id: String,
-    val timestampMillis: Long,
-    val previewText: String,
-)
+internal data class WidgetGlanceSnapshotItem(val id: String, val timestampMillis: Long, val previewText: String)
 
 /** Generation state of the persisted snapshot; each carries a different widget meaning. */
 @Serializable
@@ -85,7 +82,7 @@ internal class WidgetGlanceSnapshotStore(
             }
         val text = stream.use(::readBoundedSnapshotText)
         val decoded =
-            snapshotJson.decodeFromString(WidgetGlanceSnapshotFile.serializer(), text)
+            snapshotJson.decodeFromString<WidgetGlanceSnapshotFile>(text)
         require(decoded.schemaVersion == WIDGET_SNAPSHOT_SCHEMA_VERSION) {
             "Widget snapshot schema ${decoded.schemaVersion} is not $WIDGET_SNAPSHOT_SCHEMA_VERSION"
         }
@@ -129,7 +126,6 @@ internal class WidgetGlanceSnapshotStore(
         val bytes =
             snapshotJson
                 .encodeToString(
-                    WidgetGlanceSnapshotFile.serializer(),
                     WidgetGlanceSnapshotFile(
                         workspaceId = workspaceId,
                         projectionStamp = projectionStamp,

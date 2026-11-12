@@ -7,11 +7,7 @@ package com.lomo.data.engine.sync
  * Not a DAO; not provider-specific planner. Production DI binds BoltFFI conversion adapters.
  */
 interface RemoteSyncRepository {
-    fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage
+    fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage
 
     fun resolveConflicts(
         workspaceRoot: String,
@@ -19,10 +15,7 @@ interface RemoteSyncRepository {
         resolutions: List<RemoteSyncConflictResolution>,
     ): RemoteSyncConflictResolveResult
 
-    fun issueSecretLease(
-        secretBytes: ByteArray,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease
+    fun issueSecretLease(secretBytes: ByteArray, ttlMillis: Long): RemoteSyncSecretLease
 
     /**
      * Probes a lease id; returns secret **length only** (never secret bytes).

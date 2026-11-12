@@ -1,9 +1,11 @@
 package com.lomo.app.feature.settings
 
+import android.os.Build
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,32 +17,27 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.ColorLens
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -59,13 +56,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import com.lomo.app.R
 import com.lomo.domain.model.ColorSource
-import com.lomo.ui.theme.AppSpacing
 import com.lomo.domain.model.ThemeMode
+import com.lomo.ui.component.common.LomoButton
+import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.colorSchemeFromSeed
+import com.lomo.ui.theme.withPureBlackSurfaces
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
 import java.util.Locale
@@ -77,6 +74,20 @@ private const val HSL_COMPONENT_COUNT = 3
 private const val SEED_PREVIEW_SWATCH_DP = 56
 private const val DEFAULT_CUSTOM_SEED_ARGB: Int = 0xFF4F63D6.toInt()
 private const val COLOR_PREVIEW_WORD_COUNT = 284
+
+/** The scheme a custom seed would produce under the current theme mode, contrast and black option. */
+@Composable
+private fun rememberCustomSeedPreviewScheme(seedArgb: Int, uiState: DisplaySectionState): ColorScheme {
+    val isDark = when (uiState.themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    return remember(seedArgb, isDark, uiState.contrastLevel, uiState.pureBlackDark) {
+        colorSchemeFromSeed(seedArgb, isDark, uiState.contrastLevel)
+            .withPureBlackSurfaces(isDark = isDark, enabled = uiState.pureBlackDark)
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,23 +117,15 @@ internal fun ColorPaletteSettingsPage(
         mutableStateOf(uiState.colorSource is ColorSource.CustomSeed)
     }
 
-    val isDark = when (uiState.themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
-
     val activeScheme = MaterialTheme.colorScheme
-    val customPreviewScheme = remember(currentCustomSeedArgb, isDark) {
-        colorSchemeFromSeed(currentCustomSeedArgb, isDark)
-    }
-
+    val customPreviewScheme = rememberCustomSeedPreviewScheme(currentCustomSeedArgb, uiState)
     val previewScheme = if (showCustomPreview) customPreviewScheme else activeScheme
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            ColorPaletteTopAppBar(
+            SettingsPageTopAppBar(
+                title = stringResource(R.string.settings_color_palette),
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
             )
@@ -152,77 +155,52 @@ internal fun ColorPaletteSettingsPage(
             }
             CustomSeedCard(
                 hue = hue,
-                onHueChange = { hue = it; showCustomPreview = true },
+                onHueChange = {
+                    hue = it
+                    showCustomPreview = true
+                },
                 saturation = saturation,
-                onSaturationChange = { saturation = it; showCustomPreview = true },
+                onSaturationChange = {
+                    saturation = it
+                    showCustomPreview = true
+                },
                 lightness = lightness,
-                onLightnessChange = { lightness = it; showCustomPreview = true },
+                onLightnessChange = {
+                    lightness = it
+                    showCustomPreview = true
+                },
                 currentCustomSeedArgb = currentCustomSeedArgb,
                 selectedSeed = activeCustomSeed,
                 colorHistory = uiState.colorHistory,
                 onSelect = { argb ->
                     val hsl = FloatArray(HSL_COMPONENT_COUNT)
                     ColorUtils.colorToHSL(argb, hsl)
-                    hue = hsl[0]; saturation = hsl[1]; lightness = hsl[2]
+                    hue = hsl[0]
+                    saturation = hsl[1]
+                    lightness = hsl[2]
                     showCustomPreview = true
                 },
                 onApply = { argb ->
                     displayFeature.updateColorSource(ColorSource.CustomSeed(argb))
-                }
+                },
+            )
+            ContrastLevelCard(
+                selected = uiState.contrastLevel,
+                onSelect = { level ->
+                    haptic.medium()
+                    displayFeature.updateContrastLevel(level)
+                },
             )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ColorPaletteTopAppBar(
-    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
-    onBack: () -> Unit,
-) {
-    val haptic = LocalAppHapticFeedback.current
-    LargeTopAppBar(
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Outlined.ColorLens,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.width(AppSpacing.Medium))
-                Text(stringResource(R.string.settings_color_palette))
-            }
-        },
-        navigationIcon = {
-            IconButton(onClick = {
-                haptic.medium()
-                onBack()
-            }) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.back),
-                )
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        scrollBehavior = scrollBehavior,
-    )
-}
-
-
-@Composable
-private fun ColorSchemePreviewCard(
-    colorScheme: ColorScheme,
-) {
+private fun ColorSchemePreviewCard(colorScheme: ColorScheme) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = com.lomo.ui.theme.AppShapes.LargeIncreased,
         color = colorScheme.surfaceContainerLow,
-        tonalElevation = 1.dp,
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text(
@@ -238,32 +216,30 @@ private fun ColorSchemePreviewCard(
 }
 
 @Composable
-private fun MockNotePreviewCard(
-    colorScheme: ColorScheme,
-) {
+private fun MockNotePreviewCard(colorScheme: ColorScheme) {
     Surface(
         shape = MaterialTheme.shapes.large,
         color = colorScheme.surfaceContainer,
         border = BorderStroke(width = 1.dp, color = colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Box(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
                         .background(colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = stringResource(R.string.settings_color_preview_avatar_initial),
                         style = MaterialTheme.typography.titleMedium,
                         color = colorScheme.onPrimaryContainer,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
@@ -272,28 +248,28 @@ private fun MockNotePreviewCard(
                         text = stringResource(R.string.settings_color_preview_source),
                         style = MaterialTheme.typography.bodyMedium,
                         color = colorScheme.onSurface,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                     Text(
                         text = stringResource(R.string.settings_color_preview_time),
                         style = MaterialTheme.typography.labelSmall,
-                        color = colorScheme.onSurfaceVariant
+                        color = colorScheme.onSurfaceVariant,
                     )
                 }
                 Surface(
                     shape = CircleShape,
                     color = colorScheme.secondaryContainer,
-                    modifier = Modifier.height(24.dp)
+                    modifier = Modifier.height(24.dp),
                 ) {
                     Box(
                         modifier = Modifier.padding(horizontal = 10.dp),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = stringResource(R.string.settings_color_preview_tag),
                             style = MaterialTheme.typography.labelSmall,
                             color = colorScheme.onSecondaryContainer,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }
@@ -303,14 +279,14 @@ private fun MockNotePreviewCard(
                 text = stringResource(R.string.settings_color_preview_note_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = colorScheme.onSurface,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.settings_color_preview_note_body),
                 style = MaterialTheme.typography.bodyMedium,
                 color = colorScheme.onSurfaceVariant,
-                lineHeight = 22.sp
+                lineHeight = 22.sp,
             )
             Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
@@ -318,22 +294,22 @@ private fun MockNotePreviewCard(
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
                     text =
-                        pluralStringResource(
-                            R.plurals.settings_color_preview_word_count,
-                            COLOR_PREVIEW_WORD_COUNT,
-                            COLOR_PREVIEW_WORD_COUNT,
-                        ),
+                    pluralStringResource(
+                        R.plurals.settings_color_preview_word_count,
+                        COLOR_PREVIEW_WORD_COUNT,
+                        COLOR_PREVIEW_WORD_COUNT,
+                    ),
                     style = MaterialTheme.typography.labelSmall,
-                    color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
                 Text(
                     text = stringResource(R.string.settings_color_preview_edited_time),
                     style = MaterialTheme.typography.labelSmall,
-                    color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
             }
         }
@@ -341,16 +317,13 @@ private fun MockNotePreviewCard(
 }
 
 @Composable
-private fun DynamicWallpaperCard(
-    selected: Boolean,
-    onSelect: () -> Unit,
-) {
+private fun DynamicWallpaperCard(selected: Boolean, onSelect: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
+            .clip(com.lomo.ui.theme.AppShapes.LargeIncreased)
             .clickable(onClick = onSelect),
-        shape = MaterialTheme.shapes.large,
+        shape = com.lomo.ui.theme.AppShapes.LargeIncreased,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -427,7 +400,7 @@ private fun CustomSeedCard(
     }
 
     Card(
-        shape = MaterialTheme.shapes.large,
+        shape = com.lomo.ui.theme.AppShapes.LargeIncreased,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -436,7 +409,7 @@ private fun CustomSeedCard(
             CustomSeedHeader(
                 currentArgb = currentCustomSeedArgb,
                 active = active,
-                onSelect = onSelect
+                onSelect = onSelect,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -455,13 +428,13 @@ private fun CustomSeedCard(
                             onSelect(parsed)
                         }
                     }
-                }
+                },
             )
 
             CustomSeedHistory(
                 colorHistory = colorHistory,
                 selectedSeed = selectedSeed,
-                onHistorySelected = onSelect
+                onHistorySelected = onSelect,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -471,21 +444,20 @@ private fun CustomSeedCard(
                 saturation = saturation,
                 onSaturationChange = onSaturationChange,
                 lightness = lightness,
-                onLightnessChange = onLightnessChange
+                onLightnessChange = onLightnessChange,
             )
 
             Spacer(modifier = Modifier.height(16.dp))
-            androidx.compose.material3.Button(
+            LomoButton(
                 onClick = {
                     onApply(currentCustomSeedArgb)
                 },
                 modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium
             ) {
                 Icon(
                     imageVector = Icons.Filled.Check,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(stringResource(R.string.settings_color_apply_custom))
@@ -495,11 +467,7 @@ private fun CustomSeedCard(
 }
 
 @Composable
-private fun CustomSeedHeader(
-    currentArgb: Int,
-    active: Boolean,
-    onSelect: (Int) -> Unit,
-) {
+private fun CustomSeedHeader(currentArgb: Int, active: Boolean, onSelect: (Int) -> Unit) {
     val haptic = LocalAppHapticFeedback.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -510,7 +478,7 @@ private fun CustomSeedHeader(
                 haptic.medium()
                 onSelect(currentArgb)
             }
-            .padding(vertical = 4.dp)
+            .padding(vertical = 4.dp),
     ) {
         Box(
             modifier = Modifier
@@ -547,10 +515,7 @@ private fun CustomSeedHeader(
 }
 
 @Composable
-private fun CustomSeedHexInput(
-    hexInput: String,
-    onHexInputChanged: (String) -> Unit,
-) {
+private fun CustomSeedHexInput(hexInput: String, onHexInputChanged: (String) -> Unit) {
     OutlinedTextField(
         value = hexInput,
         onValueChange = onHexInputChanged,
@@ -558,16 +523,12 @@ private fun CustomSeedHexInput(
         placeholder = { Text(stringResource(R.string.settings_color_picker_hex_placeholder)) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium
+        shape = MaterialTheme.shapes.medium,
     )
 }
 
 @Composable
-private fun CustomSeedHistory(
-    colorHistory: ImmutableList<Int>,
-    selectedSeed: Int?,
-    onHistorySelected: (Int) -> Unit,
-) {
+private fun CustomSeedHistory(colorHistory: ImmutableList<Int>, selectedSeed: Int?, onHistorySelected: (Int) -> Unit) {
     if (colorHistory.isEmpty()) return
     val haptic = LocalAppHapticFeedback.current
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -576,11 +537,11 @@ private fun CustomSeedHistory(
             text = stringResource(R.string.settings_color_history_section),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(vertical = 4.dp)
+            modifier = Modifier.padding(vertical = 4.dp),
         )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         ) {
             items(colorHistory) { colorHistoryArgb ->
                 val historySelected = selectedSeed == colorHistoryArgb
@@ -603,14 +564,14 @@ private fun CustomSeedHistory(
                             haptic.medium()
                             onHistorySelected(colorHistoryArgb)
                         },
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     if (historySelected) {
                         Icon(
                             imageVector = Icons.Filled.Check,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
@@ -685,7 +646,7 @@ private fun ColorSlider(
             state = sliderState,
             onValueChange = onValueChange,
             onValueChangeFinished = onValueChangeFinished,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         )
     }
 }

@@ -37,28 +37,28 @@
 
 package com.lomo.app.feature.review
 
-import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
-import com.lomo.app.testing.fakes.testMemoUiMapper
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeDailyReviewSessionRepository
+import com.lomo.app.testing.fakes.FakeMediaRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
+import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
+import com.lomo.app.testing.fakes.testMemoUiMapper
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.FakeSaveImageUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import com.lomo.domain.usecase.FakeSaveImageUseCase
-import com.lomo.app.testing.fakes.FakeMediaRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -83,7 +83,9 @@ class DailyReviewViewModelTest : AppFunSpec() {
             repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
             validator = ValidateMemoContentUseCase(),
         )
-    private val deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository))
+    private val deleteMemoUseCase = DeleteMemoUseCase(
+        com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
+    )
     private val dailyReviewSessionRepository = FakeDailyReviewSessionRepository()
     private val dailyReviewSessionUseCase = DailyReviewSessionUseCase(dailyReviewSessionRepository)
     private val dailyReviewQueryUseCase =
@@ -115,40 +117,42 @@ class DailyReviewViewModelTest : AppFunSpec() {
         }
     }
 
-    private fun createViewModel(): DailyReviewViewModel =
-        DailyReviewViewModel(
-            DailyReviewViewModelDependencies(
-                observeActiveDayCountUseCase =
-                    ObserveActiveDayCountUseCase(
-                        com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
-                    ),
-                appConfigStateProvider =
-                    com.lomo.app.feature.common.AppConfigStateProvider(
-                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                        appPreferencesSnapshotRepository = appConfigRepository,
-                        customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
-                        preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
-                        appScope = CoroutineScope(SupervisorJob() + testDispatcher),
-                    ),
-                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                imageMapProvider = imageMapProvider,
-                memoUiMapper = testMemoUiMapper(dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher)),
-                deleteMemoUseCase = deleteMemoUseCase,
-                updateMemoContentUseCase = updateMemoContentUseCase,
-                toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
-                saveImageUseCase = saveImageUseCase,
-                dailyReviewQueryUseCase = dailyReviewQueryUseCase,
-                dailyReviewSessionUseCase = dailyReviewSessionUseCase,
+    private fun createViewModel(): DailyReviewViewModel = DailyReviewViewModel(
+        DailyReviewViewModelDependencies(
+            observeActiveDayCountUseCase =
+            ObserveActiveDayCountUseCase(
+                com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
             ),
-        )
+            appConfigStateProvider =
+            com.lomo.app.feature.common.AppConfigStateProvider(
+                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                appPreferencesSnapshotRepository = appConfigRepository,
+                customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(
+                    com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                ),
+                preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
+                appScope = CoroutineScope(SupervisorJob() + testDispatcher),
+            ),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            imageMapProvider = imageMapProvider,
+            memoUiMapper = testMemoUiMapper(
+                dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher),
+            ),
+            deleteMemoUseCase = deleteMemoUseCase,
+            updateMemoContentUseCase = updateMemoContentUseCase,
+            toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
+            saveImageUseCase = saveImageUseCase,
+            dailyReviewQueryUseCase = dailyReviewQueryUseCase,
+            dailyReviewSessionUseCase = dailyReviewSessionUseCase,
+        ),
+    )
 
-    private fun sampleMemo(id: String): Memo =
-        Memo(
-            id = id,
-            timestamp = 1L,
-            content = id,
-            rawContent = "- 10:00 $id",
-            dateKey = "2026_04_16",
-        )
+    private fun sampleMemo(id: String): Memo = Memo(
+        id = id,
+        timestamp = 1L,
+        content = id,
+        rawContent = "- 10:00 $id",
+        dateKey = "2026_04_16",
+    )
 }

@@ -78,10 +78,7 @@ private class BitmapStatisticsPngSource(
     }
 }
 
-private fun shareStatisticsImageFile(
-    context: Context,
-    filePath: String,
-) {
+private fun shareStatisticsImageFile(context: Context, filePath: String) {
     val imageUri =
         FileProvider.getUriForFile(
             context,

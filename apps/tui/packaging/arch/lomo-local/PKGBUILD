@@ -1,5 +1,5 @@
 # Local iteration package: wraps the workspace build, no network fetch.
-# Loop: cargo build -p lomo-tui --release --locked && (cd apps/tui/packaging/arch/lomo-local && makepkg -efi)
+# Loop: just build tui release && (cd apps/tui/packaging/arch/lomo-local && makepkg -efi)
 pkgname=lomo-local
 pkgver=0.1.0.r604.g4203a11c
 pkgrel=1
@@ -22,7 +22,7 @@ pkgver() {
 }
 
 package() {
-    local bin="$_repo_root/target/release/lomo"
+    local bin="$_repo_root/target/lomo/artifacts/tui/release/lomo"
     install -Dm755 "$bin" "$pkgdir/usr/bin/lomo"
     install -Dm644 "$_repo_root/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
     "$bin" --generate-completions bash > "$srcdir/lomo.bash"

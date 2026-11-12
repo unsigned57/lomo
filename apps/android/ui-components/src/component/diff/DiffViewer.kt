@@ -14,10 +14,7 @@ import com.lomo.domain.model.SimpleLineDiff
 import kotlinx.collections.immutable.ImmutableList
 
 @Composable
-fun DiffViewer(
-    hunks: ImmutableList<SimpleLineDiff.DiffHunk>,
-    modifier: Modifier = Modifier,
-) {
+fun DiffViewer(hunks: ImmutableList<SimpleLineDiff.DiffHunk>, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
         hunks.forEachIndexed { hunkIndex, hunk ->
             if (hunkIndex > 0) {
@@ -26,10 +23,10 @@ fun DiffViewer(
                     style = MaterialTheme.typography.bodySmall,
                     color = DiffViewerTokens.secondaryTextColor(MaterialTheme.colorScheme),
                     modifier =
-                        Modifier.padding(
-                            vertical = DiffViewerTokens.HunkSeparatorPaddingVertical,
-                            horizontal = DiffViewerTokens.HunkSeparatorPaddingHorizontal,
-                        ),
+                    Modifier.padding(
+                        vertical = DiffViewerTokens.HunkSeparatorPaddingVertical,
+                        horizontal = DiffViewerTokens.HunkSeparatorPaddingHorizontal,
+                    ),
                 )
             }
             hunk.lines.forEach { line ->

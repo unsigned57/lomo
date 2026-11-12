@@ -24,16 +24,11 @@ internal object AudioPlayerCardTokens {
     private const val ActiveTrackAlpha = 0.22f
     private const val InactiveTrackAlpha = 0.28f
 
-    fun containerColor(colorScheme: ColorScheme): Color =
-        colorScheme.secondaryContainer.copy(alpha = ContainerAlpha)
+    fun containerColor(colorScheme: ColorScheme): Color = colorScheme.secondaryContainer.copy(alpha = ContainerAlpha)
 
-    fun progressTrackColor(
-        colorScheme: ColorScheme,
-        active: Boolean,
-    ): Color =
-        if (active) {
-            colorScheme.onSecondaryContainer.copy(alpha = ActiveTrackAlpha)
-        } else {
-            colorScheme.outlineVariant.copy(alpha = InactiveTrackAlpha)
-        }
+    fun progressTrackColor(colorScheme: ColorScheme, active: Boolean): Color = if (active) {
+        colorScheme.onSecondaryContainer.copy(alpha = ActiveTrackAlpha)
+    } else {
+        colorScheme.outlineVariant.copy(alpha = InactiveTrackAlpha)
+    }
 }

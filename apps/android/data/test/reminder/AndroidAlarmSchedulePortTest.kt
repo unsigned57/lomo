@@ -52,35 +52,22 @@ private class RecordingAlarmGateway(
 
     override fun canScheduleExactAlarms(): Boolean = canExact
 
-    override fun pendingIntent(
-        occurrenceId: String,
-        memoId: String,
-        reminderId: String,
-    ): PendingIntent =
+    override fun pendingIntent(occurrenceId: String, memoId: String, reminderId: String): PendingIntent =
         pendingIntents.getOrPut(Triple(occurrenceId, memoId, reminderId)) {
             mockk<android.app.PendingIntent>(relaxed = true)
         }
 
-    override fun setAlarmClock(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    ) {
+    override fun setAlarmClock(triggerAtUtcMillis: Long, operation: PendingIntent) {
         alarmClockThrows?.let { throw it }
         alarmClockCalls += triggerAtUtcMillis
     }
 
-    override fun setAndAllowWhileIdle(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    ) {
+    override fun setAndAllowWhileIdle(triggerAtUtcMillis: Long, operation: PendingIntent) {
         allowWhileIdleThrows?.let { throw it }
         allowWhileIdleCalls += triggerAtUtcMillis
     }
 
-    override fun setInexact(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    ) {
+    override fun setInexact(triggerAtUtcMillis: Long, operation: PendingIntent) {
         inexactCalls += triggerAtUtcMillis
     }
 
@@ -89,69 +76,70 @@ private class RecordingAlarmGateway(
     }
 }
 
-class AndroidAlarmSchedulePortTest : FunSpec({
-    val request =
-        AlarmScheduleRequest(
-            occurrenceId = "gen-a␟rem-1␟1700000000000",
-            triggerAtUtcMillis = 1_700_000_000_000L,
-            memoId = "memo-1",
-            reminderId = "rem-1",
-        )
-
-    test("sdk S+ with exact permission uses AlarmClock") {
-        val gateway = RecordingAlarmGateway(canExact = true)
-        val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
-        val result = port.schedule(request)
-        result.mode shouldBe AlarmTriggerMode.AlarmClock
-        result.triggerAtUtcMillis shouldBe request.triggerAtUtcMillis
-        gateway.alarmClockCalls shouldBe listOf(request.triggerAtUtcMillis)
-        gateway.allowWhileIdleCalls shouldBe emptyList()
-        port.exactAlarmCapability().canScheduleExactAlarms shouldBe true
-        port.exactAlarmCapability().sdkInt shouldBe 34
-    }
-
-    test("sdk S+ without exact permission uses AllowWhileIdle") {
-        val gateway = RecordingAlarmGateway(canExact = false)
-        val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
-        val result = port.schedule(request)
-        result.mode shouldBe AlarmTriggerMode.AllowWhileIdle
-        gateway.allowWhileIdleCalls shouldBe listOf(request.triggerAtUtcMillis)
-        gateway.alarmClockCalls shouldBe emptyList()
-    }
-
-    test("SecurityException on AlarmClock falls back to allow-while-idle") {
-        val gateway =
-            RecordingAlarmGateway(
-                canExact = true,
-                alarmClockThrows = SecurityException("exact denied"),
+class AndroidAlarmSchedulePortTest :
+    FunSpec({
+        val request =
+            AlarmScheduleRequest(
+                occurrenceId = "gen-a␟rem-1␟1700000000000",
+                triggerAtUtcMillis = 1_700_000_000_000L,
+                memoId = "memo-1",
+                reminderId = "rem-1",
             )
-        val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
-        val result = port.schedule(request)
-        result.mode shouldBe AlarmTriggerMode.AllowWhileIdle
-        result.platformError shouldBe "exact denied"
-        gateway.allowWhileIdleCalls shouldBe listOf(request.triggerAtUtcMillis)
-    }
 
-    test("double SecurityException falls back to inexact set") {
-        val gateway =
-            RecordingAlarmGateway(
-                canExact = true,
-                alarmClockThrows = SecurityException("exact denied"),
-                allowWhileIdleThrows = SecurityException("idle denied"),
-            )
-        val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
-        val result = port.schedule(request)
-        result.mode shouldBe AlarmTriggerMode.InexactFallback
-        result.platformError shouldBe "idle denied"
-        gateway.inexactCalls shouldBe listOf(request.triggerAtUtcMillis)
-    }
+        test("sdk S+ with exact permission uses AlarmClock") {
+            val gateway = RecordingAlarmGateway(canExact = true)
+            val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
+            val result = port.schedule(request)
+            result.mode shouldBe AlarmTriggerMode.AlarmClock
+            result.triggerAtUtcMillis shouldBe request.triggerAtUtcMillis
+            gateway.alarmClockCalls shouldBe listOf(request.triggerAtUtcMillis)
+            gateway.allowWhileIdleCalls shouldBe emptyList()
+            port.exactAlarmCapability().canScheduleExactAlarms shouldBe true
+            port.exactAlarmCapability().sdkInt shouldBe 34
+        }
 
-    test("cancel uses pending intent for the same identity") {
-        val gateway = RecordingAlarmGateway()
-        val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
-        port.cancel(occurrenceId = request.occurrenceId, memoId = "memo-1", reminderId = "rem-1")
-        gateway.cancelCalls.shouldHaveSize(1)
-        val expected = gateway.pendingIntent(request.occurrenceId, "memo-1", "rem-1")
-        gateway.cancelCalls.single() shouldBe expected
-    }
-})
+        test("sdk S+ without exact permission uses AllowWhileIdle") {
+            val gateway = RecordingAlarmGateway(canExact = false)
+            val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
+            val result = port.schedule(request)
+            result.mode shouldBe AlarmTriggerMode.AllowWhileIdle
+            gateway.allowWhileIdleCalls shouldBe listOf(request.triggerAtUtcMillis)
+            gateway.alarmClockCalls shouldBe emptyList()
+        }
+
+        test("SecurityException on AlarmClock falls back to allow-while-idle") {
+            val gateway =
+                RecordingAlarmGateway(
+                    canExact = true,
+                    alarmClockThrows = SecurityException("exact denied"),
+                )
+            val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
+            val result = port.schedule(request)
+            result.mode shouldBe AlarmTriggerMode.AllowWhileIdle
+            result.platformError shouldBe "exact denied"
+            gateway.allowWhileIdleCalls shouldBe listOf(request.triggerAtUtcMillis)
+        }
+
+        test("double SecurityException falls back to inexact set") {
+            val gateway =
+                RecordingAlarmGateway(
+                    canExact = true,
+                    alarmClockThrows = SecurityException("exact denied"),
+                    allowWhileIdleThrows = SecurityException("idle denied"),
+                )
+            val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
+            val result = port.schedule(request)
+            result.mode shouldBe AlarmTriggerMode.InexactFallback
+            result.platformError shouldBe "idle denied"
+            gateway.inexactCalls shouldBe listOf(request.triggerAtUtcMillis)
+        }
+
+        test("cancel uses pending intent for the same identity") {
+            val gateway = RecordingAlarmGateway()
+            val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
+            port.cancel(occurrenceId = request.occurrenceId, memoId = "memo-1", reminderId = "rem-1")
+            gateway.cancelCalls.shouldHaveSize(1)
+            val expected = gateway.pendingIntent(request.occurrenceId, "memo-1", "rem-1")
+            gateway.cancelCalls.single() shouldBe expected
+        }
+    })

@@ -7,7 +7,7 @@
  *
  * Scenarios:
  * - Given a discovered workspace, when output directories are derived, then each path is under
- *   rust_target/lomo and not a repository-root build/ tree.
+ *   the configured Lomo root (default target/lomo), independently of the Cargo cache root.
  *
  * Observable outcomes:
  * - `check_generated_artifact_layout` succeeds for the live repository pin.

@@ -17,6 +17,14 @@ package com.lomo.data.engine
  *
  * Observable outcomes: exception vs success.
  * TDD proof: fails before production probe exists (blank-only default) and before canWrite check.
+ * TDD proof (selected-directory boundary): target/lomo/reports/manual/directory-selection/candidate-red.log
+ * accepts an unavailable child and a null listing; candidate-green.log covers typed rejection and empty directories.
+ * Test Change Justification:
+ * Reason category: explicit provider-validation failure.
+ * Old behavior/assertion being replaced: missing grants accepted any Throwable, including a broken framework fixture.
+ * Why old assertion is no longer correct: a missing grant must be rejected before any document query.
+ * Coverage preserved by: all Direct cases and a stricter saf_grant_revoked assertion without relaxed collaborators.
+ * Why this is not fitting the test to the implementation: the Android grant boundary must produce a classified failure.
  * Excludes: live SAF grant matrix.
  *
  * Test Change Justification:
@@ -28,14 +36,17 @@ package com.lomo.data.engine
  */
 
 import android.content.Context
+import android.net.Uri
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.StorageLocation
 import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.assertions.throwables.shouldThrow
-import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.test.runTest
 import java.io.File
 
@@ -43,7 +54,11 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
     init {
         test("given blank location when validate runs then fails closed") {
             runTest {
-                val probe = WorkspaceCandidateProbe(context = mockk<Context>(relaxed = true), isContentUri = { false })
+                val probe = WorkspaceCandidateProbe(
+                    dispatcherProvider = com.lomo.domain.usecase.DefaultDispatcherProvider(),
+                    context = mockk<Context>(),
+                    isContentUri = { false },
+                )
                 shouldThrow<IllegalArgumentException> {
                     probe.validate(StorageLocation("   "))
                 }.message.shouldContain("non-blank")
@@ -52,7 +67,11 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
 
         test("given missing direct path when validate runs then fails closed") {
             runTest {
-                val probe = WorkspaceCandidateProbe(context = mockk<Context>(relaxed = true), isContentUri = { false })
+                val probe = WorkspaceCandidateProbe(
+                    dispatcherProvider = com.lomo.domain.usecase.DefaultDispatcherProvider(),
+                    context = mockk<Context>(),
+                    isContentUri = { false },
+                )
                 val missing = File("/tmp/lomo-missing-candidate-${System.nanoTime()}")
                 shouldThrow<WorkspaceCandidateValidationException> {
                     probe.validate(StorageLocation(missing.absolutePath))
@@ -64,7 +83,11 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
             runTest {
                 val dir = kotlin.io.path.createTempDirectory("ws-candidate-ok").toFile()
                 try {
-                    val probe = WorkspaceCandidateProbe(context = mockk<Context>(relaxed = true), isContentUri = { false })
+                    val probe = WorkspaceCandidateProbe(
+                        dispatcherProvider = com.lomo.domain.usecase.DefaultDispatcherProvider(),
+                        context = mockk<Context>(),
+                        isContentUri = { false },
+                    )
                     shouldNotThrowAny {
                         probe.validate(StorageLocation(dir.absolutePath))
                     }
@@ -81,7 +104,11 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
                 require(proc.isDirectory && !proc.canWrite()) {
                     "Host must expose a non-writable directory for this contract"
                 }
-                val probe = WorkspaceCandidateProbe(context = mockk<Context>(relaxed = true), isContentUri = { false })
+                val probe = WorkspaceCandidateProbe(
+                    dispatcherProvider = com.lomo.domain.usecase.DefaultDispatcherProvider(),
+                    context = mockk<Context>(),
+                    isContentUri = { false },
+                )
                 shouldThrow<WorkspaceCandidateValidationException> {
                     probe.validate(StorageLocation(proc.absolutePath))
                 }.code shouldBe "workspace_root_unwritable"
@@ -90,22 +117,32 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
 
         test("given content uri without grant when validate runs then fails closed") {
             runTest {
-                val context = mockk<Context>(relaxed = true)
+                val raw = "content://tree/primary%3AMissing"
+                val uri = mockk<Uri>()
+                mockkStatic(Uri::class)
+                every { Uri.parse(raw) } returns uri
+                val context = mockk<Context>()
                 every { context.contentResolver.persistedUriPermissions } returns emptyList()
                 val probe =
                     WorkspaceCandidateProbe(
+                        dispatcherProvider = com.lomo.domain.usecase.DefaultDispatcherProvider(),
                         context = context,
                         isContentUri = { it.startsWith("content://") },
                     )
-                shouldThrow<Throwable> {
-                    probe.validate(StorageLocation("content://tree/primary%3AMissing"))
+                try {
+                    shouldThrow<WorkspaceCandidateValidationException> {
+                        probe.validate(StorageLocation(raw))
+                    }.code shouldBe "saf_grant_revoked"
+                } finally {
+                    unmockkStatic(Uri::class)
                 }
             }
         }
 
         test("given nested subfolder uri when uriTreesMatch runs then matches accurately") {
             val granted = mockk<android.net.Uri>()
-            every { granted.toString() } returns "content://com.android.externalstorage.documents/tree/primary%3ATest%2FJournals"
+            every { granted.toString() } returns
+                "content://com.android.externalstorage.documents/tree/primary%3ATest%2FJournals"
             val candidate = "content://com.android.externalstorage.documents/tree/primary%3ATest%2FJournals"
             val decodedCandidate = "content://com.android.externalstorage.documents/tree/primary:Test/Journals"
             val otherCandidate = "content://com.android.externalstorage.documents/tree/primary%3ATest%2FOther"

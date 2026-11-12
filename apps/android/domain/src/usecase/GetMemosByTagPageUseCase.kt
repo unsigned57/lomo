@@ -7,11 +7,8 @@ import com.lomo.domain.model.TagSelection
 import com.lomo.domain.model.TagSelectionMode
 import com.lomo.domain.repository.MemoSearchRepository
 
-class GetMemosByTagPageUseCase(
-    private val memoSearchRepository: MemoSearchRepository,
-) {
-    operator fun invoke(tag: String): PagingSource<String, Memo> =
-        memoSearchRepository.getMemosByTagPagingSource(
-            selection = TagSelection(TagPath(tag), TagSelectionMode.Subtree),
-        )
+class GetMemosByTagPageUseCase(private val memoSearchRepository: MemoSearchRepository) {
+    operator fun invoke(tag: String): PagingSource<String, Memo> = memoSearchRepository.getMemosByTagPagingSource(
+        selection = TagSelection(TagPath(tag), TagSelectionMode.Subtree),
+    )
 }

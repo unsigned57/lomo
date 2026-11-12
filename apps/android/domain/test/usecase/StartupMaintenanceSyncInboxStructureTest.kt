@@ -1,13 +1,13 @@
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,13 +16,12 @@ package com.lomo.domain.usecase
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
 import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.UnifiedSyncState
-import com.lomo.domain.model.SyncReviewResolution
-import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeAppVersionRepository
@@ -66,14 +65,15 @@ class StartupMaintenanceSyncInboxStructureTest : DomainFunSpec() {
                     override suspend fun resolveReview(
                         resolution: SyncReviewResolution,
                         review: SyncReviewSession,
-                    ): UnifiedSyncResult {
-                        return UnifiedSyncResult.Success(SyncBackendType.INBOX, "resolved")
-                    }
+                    ): UnifiedSyncResult = UnifiedSyncResult.Success(SyncBackendType.INBOX, "resolved")
                 }
 
                 val mediaRepository = FakeMediaRepository()
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
-                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                    directorySettingsRepository,
+                    mediaRepository,
+                )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
@@ -86,8 +86,8 @@ class StartupMaintenanceSyncInboxStructureTest : DomainFunSpec() {
                 }
                 val appVersionRepository = FakeAppVersionRepository(lastAppVersion = "1.0.0")
                 val syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(
+                    providers =
+                    setOf(
                         InboxUnifiedSyncProvider(
                             syncInboxRepository = syncInboxRepository,
                             preferencesRepository = preferencesRepository,

@@ -18,11 +18,10 @@ internal data class UiMemoMappingInput(
     val imageMap: Map<String, Uri>,
 )
 
-internal fun UiMemoMappingInput.hasSameUiDependencies(other: UiMemoMappingInput): Boolean =
-    memos == other.memos &&
-        rootDirectory == other.rootDirectory &&
-        imageDirectory == other.imageDirectory &&
-        imageMap == other.imageMap
+internal fun UiMemoMappingInput.hasSameUiDependencies(other: UiMemoMappingInput): Boolean = memos == other.memos &&
+    rootDirectory == other.rootDirectory &&
+    imageDirectory == other.imageDirectory &&
+    imageMap == other.imageMap
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 internal fun Flow<List<Memo>>.mapToUiModels(
@@ -57,11 +56,10 @@ internal fun Flow<List<Memo>>.mapToUiModelState(
     memoUiMapper: MemoUiMapper,
     scope: CoroutineScope,
     transformMemos: (List<Memo>) -> List<Memo> = { it },
-): StateFlow<List<MemoUiModel>> =
-    mapToUiModels(
-        rootDirectory = rootDirectory,
-        imageDirectory = imageDirectory,
-        imageMap = imageMap,
-        memoUiMapper = memoUiMapper,
-        transformMemos = transformMemos,
-    ).stateIn(scope, appWhileSubscribed(), emptyList())
+): StateFlow<List<MemoUiModel>> = mapToUiModels(
+    rootDirectory = rootDirectory,
+    imageDirectory = imageDirectory,
+    imageMap = imageMap,
+    memoUiMapper = memoUiMapper,
+    transformMemos = transformMemos,
+).stateIn(scope, appWhileSubscribed(), emptyList())

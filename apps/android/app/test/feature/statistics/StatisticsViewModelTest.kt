@@ -13,10 +13,6 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import java.io.ByteArrayOutputStream
-import java.io.OutputStream
-import java.time.LocalDate
-import java.time.LocalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +21,10 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import java.io.ByteArrayOutputStream
+import java.io.OutputStream
+import java.time.LocalDate
+import java.time.LocalTime
 
 /*
  * Behavior Contract:
@@ -41,6 +41,8 @@ import kotlinx.coroutines.test.runTest
  * - Given statistics publications, when the view model is created, then memo statistics state is
  *   exposed without an explicit load command.
  * - Given a later statistics emission, when the view model is collecting, then Ready is replaced.
+ * - Given the statistics stream fails, when the view model surfaces the failure, then the state is
+ *   a retryable Error without raw exception text, and retry recollects the stream.
  *
  * Observable outcomes:
  * - UiState, share image event path/id, error message state, persistence prefix, streamed bytes,
@@ -121,7 +123,9 @@ class StatisticsViewModelTest : AppFunSpec() {
             }
         }
 
-        test("given persistence fails before consuming source when sharing statistics then source is closed and error is exposed") {
+        test(
+            "given persistence fails before consuming source when sharing statistics then source is closed and error is exposed",
+        ) {
             runTest {
                 val source = TestStatisticsPngSource(byteArrayOf(9, 8, 7))
                 coEvery {
@@ -154,6 +158,29 @@ class StatisticsViewModelTest : AppFunSpec() {
             }
         }
 
+        test("given statistics stream fails when retry is invoked then the stream is recollected") {
+            runTest {
+                var observeCalls = 0
+                every { memoStatisticsUseCase.observe() } answers {
+                    observeCalls += 1
+                    if (observeCalls == 1) {
+                        kotlinx.coroutines.flow.flow { throw IllegalStateException("length=0; index=0") }
+                    } else {
+                        flowOf(sampleStatistics())
+                    }
+                }
+                val viewModel = createViewModel()
+                advanceUntilIdle()
+
+                viewModel.uiState.value shouldBe StatisticsScreenState.Error
+                viewModel.retry()
+                advanceUntilIdle()
+
+                observeCalls shouldBe 2
+                viewModel.uiState.value.shouldBeInstanceOf<StatisticsScreenState.Ready>()
+            }
+        }
+
         test("a later statistics emission replaces the ready snapshot") {
             runTest {
                 val emissions = MutableSharedFlow<MemoStatistics>(replay = 1)
@@ -172,12 +199,11 @@ class StatisticsViewModelTest : AppFunSpec() {
         }
     }
 
-    private fun createViewModel(): StatisticsViewModel =
-        StatisticsViewModel(
-            memoStatisticsUseCase = memoStatisticsUseCase,
-            persistShareImageUseCase = persistShareImageUseCase,
-            appConfigStateProvider = createAppConfigStateProvider(),
-        )
+    private fun createViewModel(): StatisticsViewModel = StatisticsViewModel(
+        memoStatisticsUseCase = memoStatisticsUseCase,
+        persistShareImageUseCase = persistShareImageUseCase,
+        appConfigStateProvider = createAppConfigStateProvider(),
+    )
 
     private fun createAppConfigStateProvider(): com.lomo.app.feature.common.AppConfigStateProvider {
         val appConfigRepository = FakeAppConfigRepository()
@@ -191,9 +217,7 @@ class StatisticsViewModelTest : AppFunSpec() {
         )
     }
 
-    private class TestStatisticsPngSource(
-        private val bytes: ByteArray,
-    ) : StatisticsPngSource {
+    private class TestStatisticsPngSource(private val bytes: ByteArray) : StatisticsPngSource {
         var writeCallCount = 0
             private set
         var closeCallCount = 0
@@ -209,28 +233,27 @@ class StatisticsViewModelTest : AppFunSpec() {
         }
     }
 
-    private fun sampleStatistics(): MemoStatistics =
-        MemoStatistics(
-            asOfDate = LocalDate.of(2026, 5, 8),
-            totalMemos = 2,
-            totalWords = 4,
-            totalCharacters = 20,
-            averageWordsPerMemo = 2.0,
-            totalTags = 0,
-            activeDays = 1,
-            currentStreak = 1,
-            longestStreak = 1,
-            memoCountByDate = emptyMap(),
-            hourlyDistribution = emptyMap(),
-            weeklyHourDistribution = emptyMap(),
-            earliestDailyMemoTime = LocalTime.of(8, 15),
-            latestDailyMemoTime = LocalTime.of(23, 40),
-            thisWeekCount = 1,
-            lastWeekCount = 0,
-            thisMonthCount = 1,
-            lastMonthCount = 0,
-            thisYearCount = 2,
-            lastYearCount = 0,
-            tagCounts = emptyList(),
-        )
+    private fun sampleStatistics(): MemoStatistics = MemoStatistics(
+        asOfDate = LocalDate.of(2026, 5, 8),
+        totalMemos = 2,
+        totalWords = 4,
+        totalCharacters = 20,
+        averageWordsPerMemo = 2.0,
+        totalTags = 0,
+        activeDays = 1,
+        currentStreak = 1,
+        longestStreak = 1,
+        memoCountByDate = emptyMap(),
+        hourlyDistribution = emptyMap(),
+        weeklyHourDistribution = emptyMap(),
+        earliestDailyMemoTime = LocalTime.of(8, 15),
+        latestDailyMemoTime = LocalTime.of(23, 40),
+        thisWeekCount = 1,
+        lastWeekCount = 0,
+        thisMonthCount = 1,
+        lastMonthCount = 0,
+        thisYearCount = 2,
+        lastYearCount = 0,
+        tagCounts = emptyList(),
+    )
 }

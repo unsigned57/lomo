@@ -230,33 +230,28 @@ private fun GalleryMosaicOccupancyPlacement.toGalleryMosaicPlacement(
         row = row,
         size = size,
         score =
-            metrics.sealedGapCount * GALLERY_SEALED_GAP_PENALTY +
-                metrics.unreadableOpenGapCount * GALLERY_SEALED_GAP_PENALTY +
-                metrics.openGapCount * GALLERY_OPEN_GAP_PENALTY +
-                metrics.rowCount * GALLERY_HEIGHT_PENALTY +
-                row * GALLERY_ROW_PENALTY +
-                remainingIndex * GALLERY_LOOKAHEAD_PENALTY +
-                shapeScore * GALLERY_SHAPE_SCORE_WEIGHT +
-                tile.aspectProtectedMismatchPenalty(size) +
-                recentShapeCount * GALLERY_RECENT_SHAPE_PENALTY +
-                repeatShapePenalty +
-                column * GALLERY_COLUMN_TIE_BREAKER -
-                sealedRowsGained * GALLERY_SEALED_ROW_REWARD,
+        metrics.sealedGapCount * GALLERY_SEALED_GAP_PENALTY +
+            metrics.unreadableOpenGapCount * GALLERY_SEALED_GAP_PENALTY +
+            metrics.openGapCount * GALLERY_OPEN_GAP_PENALTY +
+            metrics.rowCount * GALLERY_HEIGHT_PENALTY +
+            row * GALLERY_ROW_PENALTY +
+            remainingIndex * GALLERY_LOOKAHEAD_PENALTY +
+            shapeScore * GALLERY_SHAPE_SCORE_WEIGHT +
+            tile.aspectProtectedMismatchPenalty(size) +
+            recentShapeCount * GALLERY_RECENT_SHAPE_PENALTY +
+            repeatShapePenalty +
+            column * GALLERY_COLUMN_TIE_BREAKER -
+            sealedRowsGained * GALLERY_SEALED_ROW_REWARD,
     )
 }
 
-private class GalleryMosaicOccupancy(
-    private val columnCount: Int,
-) {
+private class GalleryMosaicOccupancy(private val columnCount: Int) {
     private val rows = mutableListOf<BooleanArray>()
 
     val rowCount: Int
         get() = rows.indexOfLast { row -> row.any { isOccupied -> isOccupied } } + GALLERY_SINGLE_STEP
 
-    fun placements(
-        size: GalleryMosaicSize,
-        allowUnreadableOpenGaps: Boolean,
-    ): List<GalleryMosaicOccupancyPlacement> {
+    fun placements(size: GalleryMosaicSize, allowUnreadableOpenGaps: Boolean): List<GalleryMosaicOccupancyPlacement> {
         val gap = firstGap()
         val metrics = metricsAfter(gap.column, gap.row, size)
         return if (
@@ -275,11 +270,7 @@ private class GalleryMosaicOccupancy(
         }
     }
 
-    fun place(
-        column: Int,
-        row: Int,
-        size: GalleryMosaicSize,
-    ) {
+    fun place(column: Int, row: Int, size: GalleryMosaicSize) {
         ensureRows(row + size.rowSpan)
         for (targetRow in row until row + size.rowSpan) {
             for (targetColumn in column until column + size.columnSpan) {
@@ -288,18 +279,13 @@ private class GalleryMosaicOccupancy(
         }
     }
 
-    fun metrics(): GalleryMosaicOccupancyMetrics =
-        metricsAfter(
-            column = 0,
-            row = 0,
-            size = GalleryMosaicSize(columnSpan = 0, rowSpan = 0),
-        )
+    fun metrics(): GalleryMosaicOccupancyMetrics = metricsAfter(
+        column = 0,
+        row = 0,
+        size = GalleryMosaicSize(columnSpan = 0, rowSpan = 0),
+    )
 
-    private fun canPlace(
-        column: Int,
-        row: Int,
-        size: GalleryMosaicSize,
-    ): Boolean {
+    private fun canPlace(column: Int, row: Int, size: GalleryMosaicSize): Boolean {
         if (column + size.columnSpan > columnCount) return false
         for (targetRow in row until row + size.rowSpan) {
             for (targetColumn in column until column + size.columnSpan) {
@@ -320,11 +306,7 @@ private class GalleryMosaicOccupancy(
         return GalleryMosaicCell(column = 0, row = rowCount)
     }
 
-    private fun metricsAfter(
-        column: Int,
-        row: Int,
-        size: GalleryMosaicSize,
-    ): GalleryMosaicOccupancyMetrics {
+    private fun metricsAfter(column: Int, row: Int, size: GalleryMosaicSize): GalleryMosaicOccupancyMetrics {
         val nextRowCount = max(rowCount, row + size.rowSpan)
         val columnHeights =
             IntArray(columnCount) { targetColumn ->
@@ -374,18 +356,13 @@ private class GalleryMosaicOccupancy(
         size: GalleryMosaicSize,
         targetColumn: Int,
         targetRow: Int,
-    ): Boolean =
-        isOccupied(targetRow, targetColumn) ||
-            (
-                targetColumn in placementColumn until placementColumn + size.columnSpan &&
-                    targetRow in placementRow until placementRow + size.rowSpan
+    ): Boolean = isOccupied(targetRow, targetColumn) ||
+        (
+            targetColumn in placementColumn until placementColumn + size.columnSpan &&
+                targetRow in placementRow until placementRow + size.rowSpan
             )
 
-    private fun isOccupied(
-        row: Int,
-        column: Int,
-    ): Boolean =
-        row in rows.indices && rows[row][column]
+    private fun isOccupied(row: Int, column: Int): Boolean = row in rows.indices && rows[row][column]
 
     private fun ensureRows(rowCount: Int) {
         while (rows.size < rowCount) {
@@ -408,13 +385,13 @@ private fun GalleryMosaicPlanningTile.sizeCandidates(): List<GalleryMosaicSize> 
             val safeArea = max(GALLERY_MIN_COLUMN_SPAN * GALLERY_MIN_ROW_SPAN, area)
             GalleryMosaicSize(
                 columnSpan =
-                    sqrt(safeArea * aspect)
-                        .roundToInt()
-                        .coerceIn(GALLERY_MIN_COLUMN_SPAN, GALLERY_MAX_COLUMN_SPAN),
+                sqrt(safeArea * aspect)
+                    .roundToInt()
+                    .coerceIn(GALLERY_MIN_COLUMN_SPAN, GALLERY_MAX_COLUMN_SPAN),
                 rowSpan =
-                    sqrt(safeArea / aspect)
-                        .roundToInt()
-                        .coerceIn(GALLERY_MIN_ROW_SPAN, GALLERY_MAX_ROW_SPAN),
+                sqrt(safeArea / aspect)
+                    .roundToInt()
+                    .coerceIn(GALLERY_MIN_ROW_SPAN, GALLERY_MAX_ROW_SPAN),
             )
         }
     val shapedCandidates =
@@ -433,17 +410,18 @@ private fun GalleryMosaicPlanningTile.sizeCandidates(): List<GalleryMosaicSize> 
         .toList()
 }
 
-private fun GalleryMosaicSize.matchesAspectKind(aspectKind: GalleryAspectKind): Boolean =
-    when (aspectKind) {
-        GalleryAspectKind.Portrait -> columnSpan < rowSpan
-        GalleryAspectKind.Square -> columnSpan == rowSpan
-        GalleryAspectKind.Landscape -> columnSpan > rowSpan
-    }
+private fun GalleryMosaicSize.matchesAspectKind(aspectKind: GalleryAspectKind): Boolean = when (aspectKind) {
+    GalleryAspectKind.Portrait -> columnSpan < rowSpan
+    GalleryAspectKind.Square -> columnSpan == rowSpan
+    GalleryAspectKind.Landscape -> columnSpan > rowSpan
+}
 
 private fun GalleryMosaicPlanningTile.shapeScore(size: GalleryMosaicSize): Int {
     val aspectScore =
-        (abs(aspectRatio.coerceIn(GALLERY_MIN_ASPECT_FOR_SHAPE, GALLERY_MAX_ASPECT_FOR_SHAPE) - size.aspectRatio) *
-            GALLERY_ASPECT_SCORE_SCALE).roundToInt()
+        (
+            abs(aspectRatio.coerceIn(GALLERY_MIN_ASPECT_FOR_SHAPE, GALLERY_MAX_ASPECT_FOR_SHAPE) - size.aspectRatio) *
+                GALLERY_ASPECT_SCORE_SCALE
+            ).roundToInt()
     val areaScore = abs(size.area - preferredArea) * GALLERY_AREA_SCORE_WEIGHT
     val orientationPenalty =
         if (size.matchesAspectKind(aspectKind)) {
@@ -454,16 +432,15 @@ private fun GalleryMosaicPlanningTile.shapeScore(size: GalleryMosaicSize): Int {
     return aspectScore + areaScore + orientationPenalty
 }
 
-private fun GalleryMosaicPlanningTile.aspectProtectedMismatchPenalty(size: GalleryMosaicSize): Int =
-    if (
-        requiresAspectProtectedPlacement &&
-        abs(aspectRatio.coerceIn(GALLERY_MIN_ASPECT_FOR_SHAPE, GALLERY_MAX_ASPECT_FOR_SHAPE) - size.aspectRatio) >
-        GALLERY_ASPECT_PROTECTED_MAX_DELTA
-    ) {
-        GALLERY_ASPECT_PROTECTED_MISMATCH_PENALTY
-    } else {
-        0
-    }
+private fun GalleryMosaicPlanningTile.aspectProtectedMismatchPenalty(size: GalleryMosaicSize): Int = if (
+    requiresAspectProtectedPlacement &&
+    abs(aspectRatio.coerceIn(GALLERY_MIN_ASPECT_FOR_SHAPE, GALLERY_MAX_ASPECT_FOR_SHAPE) - size.aspectRatio) >
+    GALLERY_ASPECT_PROTECTED_MAX_DELTA
+) {
+    GALLERY_ASPECT_PROTECTED_MISMATCH_PENALTY
+} else {
+    0
+}
 
 private val GalleryMosaicPlanningTile.preferredArea: Int
     get() =
@@ -474,12 +451,14 @@ private val GalleryMosaicPlanningTile.preferredArea: Int
                     aspectRatio <= GALLERY_TALL_PORTRAIT_ASPECT_MAX -> GALLERY_PREFERRED_TALL_PORTRAIT_AREA
                     else -> GALLERY_PREFERRED_PORTRAIT_AREA
                 }
+
             GalleryAspectKind.Landscape ->
                 when {
                     aspectRatio >= GALLERY_EXTREME_LANDSCAPE_ASPECT_MIN -> GALLERY_PREFERRED_EXTREME_LANDSCAPE_AREA
                     aspectRatio >= GALLERY_WIDE_LANDSCAPE_ASPECT_MIN -> GALLERY_PREFERRED_WIDE_LANDSCAPE_AREA
                     else -> GALLERY_PREFERRED_LANDSCAPE_AREA
                 }
+
             GalleryAspectKind.Square ->
                 when {
                     inputIndex % GALLERY_HERO_SQUARE_CADENCE == 0 -> GALLERY_HERO_SQUARE_AREA
@@ -518,17 +497,16 @@ private fun GalleryMosaicPlanningTile.toGalleryMosaicTile(
     row: Int,
     columnSpan: Int,
     rowSpan: Int,
-): GalleryMosaicTile =
-    GalleryMosaicTile(
-        memoId = memoId,
-        firstImageUrl = firstImageUrl,
-        aspectKind = aspectKind,
-        aspectRatio = aspectRatio,
-        column = column,
-        row = row,
-        columnSpan = columnSpan,
-        rowSpan = rowSpan,
-    )
+): GalleryMosaicTile = GalleryMosaicTile(
+    memoId = memoId,
+    firstImageUrl = firstImageUrl,
+    aspectKind = aspectKind,
+    aspectRatio = aspectRatio,
+    column = column,
+    row = row,
+    columnSpan = columnSpan,
+    rowSpan = rowSpan,
+)
 
 private data class GalleryMosaicPlanningTile(
     val memoId: String,
@@ -538,10 +516,7 @@ private data class GalleryMosaicPlanningTile(
     val inputIndex: Int,
 )
 
-private data class GalleryMosaicSize(
-    val columnSpan: Int,
-    val rowSpan: Int,
-)
+private data class GalleryMosaicSize(val columnSpan: Int, val rowSpan: Int)
 
 private data class GalleryMosaicPlacement(
     val tile: GalleryMosaicPlanningTile,
@@ -552,10 +527,7 @@ private data class GalleryMosaicPlacement(
     val score: Int,
 )
 
-private data class GalleryMosaicCell(
-    val column: Int,
-    val row: Int,
-)
+private data class GalleryMosaicCell(val column: Int, val row: Int)
 
 private data class GalleryMosaicOccupancyPlacement(
     val column: Int,
@@ -571,9 +543,8 @@ private data class GalleryMosaicOccupancyMetrics(
     val unreadableOpenGapCount: Int,
 )
 
-private fun Int.unreadableOpenGapCount(): Int =
-    if (this in GALLERY_SINGLE_STEP until GALLERY_MIN_COLUMN_SPAN) {
-        this
-    } else {
-        0
-    }
+private fun Int.unreadableOpenGapCount(): Int = if (this in GALLERY_SINGLE_STEP until GALLERY_MIN_COLUMN_SPAN) {
+    this
+} else {
+    0
+}

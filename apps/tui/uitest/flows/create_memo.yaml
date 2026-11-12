@@ -1,0 +1,13 @@
+# Core journey: setup → compose (n) → Ctrl+S submits → memo lands in the list.
+steps:
+  - expect: First-run setup
+  - key: enter
+  - expect: Write a thought
+  - send: n
+  # The composer panel announces itself; never type into Browse scope.
+  - expect: New memo
+  - send: tuitest memo body
+  - key: ctrl+s
+  - expect: 1 total
+  - expect: tuitest memo body
+  - snap: submitted

@@ -42,11 +42,13 @@ class PendingNewMemoCreationCoordinatorTest : AppFunSpec() {
             val firstRequest = coordinator.submit(MemoEditorSubmissionId(1L), "first memo")
             val secondRequest = coordinator.submit(MemoEditorSubmissionId(2L), "second memo")
 
-            (firstRequest) shouldBe (PendingNewMemoCreationRequest(
+            (firstRequest) shouldBe (
+                PendingNewMemoCreationRequest(
                     requestId = 1L,
                     submissionId = MemoEditorSubmissionId(1L),
                     content = "first memo",
-                ))
+                )
+                )
             (coordinator.pendingRequest) shouldBe (firstRequest)
             (secondRequest) shouldBe null
             (coordinator.pendingRequest) shouldBe (firstRequest)
@@ -70,12 +72,14 @@ class PendingNewMemoCreationCoordinatorTest : AppFunSpec() {
                     timestampMillis = 1_777_777_777_000L,
                 )
 
-            (request) shouldBe (PendingNewMemoCreationRequest(
+            (request) shouldBe (
+                PendingNewMemoCreationRequest(
                     requestId = 1L,
                     submissionId = MemoEditorSubmissionId(4L),
                     content = "backfilled memo",
                     timestampMillis = 1_777_777_777_000L,
-                ))
+                )
+                )
             (coordinator.pendingRequest) shouldBe (request)
         }
         test("cancel clears the matching request and allows the next submit") {
@@ -86,13 +90,14 @@ class PendingNewMemoCreationCoordinatorTest : AppFunSpec() {
 
             val secondRequest = coordinator.submit(MemoEditorSubmissionId(6L), "second memo")
 
-            (secondRequest) shouldBe (PendingNewMemoCreationRequest(
+            (secondRequest) shouldBe (
+                PendingNewMemoCreationRequest(
                     requestId = firstRequest.requestId + 1L,
                     submissionId = MemoEditorSubmissionId(6L),
                     content = "second memo",
-                ))
+                )
+                )
             (coordinator.pendingRequest) shouldBe (secondRequest)
         }
     }
-
 }

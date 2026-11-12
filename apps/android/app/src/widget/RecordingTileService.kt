@@ -12,21 +12,24 @@ import com.lomo.app.TrustedLaunchIntents
 import com.lomo.domain.model.RecordingSessionState
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.RecordingSessionUseCase
-import org.koin.android.ext.android.inject
-import org.koin.core.component.KoinComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
+import org.koin.core.component.KoinComponent
 import timber.log.Timber
 
-class RecordingTileService : TileService(), KoinComponent {
+class RecordingTileService :
+    TileService(),
+    KoinComponent {
     private val recordingSessionUseCase: RecordingSessionUseCase by inject()
     private val trustedLaunchIntents: TrustedLaunchIntents by inject()
     private val dispatcherProvider: DispatcherProvider by inject()
 
     private val policy = RecordingTileClickPolicy()
+
     // behavior-contract: unmanaged-scope-ok: process-lifetime quick-settings tile service
     private val serviceScope = CoroutineScope(SupervisorJob() + dispatcherProvider.main)
     private var stateCollectionJob: Job? = null
@@ -72,6 +75,7 @@ class RecordingTileService : TileService(), KoinComponent {
                     requestCode = START_RECORDING_REQUEST_CODE,
                     intent = trustedLaunchIntents.trustedQuickSettingsStartRecordingIntent(),
                 )
+
             is TileClickAction.LaunchStopRecording ->
                 launchTrustedRecordingAction(
                     requestCode = STOP_RECORDING_REQUEST_CODE,
@@ -81,20 +85,14 @@ class RecordingTileService : TileService(), KoinComponent {
         updateTile(recordingSessionUseCase.state.value)
     }
 
-    private fun launchTrustedRecordingAction(
-        requestCode: Int,
-        intent: Intent,
-    ) {
+    private fun launchTrustedRecordingAction(requestCode: Int, intent: Intent) {
         startMainActivityAndCollapse(
             requestCode = requestCode,
             intent = intent,
         )
     }
 
-    private fun startMainActivityAndCollapse(
-        requestCode: Int,
-        intent: Intent,
-    ) {
+    private fun startMainActivityAndCollapse(requestCode: Int, intent: Intent) {
         val wrapper =
             PendingIntentActivityWrapper(
                 this,

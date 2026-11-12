@@ -3,7 +3,6 @@ package com.lomo.app.feature.memo
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,12 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
@@ -42,17 +39,19 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.Recurrence
 import com.lomo.domain.repository.ReminderTokenFactory
+import com.lomo.ui.component.common.LomoFilledIconButton
 import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
 import com.lomo.ui.component.picker.ExpressivePickerStep
 import com.lomo.ui.component.picker.ExpressiveSteppedPickerDialog
 import com.lomo.ui.component.picker.ExpressiveTimePickerSurface
+import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import kotlinx.collections.immutable.persistentListOf
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneOffset
-import kotlinx.collections.immutable.persistentListOf
 
 private const val REMINDER_REPEAT_MIN = 1
 private const val REMINDER_REPEAT_MAX = 9
@@ -69,7 +68,7 @@ internal fun ReminderInsertDialog(
     val datePickerState =
         rememberDatePickerState(
             initialSelectedDateMillis =
-                now.toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+            now.toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
         )
     val timePickerState =
         rememberTimePickerState(
@@ -103,22 +102,23 @@ internal fun ReminderInsertDialog(
         },
         onDismiss = onDismiss,
         steps =
-            persistentListOf(
-                ExpressivePickerStep { ExpressiveDatePickerSurface(state = datePickerState) },
-                ExpressivePickerStep { ExpressiveTimePickerSurface(state = timePickerState) },
-                ExpressivePickerStep {
-                    ReminderRepeatPage(
-                        repeatCount = repeatCount,
-                        onRepeatCountChange = { repeatCount = it },
-                        recurrence = recurrence,
-                        onRecurrenceChange = { recurrence = it },
-                        intervalMinutes = intervalMinutes,
-                        onIntervalMinutesChange = { intervalMinutes = it },
-                    )
-                },
-            ),
+        persistentListOf(
+            ExpressivePickerStep { ExpressiveDatePickerSurface(state = datePickerState) },
+            ExpressivePickerStep { ExpressiveTimePickerSurface(state = timePickerState) },
+            ExpressivePickerStep {
+                ReminderRepeatPage(
+                    repeatCount = repeatCount,
+                    onRepeatCountChange = { repeatCount = it },
+                    recurrence = recurrence,
+                    onRecurrenceChange = { recurrence = it },
+                    intervalMinutes = intervalMinutes,
+                    onIntervalMinutesChange = { intervalMinutes = it },
+                )
+            },
+        ),
     )
 }
+
 @Composable
 private fun ReminderRepeatPage(
     repeatCount: Int,
@@ -176,10 +176,10 @@ private fun ReminderRepeatPage(
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement =
-                    Arrangement.spacedBy(
-                        space = intervalLayoutSpec.horizontalSpacing,
-                        alignment = Alignment.CenterHorizontally,
-                    ),
+                Arrangement.spacedBy(
+                    space = intervalLayoutSpec.horizontalSpacing,
+                    alignment = Alignment.CenterHorizontally,
+                ),
                 verticalArrangement = Arrangement.spacedBy(intervalLayoutSpec.verticalSpacing),
             ) {
                 REMINDER_INTERVAL_PRESETS.forEach { minutes ->
@@ -217,7 +217,7 @@ private fun ReminderIntervalChoiceButton(
 
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(AppSpacing.Small),
+        shape = AppShapes.Small,
         color = containerColor,
         modifier = Modifier.size(width = layoutSpec.choiceWidth, height = layoutSpec.choiceHeight),
     ) {
@@ -235,10 +235,7 @@ private fun ReminderIntervalChoiceButton(
 }
 
 @Composable
-private fun RepeatStepper(
-    value: Int,
-    onValueChanged: (Int) -> Unit,
-) {
+private fun RepeatStepper(value: Int, onValueChanged: (Int) -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(AppSpacing.Medium),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -253,7 +250,7 @@ private fun RepeatStepper(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
-            FilledIconButton(
+            LomoFilledIconButton(
                 onClick = { onValueChanged((value - 1).coerceAtLeast(REMINDER_REPEAT_MIN)) },
                 enabled = value > REMINDER_REPEAT_MIN,
             ) {
@@ -261,7 +258,7 @@ private fun RepeatStepper(
             }
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = RoundedCornerShape(AppSpacing.Small),
+                shape = AppShapes.Small,
                 modifier = Modifier.size(width = 72.dp, height = 48.dp),
             ) {
                 Box(
@@ -270,11 +267,11 @@ private fun RepeatStepper(
                 ) {
                     Text(
                         text = "$value",
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.headlineSmallEmphasized,
                     )
                 }
             }
-            FilledIconButton(
+            LomoFilledIconButton(
                 onClick = { onValueChanged((value + 1).coerceAtMost(REMINDER_REPEAT_MAX)) },
                 enabled = value < REMINDER_REPEAT_MAX,
             ) {
@@ -290,10 +287,7 @@ private fun RepeatStepper(
     }
 }
 
-internal fun buildReminderInsertionValue(
-    inputValue: TextFieldValue,
-    token: String,
-): TextFieldValue {
+internal fun buildReminderInsertionValue(inputValue: TextFieldValue, token: String): TextFieldValue {
     val cursor = inputValue.selection.start.coerceIn(0, inputValue.text.length)
     val prefix = inputValue.text.substring(0, cursor)
     val suffix = inputValue.text.substring(cursor)
@@ -312,10 +306,9 @@ internal fun buildReminderToken(
     intervalMinutes: Int,
     recurrence: Recurrence,
     tokenFactory: ReminderTokenFactory,
-): String =
-    tokenFactory.buildInsertToken(
-        dueAt = LocalDateTime.of(date, LocalTime.of(hour, minute)),
-        repeatCount = repeatCount,
-        intervalMinutes = intervalMinutes,
-        recurrence = recurrence,
-    )
+): String = tokenFactory.buildInsertToken(
+    dueAt = LocalDateTime.of(date, LocalTime.of(hour, minute)),
+    repeatCount = repeatCount,
+    intervalMinutes = intervalMinutes,
+    recurrence = recurrence,
+)

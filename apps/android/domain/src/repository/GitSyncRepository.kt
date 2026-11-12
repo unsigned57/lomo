@@ -22,10 +22,9 @@ interface GitSyncConfigurationRepository {
 
     fun observeLastSyncTimeMillis(): Flow<Long?>
 
-    fun observeLastSyncInstant(): Flow<Instant?> =
-        observeLastSyncTimeMillis().map { value ->
-            value?.let(Instant::ofEpochMilli)
-        }
+    fun observeLastSyncInstant(): Flow<Instant?> = observeLastSyncTimeMillis().map { value ->
+        value?.let(Instant::ofEpochMilli)
+    }
 
     fun getSyncOnRefreshEnabled(): Flow<Boolean>
 }
@@ -45,10 +44,7 @@ interface GitSyncCredentialMutationRepository {
 }
 
 interface GitSyncAuthorMutationRepository {
-    suspend fun setAuthorInfo(
-        name: String,
-        email: String,
-    )
+    suspend fun setAuthorInfo(name: String, email: String)
 
     fun getAuthorName(): Flow<String>
 

@@ -42,9 +42,7 @@ object AndroidPresentationMimeTypes {
     fun audioMimeForExtension(extension: String): String =
         AUDIO[extension.lowercase(java.util.Locale.ROOT)] ?: DEFAULT_AUDIO
 
-    fun imageMimeForFilename(filename: String): String =
-        imageMimeForExtension(filename.substringAfterLast('.', ""))
+    fun imageMimeForFilename(filename: String): String = imageMimeForExtension(filename.substringAfterLast('.', ""))
 
-    fun audioMimeForFilename(filename: String): String =
-        audioMimeForExtension(filename.substringAfterLast('.', ""))
+    fun audioMimeForFilename(filename: String): String = audioMimeForExtension(filename.substringAfterLast('.', ""))
 }

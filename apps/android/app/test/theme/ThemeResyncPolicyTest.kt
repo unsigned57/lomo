@@ -1,13 +1,13 @@
 package com.lomo.app.theme
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.app.theme
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import android.content.res.Configuration
 import com.lomo.app.testing.AppFunSpec
@@ -54,22 +53,33 @@ class ThemeResyncPolicyTest : AppFunSpec() {
 
     init {
         test("uiMode change requests resync only for real night-mode transitions while following system") {
-            ((ThemeResyncPolicy.shouldResyncOnConfigurationChange(
-                    themeMode = ThemeMode.SYSTEM,
-                    previousUiMode = Configuration.UI_MODE_NIGHT_NO,
-                    currentUiMode = Configuration.UI_MODE_NIGHT_YES,
-                ))) shouldBe true
-            ((ThemeResyncPolicy.shouldResyncOnConfigurationChange(
-                    themeMode = ThemeMode.SYSTEM,
-                    previousUiMode = Configuration.UI_MODE_NIGHT_YES,
-                    currentUiMode = Configuration.UI_MODE_NIGHT_YES,
-                ))) shouldBe false
-            ((ThemeResyncPolicy.shouldResyncOnConfigurationChange(
-                    themeMode = ThemeMode.DARK,
-                    previousUiMode = Configuration.UI_MODE_NIGHT_NO,
-                    currentUiMode = Configuration.UI_MODE_NIGHT_YES,
-                ))) shouldBe false
+            (
+                (
+                    ThemeResyncPolicy.shouldResyncOnConfigurationChange(
+                        themeMode = ThemeMode.SYSTEM,
+                        previousUiMode = Configuration.UI_MODE_NIGHT_NO,
+                        currentUiMode = Configuration.UI_MODE_NIGHT_YES,
+                    )
+                    )
+                ) shouldBe true
+            (
+                (
+                    ThemeResyncPolicy.shouldResyncOnConfigurationChange(
+                        themeMode = ThemeMode.SYSTEM,
+                        previousUiMode = Configuration.UI_MODE_NIGHT_YES,
+                        currentUiMode = Configuration.UI_MODE_NIGHT_YES,
+                    )
+                    )
+                ) shouldBe false
+            (
+                (
+                    ThemeResyncPolicy.shouldResyncOnConfigurationChange(
+                        themeMode = ThemeMode.DARK,
+                        previousUiMode = Configuration.UI_MODE_NIGHT_NO,
+                        currentUiMode = Configuration.UI_MODE_NIGHT_YES,
+                    )
+                    )
+                ) shouldBe false
         }
     }
-
 }

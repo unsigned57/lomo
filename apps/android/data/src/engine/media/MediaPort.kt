@@ -17,11 +17,7 @@ data class MediaStagedFacts(
     val suggestedFinalRelativePath: String,
 )
 
-data class MediaPromotePlan(
-    val operationId: String,
-    val staged: MediaStagedFacts,
-    val finalRelativePath: String,
-)
+data class MediaPromotePlan(val operationId: String, val staged: MediaStagedFacts, val finalRelativePath: String)
 
 /** Who currently holds staged bytes; mirrors the Rust stage-ledger owner vocabulary. */
 enum class MediaStageOwnerKind {
@@ -31,11 +27,7 @@ enum class MediaStageOwnerKind {
     CommittedReference,
 }
 
-data class MediaStageLease(
-    val artifactId: String,
-    val ownerKind: MediaStageOwnerKind,
-    val ownerId: String,
-)
+data class MediaStageLease(val artifactId: String, val ownerKind: MediaStageOwnerKind, val ownerId: String)
 
 /**
  * Durable staged-artifact record. Kotlin holds no authoritative copy; the Rust ledger owns it and
@@ -53,41 +45,23 @@ data class MediaStageRecord(
     /** False when the staged bytes vanished; the draft must surface a recoverable failure. */
     val stagedBytesPresent: Boolean,
 ) {
-    fun toStagedFacts(): MediaStagedFacts =
-        MediaStagedFacts(
-            digest = digest,
-            size = size,
-            mime = mime,
-            stagingPath = stagingPath,
-            humanNameHint = humanNameHint,
-            suggestedFinalRelativePath = suggestedFinalRelativePath,
-        )
+    fun toStagedFacts(): MediaStagedFacts = MediaStagedFacts(
+        digest = digest,
+        size = size,
+        mime = mime,
+        stagingPath = stagingPath,
+        humanNameHint = humanNameHint,
+        suggestedFinalRelativePath = suggestedFinalRelativePath,
+    )
 }
 
-data class MediaStageRelease(
-    val artifactId: String,
-    val remainingLeases: Long,
-    val bytesDeleted: Boolean,
-)
+data class MediaStageRelease(val artifactId: String, val remainingLeases: Long, val bytesDeleted: Boolean)
 
-data class MediaCommittedEntry(
-    val digest: String,
-    val absolutePath: String,
-    val size: Long,
-    val modifiedMs: Long,
-)
+data class MediaCommittedEntry(val digest: String, val absolutePath: String, val size: Long, val modifiedMs: Long)
 
-data class MediaManifest(
-    val stageDirName: String,
-    val entries: List<MediaCommittedEntry>,
-)
+data class MediaManifest(val stageDirName: String, val entries: List<MediaCommittedEntry>)
 
-data class MediaTrashEntry(
-    val digest: String,
-    val trashPath: String,
-    val trashedAtMs: Long,
-    val expiresAtMs: Long,
-)
+data class MediaTrashEntry(val digest: String, val trashPath: String, val trashedAtMs: Long, val expiresAtMs: Long)
 
 /** Why one media candidate survived the session-owned sweep. */
 data class MediaSweepProtection(
@@ -98,11 +72,7 @@ data class MediaSweepProtection(
 )
 
 /** One candidate or trash entry the sweep refused to touch. */
-data class MediaSweepFailure(
-    val relativePath: String,
-    val code: String,
-    val message: String,
-)
+data class MediaSweepFailure(val relativePath: String, val code: String, val message: String)
 
 /**
  * A host editor draft body whose attachments must be protected for one sweep. DataStore drafts
@@ -147,12 +117,7 @@ interface MediaPort {
      * Records a freshly staged artifact in the durable stage ledger and acquires one owner lease.
      * Returns the record with the collision-free destination the owner resolved.
      */
-    fun recordStageLease(
-        workspaceRoot: String?,
-        staged: MediaStagedFacts,
-        ownerKind: MediaStageOwnerKind,
-        ownerId: String,
-    ): MediaStageRecord
+    fun recordStageLease(staged: MediaStagedFacts, ownerKind: MediaStageOwnerKind, ownerId: String): MediaStageRecord
 
     fun stageRecordsForOwner(
         mediaRoot: String,
@@ -161,38 +126,21 @@ interface MediaPort {
     ): List<MediaStageRecord>
 
     /** Hands one holder's claim to another; never deletes bytes. */
-    fun transferStageLease(
-        mediaRoot: String,
-        from: MediaStageLease,
-        to: MediaStageLease,
-    ): MediaStageRelease
+    fun transferStageLease(mediaRoot: String, from: MediaStageLease, to: MediaStageLease): MediaStageRelease
 
     /** Releases one lease; staged bytes are deleted only when no lease remains. */
-    fun releaseStageLease(
-        mediaRoot: String,
-        lease: MediaStageLease,
-    ): MediaStageRelease
+    fun releaseStageLease(mediaRoot: String, lease: MediaStageLease): MediaStageRelease
 
-    fun allocateRecordingTarget(
-        mediaRoot: String,
-        extension: String,
-    ): String
+    fun allocateRecordingTarget(mediaRoot: String, extension: String): String
 
-    fun finalizeRecording(
-        mediaRoot: String,
-        recordingPath: String,
-        humanNameHint: String,
-    ): MediaStagedFacts
+    fun finalizeRecording(mediaRoot: String, recordingPath: String, humanNameHint: String): MediaStagedFacts
 
     /**
      * Walks the committed media tree. `verifiedEntries` are facts from the previous manifest this
      * host already holds: Rust reuses their digest only while path, size and mtime still match, so
      * passing stale entries is safe — a stat mismatch always rehashes.
      */
-    fun queryMediaManifest(
-        workspaceRoot: String,
-        verifiedEntries: List<MediaCommittedEntry>,
-    ): MediaManifest
+    fun queryMediaManifest(workspaceRoot: String, verifiedEntries: List<MediaCommittedEntry>): MediaManifest
 
     /**
      * Session-owned two-phase orphan sweep. The Rust session enumerates `media/` candidates,

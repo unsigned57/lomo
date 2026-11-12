@@ -30,7 +30,7 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-export LOMO_KOTLIN_BUILD_DIR="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}"
+export LOMO_KOTLIN_BUILD_DIR="${LOMO_KOTLIN_BUILD_DIR:-${LOMO_GENERATED_ROOT:-$repo_root/target/lomo}/build/kotlin}"
 
 python3 - "$repo_root" <<'PY'
 from pathlib import Path

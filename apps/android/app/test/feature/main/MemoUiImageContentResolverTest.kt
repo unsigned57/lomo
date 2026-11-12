@@ -1,48 +1,77 @@
 package com.lomo.app.feature.main
 
-import androidx.core.net.toUri
+import android.net.Uri
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
+import io.mockk.every
+import io.mockk.mockk
 import java.io.File
 import kotlin.io.path.createTempDirectory
 
 /*
  * Behavior Contract:
- * - Unit under test: MemoUiImageContentResolver
- * - Owning layer: app
- * - Priority tier: P1
- * - Capability: materialize each (url, roots, this-url mapping) once per resolver lifetime;
- *   bare basenames resolve through the managed directory vocabulary with unique-claim
- *   semantics, qualified destinations read verbatim, and ambiguous/escaped destinations
- *   never resolve to a file.
- *
+ * Capability: Bare image names use the selected directory; qualified paths retain workspace identity and absent selection preserves unique-claim lookup.
+ * Owning layer / priority: MemoUiImageContentResolver; app; P1.
  * Scenarios:
- * - Given a relative image that exists on disk, when resolved twice after the file is deleted,
- *   then the second call returns the first materialized path.
- * - Given a bare basename with one nested managed file, when resolved, then that file answers.
- * - Given a bare basename claimed by two managed locations (map or disk), when resolved,
- *   then the raw destination answers — never a chosen directory.
- * - Given a qualified destination whose file lives elsewhere, when resolved, then it misses
- *   verbatim — a directory-qualified path is an identity, not a lookup request.
- * - Given a `..` destination escaping the workspace, when resolved, then no file answers.
- *
- * Observable outcomes: resolved absolute path identity across calls; unresolved raw
- * destination for ambiguous/missing/escaped inputs.
- *
- * TDD proof: Fails if the second resolve re-stats the deleted file and falls back to the raw url.
- *
- * Excludes: Coil decoding, SAF tree URI construction, and markdown IR rewriting.
+ * - Given an explicit image directory and an old workspace claimant, when resolving a bare name, then only the selected directory answers.
+ * - Given no selected directory, when multiple managed files claim a basename, then it stays unresolved.
+ * - Given qualified or escaping paths, when resolving, then directory identity and traversal rejection are preserved.
+ * - Given changed content identities, when resolving, then content-keyed cache results change.
+ * Observable outcomes: returned locations, emitted paging/map state, retained identities and surfaced errors.
+ * TDD proof: target/lomo/reports/manual/media-toolbar-search/image-red.log: expected selected photo.png path but received raw photo.png; image-space-red.log rejects duplicate URI/disk claims for a path with spaces; GREEN image-green.log: 11/11.
+ * Excludes: physical device timing, Compose pixel styling and remote provider behavior.
  * Test Change Justification:
- * - Reason category: product/domain contract changed (P-56 basename→directory resolution).
- * - Old behavior/assertion being replaced: resolved destinations keyed by path only.
- * - Why old assertion is no longer correct: content identity (#lomo-cid=) now participates in the resolved destination so same-path byte changes invalidate caches.
- * - Coverage preserved by: the added same-path/different-content-id case plus existing path cases.
- * - Why this is not fitting the test to the implementation: content-keyed cache invalidation is the media-identity contract.
+ * Reason category: regression coverage and platform fixture correction.
+ * Old behavior/assertion being replaced: no existing result assertions are removed or weakened.
+ * Why old assertion is no longer correct: Android Uri.parse is unavailable in JVM tests; URI fixtures now use a strict Uri mock exposing the same toString value.
+ * Coverage preserved by: every existing scenario plus the explicit directory/query regressions.
+ * Why this is not fitting the test to the implementation: expected results follow selected-directory identity and normalized-query behavior.
  */
 class MemoUiImageContentResolverTest : AppFunSpec() {
     init {
+        test(
+            "given a selected directory containing spaces when map and disk name the same file then they form one claim",
+        ) {
+            val selected = createTempDirectory(prefix = "lomo selected image ").toFile()
+            try {
+                val file = File(selected, "photo.png").apply { writeText("new") }
+                val uri = "file://${file.absolutePath.replace(" ", "%20")}#lomo-cid=abc"
+                val resolved = MemoUiImageContentResolver().resolveProjectedImageUrls(
+                    imageUrls = listOf("photo.png"),
+                    rootPath = null,
+                    imagePath = selected.absolutePath,
+                    imageMap = mapOf("photo.png" to uri.testUri()),
+                )
+                resolved.single() shouldBe uri
+            } finally {
+                selected.deleteRecursively()
+            }
+        }
+
+        test(
+            "given a selected image directory when a bare name also exists in the workspace then the selected file is shown",
+        ) {
+            val workspace = createTempDirectory(prefix = "lomo-selected-image-").toFile()
+            val selected = createTempDirectory(prefix = "lomo-selected-root-").toFile()
+            try {
+                File(workspace, "media").mkdirs()
+                val old = File(workspace, "media/photo.png").apply { writeText("old") }
+                val fresh = File(selected, "photo.png").apply { writeText("new") }
+                val resolved = MemoUiImageContentResolver().resolveProjectedImageUrls(
+                    imageUrls = listOf("photo.png"),
+                    rootPath = workspace.absolutePath,
+                    imagePath = selected.absolutePath,
+                    imageMap = mapOf("media/photo.png" to old.toURI().toString().testUri()),
+                )
+                resolved.single() shouldBe fresh.absolutePath
+            } finally {
+                workspace.deleteRecursively()
+                selected.deleteRecursively()
+            }
+        }
+
         test("image path resolution reuses the materialized path after the file disappears") {
             val directory = createTempDirectory(prefix = "lomo-image-resolve-").toFile()
             val file = File(directory, "img_1.png").apply { writeText("pixel") }
@@ -80,14 +109,14 @@ class MemoUiImageContentResolverTest : AppFunSpec() {
                     imageUrls = listOf("img_1.png"),
                     rootPath = directory.absolutePath,
                     imagePath = directory.absolutePath,
-                    imageMap = mapOf("img_1.png" to "$location#lomo-cid=${"a".repeat(64)}".toUri()),
+                    imageMap = mapOf("img_1.png" to "$location#lomo-cid=${"a".repeat(64)}".testUri()),
                 )
             val second =
                 resolver.resolveProjectedImageUrls(
                     imageUrls = listOf("img_1.png"),
                     rootPath = directory.absolutePath,
                     imagePath = directory.absolutePath,
-                    imageMap = mapOf("img_1.png" to "$location#lomo-cid=${"b".repeat(64)}".toUri()),
+                    imageMap = mapOf("img_1.png" to "$location#lomo-cid=${"b".repeat(64)}".testUri()),
                 )
 
             first.single() shouldNotBe second.single()
@@ -140,7 +169,7 @@ class MemoUiImageContentResolverTest : AppFunSpec() {
             File(directory, "images").apply { mkdirs() }
             File(directory, "images/pic.png").apply { writeText("b") }
             val resolver = MemoUiImageContentResolver()
-            val mapped = "file:///provider/media/pic.png".toUri()
+            val mapped = "file:///provider/media/pic.png".testUri()
 
             val resolved =
                 resolver.resolveProjectedImageUrls(
@@ -157,7 +186,7 @@ class MemoUiImageContentResolverTest : AppFunSpec() {
         test("a map key outside the managed vocabulary never claims a bare basename") {
             val directory = createTempDirectory(prefix = "lomo-image-vocab-").toFile()
             val resolver = MemoUiImageContentResolver()
-            val mapped = "file:///provider/docs/pic.png".toUri()
+            val mapped = "file:///provider/docs/pic.png".testUri()
 
             val resolved =
                 resolver.resolveProjectedImageUrls(
@@ -218,14 +247,14 @@ class MemoUiImageContentResolverTest : AppFunSpec() {
         test("per-path dependency signature only moves for the memo that references the changed image") {
             val imageMap =
                 mapOf(
-                    "img_a.png" to "file:///media/img_a.png#lomo-cid=${"a".repeat(64)}".toUri(),
-                    "img_b.png" to "file:///media/img_b.png#lomo-cid=${"b".repeat(64)}".toUri(),
+                    "img_a.png" to "file:///media/img_a.png#lomo-cid=${"a".repeat(64)}".testUri(),
+                    "img_b.png" to "file:///media/img_b.png#lomo-cid=${"b".repeat(64)}".testUri(),
                 )
             val beforeA = buildImageMapDependencySignatureForPaths(setOf("img_a.png"), imageMap)
             val beforeB = buildImageMapDependencySignatureForPaths(setOf("img_b.png"), imageMap)
 
             val changed =
-                imageMap + ("img_a.png" to "file:///media/img_a.png#lomo-cid=${"c".repeat(64)}".toUri())
+                imageMap + ("img_a.png" to "file:///media/img_a.png#lomo-cid=${"c".repeat(64)}".testUri())
             val afterA = buildImageMapDependencySignatureForPaths(setOf("img_a.png"), changed)
             val afterB = buildImageMapDependencySignatureForPaths(setOf("img_b.png"), changed)
 
@@ -233,4 +262,11 @@ class MemoUiImageContentResolverTest : AppFunSpec() {
             afterB shouldBe beforeB
         }
     }
+}
+
+private fun String.testUri(): Uri {
+    val raw = this
+    val uri = mockk<Uri>()
+    every { uri.toString() } returns raw
+    return uri
 }

@@ -1,0 +1,54 @@
+# Exercise the same-workspace JNI ownership boundary: image, voice, then image again.
+# Selection names publish only after verified indexing commits; each wait remains bounded at 30s.
+# All selections create unique test-owned folders through DocumentsUI; restart verifies
+# durable selection, and the existing media journey verifies an actual new attachment.
+appId: com.lomo.app
+---
+- stopApp
+- launchApp
+- runFlow: setup_workspace.yaml
+- evalScript: ${output.mediaRun = Date.now(); output.imageFirst = "lomo-images-a-" + output.mediaRun; output.imageNext = "lomo-images-b-" + output.mediaRun; output.voice = "lomo-voice-" + output.mediaRun}
+- tapOn: "Menu"
+- tapOn: "Settings"
+- tapOn: "Image Storage"
+- tapOn:
+    id: "option_menu_create_dir"
+- inputText: ${output.imageFirst}
+- tapOn: "OK"
+- tapOn: "USE THIS FOLDER"
+- tapOn: "Allow"
+- extendedWaitUntil:
+    visible: ${output.imageFirst}
+    timeout: 30000
+- tapOn: "Voice Storage"
+- tapOn:
+    id: "option_menu_create_dir"
+- inputText: ${output.voice}
+- tapOn: "OK"
+- tapOn: "USE THIS FOLDER"
+- tapOn: "Allow"
+- extendedWaitUntil:
+    visible: ${output.voice}
+    timeout: 30000
+- assertVisible: ${output.imageFirst}
+- tapOn: "Image Storage"
+- tapOn:
+    id: "option_menu_create_dir"
+- inputText: ${output.imageNext}
+- tapOn: "OK"
+- tapOn: "USE THIS FOLDER"
+- tapOn: "Allow"
+- extendedWaitUntil:
+    visible: ${output.imageNext}
+    timeout: 30000
+- assertVisible: ${output.voice}
+- takeScreenshot: media-directories-rebound
+- stopApp
+- launchApp
+- tapOn: "Menu"
+- tapOn: "Settings"
+- assertVisible: ${output.imageNext}
+- assertVisible: ${output.voice}
+- takeScreenshot: media-directories-restored
+- back
+- runFlow: media_navigation.yaml

@@ -13,11 +13,7 @@ data class SyncWorkDecision(
     val scheduledWork: List<SyncScheduledWork> = emptyList(),
 )
 
-data class SyncForegroundWork(
-    val backend: SyncBackendType,
-    val trigger: SyncWorkTrigger,
-    val payload: SyncWorkPayload,
-)
+data class SyncForegroundWork(val backend: SyncBackendType, val trigger: SyncWorkTrigger, val payload: SyncWorkPayload)
 
 data class SyncScheduledWork(
     val backend: SyncBackendType,
@@ -48,10 +44,7 @@ enum class SyncWorkBackoffPolicy {
     Linear,
 }
 
-data class SyncWorkCoalescingKey(
-    val backend: SyncBackendType,
-    val uniqueWorkName: String,
-)
+data class SyncWorkCoalescingKey(val backend: SyncBackendType, val uniqueWorkName: String)
 
 sealed interface SyncWorkCadence {
     data class Periodic(val interval: Duration) : SyncWorkCadence
@@ -86,10 +79,7 @@ sealed interface SyncWorkPayload {
     data class ProviderParameters(val values: Map<String, String>) : SyncWorkPayload
 }
 
-data class RemoteAutoSyncWorkInput(
-    val trigger: SyncWorkTrigger,
-    val requestedInterval: Duration,
-)
+data class RemoteAutoSyncWorkInput(val trigger: SyncWorkTrigger, val requestedInterval: Duration)
 
 class RemoteAutoSyncWorkPolicy(
     private val backend: SyncBackendType,
@@ -97,22 +87,21 @@ class RemoteAutoSyncWorkPolicy(
     private val workPayload: SyncWorkPayload,
     private val retryPolicy: SyncWorkRetryPolicy,
 ) : SyncWorkPolicy<RemoteAutoSyncWorkInput> {
-    override fun plan(input: RemoteAutoSyncWorkInput): SyncWorkDecision =
-        SyncWorkDecision(
-            scheduledWork =
-                listOf(
-                    SyncScheduledWork(
-                        backend = backend,
-                        trigger = input.trigger,
-                        uniqueWorkName = uniqueWorkName,
-                        cadence = SyncWorkCadence.Periodic(input.requestedInterval),
-                        networkRequirement = SyncWorkNetworkRequirement.Connected,
-                        existingWorkPolicy = SyncExistingWorkPolicy.Replace,
-                        retryPolicy = retryPolicy,
-                        payload = workPayload,
-                    ),
-                ),
-        )
+    override fun plan(input: RemoteAutoSyncWorkInput): SyncWorkDecision = SyncWorkDecision(
+        scheduledWork =
+        listOf(
+            SyncScheduledWork(
+                backend = backend,
+                trigger = input.trigger,
+                uniqueWorkName = uniqueWorkName,
+                cadence = SyncWorkCadence.Periodic(input.requestedInterval),
+                networkRequirement = SyncWorkNetworkRequirement.Connected,
+                existingWorkPolicy = SyncExistingWorkPolicy.Replace,
+                retryPolicy = retryPolicy,
+                payload = workPayload,
+            ),
+        ),
+    )
 }
 
 /** Single post-cutover auto-schedule planner for the Rust remote-sync worker. */
@@ -125,13 +114,12 @@ class RustSyncWorkPolicyPlanner {
             retryPolicy = REMOTE_AUTO_SYNC_RETRY_POLICY,
         )
 
-    fun planAutoSchedule(interval: String): SyncWorkDecision =
-        policy.plan(
-            RemoteAutoSyncWorkInput(
-                trigger = SyncWorkTrigger.PERIODIC_AUTO_SYNC,
-                requestedInterval = parseRemoteAutoSyncInterval(interval),
-            ),
-        )
+    fun planAutoSchedule(interval: String): SyncWorkDecision = policy.plan(
+        RemoteAutoSyncWorkInput(
+            trigger = SyncWorkTrigger.PERIODIC_AUTO_SYNC,
+            requestedInterval = parseRemoteAutoSyncInterval(interval),
+        ),
+    )
 }
 
 internal val DEFAULT_REMOTE_AUTO_SYNC_INTERVAL: Duration = Duration.ofHours(REMOTE_AUTO_SYNC_HOURS_1)

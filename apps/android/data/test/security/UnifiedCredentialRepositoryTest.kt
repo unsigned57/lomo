@@ -52,13 +52,13 @@ class UnifiedCredentialRepositoryTest : DataFunSpec() {
             val repository =
                 repository(
                     s3Store =
-                        UnifiedCredentialFakeStore(
-                            mapOf(
-                                "s3_access_key_id" to SecureStringReadResult.Present("access"),
-                                "s3_secret_access_key" to
-                                    SecureStringReadResult.Unreadable(IllegalStateException("locked")),
-                            ),
+                    UnifiedCredentialFakeStore(
+                        mapOf(
+                            "s3_access_key_id" to SecureStringReadResult.Present("access"),
+                            "s3_secret_access_key" to
+                                SecureStringReadResult.Unreadable(IllegalStateException("locked")),
                         ),
+                    ),
                 )
 
             repository.credentialState(CredentialProvider.S3).fields.shouldContainExactly(
@@ -74,17 +74,17 @@ class UnifiedCredentialRepositoryTest : DataFunSpec() {
             val repository =
                 repository(
                     gitStore =
-                        UnifiedCredentialFakeStore(
-                            mapOf("git_token" to SecureStringReadResult.Present("secret")),
-                        ),
+                    UnifiedCredentialFakeStore(
+                        mapOf("git_token" to SecureStringReadResult.Present("secret")),
+                    ),
                 )
 
             repository.readSecret(
                 field = CredentialField.GIT_TOKEN,
                 authorization =
-                    CredentialReadAuthorization.Denied(
-                        CredentialReadDenialReason.SecuritySessionLocked,
-                    ),
+                CredentialReadAuthorization.Denied(
+                    CredentialReadDenialReason.SecuritySessionLocked,
+                ),
             ) shouldBe CredentialSecretReadResult.Unauthorized(CredentialReadDenialReason.SecuritySessionLocked)
         }
 
@@ -104,24 +104,17 @@ class UnifiedCredentialRepositoryTest : DataFunSpec() {
         gitStore: SecureStringStore = UnifiedCredentialFakeStore(emptyMap()),
         webDavStore: SecureStringStore = UnifiedCredentialFakeStore(emptyMap()),
         s3Store: SecureStringStore = UnifiedCredentialFakeStore(emptyMap()),
-    ): DefaultCredentialRepository =
-        DefaultCredentialRepository(
-            gitCredentialStore = GitCredentialStore(gitStore),
-            webDavCredentialStore = WebDavCredentialStore(webDavStore),
-            s3CredentialStore = S3CredentialStore(s3Store),
-        )
+    ): DefaultCredentialRepository = DefaultCredentialRepository(
+        gitCredentialStore = GitCredentialStore(gitStore),
+        webDavCredentialStore = WebDavCredentialStore(webDavStore),
+        s3CredentialStore = S3CredentialStore(s3Store),
+    )
 }
 
-private class UnifiedCredentialFakeStore(
-    private val reads: Map<String, SecureStringReadResult>,
-) : SecureStringStore {
-    override fun readString(key: String): SecureStringReadResult =
-        reads[key] ?: SecureStringReadResult.Missing
+private class UnifiedCredentialFakeStore(private val reads: Map<String, SecureStringReadResult>) : SecureStringStore {
+    override fun readString(key: String): SecureStringReadResult = reads[key] ?: SecureStringReadResult.Missing
 
-    override fun putString(
-        key: String,
-        value: String?,
-    ) = Unit
+    override fun putString(key: String, value: String?) = Unit
 }
 
 private class RecordingSecureStringStore : SecureStringStore {
@@ -130,10 +123,7 @@ private class RecordingSecureStringStore : SecureStringStore {
     override fun readString(key: String): SecureStringReadResult =
         written[key]?.let(SecureStringReadResult::Present) ?: SecureStringReadResult.Missing
 
-    override fun putString(
-        key: String,
-        value: String?,
-    ) {
+    override fun putString(key: String, value: String?) {
         written[key] = value
     }
 }

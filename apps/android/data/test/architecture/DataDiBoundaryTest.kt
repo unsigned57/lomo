@@ -26,7 +26,17 @@
  *
  * Excludes:
  * - Koin graph verification internals, Android runtime behavior, and repository sync behavior.
- 
+
+ * Packaging Test Change Justification:
+ * Reason category: correction of an invalid manifest-merging assumption.
+ * Old behavior/assertion being replaced: data alone declared the boot permission/receiver.
+ * Why old assertion is no longer correct: the generated data AAR contains a stub manifest;
+ *   installed APK inspection proves the reminder receiver and permissions were missing.
+ * Coverage preserved by: app registration of receiver and permission together, removal of the
+ *   discarded data manifest, AndroidPlatformManifestTest and installed APK inspection.
+ * Why this is not fitting the test to the implementation: OS component reachability requires
+ *   declarations in the actual packaging input; runtime-only compile isolation remains enforced.
+ *
  * Test Change Justification:
  * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands;
  *   workspace mutation lease replaces the boolean write freeze.
@@ -140,16 +150,15 @@ class DataDiBoundaryTest : DataFunSpec() {
             }
         }
 
-        test("given reminder boot receiver when manifests are inspected then RECEIVE_BOOT_COMPLETED lives with data") {
-            val dataManifest = resolveModuleRoot("data").resolve("src/AndroidManifest.xml").readText()
+        test("given reminder boot receiver when packaging is inspected then the app registers its boot permission") {
             val appManifest = resolveModuleRoot("app").resolve("src/AndroidManifest.xml").readText()
 
-            withClue("data owns ReminderBootReceiver and must declare RECEIVE_BOOT_COMPLETED") {
-                dataManifest.contains("ReminderBootReceiver") shouldBe true
-                dataManifest.contains("android.permission.RECEIVE_BOOT_COMPLETED") shouldBe true
+            withClue("app packaging must register the receiver and permission together") {
+                appManifest.contains("com.lomo.data.reminder.ReminderBootReceiver") shouldBe true
+                appManifest.contains("android.permission.RECEIVE_BOOT_COMPLETED") shouldBe true
             }
-            withClue("app must not duplicate the boot permission away from the receiver owner") {
-                appManifest.contains("android.permission.RECEIVE_BOOT_COMPLETED") shouldBe false
+            withClue("data must not keep a source manifest that the toolchain discards") {
+                resolveModuleRoot("data").resolve("src/AndroidManifest.xml").exists() shouldBe false
             }
         }
 
@@ -162,13 +171,12 @@ class DataDiBoundaryTest : DataFunSpec() {
         }
     }
 
-    private fun collectKotlinFiles(root: File): List<File> =
-        root
-            .takeIf(File::exists)
-            ?.walkTopDown()
-            ?.filter { it.isFile && it.extension == "kt" }
-            ?.toList()
-            .orEmpty()
+    private fun collectKotlinFiles(root: File): List<File> = root
+        .takeIf(File::exists)
+        ?.walkTopDown()
+        ?.filter { it.isFile && it.extension == "kt" }
+        ?.toList()
+        .orEmpty()
 
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."
@@ -183,8 +191,8 @@ class DataDiBoundaryTest : DataFunSpec() {
             candidateRoots
                 .filterNotNull()
                 .firstOrNull { dir ->
-                dir.name == moduleName && dir.resolve("module.yaml").exists()
-            },
+                    dir.name == moduleName && dir.resolve("module.yaml").exists()
+                },
         ) {
             "Failed to resolve $moduleName module root from $currentDirPath"
         }

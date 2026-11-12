@@ -5,7 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import com.lomo.app.ExternalAppCommand
 import com.lomo.app.ExternalAppCommandTerminalResult
 import com.lomo.app.feature.memo.MemoEditorController
-import com.lomo.app.feature.memo.appendMarkdownBlock
+import com.lomo.app.feature.memo.captureMarkdownInsertion
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.StateFlow
 
@@ -38,10 +38,10 @@ internal fun ExternalAppCommandExecutionEffect(
                 executeExternalAppCommandPlan(
                     command = command,
                     plan =
-                        planExternalAppCommandExecution(
-                            command = command,
-                            readiness = readiness,
-                        ),
+                    planExternalAppCommandExecution(
+                        command = command,
+                        readiness = readiness,
+                    ),
                     draftText = draftText,
                     directoryGuideController = directoryGuideController,
                     editorController = editorController,
@@ -68,15 +68,23 @@ private fun executeExternalAppCommandPlan(
     plan.steps.forEach { step ->
         when (step) {
             ExternalAppCommandStep.RequestVoiceDirectory -> directoryGuideController.requestVoice()
+
             ExternalAppCommandStep.OpenDraftEditor -> editorController.openForCreate(draftText.value)
+
             ExternalAppCommandStep.EnsureEditorVisible -> editorController.ensureVisible()
+
             ExternalAppCommandStep.RequestRecordAudioPermission -> onRequestRecordAudioPermission(command)
-            ExternalAppCommandStep.StartRecording -> dependencies.recordingViewModel.startRecording()
+
+            ExternalAppCommandStep.StartRecording -> dependencies.recordingViewModel.startRecording(
+                editorController.editingSession?.draftId ?: dependencies.editorViewModel.ownerDraftId,
+            )
+
             ExternalAppCommandStep.StopRecording -> {
                 terminalHandledByAsyncStep = true
+                val insertRecording = editorController.captureMarkdownInsertion()
                 dependencies.recordingViewModel.stopRecording { markdown ->
                     if (markdown != null) {
-                        editorController.appendMarkdownBlock(markdown)
+                        insertRecording(markdown)
                         dependencies.editorViewModel.trackVoiceMarkdown(markdown)
                         dependencies.mainViewModel.completeExternalAppCommand(
                             command.id,

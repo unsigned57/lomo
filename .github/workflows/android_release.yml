@@ -13,70 +13,91 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  CARGO_HOME: ${{ github.workspace }}/.cache/cargo-home
-  HOME: ${{ github.workspace }}/.home
-  ANDROID_USER_HOME: ${{ github.workspace }}/.android
-  XDG_DATA_HOME: ${{ github.workspace }}/.local/share
-  XDG_CONFIG_HOME: ${{ github.workspace }}/.config
-  LOMO_KOTLIN_GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/kotlin-toolchain
-  KOTLIN_CLI_BOOTSTRAP_CACHE_DIR: ${{ github.workspace }}/.kotlin-cli
-
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Set up JDK 27
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: zulu
           java-version: '27'
       - name: Set up Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
       - name: Cache release toolchain
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            .cache
-            .gradle/kotlin-toolchain
-            .kotlin-cli
-            target
-            ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-          key: release-1.98-ndk29-${{ hashFiles('Cargo.lock', 'tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/lomo
+            ~/.cache/JetBrains/Kotlin
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            target/cargo
+            target/lomo/build
+            ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
+          key: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          test -n "$KEYSTORE_BASE64"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > release.keystore
-          test -s release.keystore
-      - name: Bootstrap pinned toolchain
-        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
-      - name: Run full gate
-        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci
-      - name: Build, validate, and sign release APKs
-        env:
-          KEYSTORE_FILE: release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          test -n "$KEYSTORE_BASE64"
+          # The toolchain owns release signing (settings.android.signing in
+          # apps/android/app/module.yaml): it reads keystore.properties in the module
+          # directory and resolves a relative storeFile from there.
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > apps/android/app/release.keystore
+          test -s apps/android/app/release.keystore
+          {
+            printf 'storeFile=release.keystore\n'
+            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > apps/android/app/keystore.properties
+      - name: Bootstrap pinned toolchain
+        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
+      - name: Run full gate
+        env:
+          # Tag pushes create a ref (no previous tip); the test-contract diff is taken from the
+          # default branch merge-base instead of a guessed parent commit.
+          MEANINGFUL_TEST_DIFF_BASE: ${{ github.event.before }}
+          MEANINGFUL_TEST_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci
+      - name: Build, validate, and verify release APKs
+        run: |
           for abi in arm64-v8a armeabi-v7a x86_64 x86 all; do
             echo "Building release APK for $abi..."
-            RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- android release "$abi"
+            RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- build android release "$abi"
           done
       - name: Upload release APKs
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-apks
-          path: target/lomo/apk/release/Lomo-*.apk
+          path: |
+            target/lomo/artifacts/android/release/Lomo-*.apk
+            target/lomo/artifacts/android/release/lomo-v*-vc*.apk
           if-no-files-found: error
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
-          files: target/lomo/apk/release/Lomo-*.apk
+          files: |
+            target/lomo/artifacts/android/release/Lomo-*.apk
+            target/lomo/artifacts/android/release/lomo-v*-vc*.apk
+      - name: Upload release diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-reports
+          path: reports/**
+          if-no-files-found: ignore
+      - name: Remove signing material
+        if: always()
+        run: rm -f apps/android/app/release.keystore apps/android/app/keystore.properties

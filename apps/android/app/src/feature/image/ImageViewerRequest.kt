@@ -1,36 +1,18 @@
 package com.lomo.app.feature.image
 
-data class ImageViewerRequest(
-    val imageUrls: List<String>,
-    val initialIndex: Int,
-    val memoId: String? = null,
-)
+import com.lomo.app.feature.main.MemoUiModel
 
-fun createImageViewerRequest(
-    imageUrls: List<String>,
-    clickedUrl: String,
-    memoId: String? = null,
-): ImageViewerRequest {
-    val normalizedUrls =
-        imageUrls
-            .asSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .toList()
-
-    if (normalizedUrls.isEmpty()) {
-        val fallbackUrl = clickedUrl.trim()
-        return ImageViewerRequest(
-            imageUrls = if (fallbackUrl.isNotEmpty()) listOf(fallbackUrl) else emptyList(),
-            initialIndex = 0,
-            memoId = memoId,
-        )
+/** A memo image always travels with the snapshot that supplied its media and tags. */
+data class ImageViewerRequest(val memo: MemoUiModel, val initialIndex: Int) {
+    init {
+        require(initialIndex in memo.imageUrls.indices) { "Viewer index must address a memo image" }
     }
+    val imageUrls: List<String> get() = memo.imageUrls
+    val memoId: String get() = memo.memo.id
+}
 
-    val index = normalizedUrls.indexOf(clickedUrl.trim()).takeIf { it >= 0 } ?: 0
-    return ImageViewerRequest(
-        imageUrls = normalizedUrls,
-        initialIndex = index,
-        memoId = memoId,
-    )
+fun createImageViewerRequest(memo: MemoUiModel, clickedUrl: String): ImageViewerRequest {
+    val index = memo.imageUrls.indexOf(clickedUrl)
+    require(index >= 0) { "Clicked image does not belong to the memo snapshot" }
+    return ImageViewerRequest(memo = memo, initialIndex = index)
 }

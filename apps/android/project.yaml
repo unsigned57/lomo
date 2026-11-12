@@ -2,6 +2,6 @@ modules:
   - app
   - data
   - domain
-  - quality/detekt-rules
   - native-bindings
+  - quality/detekt-rules
   - ui-components

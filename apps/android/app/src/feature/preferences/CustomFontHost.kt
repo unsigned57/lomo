@@ -1,6 +1,5 @@
 package com.lomo.app.feature.preferences
 
-import android.graphics.Typeface as PlatformTypeface
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import com.lomo.domain.repository.CustomFontStore
@@ -9,6 +8,7 @@ import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import android.graphics.Typeface as PlatformTypeface
 
 /**
  * Loads a [FontFamily] for a stored font file path. Returns `null` when the bytes cannot be
@@ -19,15 +19,14 @@ fun interface FontFamilyLoader {
 }
 
 class PlatformFontFamilyLoader : FontFamilyLoader {
-    override fun load(path: String): FontFamily? =
-        try {
-            FontFamily(Font(file = File(path)))
-        } catch (_: RuntimeException) {
-            // behavior-contract: silent-result-ok: unparseable font bytes resolve to null, which
-            // the host maps to the documented system-font fallback; the missing/corrupt fact
-            // stays visible through CustomFontStatus
-            null
-        }
+    override fun load(path: String): FontFamily? = try {
+        FontFamily(Font(file = File(path)))
+    } catch (_: RuntimeException) {
+        // behavior-contract: silent-result-ok: unparseable font bytes resolve to null, which
+        // the host maps to the documented system-font fallback; the missing/corrupt fact
+        // stays visible through CustomFontStatus
+        null
+    }
 }
 
 /**
@@ -39,14 +38,13 @@ fun interface CanvasTypefaceLoader {
 }
 
 class PlatformCanvasTypefaceLoader : CanvasTypefaceLoader {
-    override fun load(path: String): PlatformTypeface? =
-        try {
-            PlatformTypeface.createFromFile(File(path))
-        } catch (_: RuntimeException) {
-            // behavior-contract: silent-result-ok: unparseable font bytes resolve to null, which
-            // the share-card renderer maps to the platform default typeface
-            null
-        }
+    override fun load(path: String): PlatformTypeface? = try {
+        PlatformTypeface.createFromFile(File(path))
+    } catch (_: RuntimeException) {
+        // behavior-contract: silent-result-ok: unparseable font bytes resolve to null, which
+        // the share-card renderer maps to the platform default typeface
+        null
+    }
 }
 
 /**
@@ -63,11 +61,7 @@ class CustomFontHost(
     private val loader: FontFamilyLoader = PlatformFontFamilyLoader(),
     private val canvasLoader: CanvasTypefaceLoader = PlatformCanvasTypefaceLoader(),
 ) {
-    private data class FontIdentity(
-        val path: String,
-        val lastModified: Long,
-        val sizeBytes: Long,
-    )
+    private data class FontIdentity(val path: String, val lastModified: Long, val sizeBytes: Long)
 
     private val families = ConcurrentHashMap<FontIdentity, FontFamily>()
     private val failedFamilies = ConcurrentHashMap.newKeySet<FontIdentity>()
@@ -79,20 +73,19 @@ class CustomFontHost(
      * be parsed. The null is the "missing or unusable" fact behind
      * [CustomFontStatus.MISSING] — callers that need a renderable family use [familyFor].
      */
-    suspend fun familyOrNull(fontId: String): FontFamily? =
-        withContext(dispatcherProvider.io) {
-            val path = customFontStore.resolveFontPath(fontId) ?: return@withContext null
-            val identity = File(path).identity()
-            if (identity in failedFamilies) return@withContext null
-            families[identity]?.let { return@withContext it }
-            loader.load(path).also { family ->
-                if (family == null) {
-                    failedFamilies += identity
-                } else {
-                    families[identity] = family
-                }
+    suspend fun familyOrNull(fontId: String): FontFamily? = withContext(dispatcherProvider.io) {
+        val path = customFontStore.resolveFontPath(fontId) ?: return@withContext null
+        val identity = File(path).identity()
+        if (identity in failedFamilies) return@withContext null
+        families[identity]?.let { return@withContext it }
+        loader.load(path).also { family ->
+            if (family == null) {
+                failedFamilies += identity
+            } else {
+                families[identity] = family
             }
         }
+    }
 
     /**
      * Resolves the font backing [fontId]. A missing file or unparseable bytes resolve to
@@ -106,22 +99,21 @@ class CustomFontHost(
      * `null` when the path is blank, missing, or unparseable — the share-card renderer maps null
      * to the platform default typeface.
      */
-    suspend fun canvasTypefaceOrNull(fontPath: String?): PlatformTypeface? =
-        withContext(dispatcherProvider.io) {
-            if (fontPath.isNullOrBlank()) return@withContext null
-            val file = File(fontPath)
-            if (!file.exists()) return@withContext null
-            val identity = file.identity()
-            if (identity in failedCanvasTypefaces) return@withContext null
-            canvasTypefaces[identity]?.let { return@withContext it }
-            canvasLoader.load(fontPath).also { typeface ->
-                if (typeface == null) {
-                    failedCanvasTypefaces += identity
-                } else {
-                    canvasTypefaces[identity] = typeface
-                }
+    suspend fun canvasTypefaceOrNull(fontPath: String?): PlatformTypeface? = withContext(dispatcherProvider.io) {
+        if (fontPath.isNullOrBlank()) return@withContext null
+        val file = File(fontPath)
+        if (!file.exists()) return@withContext null
+        val identity = file.identity()
+        if (identity in failedCanvasTypefaces) return@withContext null
+        canvasTypefaces[identity]?.let { return@withContext it }
+        canvasLoader.load(fontPath).also { typeface ->
+            if (typeface == null) {
+                failedCanvasTypefaces += identity
+            } else {
+                canvasTypefaces[identity] = typeface
             }
         }
+    }
 
     private fun File.identity() = FontIdentity(path = path, lastModified = lastModified(), sizeBytes = length())
 }

@@ -24,16 +24,17 @@ package com.lomo.app.navigation
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 
-class NavBackNavigationPolicyTest : FunSpec({
-    test("given the main route when back stack cannot pop then navigation does not self-transition") {
-        shouldNavigateToMain(currentRoute = NavRouteSerialNames.MAIN, popBackStackSucceeded = false) shouldBe false
-    }
+class NavBackNavigationPolicyTest :
+    FunSpec({
+        test("given the main route when back stack cannot pop then navigation does not self-transition") {
+            shouldNavigateToMain(currentRoute = NavRouteSerialNames.MAIN, popBackStackSucceeded = false) shouldBe false
+        }
 
-    test("given a child route when back stack cannot pop then navigation restores main") {
-        shouldNavigateToMain(currentRoute = "settings", popBackStackSucceeded = false) shouldBe true
-    }
+        test("given a child route when back stack cannot pop then navigation restores main") {
+            shouldNavigateToMain(currentRoute = "settings", popBackStackSucceeded = false) shouldBe true
+        }
 
-    test("given a route that popped successfully then navigation does not add main") {
-        shouldNavigateToMain(currentRoute = "settings", popBackStackSucceeded = true) shouldBe false
-    }
-})
+        test("given a route that popped successfully then navigation does not add main") {
+            shouldNavigateToMain(currentRoute = "settings", popBackStackSucceeded = true) shouldBe false
+        }
+    })

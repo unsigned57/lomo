@@ -5,12 +5,11 @@ import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.psiUtil.parents
 
-internal class NoUnconfinedIoOrNativeRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Blocking I/O and native calls must not execute outside Dispatchers.IO to prevent UI frame drops and ANRs.",
-) {
+internal class NoUnconfinedIoOrNativeRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Blocking I/O and native calls must not execute outside Dispatchers.IO to prevent UI frame drops and ANRs.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*(blocking-io-ok|io-context-ok)""")
     private val ioCalleeNames = setOf(
         "readText",
@@ -38,8 +37,12 @@ internal class NoUnconfinedIoOrNativeRule(
                 if (name == "withContext") {
                     val argsText = parent.valueArgumentList?.text.orEmpty()
                     argsText.contains("IO") || argsText.contains("io") || argsText.contains("dispatcher")
-                } else false
-            } else false
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
         }
 
         if (isInsideIoContext) return
@@ -53,12 +56,11 @@ internal class NoUnconfinedIoOrNativeRule(
     }
 }
 
-internal class NoUnpaginatedFullLoadRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Unpaginated full-dataset queries and unbuffered stream reads are forbidden to prevent memory ballooning and OOM.",
-) {
+internal class NoUnpaginatedFullLoadRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Unpaginated full-dataset queries and unbuffered stream reads are forbidden to prevent memory ballooning and OOM.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*(full-load-ok|unpaginated-ok)""")
     private val fullScanPrefixes = listOf("getAll", "loadAll", "readAll", "fetchAll")
     private val paginationParams = setOf("limit", "pagesize", "page", "cursor", "offset", "count")

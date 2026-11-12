@@ -1,7 +1,5 @@
 package com.lomo.app.feature.main
 
-import androidx.paging.Pager
-import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.filter
@@ -26,19 +24,17 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-
 private const val SEARCH_DEBOUNCE_MILLIS = 150L
+
+// First presentation maps one page; placeholders retain absolute ranks and prefetch extends it.
 internal const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
-private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
 private const val DEFAULT_MAIN_LIST_PREFETCH_DISTANCE = 10
 private const val DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS = true
 
 sealed interface GalleryUiMemosState {
     data object Loading : GalleryUiMemosState
 
-    data class Loaded(
-        val memos: List<MemoUiModel>,
-    ) : GalleryUiMemosState
+    data class Loaded(val memos: List<MemoUiModel>) : GalleryUiMemosState
 }
 
 /** Inputs for the main memo list state holder: the query sources plus the current media mapping. */
@@ -54,9 +50,7 @@ internal data class MainMemoListStateHolderDependencies(
     val imageMap: StateFlow<Map<String, android.net.Uri>>,
 )
 
-internal class MainMemoListStateHolder(
-    dependencies: MainMemoListStateHolderDependencies,
-) {
+internal class MainMemoListStateHolder(dependencies: MainMemoListStateHolderDependencies) {
     private val scope = dependencies.scope
     private val mainMemoListQueryUseCase = dependencies.mainMemoListQueryUseCase
     private val memoUiMapper = dependencies.memoUiMapper
@@ -66,6 +60,22 @@ internal class MainMemoListStateHolder(
     private val rootDirectory = dependencies.rootDirectory
     private val imageDirectory = dependencies.imageDirectory
     private val imageMap = dependencies.imageMap
+
+    /** Complete viewer snapshots track commits independently of the gallery's loaded page. */
+    fun observeMemoUiModel(memoId: String): Flow<MemoUiModel?> =
+        combine(mappingInput, mainMemoListQueryUseCase.observeListProjection()) { mapping, _ -> mapping }
+            .map { mapping ->
+                mainMemoListQueryUseCase.getMemoById(memoId)?.let { memo ->
+                    memoUiMapper.peekOrMapToCachedUiModel(
+                        memo = memo,
+                        rootPath = mapping.rootDirectory,
+                        imagePath = mapping.imageDirectory,
+                        imageMap = mapping.imageMap,
+                        reminders = memo.reminders,
+                    )
+                }
+            }
+
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     private val mainMemoQueryInput: StateFlow<MemoQueryInput> =
         combine(
@@ -81,9 +91,9 @@ internal class MainMemoListStateHolder(
 
     private val mappingInput: Flow<UiMemoMappingInput> =
         combine(rootDirectory, imageDirectory, imageMap) {
-            rootDir,
-            imageDir,
-            currentImageMap,
+                rootDir,
+                imageDir,
+                currentImageMap,
             ->
             UiMemoMappingInput(
                 memos = emptyList(),
@@ -108,7 +118,7 @@ internal class MainMemoListStateHolder(
                 memoPager(
                     scope = scope,
                     pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
-                    initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
+                    initialLoadSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
                     prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
                     enablePlaceholders = DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS,
                     pagingSourceFactory = {
@@ -146,14 +156,16 @@ internal class MainMemoListStateHolder(
                 if (authority == null) {
                     flowOf(null)
                 } else {
-                    Pager(
-                        PagingConfig(
-                            pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
-                            initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
-                            prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
-                            enablePlaceholders = false,
-                        ),
-                    ) { mainMemoListQueryUseCase.getGalleryMemosPagingSource() }.flow
+                    // Media mapping can collect this generation again after promotion/inventory.
+                    // Cache the source events before those repeatable presentation transforms.
+                    memoPager(
+                        scope = scope,
+                        pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
+                        initialLoadSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
+                        prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
+                        enablePlaceholders = false,
+                        pagingSourceFactory = { mainMemoListQueryUseCase.getGalleryMemosPagingSource() },
+                    )
                         .map { pagingData ->
                             pagingData.filter { memo ->
                                 memo.imageUrls.isNotEmpty()
@@ -184,12 +196,6 @@ internal class MainMemoListStateHolder(
         }.cachedIn(scope)
 }
 
-private data class MemoQueryInput(
-    val query: String,
-    val filter: MemoListFilter,
-)
+private data class MemoQueryInput(val query: String, val filter: MemoListFilter)
 
-private data class AuthorizedMemoQueryInput(
-    val authority: WorkspaceAuthority,
-    val query: MemoQueryInput,
-)
+private data class AuthorizedMemoQueryInput(val authority: WorkspaceAuthority, val query: MemoQueryInput)

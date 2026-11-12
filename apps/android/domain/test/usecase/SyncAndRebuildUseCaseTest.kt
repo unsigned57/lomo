@@ -1,13 +1,13 @@
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.domain.usecase
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncFailureException
@@ -26,22 +25,19 @@ import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.UnifiedSyncOperation
-import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.WebDavSyncErrorCode
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeGitSyncRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakePreferencesRepository
-import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
-import com.lomo.domain.testing.fakes.FakeGitSyncRepository
-import com.lomo.domain.testing.fakes.FakeWebDavSyncRepository
 import com.lomo.domain.testing.fakes.FakeS3SyncRepository
 import com.lomo.domain.testing.fakes.FakeSyncInboxRepository
+import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
+import com.lomo.domain.testing.fakes.FakeWebDavSyncRepository
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 
@@ -80,15 +76,15 @@ class SyncAndRebuildUseCaseTest : DomainFunSpec() {
     private val syncProviderRegistry =
         SyncProviderRegistry(
             providers =
-                setOf(
-                    GitUnifiedSyncProvider(gitSyncRepository),
-                    WebDavUnifiedSyncProvider(webDavSyncRepository),
-                    S3UnifiedSyncProvider(s3SyncRepository),
-                    InboxUnifiedSyncProvider(
-                        syncInboxRepository = syncInboxRepository,
-                        preferencesRepository = preferencesRepository,
-                    ),
+            setOf(
+                GitUnifiedSyncProvider(gitSyncRepository),
+                WebDavUnifiedSyncProvider(webDavSyncRepository),
+                S3UnifiedSyncProvider(s3SyncRepository),
+                InboxUnifiedSyncProvider(
+                    syncInboxRepository = syncInboxRepository,
+                    preferencesRepository = preferencesRepository,
                 ),
+            ),
         )
 
     private val useCase =
@@ -235,14 +231,14 @@ class SyncAndRebuildUseCaseTest : DomainFunSpec() {
                     SyncConflictSet(
                         source = SyncBackendType.GIT,
                         files =
-                            listOf(
-                                SyncConflictFile(
-                                    relativePath = "2026_03_26.md",
-                                    localContent = "local",
-                                    remoteContent = "remote",
-                                    isBinary = false,
-                                ),
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "2026_03_26.md",
+                                localContent = "local",
+                                remoteContent = "remote",
+                                isBinary = false,
                             ),
+                        ),
                         timestamp = 123L,
                     )
                 gitSyncRepository.nextSyncResult = GitSyncResult.Conflict(message = "conflict", conflicts = conflicts)

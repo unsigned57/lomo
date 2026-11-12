@@ -43,9 +43,7 @@ class FakeSyncPolicyRepository(
     }
 }
 
-class FakeUnifiedSyncProvider(
-    override val backendType: SyncBackendType,
-) : UnifiedSyncProvider {
+class FakeUnifiedSyncProvider(override val backendType: SyncBackendType) : UnifiedSyncProvider {
     private val enabled = MutableStateFlow(true)
     private val syncOnRefreshEnabled = MutableStateFlow(true)
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)

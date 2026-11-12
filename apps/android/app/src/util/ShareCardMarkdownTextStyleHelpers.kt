@@ -6,14 +6,9 @@ import com.lomo.domain.model.markdown.MarkdownRenderTableCell
 
 internal fun MarkdownRenderTableCell.toStyledShareText(): StyledShareText = inlines.toStyledShareText("[Image]")
 
-internal data class StyledShareText(
-    val text: String,
-    val styles: List<ShareInlineStyleRange>,
-)
+internal data class StyledShareText(val text: String, val styles: List<ShareInlineStyleRange>)
 
-internal class StyledShareTextState(
-    private val imagePlaceholder: String,
-) {
+internal class StyledShareTextState(private val imagePlaceholder: String) {
     val output = StringBuilder()
     val styles = mutableListOf<ShareInlineStyleRange>()
     private val activeHtmlStyles = mutableListOf<ShareInlineStyleKind>()
@@ -58,8 +53,7 @@ internal class StyledShareTextState(
         return true
     }
 
-    fun toStyledShareText(): StyledShareText =
-        StyledShareText(output.toString(), styles)
+    fun toStyledShareText(): StyledShareText = StyledShareText(output.toString(), styles)
 
     private fun trimTrailingWhitespace() {
         var trimmedLength = output.length
@@ -86,41 +80,54 @@ internal fun List<MarkdownRenderInline>.toStyledShareText(imagePlaceholder: Stri
     return state.toStyledShareText()
 }
 
-private fun MarkdownRenderInline.appendShareText(
-    state: StyledShareTextState,
-) {
+private fun MarkdownRenderInline.appendShareText(state: StyledShareTextState) {
     when (this) {
         is MarkdownRenderInline.Text -> state.appendText(text)
+
         is MarkdownRenderInline.Code -> {
             val start = state.output.length
             state.appendText(text)
             state.styles += ShareInlineStyleRange(start, state.output.length, ShareInlineStyleKind.InlineCode)
         }
+
         is MarkdownRenderInline.Strong ->
             appendStyledChildren(state, ShareInlineStyleKind.Bold, inlines)
+
         is MarkdownRenderInline.Emphasis ->
             appendStyledChildren(state, ShareInlineStyleKind.Italic, inlines)
+
         is MarkdownRenderInline.Strikethrough ->
             appendStyledChildren(state, ShareInlineStyleKind.Strikethrough, inlines)
+
+        is MarkdownRenderInline.Underline ->
+            appendStyledChildren(state, ShareInlineStyleKind.Underline, inlines)
+
         is MarkdownRenderInline.Link ->
             appendStyledChildren(state, ShareInlineStyleKind.Link, inlines)
+
         is MarkdownRenderInline.Highlight ->
             appendStyledChildren(state, ShareInlineStyleKind.Highlight, inlines)
+
         is MarkdownRenderInline.Image ->
             when (mediaClass) {
                 MediaClass.IMAGE -> state.appendImagePlaceholder()
                 else -> state.appendText(altText.ifBlank { destination })
             }
+
         is MarkdownRenderInline.SoftBreak,
         is MarkdownRenderInline.HardBreak,
         -> state.appendLineBreak()
+
         is MarkdownRenderInline.HtmlInline -> {
             if (!state.consumeHtml(literal)) {
                 state.appendText(literal)
             }
         }
+
         is MarkdownRenderInline.Tag -> state.appendText("#$name")
+
         is MarkdownRenderInline.Reminder -> state.appendText(token)
+
         is MarkdownRenderInline.WikiReference -> inlines.forEach { it.appendShareText(state) }
     }
 }

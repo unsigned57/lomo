@@ -196,6 +196,6 @@ pub fn generate_random_nonce() -> Result<String, LomoError> {
 pub fn compute_sha256(data: &[u8]) -> Result<Sha256Digest, LomoError> {
     let mut hasher = Sha256::new();
     hasher.update(data);
-    let hex = format!("{:x}", hasher.finalize());
+    let hex = lomo_core::hex_encode(&hasher.finalize());
     Sha256Digest::parse(&hex)
 }

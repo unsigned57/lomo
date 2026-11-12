@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" width="96" height="96" alt="Lomo logo" />
+  <img src="docs/assets/logo.png" width="96" height="96" alt="Lomo logo" />
 </p>
 
 <h1 align="center">Lomo</h1>
@@ -27,9 +27,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/01_menu.png" width="32%" alt="菜单" />
-  <img src="docs/screenshots/02_home.png" width="32%" alt="首页" />
-  <img src="docs/screenshots/03_detail.png" width="32%" alt="详情" />
+  <img src="docs/assets/screenshots/01_menu.png" width="32%" alt="菜单" />
+  <img src="docs/assets/screenshots/02_home.png" width="32%" alt="首页" />
+  <img src="docs/assets/screenshots/03_detail.png" width="32%" alt="详情" />
 </p>
 <p align="center"><sub>菜单 · 首页 · 详情</sub></p>
 
@@ -118,7 +118,7 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 - `Esc` 每次只退回一层，提示行始终写明它接下来会做什么
 - 支持图片协议的终端可在全文页显示图片
 
-本轮桌面 TUI 不含内置 Git/WebDAV/S3 同步与局域网分享；跨端交换请复制 Markdown 工作区（含 `.lomo`）或使用外部文件同步。
+本轮桌面 TUI 不含内置 Git/WebDAV/S3 同步与局域网分享；跨端交换请复制 Markdown 工作区和附件（需要保留已删除 memo 时包含 `.trash`），或使用外部文件同步。历史、置顶和内部控制状态保留在各端应用内部。
 
 从源码构建见下方 **构建指南**。
 
@@ -136,7 +136,7 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 - **异步：** Coroutines & Flow（Android）
 - **数据：**
   - Android 通过 Storage Access Framework 管理 Markdown 工作区，桌面使用宿主文件系统
-  - Rust 管理的 SQLite 派生索引与耐久 `.lomo` 状态
+  - Rust 管理的 SQLite 派生索引与应用内部耐久控制状态
 
 </details>
 
@@ -151,7 +151,10 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 just bootstrap
 
 # 构建并校验 Debug APK
-just android debug
+just build android debug
+
+# 构建桌面 TUI 二进制（target/lomo/artifacts/tui/release/lomo）
+just build tui release
 
 # 运行 TUI
 cargo run -p lomo-tui --release --locked
@@ -164,14 +167,17 @@ just check
 just ci
 ```
 
+目录职责和成品位置见[目录说明](docs/project-layout.md)。
+
 `native-bindings/src` 与 native `.so` 都是可再生、被忽略的构建产物。构建必须支持干净检出，
-也支持并保留已有本地编辑。签名 release 使用 `just android release`，必须提供[发布规范](quality/release.md)中的 keystore 配置。
+也支持并保留已有本地编辑。签名 release 使用 `just build android release`，必须提供[发布规范](quality/release.md)中的 keystore 配置。
 
 生产 FFI 身份为 `native-bindings` / `com.lomo.nativebridge` / `liblomo_native_jni.so`。
 能力测试材料见 [fixtures](fixtures/README.md)，模块权威以[架构规范](ARCHITECTURE.md)为准。
 [文档索引](docs/README.md)列出了各文档的唯一职责。
 
 Android Studio 仍可用于编辑和设备调试，但仓库门禁与 native 生成必须使用上述命令。
+针对 redroid 容器设备的无头 UI 调试与流程复现见 [Android UI test](quality/android-uitest.md)。
 
 </details>
 

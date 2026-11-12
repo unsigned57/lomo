@@ -6,18 +6,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.automirrored.rounded.Redo
 import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.FormatUnderlined
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PhotoCamera
 import com.lomo.app.R
 import com.lomo.domain.model.DraftId
 import com.lomo.ui.component.input.InputEditorCommand
 import com.lomo.ui.component.input.InputToolbarActionId
 import com.lomo.ui.component.input.InputToolbarTool
+import com.lomo.ui.component.input.InputToolbarToolPlacement
 import com.lomo.ui.component.input.InputToolbarToolTintRole
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -61,13 +63,13 @@ fun interface MemoEditorCommandHandler {
 
 data class MemoEditorOperations(
     /**
-     * Stages an image under the lease of [draftId] — the effective draft the caller resolved
+     * Stages images under the lease of [draftId] — the effective draft the caller resolved
      * (edit session's durable draft, else the surface owner's). Never invents an owner.
      */
-    val onSaveImage: (
-        uri: Uri,
+    val onSaveImages: (
+        uris: List<Uri>,
         draftId: DraftId,
-        onResult: (String) -> Unit,
+        onResult: (List<String>) -> Unit,
         onError: (() -> Unit)?,
     ) -> Unit,
     /**
@@ -102,9 +104,8 @@ data class MemoEditorSurface(
     val operations: MemoEditorOperations,
 )
 
-fun memoEditorToolbarTools(
-    recording: Boolean,
-): ImmutableSet<InputToolbarActionId> = memoEditorToolbarActionSet(recording = recording)
+fun memoEditorToolbarTools(recording: Boolean): ImmutableSet<InputToolbarActionId> =
+    memoEditorToolbarActionSet(recording = recording)
 
 object MemoEditorToolbarActionIds {
     val camera = InputToolbarActionId("camera")
@@ -115,42 +116,42 @@ object MemoEditorToolbarActionIds {
     val clearBackfill = InputToolbarActionId("clear-backfill")
     val todo = InputToolbarActionId("todo")
     val reminder = InputToolbarActionId("reminder")
+    val location = InputToolbarActionId("location")
     val underline = InputToolbarActionId("underline")
     val undo = InputToolbarActionId("undo")
     val redo = InputToolbarActionId("redo")
 }
 
-fun defaultMemoEditorToolbarOrder(): List<InputToolbarActionId> =
-    listOf(
-        MemoEditorToolbarActionIds.camera,
-        MemoEditorToolbarActionIds.image,
-        MemoEditorToolbarActionIds.record,
-        MemoEditorToolbarActionIds.tag,
-        MemoEditorToolbarActionIds.backfill,
-        MemoEditorToolbarActionIds.todo,
-        MemoEditorToolbarActionIds.reminder,
-        MemoEditorToolbarActionIds.underline,
-        MemoEditorToolbarActionIds.undo,
-        MemoEditorToolbarActionIds.redo,
-    )
+fun defaultMemoEditorToolbarOrder(): List<InputToolbarActionId> = listOf(
+    MemoEditorToolbarActionIds.camera,
+    MemoEditorToolbarActionIds.image,
+    MemoEditorToolbarActionIds.record,
+    MemoEditorToolbarActionIds.tag,
+    MemoEditorToolbarActionIds.backfill,
+    MemoEditorToolbarActionIds.todo,
+    MemoEditorToolbarActionIds.reminder,
+    MemoEditorToolbarActionIds.location,
+    MemoEditorToolbarActionIds.underline,
+    MemoEditorToolbarActionIds.undo,
+    MemoEditorToolbarActionIds.redo,
+)
 
 fun memoEditorToolbarToolMetadata(
     availableActions: Set<InputToolbarActionId>,
     canUndo: Boolean,
     canRedo: Boolean,
     canBackfill: Boolean,
-): ImmutableList<InputToolbarTool> =
-    defaultMemoEditorToolbarOrder()
-        .asSequence()
-        .filter { actionId -> actionId in availableActions }
-        .map { actionId ->
-            memoEditorToolbarTool(
-                actionId = actionId,
-                canUndo = canUndo,
-                canRedo = canRedo,
-                canBackfill = canBackfill,
-            )
-        }.toImmutableList()
+): ImmutableList<InputToolbarTool> = defaultMemoEditorToolbarOrder()
+    .asSequence()
+    .filter { actionId -> actionId in availableActions }
+    .map { actionId ->
+        memoEditorToolbarTool(
+            actionId = actionId,
+            canUndo = canUndo,
+            canRedo = canRedo,
+            canBackfill = canBackfill,
+        )
+    }.toImmutableList()
 
 fun unsupportedMemoEditorCommand(command: InputEditorCommand): Nothing =
     error("Unsupported memo editor command reached app adapter: $command")
@@ -160,48 +161,45 @@ fun existingMemoEditorSurface(
     toolbarToolOrder: ImmutableList<String>,
     onUpdateMemo: suspend (MemoEditorSubmissionId, MemoEditSession, String) -> Boolean,
     submissionState: StateFlow<MemoEditorSubmissionState>,
-    onSaveImage: (
-        uri: Uri,
+    onSaveImages: (
+        uris: List<Uri>,
         draftId: DraftId,
-        onResult: (String) -> Unit,
+        onResult: (List<String>) -> Unit,
         onError: (() -> Unit)?,
     ) -> Unit,
     onToolbarOrderChanged: (List<String>) -> Unit,
-): MemoEditorSurface =
-    MemoEditorSurface(
-        session = session,
-        capabilities =
-            MemoEditorCapabilities(
-                quickSaveOnBackEnabled = false,
-                toolbarActions = memoEditorToolbarTools(recording = false),
-                toolbarToolOrder = toolbarToolOrder,
-            ),
-        commands = MemoEditorCommandHandler(::unsupportedMemoEditorCommand),
-        operations =
-            MemoEditorOperations(
-                onSaveImage = onSaveImage,
-                onSubmit = { submissionId, editSession, content, _ ->
-                    checkNotNull(editSession) {
-                        "Existing memo editor surface cannot submit a new memo"
-                    }
-                    onUpdateMemo(submissionId, editSession, content)
-                },
-                submissionState = submissionState,
-                onDismiss = null,
-                onToolbarOrderChanged = { tools ->
-                    onToolbarOrderChanged(tools.map { tool -> tool.persistedId })
-                },
-            ),
-    )
+): MemoEditorSurface = MemoEditorSurface(
+    session = session,
+    capabilities =
+    MemoEditorCapabilities(
+        quickSaveOnBackEnabled = false,
+        toolbarActions = memoEditorToolbarTools(recording = false),
+        toolbarToolOrder = toolbarToolOrder,
+    ),
+    commands = MemoEditorCommandHandler(::unsupportedMemoEditorCommand),
+    operations =
+    MemoEditorOperations(
+        onSaveImages = onSaveImages,
+        onSubmit = { submissionId, editSession, content, _ ->
+            checkNotNull(editSession) {
+                "Existing memo editor surface cannot submit a new memo"
+            }
+            onUpdateMemo(submissionId, editSession, content)
+        },
+        submissionState = submissionState,
+        onDismiss = null,
+        onToolbarOrderChanged = { tools ->
+            onToolbarOrderChanged(tools.map { tool -> tool.persistedId })
+        },
+    ),
+)
 
-private fun memoEditorToolbarActionSet(
-    recording: Boolean,
-): ImmutableSet<InputToolbarActionId> {
+private fun memoEditorToolbarActionSet(recording: Boolean): ImmutableSet<InputToolbarActionId> {
     val actions = defaultMemoEditorToolbarOrder().toMutableSet()
     if (!recording) {
         actions -= MemoEditorToolbarActionIds.record
     }
-    return actions.fold(persistentSetOf()) { result, actionId -> result.add(actionId) }
+    return actions.fold(persistentSetOf()) { result, actionId -> result.adding(actionId) }
 }
 
 private fun memoEditorToolbarTool(
@@ -209,82 +207,104 @@ private fun memoEditorToolbarTool(
     canUndo: Boolean,
     canRedo: Boolean,
     canBackfill: Boolean,
-): InputToolbarTool =
-    when (actionId) {
-        MemoEditorToolbarActionIds.camera ->
-            toolbarTool(
-                actionId = actionId,
-                contentDescriptionRes = R.string.cd_memo_editor_take_photo,
-                icon = Icons.Rounded.PhotoCamera,
-            )
-        MemoEditorToolbarActionIds.image ->
-            toolbarTool(
-                actionId = actionId,
-                contentDescriptionRes = R.string.cd_memo_editor_add_image,
-                icon = Icons.Rounded.Image,
-            )
-        MemoEditorToolbarActionIds.record ->
-            toolbarTool(
-                actionId = actionId,
-                contentDescriptionRes = R.string.cd_memo_editor_add_voice_memo,
-                icon = Icons.Rounded.Mic,
-                requiredPermission = Manifest.permission.RECORD_AUDIO,
-            )
-        MemoEditorToolbarActionIds.tag ->
-            InputToolbarTool(
-                id = actionId,
-                icon = Icons.AutoMirrored.Rounded.Label,
-                contentDescriptionRes = R.string.cd_memo_editor_add_tag,
-                command = InputEditorCommand.ToggleTagSelector,
-                enabled = true,
-            )
-        MemoEditorToolbarActionIds.backfill ->
-            toolbarTool(
-                actionId = actionId,
-                contentDescriptionRes = R.string.cd_memo_editor_backfill_memo,
-                icon = Icons.Rounded.History,
-                enabled = canBackfill,
-            )
-        MemoEditorToolbarActionIds.todo ->
-            InputToolbarTool(
-                id = actionId,
-                icon = Icons.Rounded.CheckBox,
-                contentDescriptionRes = R.string.cd_memo_editor_add_checkbox,
-                command = InputEditorCommand.InsertTodo,
-                enabled = true,
-            )
-        MemoEditorToolbarActionIds.reminder ->
-            toolbarTool(
-                actionId = actionId,
-                contentDescriptionRes = R.string.cd_memo_editor_add_reminder,
-                icon = Icons.Rounded.Notifications,
-            )
-        MemoEditorToolbarActionIds.underline ->
-            InputToolbarTool(
-                id = actionId,
-                icon = Icons.Rounded.FormatUnderlined,
-                contentDescriptionRes = R.string.cd_memo_editor_add_underline,
-                command = InputEditorCommand.InsertUnderline,
-                enabled = true,
-            )
-        MemoEditorToolbarActionIds.undo ->
-            InputToolbarTool(
-                id = actionId,
-                icon = Icons.AutoMirrored.Rounded.Undo,
-                contentDescriptionRes = R.string.cd_memo_editor_undo,
-                command = InputEditorCommand.Undo,
-                enabled = canUndo,
-            )
-        MemoEditorToolbarActionIds.redo ->
-            InputToolbarTool(
-                id = actionId,
-                icon = Icons.AutoMirrored.Rounded.Redo,
-                contentDescriptionRes = R.string.cd_memo_editor_redo,
-                command = InputEditorCommand.Redo,
-                enabled = canRedo,
-            )
-        else -> error("Unsupported memo toolbar action id: ${actionId.persistedId}")
-    }
+): InputToolbarTool = when (actionId) {
+    MemoEditorToolbarActionIds.camera ->
+        toolbarTool(
+            actionId = actionId,
+            contentDescriptionRes = R.string.cd_memo_editor_take_photo,
+            icon = Icons.Rounded.PhotoCamera,
+        )
+
+    MemoEditorToolbarActionIds.image ->
+        toolbarTool(
+            actionId = actionId,
+            contentDescriptionRes = R.string.cd_memo_editor_add_image,
+            icon = Icons.Rounded.Image,
+        )
+
+    MemoEditorToolbarActionIds.record ->
+        toolbarTool(
+            actionId = actionId,
+            contentDescriptionRes = R.string.cd_memo_editor_add_voice_memo,
+            icon = Icons.Rounded.Mic,
+            requiredPermission = Manifest.permission.RECORD_AUDIO,
+        )
+
+    MemoEditorToolbarActionIds.tag ->
+        InputToolbarTool(
+            id = actionId,
+            icon = Icons.AutoMirrored.Rounded.Label,
+            contentDescriptionRes = R.string.cd_memo_editor_add_tag,
+            command = InputEditorCommand.ToggleTagSelector,
+            enabled = true,
+        )
+
+    MemoEditorToolbarActionIds.backfill ->
+        toolbarTool(
+            actionId = actionId,
+            contentDescriptionRes = R.string.cd_memo_editor_backfill_memo,
+            icon = Icons.Rounded.History,
+            enabled = canBackfill,
+            placement = InputToolbarToolPlacement.SecondaryTray,
+        )
+
+    MemoEditorToolbarActionIds.todo ->
+        InputToolbarTool(
+            id = actionId,
+            icon = Icons.Rounded.CheckBox,
+            contentDescriptionRes = R.string.cd_memo_editor_add_checkbox,
+            command = InputEditorCommand.InsertTodo,
+            enabled = true,
+        )
+
+    MemoEditorToolbarActionIds.reminder ->
+        toolbarTool(
+            actionId = actionId,
+            contentDescriptionRes = R.string.cd_memo_editor_add_reminder,
+            icon = Icons.Rounded.Notifications,
+            placement = InputToolbarToolPlacement.SecondaryTray,
+        )
+
+    MemoEditorToolbarActionIds.location ->
+        toolbarTool(
+            actionId = actionId,
+            contentDescriptionRes = R.string.memo_coordinates_title,
+            icon = Icons.Rounded.LocationOn,
+            placement = InputToolbarToolPlacement.SecondaryTray,
+        )
+
+    MemoEditorToolbarActionIds.underline ->
+        InputToolbarTool(
+            id = actionId,
+            icon = Icons.Rounded.FormatUnderlined,
+            contentDescriptionRes = R.string.cd_memo_editor_add_underline,
+            command = InputEditorCommand.InsertUnderline,
+            enabled = true,
+            placement = InputToolbarToolPlacement.SecondaryTray,
+        )
+
+    MemoEditorToolbarActionIds.undo ->
+        InputToolbarTool(
+            id = actionId,
+            icon = Icons.AutoMirrored.Rounded.Undo,
+            contentDescriptionRes = R.string.cd_memo_editor_undo,
+            command = InputEditorCommand.Undo,
+            enabled = canUndo,
+            placement = InputToolbarToolPlacement.HeaderEnd,
+        )
+
+    MemoEditorToolbarActionIds.redo ->
+        InputToolbarTool(
+            id = actionId,
+            icon = Icons.AutoMirrored.Rounded.Redo,
+            contentDescriptionRes = R.string.cd_memo_editor_redo,
+            command = InputEditorCommand.Redo,
+            enabled = canRedo,
+            placement = InputToolbarToolPlacement.HeaderEnd,
+        )
+
+    else -> error("Unsupported memo toolbar action id: ${actionId.persistedId}")
+}
 
 private fun toolbarTool(
     actionId: InputToolbarActionId,
@@ -292,14 +312,15 @@ private fun toolbarTool(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     enabled: Boolean = true,
     tintRole: InputToolbarToolTintRole = InputToolbarToolTintRole.Default,
+    placement: InputToolbarToolPlacement = InputToolbarToolPlacement.Primary,
     requiredPermission: String? = null,
-): InputToolbarTool =
-    InputToolbarTool(
-        id = actionId,
-        icon = icon,
-        contentDescriptionRes = contentDescriptionRes,
-        command = InputEditorCommand.Action(actionId),
-        enabled = enabled,
-        tintRole = tintRole,
-        requiredPermission = requiredPermission,
-    )
+): InputToolbarTool = InputToolbarTool(
+    id = actionId,
+    icon = icon,
+    contentDescriptionRes = contentDescriptionRes,
+    command = InputEditorCommand.Action(actionId),
+    enabled = enabled,
+    tintRole = tintRole,
+    placement = placement,
+    requiredPermission = requiredPermission,
+)

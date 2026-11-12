@@ -23,12 +23,13 @@ package com.lomo.data.worker
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 
-class RustSyncWorkCancelTargetsTest : FunSpec({
-    test("cancel targets include periodic oneshot and deferred unique work") {
-        RustSyncWorker.cancelTargets().shouldContainExactlyInAnyOrder(
-            RustSyncWorker.WORK_NAME,
-            RustSyncWorker.ONESHOT_WORK_NAME,
-            RustSyncWorker.DEFERRED_WORK_NAME,
-        )
-    }
-})
+class RustSyncWorkCancelTargetsTest :
+    FunSpec({
+        test("cancel targets include periodic oneshot and deferred unique work") {
+            RustSyncWorker.cancelTargets().shouldContainExactlyInAnyOrder(
+                RustSyncWorker.WORK_NAME,
+                RustSyncWorker.ONESHOT_WORK_NAME,
+                RustSyncWorker.DEFERRED_WORK_NAME,
+            )
+        }
+    })

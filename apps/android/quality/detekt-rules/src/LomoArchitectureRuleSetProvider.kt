@@ -7,11 +7,12 @@ import dev.detekt.api.RuleName
 import dev.detekt.api.RuleSet
 import dev.detekt.api.RuleSetId
 import dev.detekt.api.RuleSetProvider
-import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtBlockExpression
 import org.jetbrains.kotlin.psi.KtBreakExpression
+import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtConstantExpression
 import org.jetbrains.kotlin.psi.KtContinueExpression
@@ -20,98 +21,95 @@ import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtIfExpression
-import org.jetbrains.kotlin.psi.KtIsExpression
 import org.jetbrains.kotlin.psi.KtLambdaArgument
-import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtNamedFunction
-import org.jetbrains.kotlin.psi.KtParenthesizedExpression
 import org.jetbrains.kotlin.psi.KtPackageDirective
+import org.jetbrains.kotlin.psi.KtParenthesizedExpression
 import org.jetbrains.kotlin.psi.KtPrefixExpression
 import org.jetbrains.kotlin.psi.KtReturnExpression
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.kotlin.psi.KtThrowExpression
-import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.KtWhenConditionWithExpression
 import org.jetbrains.kotlin.psi.KtWhenEntry
 import org.jetbrains.kotlin.psi.KtWhenExpression
 import org.jetbrains.kotlin.psi.KtWhileExpression
-import org.jetbrains.kotlin.lexer.KtTokens
 
 class LomoArchitectureRuleSetProvider : RuleSetProvider {
     override val ruleSetId: RuleSetId = RuleSetId("lomo-architecture")
 
-    override fun instance(): RuleSet =
-        RuleSet(
-            ruleSetId,
-            mapOf(
-                RuleName("AppSourceBoundary") to ::AppSourceBoundaryRule,
-                RuleName("AppManifestBoundary") to ::AppManifestBoundaryRule,
-                RuleName("DomainLayerIsolation") to ::DomainLayerIsolationRule,
-                RuleName("DomainPackageShape") to ::DomainPackageShapeRule,
-                RuleName("ViewModelBoundary") to ::ViewModelBoundaryRule,
-                RuleName("UseCaseLocation") to ::UseCaseLocationRule,
-                RuleName("RepositoryImplLocation") to ::RepositoryImplLocationRule,
-                RuleName("ComposableLayer") to ::ComposableLayerRule,
-                RuleName("DataRepositoryContract") to ::DataRepositoryContractRule,
-                RuleName("DataLayerUiDependency") to ::DataLayerUiDependencyRule,
-                RuleName("UiComponentsLayerBoundary") to ::UiComponentsLayerBoundaryRule,
-                RuleName("UiComponentDesignTokenUsage") to ::UiComponentDesignTokenUsageRule,
-                RuleName("NoSourceSuppressions") to ::NoSourceSuppressionsRule,
-                RuleName("NoHandwrittenNativeDeclaration") to ::NoHandwrittenNativeDeclarationRule,
-                RuleName("NoMutableFlowExposure") to ::NoMutableFlowExposureRule,
-                RuleName("NoInferredMutableFlowExposure") to ::NoInferredMutableFlowExposureRule,
-                RuleName("ResolvedCallGraph") to ::ResolvedCallGraphRule,
-                RuleName("NoPlaceholderImplementation") to ::NoPlaceholderImplementationRule,
-                RuleName("NoConstantBranchCondition") to ::NoConstantBranchConditionRule,
-                RuleName("NoUnreachableBlockTail") to ::NoUnreachableBlockTailRule,
-                RuleName("NoRedundantExhaustiveElse") to ::NoRedundantExhaustiveElseRule,
-                RuleName("NoCrossFileDuplicateTopLevel") to ::NoCrossFileDuplicateTopLevelRule,
-                RuleName("NoUnreferencedTopLevelDeclaration") to ::NoUnreferencedTopLevelDeclarationRule,
-                RuleName("NoSwallowedResult") to ::NoSwallowedResultRule,
-                RuleName("NoDeprecatedKept") to ::NoDeprecatedKeptRule,
-                RuleName("NoHardcodedVisibleText") to ::NoHardcodedVisibleTextRule,
-                RuleName("NoSwallowedCancellationInPagingSource") to ::NoSwallowedCancellationInPagingSourceRule,
-                RuleName("NoLoopBoundaryIo") to ::NoLoopBoundaryIoRule,
-                RuleName("NoNestedCollectionScan") to ::NoNestedCollectionScanRule,
-                RuleName("NoFullRebuildInLocalMutation") to ::NoFullRebuildInLocalMutationRule,
-                RuleName("NoSwallowedCancellationInSuspend") to ::NoSwallowedCancellationInSuspendRule,
-                RuleName("NoUnboundedFlowSharing") to ::NoUnboundedFlowSharingRule,
-                RuleName("NoUnmanagedCoroutineScope") to ::NoUnmanagedCoroutineScopeRule,
-                RuleName("NoSilentCatchFallback") to ::NoSilentCatchFallbackRule,
-                RuleName("NoSwallowedThrowable") to ::NoSwallowedThrowableRule,
-                RuleName("NoStatefulRepositoryOrUseCase") to ::NoStatefulRepositoryOrUseCaseRule,
-                RuleName("NoAdHocMemoryCache") to ::NoAdHocMemoryCacheRule,
-                RuleName("NoUnconfinedIoOrNative") to ::NoUnconfinedIoOrNativeRule,
-                RuleName("NoUnpaginatedFullLoad") to ::NoUnpaginatedFullLoadRule,
-                RuleName("ViewModelSingleStateFlow") to ::ViewModelSingleStateFlowRule,
-                RuleName("NoInSituRevisionBypass") to ::NoInSituRevisionBypassRule,
-                RuleName("NoEventInStateFlow") to ::NoEventInStateFlowRule,
-                RuleName("NoMultipleEffectChannels") to ::NoMultipleEffectChannelsRule,
-                RuleName("PagingDataCachedIn") to ::PagingDataCachedInRule,
-                RuleName("NoWriteOnlyStateFlow") to ::NoWriteOnlyStateFlowRule,
-                RuleName("NoCollaboratorDefaultArg") to ::NoCollaboratorDefaultArgRule,
-                RuleName("NoMintedIdentity") to ::NoMintedIdentityRule,
-                RuleName("NoErrorMessageControlFlow") to ::NoErrorMessageControlFlowRule,
-                RuleName("NoPlaceholderCollaborator") to ::NoPlaceholderCollaboratorRule,
-                RuleName("NoCapabilitySeam") to ::NoCapabilitySeamRule,
-                RuleName("NoSecretInWorkPayload") to ::NoSecretInWorkPayloadRule,
-                RuleName("NoNamePredicateDelete") to ::NoNamePredicateDeleteRule,
-                RuleName("NoCorruptionEmptyReset") to ::NoCorruptionEmptyResetRule,
-                RuleName("NoDomainClock") to ::NoDomainClockRule,
-                RuleName("NoConstantStatusValue") to ::NoConstantStatusValueRule,
-                RuleName("NoMutableStatePayload") to ::NoMutableStatePayloadRule,
-                RuleName("NoWriteInFlowDerivation") to ::NoWriteInFlowDerivationRule,
-                RuleName("NoInferredMutableStatePayload") to ::NoInferredMutableStatePayloadRule,
-            ),
-        )
+    override fun instance(): RuleSet = RuleSet(
+        ruleSetId,
+        mapOf(
+            RuleName("AppSourceBoundary") to ::AppSourceBoundaryRule,
+            RuleName("AppManifestBoundary") to ::AppManifestBoundaryRule,
+            RuleName("DomainLayerIsolation") to ::DomainLayerIsolationRule,
+            RuleName("DomainPackageShape") to ::DomainPackageShapeRule,
+            RuleName("ViewModelBoundary") to ::ViewModelBoundaryRule,
+            RuleName("UseCaseLocation") to ::UseCaseLocationRule,
+            RuleName("RepositoryImplLocation") to ::RepositoryImplLocationRule,
+            RuleName("ComposableLayer") to ::ComposableLayerRule,
+            RuleName("DataRepositoryContract") to ::DataRepositoryContractRule,
+            RuleName("DataLayerUiDependency") to ::DataLayerUiDependencyRule,
+            RuleName("UiComponentsLayerBoundary") to ::UiComponentsLayerBoundaryRule,
+            RuleName("UiComponentDesignTokenUsage") to ::UiComponentDesignTokenUsageRule,
+            RuleName("NoSourceSuppressions") to ::NoSourceSuppressionsRule,
+            RuleName("NoHandwrittenNativeDeclaration") to ::NoHandwrittenNativeDeclarationRule,
+            RuleName("NoMutableFlowExposure") to ::NoMutableFlowExposureRule,
+            RuleName("NoInferredMutableFlowExposure") to ::NoInferredMutableFlowExposureRule,
+            RuleName("ResolvedCallGraph") to ::ResolvedCallGraphRule,
+            RuleName("NoPlaceholderImplementation") to ::NoPlaceholderImplementationRule,
+            RuleName("NoConstantBranchCondition") to ::NoConstantBranchConditionRule,
+            RuleName("NoUnreachableBlockTail") to ::NoUnreachableBlockTailRule,
+            RuleName("NoRedundantExhaustiveElse") to ::NoRedundantExhaustiveElseRule,
+            RuleName("NoCrossFileDuplicateTopLevel") to ::NoCrossFileDuplicateTopLevelRule,
+            RuleName("NoUnreferencedTopLevelDeclaration") to ::NoUnreferencedTopLevelDeclarationRule,
+            RuleName("NoSwallowedResult") to ::NoSwallowedResultRule,
+            RuleName("NoDeprecatedKept") to ::NoDeprecatedKeptRule,
+            RuleName("NoHardcodedVisibleText") to ::NoHardcodedVisibleTextRule,
+            RuleName("NoSwallowedCancellationInPagingSource") to ::NoSwallowedCancellationInPagingSourceRule,
+            RuleName("NoLoopBoundaryIo") to ::NoLoopBoundaryIoRule,
+            RuleName("NoNestedCollectionScan") to ::NoNestedCollectionScanRule,
+            RuleName("NoFullRebuildInLocalMutation") to ::NoFullRebuildInLocalMutationRule,
+            RuleName("NoSwallowedCancellationInSuspend") to ::NoSwallowedCancellationInSuspendRule,
+            RuleName("NoUnboundedFlowSharing") to ::NoUnboundedFlowSharingRule,
+            RuleName("NoUnmanagedCoroutineScope") to ::NoUnmanagedCoroutineScopeRule,
+            RuleName("NoSilentCatchFallback") to ::NoSilentCatchFallbackRule,
+            RuleName("NoSwallowedThrowable") to ::NoSwallowedThrowableRule,
+            RuleName("NoStatefulRepositoryOrUseCase") to ::NoStatefulRepositoryOrUseCaseRule,
+            RuleName("NoAdHocMemoryCache") to ::NoAdHocMemoryCacheRule,
+            RuleName("NoUnconfinedIoOrNative") to ::NoUnconfinedIoOrNativeRule,
+            RuleName("NoUnpaginatedFullLoad") to ::NoUnpaginatedFullLoadRule,
+            RuleName("ViewModelSingleStateFlow") to ::ViewModelSingleStateFlowRule,
+            RuleName("NoInSituRevisionBypass") to ::NoInSituRevisionBypassRule,
+            RuleName("NoEventInStateFlow") to ::NoEventInStateFlowRule,
+            RuleName("NoMultipleEffectChannels") to ::NoMultipleEffectChannelsRule,
+            RuleName("PagingDataCachedIn") to ::PagingDataCachedInRule,
+            RuleName("NoWriteOnlyStateFlow") to ::NoWriteOnlyStateFlowRule,
+            RuleName("NoCollaboratorDefaultArg") to ::NoCollaboratorDefaultArgRule,
+            RuleName("NoMintedIdentity") to ::NoMintedIdentityRule,
+            RuleName("NoErrorMessageControlFlow") to ::NoErrorMessageControlFlowRule,
+            RuleName("NoPlaceholderCollaborator") to ::NoPlaceholderCollaboratorRule,
+            RuleName("NoCapabilitySeam") to ::NoCapabilitySeamRule,
+            RuleName("NoSecretInWorkPayload") to ::NoSecretInWorkPayloadRule,
+            RuleName("NoNamePredicateDelete") to ::NoNamePredicateDeleteRule,
+            RuleName("NoCorruptionEmptyReset") to ::NoCorruptionEmptyResetRule,
+            RuleName("NoDomainClock") to ::NoDomainClockRule,
+            RuleName("NoConstantStatusValue") to ::NoConstantStatusValueRule,
+            RuleName("NoMutableStatePayload") to ::NoMutableStatePayloadRule,
+            RuleName("NoWriteInFlowDerivation") to ::NoWriteInFlowDerivationRule,
+            RuleName("NoInferredMutableStatePayload") to ::NoInferredMutableStatePayloadRule,
+        ),
+    )
 }
 
-private class AppSourceBoundaryRule(
-    config: Config,
-) : LomoBaseRule(config, "App and ui-components must not reference data implementations or generated native bindings.") {
+private class AppSourceBoundaryRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "App and ui-components must not reference data implementations or generated native bindings.",
+    ) {
     private val forbiddenPrefixes = listOf("com.lomo.data.", "com.lomo.nativebridge.")
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
@@ -130,9 +128,11 @@ private class AppSourceBoundaryRule(
     }
 }
 
-private class DomainLayerIsolationRule(
-    config: Config,
-) : LomoBaseRule(config, "domain must stay free of Android, DI, Compose, Room, networking, git, and data-layer imports.") {
+private class DomainLayerIsolationRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "domain must stay free of Android, DI, Compose, Room, networking, git, and data-layer imports.",
+    ) {
     private val forbiddenPrefixes =
         listOf(
             "android.",
@@ -163,9 +163,8 @@ private class DomainLayerIsolationRule(
     }
 }
 
-private class DomainPackageShapeRule(
-    config: Config,
-) : LomoBaseRule(config, "domain source files must live under model, repository, or usecase.") {
+private class DomainPackageShapeRule(config: Config) :
+    LomoBaseRule(config, "domain source files must live under model, repository, or usecase.") {
     private val allowedTopLevelPackages = setOf("model", "repository", "usecase")
 
     override fun visitKtFile(file: KtFile) {
@@ -183,9 +182,11 @@ private class DomainPackageShapeRule(
     }
 }
 
-private class ViewModelBoundaryRule(
-    config: Config,
-) : LomoBaseRule(config, "ViewModel classes must not depend on data-layer implementations or domain repositories; they consume use cases and state holders.") {
+private class ViewModelBoundaryRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "ViewModel classes must not depend on data-layer implementations or domain repositories; they consume use cases and state holders.",
+    ) {
     private val bannedSuffixes = listOf("Dao", "DataSource", "RepositoryImpl")
     private val bannedQualifiedPrefixes = listOf("com.lomo.data.", "com.lomo.domain.repository.")
 
@@ -233,16 +234,19 @@ private class ViewModelBoundaryRule(
         }
 
         val forbiddenSimpleReference =
-            bannedSuffixes.firstOrNull { suffix -> Regex("""\b[A-Za-z_]\w*$suffix\b""").containsMatchIn(classOrObject.text) }
+            bannedSuffixes.firstOrNull { suffix ->
+                Regex(
+                    """\b[A-Za-z_]\w*$suffix\b""",
+                ).containsMatchIn(classOrObject.text)
+            }
         if (forbiddenSimpleReference != null) {
             reportDeclaration(classOrObject, "Forbidden ViewModel reference: $forbiddenSimpleReference")
         }
     }
 }
 
-private class UseCaseLocationRule(
-    config: Config,
-) : LomoBaseRule(config, "UseCase declarations must live under domain/usecase.") {
+private class UseCaseLocationRule(config: Config) :
+    LomoBaseRule(config, "UseCase declarations must live under domain/usecase.") {
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("UseCase")) return
@@ -253,9 +257,8 @@ private class UseCaseLocationRule(
     }
 }
 
-private class RepositoryImplLocationRule(
-    config: Config,
-) : LomoBaseRule(config, "RepositoryImpl declarations must live under data/repository.") {
+private class RepositoryImplLocationRule(config: Config) :
+    LomoBaseRule(config, "RepositoryImpl declarations must live under data/repository.") {
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("RepositoryImpl")) return
@@ -266,9 +269,8 @@ private class RepositoryImplLocationRule(
     }
 }
 
-private class ComposableLayerRule(
-    config: Config,
-) : LomoBaseRule(config, "@Composable is only allowed in app and ui-components.") {
+private class ComposableLayerRule(config: Config) :
+    LomoBaseRule(config, "@Composable is only allowed in app and ui-components.") {
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.path()
@@ -279,9 +281,8 @@ private class ComposableLayerRule(
     }
 }
 
-private class DataRepositoryContractRule(
-    config: Config,
-) : LomoBaseRule(config, "Every data RepositoryImpl must implement a domain repository interface.") {
+private class DataRepositoryContractRule(config: Config) :
+    LomoBaseRule(config, "Every data RepositoryImpl must implement a domain repository interface.") {
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
         val name = classOrObject.name.orEmpty()
@@ -300,9 +301,8 @@ private class DataRepositoryContractRule(
     }
 }
 
-private class DataLayerUiDependencyRule(
-    config: Config,
-) : LomoBaseRule(config, "data must stay free of app-layer and UI-layer dependencies.") {
+private class DataLayerUiDependencyRule(config: Config) :
+    LomoBaseRule(config, "data must stay free of app-layer and UI-layer dependencies.") {
     private val forbiddenPrefixes =
         listOf(
             "com.lomo.app.",
@@ -327,13 +327,11 @@ private class DataLayerUiDependencyRule(
             reportFile(file, "Forbidden data-layer qualified UI dependency: $forbiddenQualifiedReference")
             return
         }
-
     }
 }
 
-private class UiComponentsLayerBoundaryRule(
-    config: Config,
-) : LomoBaseRule(config, "ui-components must stay free of app, data, and domain command dependencies.") {
+private class UiComponentsLayerBoundaryRule(config: Config) :
+    LomoBaseRule(config, "ui-components must stay free of app, data, and domain command dependencies.") {
     private val forbiddenPrefixes =
         listOf(
             "com.lomo.app.",
@@ -356,12 +354,11 @@ private class UiComponentsLayerBoundaryRule(
     }
 }
 
-private class UiComponentDesignTokenUsageRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "ui-components component source must use semantic component tokens for static shapes and alpha ramps.",
-) {
+private class UiComponentDesignTokenUsageRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "ui-components component source must use semantic component tokens for static shapes and alpha ramps.",
+    ) {
     private val tokenFileSuffixes = config.valueOrDefault("tokenFileSuffixes", listOf("Tokens.kt", "Token.kt"))
 
     override fun visitCallExpression(expression: KtCallExpression) {
@@ -413,15 +410,13 @@ private class UiComponentDesignTokenUsageRule(
         return alphaExpression.isAlphaLiteral() || staticVisualConstantPattern.containsMatchIn(alphaExpression)
     }
 
-    private fun String.isAlphaLiteral(): Boolean =
-        matches(Regex("""(?:0(?:\.\d+)?|1(?:\.0+)?)[fF]?"""))
+    private fun String.isAlphaLiteral(): Boolean = matches(Regex("""(?:0(?:\.\d+)?|1(?:\.0+)?)[fF]?"""))
 }
 
 private val staticVisualConstantPattern = Regex("""\b[A-Z][A-Z0-9_]*\b""")
 
-internal class NoSourceSuppressionsRule(
-    config: Config,
-) : LomoBaseRule(config, "Production source must not use @Suppress to bypass static checks.") {
+internal class NoSourceSuppressionsRule(config: Config) :
+    LomoBaseRule(config, "Production source must not use @Suppress to bypass static checks.") {
     override fun visitAnnotationEntry(annotationEntry: KtAnnotationEntry) {
         super.visitAnnotationEntry(annotationEntry)
         val file = annotationEntry.containingKtFile
@@ -439,9 +434,11 @@ internal class NoSourceSuppressionsRule(
     }
 }
 
-private class NoPlaceholderImplementationRule(
-    config: Config,
-) : LomoBaseRule(config, "Production source must not commit placeholder implementations like TODO() or NotImplementedError().") {
+private class NoPlaceholderImplementationRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Production source must not commit placeholder implementations like TODO() or NotImplementedError().",
+    ) {
     private val placeholderPatterns =
         listOf(
             Regex("""\bTODO\s*\("""),
@@ -454,14 +451,16 @@ private class NoPlaceholderImplementationRule(
 
         val placeholder = placeholderPatterns.firstOrNull { it.containsMatchIn(file.bodyText()) }
         if (placeholder != null) {
-            reportFile(file, "Placeholder implementation detected. Replace TODO()/NotImplementedError() with real logic.")
+            reportFile(
+                file,
+                "Placeholder implementation detected. Replace TODO()/NotImplementedError() with real logic.",
+            )
         }
     }
 }
 
-private class NoConstantBranchConditionRule(
-    config: Config,
-) : LomoBaseRule(config, "Production source must not commit branches whose conditions are already constant.") {
+private class NoConstantBranchConditionRule(config: Config) :
+    LomoBaseRule(config, "Production source must not commit branches whose conditions are already constant.") {
     override fun visitIfExpression(expression: KtIfExpression) {
         super.visitIfExpression(expression)
         if (!expression.containingKtFile.isProductionSource()) return
@@ -515,9 +514,11 @@ private class NoConstantBranchConditionRule(
     }
 }
 
-private class NoUnreachableBlockTailRule(
-    config: Config,
-) : LomoBaseRule(config, "Production source must not keep statements after an unconditional control-transfer expression.") {
+private class NoUnreachableBlockTailRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Production source must not keep statements after an unconditional control-transfer expression.",
+    ) {
     override fun visitBlockExpression(expression: KtBlockExpression) {
         super.visitBlockExpression(expression)
         if (!expression.containingKtFile.isProductionSource()) return
@@ -539,9 +540,8 @@ private class NoUnreachableBlockTailRule(
     }
 }
 
-private class NoRedundantExhaustiveElseRule(
-    config: Config,
-) : LomoBaseRule(config, "Production source must not keep an else branch when a Boolean when is already exhaustive.") {
+private class NoRedundantExhaustiveElseRule(config: Config) :
+    LomoBaseRule(config, "Production source must not keep an else branch when a Boolean when is already exhaustive.") {
     override fun visitWhenExpression(expression: KtWhenExpression) {
         super.visitWhenExpression(expression)
         if (!expression.containingKtFile.isProductionSource()) return
@@ -565,9 +565,11 @@ private class NoRedundantExhaustiveElseRule(
     }
 }
 
-private class NoCrossFileDuplicateTopLevelRule(
-    config: Config,
-) : LomoBaseRule(config, "Production source must not duplicate the same top-level helper signature across files in one module.") {
+private class NoCrossFileDuplicateTopLevelRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Production source must not duplicate the same top-level helper signature across files in one module.",
+    ) {
     private val ignoreAnnotated = config.valueOrDefault("ignoreAnnotated", listOf("Composable", "Preview")).toSet()
     private val ignoreOperator = config.valueOrDefault("ignoreOperator", true)
     private val seenByModule = mutableMapOf<String, MutableMap<TopLevelFunctionSignature, KtNamedFunction>>()
@@ -599,13 +601,24 @@ private class NoCrossFileDuplicateTopLevelRule(
     }
 }
 
-private class NoUnreferencedTopLevelDeclarationRule(
-    config: Config,
-) : LomoBaseRule(config, "Production source must not keep non-public top-level declarations with no reachable in-module references.") {
+private class NoUnreferencedTopLevelDeclarationRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Production source must not keep non-public top-level declarations with no reachable in-module references.",
+    ) {
     private val ignoreAnnotated =
         config.valueOrDefault(
             "ignoreAnnotated",
-            listOf("VisibleForTesting", "Keep", "Preview", "Module", "Provides", "Binds", "Multibinds", "HiltViewModel"),
+            listOf(
+                "VisibleForTesting",
+                "Keep",
+                "Preview",
+                "Module",
+                "Provides",
+                "Binds",
+                "Multibinds",
+                "HiltViewModel",
+            ),
         ).toSet()
     private val moduleStates = mutableMapOf<String, ModuleDeadDeclarationState>()
 
@@ -640,7 +653,10 @@ private class NoUnreferencedTopLevelDeclarationRule(
         val moduleRoot = file.moduleRoot() ?: return
         moduleStates
             .getOrPut(moduleRoot) { ModuleDeadDeclarationState(expectedFiles = file.productionSourcePaths()) }
-            .declarations += TrackedTopLevelDeclaration(TopLevelDeclarationKey.Function(function.name.orEmpty(), function.valueParameters.size), function)
+            .declarations += TrackedTopLevelDeclaration(
+            TopLevelDeclarationKey.Function(function.name.orEmpty(), function.valueParameters.size),
+            function,
+        )
     }
 
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
@@ -653,7 +669,10 @@ private class NoUnreferencedTopLevelDeclarationRule(
         val moduleRoot = file.moduleRoot() ?: return
         moduleStates
             .getOrPut(moduleRoot) { ModuleDeadDeclarationState(expectedFiles = file.productionSourcePaths()) }
-            .declarations += TrackedTopLevelDeclaration(TopLevelDeclarationKey.Type(classOrObject.name.orEmpty()), classOrObject)
+            .declarations += TrackedTopLevelDeclaration(
+            TopLevelDeclarationKey.Type(classOrObject.name.orEmpty()),
+            classOrObject,
+        )
     }
 
     override fun visitCallExpression(expression: KtCallExpression) {
@@ -661,7 +680,9 @@ private class NoUnreferencedTopLevelDeclarationRule(
         val file = expression.containingKtFile
         if (!file.isProductionSource()) return
 
-        val calleeName = expression.calleeExpression?.text?.substringAfterLast('.')?.takeIf(String::isNotBlank) ?: return
+        val calleeName = expression.calleeExpression?.text?.substringAfterLast(
+            '.',
+        )?.takeIf(String::isNotBlank) ?: return
         val moduleRoot = file.moduleRoot() ?: return
         moduleStates
             .getOrPut(moduleRoot) { ModuleDeadDeclarationState(expectedFiles = file.productionSourcePaths()) }
@@ -695,12 +716,11 @@ private class NoUnreferencedTopLevelDeclarationRule(
     }
 }
 
-private class NoSwallowedResultRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "kotlin.Result from runCatching must not be silently discarded by getOrNull / getOrDefault(<zero/empty>) / getOrElse { <zero/empty> } without onFailure/recover.",
-) {
+private class NoSwallowedResultRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "kotlin.Result from runCatching must not be silently discarded by getOrNull / getOrDefault(<zero/empty>) / getOrElse { <zero/empty> } without onFailure/recover.",
+    ) {
     private val silentTerminals = setOf("getOrNull", "getOrDefault", "getOrElse")
     private val observabilityCalls = setOf("onFailure", "recover", "recoverCatching")
     private val optOutMarker = Regex("""behavior-contract:\s*silent-result-ok""")
@@ -744,24 +764,28 @@ private class NoSwallowedResultRule(
                             ?.let(names::add)
                         node.receiverExpression
                     }
+
                     is KtCallExpression -> {
                         node.calleeExpression?.text?.let(names::add)
                         null
                     }
+
                     else -> null
                 }
         }
         return names
     }
 
-    private fun isSilentTerminal(call: KtCallExpression, name: String): Boolean =
-        when (name) {
-            "getOrNull" -> true
-            "getOrDefault" ->
-                isLiteralOrEmptyExpression(call.valueArguments.firstOrNull()?.getArgumentExpression())
-            "getOrElse" -> isLambdaBodyConstant(call.lambdaArguments.firstOrNull())
-            else -> false
-        }
+    private fun isSilentTerminal(call: KtCallExpression, name: String): Boolean = when (name) {
+        "getOrNull" -> true
+
+        "getOrDefault" ->
+            isLiteralOrEmptyExpression(call.valueArguments.firstOrNull()?.getArgumentExpression())
+
+        "getOrElse" -> isLambdaBodyConstant(call.lambdaArguments.firstOrNull())
+
+        else -> false
+    }
 
     private fun isLambdaBodyConstant(lambdaArg: KtLambdaArgument?): Boolean {
         val lambda = lambdaArg?.getLambdaExpression() ?: return false
@@ -794,12 +818,11 @@ private class NoSwallowedResultRule(
     }
 }
 
-private class NoDeprecatedKeptRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Production source must not use @Deprecated. Migrate every caller and delete the old API in the same change; @Deprecated as a soft-migration landing pad is forbidden.",
-) {
+private class NoDeprecatedKeptRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Production source must not use @Deprecated. Migrate every caller and delete the old API in the same change; @Deprecated as a soft-migration landing pad is forbidden.",
+    ) {
     override fun visitAnnotationEntry(annotationEntry: KtAnnotationEntry) {
         super.visitAnnotationEntry(annotationEntry)
         val file = annotationEntry.containingKtFile
@@ -816,33 +839,36 @@ private class NoDeprecatedKeptRule(
     }
 }
 
-private fun KtExpression.evaluateBooleanConstant(): Boolean? =
-    when (this) {
-        is KtParenthesizedExpression -> expression?.evaluateBooleanConstant()
-        is KtConstantExpression ->
-            when (text) {
-                "true" -> true
-                "false" -> false
-                else -> null
-            }
-        is KtPrefixExpression ->
-            when (operationToken) {
-                KtTokens.EXCL -> baseExpression?.evaluateBooleanConstant()?.not()
-                else -> null
-            }
-        is KtBinaryExpression -> {
-            val leftValue = left?.evaluateBooleanConstant()
-            val rightValue = right?.evaluateBooleanConstant()
-            when (operationToken) {
-                KtTokens.ANDAND -> if (leftValue != null && rightValue != null) leftValue && rightValue else null
-                KtTokens.OROR -> if (leftValue != null && rightValue != null) leftValue || rightValue else null
-                KtTokens.EQEQ -> if (leftValue != null && rightValue != null) leftValue == rightValue else null
-                KtTokens.EXCLEQ -> if (leftValue != null && rightValue != null) leftValue != rightValue else null
-                else -> null
-            }
+private fun KtExpression.evaluateBooleanConstant(): Boolean? = when (this) {
+    is KtParenthesizedExpression -> expression?.evaluateBooleanConstant()
+
+    is KtConstantExpression ->
+        when (text) {
+            "true" -> true
+            "false" -> false
+            else -> null
         }
-        else -> null
+
+    is KtPrefixExpression ->
+        when (operationToken) {
+            KtTokens.EXCL -> baseExpression?.evaluateBooleanConstant()?.not()
+            else -> null
+        }
+
+    is KtBinaryExpression -> {
+        val leftValue = left?.evaluateBooleanConstant()
+        val rightValue = right?.evaluateBooleanConstant()
+        when (operationToken) {
+            KtTokens.ANDAND -> if (leftValue != null && rightValue != null) leftValue && rightValue else null
+            KtTokens.OROR -> if (leftValue != null && rightValue != null) leftValue || rightValue else null
+            KtTokens.EQEQ -> if (leftValue != null && rightValue != null) leftValue == rightValue else null
+            KtTokens.EXCLEQ -> if (leftValue != null && rightValue != null) leftValue != rightValue else null
+            else -> null
+        }
     }
+
+    else -> null
+}
 
 private fun KtWhenEntry.singleBooleanCondition(): Boolean? {
     if (isElse || conditions.size != 1) return null
@@ -850,11 +876,10 @@ private fun KtWhenEntry.singleBooleanCondition(): Boolean? {
     return expression.evaluateBooleanConstant()
 }
 
-private fun KtExpression.isUnconditionalJump(): Boolean =
-    this is KtReturnExpression ||
-        this is KtThrowExpression ||
-        this is KtBreakExpression ||
-        this is KtContinueExpression
+private fun KtExpression.isUnconditionalJump(): Boolean = this is KtReturnExpression ||
+    this is KtThrowExpression ||
+    this is KtBreakExpression ||
+    this is KtContinueExpression
 
 private data class TopLevelFunctionSignature(
     val name: String,
@@ -870,20 +895,12 @@ private data class TopLevelFunctionSignature(
 }
 
 private sealed interface TopLevelDeclarationKey {
-    data class Function(
-        val name: String,
-        val arity: Int,
-    ) : TopLevelDeclarationKey
+    data class Function(val name: String, val arity: Int) : TopLevelDeclarationKey
 
-    data class Type(
-        val name: String,
-    ) : TopLevelDeclarationKey
+    data class Type(val name: String) : TopLevelDeclarationKey
 }
 
-private data class TrackedTopLevelDeclaration(
-    val key: TopLevelDeclarationKey,
-    val declaration: KtNamedDeclaration,
-)
+private data class TrackedTopLevelDeclaration(val key: TopLevelDeclarationKey, val declaration: KtNamedDeclaration)
 
 private data class ModuleDeadDeclarationState(
     val expectedFiles: Set<String>,
@@ -922,15 +939,18 @@ private val typeTokenKeywords = setOf("in", "out", "reified", "suspend")
 private fun KtNamedFunction.shouldIgnoreTopLevelDuplicate(
     ignoreAnnotated: Set<String>,
     ignoreOperator: Boolean,
-): Boolean =
-    hasAnyAnnotation(ignoreAnnotated) || (ignoreOperator && hasModifier(KtTokens.OPERATOR_KEYWORD))
+): Boolean = hasAnyAnnotation(ignoreAnnotated) || (ignoreOperator && hasModifier(KtTokens.OPERATOR_KEYWORD))
 
 private fun KtNamedFunction.topLevelSignature(): TopLevelFunctionSignature {
     val file = containingKtFile
     return TopLevelFunctionSignature(
         name = name.orEmpty(),
         receiverType = receiverTypeReference?.canonicalTypeText(file),
-        parameterTypes = valueParameters.map { parameter -> parameter.typeReference?.canonicalTypeText(file) ?: "<implicit>" },
+        parameterTypes = valueParameters.map { parameter ->
+            parameter.typeReference?.canonicalTypeText(
+                file,
+            ) ?: "<implicit>"
+        },
         returnType = typeReference?.canonicalTypeText(file) ?: "<inferred>",
     )
 }
@@ -938,26 +958,34 @@ private fun KtNamedFunction.topLevelSignature(): TopLevelFunctionSignature {
 private fun KtNamedDeclaration.hasAnyAnnotation(annotationNames: Set<String>): Boolean =
     annotationEntries.any { entry -> entry.shortName?.asString() in annotationNames }
 
-private fun KtNamedFunction.isNonPublicTopLevelDeclaration(ignoreAnnotated: Set<String>): Boolean =
-    (hasModifier(KtTokens.PRIVATE_KEYWORD) || hasModifier(KtTokens.INTERNAL_KEYWORD)) && !hasAnyAnnotation(ignoreAnnotated)
+private fun KtNamedFunction.isNonPublicTopLevelDeclaration(ignoreAnnotated: Set<String>): Boolean = (
+    hasModifier(
+        KtTokens.PRIVATE_KEYWORD,
+    ) || hasModifier(KtTokens.INTERNAL_KEYWORD)
+    ) && !hasAnyAnnotation(ignoreAnnotated)
 
-private fun KtClassOrObject.isNonPublicTopLevelDeclaration(ignoreAnnotated: Set<String>): Boolean =
-    (hasModifier(KtTokens.PRIVATE_KEYWORD) || hasModifier(KtTokens.INTERNAL_KEYWORD)) && !hasAnyAnnotation(ignoreAnnotated)
+private fun KtClassOrObject.isNonPublicTopLevelDeclaration(ignoreAnnotated: Set<String>): Boolean = (
+    hasModifier(
+        KtTokens.PRIVATE_KEYWORD,
+    ) || hasModifier(KtTokens.INTERNAL_KEYWORD)
+    ) && !hasAnyAnnotation(ignoreAnnotated)
 
 private fun KtNameReferenceExpression.isDeclarationNameReference(): Boolean {
     val declarationParent = parent as? KtNamedDeclaration ?: return false
     return declarationParent.nameIdentifier == this
 }
 
-private fun org.jetbrains.kotlin.psi.KtTypeReference.canonicalTypeText(file: KtFile): String =
-    text
-        .replace("\\s+".toRegex(), "")
-        .replace(typeTokenPattern) { match ->
-            val token = match.value
-            when {
-                token in typeTokenKeywords -> token
-                '.' in token -> token
-                else -> file.importDirectives
+private fun org.jetbrains.kotlin.psi.KtTypeReference.canonicalTypeText(file: KtFile): String = text
+    .replace("\\s+".toRegex(), "")
+    .replace(typeTokenPattern) { match ->
+        val token = match.value
+        when {
+            token in typeTokenKeywords -> token
+
+            '.' in token -> token
+
+            else ->
+                file.importDirectives
                     .firstNotNullOfOrNull { directive ->
                         val importedFqName = directive.importedFqName?.asString() ?: return@firstNotNullOfOrNull null
                         val localName = directive.aliasName ?: importedFqName.substringAfterLast('.')
@@ -965,5 +993,5 @@ private fun org.jetbrains.kotlin.psi.KtTypeReference.canonicalTypeText(file: KtF
                     }
                     ?: builtInTypeFqNames[token]
                     ?: token
-            }
         }
+    }

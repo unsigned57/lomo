@@ -1,4 +1,5 @@
 <resources>
+    <string name="image_directory_scan_failed">Images could not be loaded from the selected directories. Refresh to retry or reselect the directory in Settings.</string>
     <string name="app_name">Lomo</string>
     <string name="cd_more_options">More options</string>
     <string name="settings_title">Settings</string>
@@ -20,11 +21,17 @@
     <string name="settings_home_hero_sync_now">Sync now</string>
     <string name="settings_home_hero_tip_title">Tip</string>
     <string name="settings_home_hero_tip_next">Next tip</string>
+    <string name="settings_home_hero_tip_dismiss">Dismiss tips</string>
+    <string name="settings_home_tip_1">Set up Git, WebDAV, or S3 sync to keep every memo backed up automatically</string>
+    <string name="settings_home_tip_2">Turn on Sync Inbox to collect notes shared from other apps</string>
+    <string name="settings_home_tip_3">Memo snapshots keep recent versions you can restore at any time</string>
+    <string name="settings_home_tip_4">App lock and haptic feedback live under Interaction &amp; Security</string>
+    <string name="settings_home_tip_5">Pick date and time formats under Storage &amp; Formats</string>
     <string name="settings_home_storage_section_title">Storage</string>
     <string name="settings_home_preferences_section_title">Preferences</string>
     <string name="settings_home_more_section_title">More</string>
     <string name="settings_home_footer_version_label">Version %1$s</string>
-    <string name="settings_home_footer_check_updates">Tap to check for updates</string>
+    <string name="settings_home_footer_check_updates">Check for updates</string>
 
     <!-- Storage Group -->
     <string name="settings_group_sync">Sync</string>
@@ -33,6 +40,7 @@
     <string name="settings_not_set">Not set</string>
     <string name="settings_storage_switching_workspace">Switching workspace…</string>
     <string name="settings_storage_scanning_workspace">Indexing workspace…</string>
+    <string name="settings_storage_applying_directory">Applying folder…</string>
     <string name="settings_storage_index_failed">Workspace selected; indexing failed</string>
     <string name="settings_image_storage">Image Storage</string>
     <string name="settings_voice_storage">Voice Storage</string>
@@ -65,6 +73,10 @@
     <string name="settings_typography_subtitle">Adjust font size and spacing</string>
     <string name="settings_color_palette">Color palette</string>
     <string name="settings_color_palette_preview_title">Preview</string>
+    <string name="settings_color_contrast_title">Contrast</string>
+    <string name="settings_color_contrast_standard">Standard</string>
+    <string name="settings_color_contrast_medium">Medium</string>
+    <string name="settings_color_contrast_high">High</string>
     <string name="settings_color_source_dynamic">Dynamic from wallpaper</string>
     <string name="settings_color_source_dynamic_subtitle">Material You · Android 12+</string>
     <string name="settings_color_source_custom">Custom seed</string>
@@ -160,8 +172,6 @@
     <string name="settings_double_tap_edit_subtitle">Double-tap memo cards to enter edit mode quickly</string>
     <string name="settings_free_text_copy">Free text copy</string>
     <string name="settings_free_text_copy_subtitle">Allow selecting and copying text directly from memo cards</string>
-    <string name="settings_menu_auto_reorder">Auto reorder menu tiles</string>
-    <string name="settings_menu_auto_reorder_subtitle">Gradually move memo menu tiles forward based on long-term usage heat</string>
     <string name="settings_quick_save_on_back">Quick save on back</string>
     <string name="settings_quick_save_on_back_subtitle">Automatically save new memo when pressing back instead of showing discard dialog</string>
     <string name="settings_auto_open_input_on_foreground">Auto-open input on foreground</string>
@@ -186,7 +196,7 @@
     <string name="settings_lan_share_enabled_title">Enable LAN Share</string>
     <string name="settings_lan_share_enabled_subtitle">Allow device discovery and local network transfers</string>
     
-    <string name="input_hint_1">Long press + to scroll to top</string>
+    <string name="input_hint_1">Scroll down and tap the arrow button to jump back to top</string>
     <string name="input_hint_2">Swipe the toolbar left or right for more tools</string>
     <string name="input_hint_3">Support nested tags #tag/subtag</string>
     <string name="input_hint_4">Double-tap a memo card to quickly enter edit mode</string>
@@ -328,9 +338,7 @@
 
     <!-- Sidebar and Navigation -->
     <string name="sidebar_daily_review">Random Walk</string>
-    <string name="sidebar_tasks">Tasks</string>
     <string name="sidebar_statistics">Statistics</string>
-    <string name="tasks_empty">No open tasks</string>
 
     <!-- Statistics Screen -->
     <string name="stats_section_overview">Overview</string>
@@ -354,6 +362,8 @@
 
     <!-- Content Descriptions -->
     <string name="cd_menu">Menu</string>
+    <string name="cd_collapse_sidebar">Collapse sidebar</string>
+    <string name="cd_expand_sidebar">Expand sidebar</string>
     <string name="cd_close">Close</string>
     <string name="cd_image_viewer_fullscreen">Fullscreen image</string>
     <string name="cd_search">Search</string>
@@ -366,6 +376,9 @@
     <string name="main_filter_sort_updated_time">Update time</string>
     <string name="main_filter_sort_direction_ascending">Ascending</string>
     <string name="main_filter_sort_direction_descending">Descending</string>
+    <string name="main_filter_section_sort">Sort by</string>
+    <string name="main_filter_section_content">Content</string>
+    <string name="main_filter_content_flag_label">%1$s · %2$s</string>
     <string name="main_filter_section_time_range">Date range</string>
     <string name="main_filter_start_date">Start date</string>
     <string name="main_filter_end_date">End date</string>
@@ -412,8 +425,9 @@
 
     <!-- Search Screen -->
     <string name="search_hint">Search memos…</string>
-    <string name="search_mode_fuzzy">Pinyin</string>
-    <string name="search_mode_switch_to_fuzzy">Switch to pinyin fuzzy search</string>
+    <string name="search_mode_fulltext">Exact</string>
+    <string name="search_mode_fuzzy">Fuzzy search</string>
+    <string name="search_mode_switch_to_fuzzy">Switch to fuzzy search</string>
     <string name="search_mode_switch_to_fulltext">Switch to exact search</string>
     <string name="cd_clear_search">Clear search</string>
     <string name="search_empty_initial_title">Type to search</string>
@@ -435,9 +449,9 @@
     <string name="trash_clear_confirm_title">Clear trash?</string>
     <string name="trash_clear_confirm_message">This will permanently delete all memos in trash.</string>
     <string name="action_copy">Copy</string>
-    <string name="action_share">Image Share</string>
-    <string name="action_share_text">Text Share</string>
-    <string name="action_lan_share">Send</string>
+    <string name="action_share">Share as image</string>
+    <string name="action_share_text">Share as text</string>
+    <string name="action_lan_share">Send over LAN</string>
     <string name="action_pin">Pin</string>
     <string name="action_unpin">Unpin</string>
     <string name="action_jump">Jump</string>
@@ -448,11 +462,14 @@
     <string name="action_delete_permanently">Delete Permanently</string>
     <string name="clipboard_label_memo">memo</string>
     <string name="cd_clear_trash">Clear trash</string>
+    <string name="cd_scroll_to_top">Scroll to top</string>
     <string name="error_unknown">Unknown error</string>
+    <string name="memo_copy_failed">Could not copy the complete memo</string>
     <string name="main_list_focus_memo_missing">This memo is no longer in the list</string>
 
     <!-- FAB -->
     <string name="fab_new_memo">New Memo</string>
+    <string name="memo_auto_saved">Saved as memo</string>
 
     <!-- Directory Setup Dialog -->
     <string name="setup_directory_title">Setup %1$s Directory</string>
@@ -475,6 +492,8 @@
     <string name="memo_list_load_failed_title">Unable to load memos</string>
     <string name="memo_expand_load_failed_retry">Could not load the full memo. Retry</string>
     <string name="memo_list_load_failed_description">The workspace query failed. Retry after the workspace is ready.</string>
+    <string name="stats_load_failed_title">Unable to load statistics</string>
+    <string name="stats_load_failed_description">The workspace query failed. Retry after the workspace is ready.</string>
     <string name="action_next">Next</string>
     <string name="action_confirm">Confirm</string>
     <string name="reminder_dialog_title">Reminder</string>
@@ -725,6 +744,7 @@
     <string name="settings_s3_sync_on_refresh_subtitle">Trigger S3 sync when pulling to refresh</string>
     <string name="memo_version_history">Version History</string>
     <string name="memo_version_history_empty">No version history available</string>
+    <string name="memo_version_preview_unavailable">This version is too large to preview. It can still be restored.</string>
     <string name="memo_version_loading">Loading version history…</string>
     <string name="memo_version_load_more">Load more</string>
     <string name="memo_version_loading_more">Loading more…</string>
@@ -821,10 +841,59 @@
     <string name="sync_center_recovery_heading">Recovery</string>
     <string name="sync_center_recovery_shell_note">Identity reset, mirror rebuild, and diagnostics export land with production cutover. Cancel is presentation-only until the shared scheduler wires.</string>
     <string name="sync_center_error">Error: %1$s</string>
+    <string name="sync_center_idle_title">No sync session</string>
     <string name="sync_center_idle_prompt">Open Sync Center with a workspace to load session and conflicts.</string>
     <string name="sync_center_settings_entry_title">Sync Center</string>
     <string name="sync_center_settings_entry_subtitle">Configuration, session, conflicts, and recovery (dark shell until cutover)</string>
 
     <string name="widget_snapshot_unavailable">Open Lomo to refresh this widget.</string>
     <string name="widget_redacted_preview">Unlock Lomo to view this memo.</string>
+    <string name="settings_pure_black_dark">Pure black in dark mode</string>
+    <string name="settings_pure_black_dark_subtitle">Pitch black background for OLED screens</string>
+    <string name="settings_theme_system_pure_black">Follow System (Pure black)</string>
+    <string name="settings_theme_dark_pure_black">Dark Mode (Pure black)</string>
+    <string name="review_options_title">Review filters &amp; order</string>
+    <string name="review_sort_recent">Review recent</string>
+    <string name="review_sort_past">Review past</string>
+    <string name="review_sort_random">Completely random</string>
+    <string name="review_invalid_dates">Start date must not be later than end date</string>
+    <string name="review_apply_options">Apply and restart review</string>
+    <string name="review_no_matches_title">No matching memos</string>
+    <string name="review_no_matches_desc">Adjust the review filters to include more memos</string>
+
+    <!-- Gesture ball -->
+    <string name="quick_ball_title">Gesture ball</string>
+    <string name="quick_ball_subtitle">Customize long press and directional swipes</string>
+    <string name="quick_ball_help">Swipe and release to act. Slide back to the center to cancel. Tap always creates a memo.</string>
+    <string name="quick_ball_preview_hint">Try it here. This preview only displays the action.</string>
+    <string name="quick_ball_preview_result">Recognized: %1$s</string>
+    <string name="quick_ball_binding">%1$s: %2$s</string>
+    <string name="quick_ball_tap">Tap</string>
+    <string name="quick_ball_long_press">Long press</string>
+    <string name="quick_ball_up">Swipe up</string>
+    <string name="quick_ball_down">Swipe down</string>
+    <string name="quick_ball_left">Swipe left</string>
+    <string name="quick_ball_right">Swipe right</string>
+    <string name="quick_ball_new_memo">New memo</string>
+    <string name="quick_ball_record">Start recording</string>
+    <string name="quick_ball_long_text">Long-form editor</string>
+    <string name="quick_ball_scroll_top">Back to top</string>
+    <string name="quick_ball_search">Search</string>
+    <string name="quick_ball_filter">Open filters</string>
+    <string name="quick_ball_clear_filter">Clear filters</string>
+    <string name="quick_ball_action_menu">Action menu</string>
+    <string name="quick_ball_daily_review">Daily review</string>
+    <string name="quick_ball_gallery">Gallery</string>
+    <string name="quick_ball_none">No action</string>
+    <string name="quick_ball_selected">Selected</string>
+    <string name="quick_ball_restore">Restore defaults</string>
+    <string name="quick_ball_restore_message">Restore all five gesture bindings to their defaults?</string>
+    <string name="quick_ball_save_failed">Could not save the gesture configuration. Try again.</string>
+    <string name="quick_ball_busy">A memo is being saved. Try again when it finishes.</string>
+    <string name="quick_ball_record_failed">Could not start recording. Complete any pending recording setup and try again.</string>
+    <string name="memo_coordinates_title">Insert coordinates</string>
+    <string name="memo_coordinates_permission_denied">Location permission was denied.</string>
+    <string name="memo_coordinates_unavailable">Current location is unavailable. Enable location services.</string>
+    <string name="memo_coordinates_timeout">Location request timed out. Try again.</string>
+    <string name="memo_coordinates_invalid_fix">The location provider returned invalid coordinates. Try again.</string>
 </resources>

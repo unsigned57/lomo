@@ -1,11 +1,16 @@
 package com.lomo.app.feature.search
 
-import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
-
-import com.lomo.app.testing.fakes.testMemoUiMapper
-
 /*
  * Behavior Contract:
+ * Test Change Justification:
+ * Reason category: explicit activation input adaptation.
+ * Old behavior/assertion being replaced: root-only activations implicitly read attachment candidates from a journal.
+ * Why old assertion is no longer correct: activation now receives a prepared attachment change explicitly;
+ * these existing root-only calls select the committed attachment configuration with a null change.
+ * Coverage preserved by: every existing mount, state and failure assertion is retained without weakening.
+ * Why this is not fitting the test to the implementation: stale pending candidates must not influence restoration.
+ * TDD proof: Regression preservation - transaction-green-first.log and verification-green.log under
+ * target/lomo/reports/manual/directory-selection/; index-validation-red.log exposes premature activation.
  * - Unit under test: SearchViewModel filter wiring.
  * - Owning layer: app
  * - Priority tier: P1
@@ -41,14 +46,15 @@ import com.lomo.app.testing.fakes.testMemoUiMapper
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoCollectionProjectionMapper
-import com.lomo.app.feature.main.MemoUiMapper
-import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.MainWorkspaceCoordinator
+import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
+import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
+import com.lomo.app.testing.fakes.testMemoUiMapper
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.StorageLocation
@@ -83,7 +89,9 @@ class SearchViewModelFilterTest : AppFunSpec() {
         repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
         validator = ValidateMemoContentUseCase(),
     )
-    private val deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository))
+    private val deleteMemoUseCase = DeleteMemoUseCase(
+        com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
+    )
     private val saveImageUseCase: SaveImageUseCase =
         com.lomo.domain.usecase.FakeSaveImageUseCase(com.lomo.app.testing.fakes.FakeMediaRepository())
 
@@ -118,7 +126,7 @@ class SearchViewModelFilterTest : AppFunSpec() {
                 advanceUntilIdle()
                 memoRepository.mainListCalls shouldBe emptyList()
 
-                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace"), mediaChange = null)
                 testDispatcher.scheduler.advanceTimeBy(350)
                 advanceUntilIdle()
                 memoRepository.mainListCalls shouldContain
@@ -202,51 +210,51 @@ class SearchViewModelFilterTest : AppFunSpec() {
         }
     }
 
-    private fun createViewModel(): SearchViewModel =
-        SearchViewModel(
-            SearchViewModelDependencies(
-                observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
-                appConfigStateProvider =
-                    AppConfigStateProvider(
-                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                        appPreferencesSnapshotRepository = appConfigRepository,
-                        customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
-                        preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
-                        appScope = CoroutineScope(SupervisorJob() + testDispatcher),
-                    ),
+    private fun createViewModel(): SearchViewModel = SearchViewModel(
+        SearchViewModelDependencies(
+            observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
+            appConfigStateProvider =
+            AppConfigStateProvider(
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                imageMapProvider = emptyImageMapProvider(),
-                projectionMapper = MemoCollectionProjectionMapper(testMemoUiMapper(dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher))),
-                searchMemosPageUseCase = SearchMemosPageUseCase(searchRepository),
-                deleteMemoUseCase = deleteMemoUseCase,
-                updateMemoContentUseCase = updateMemoContentUseCase,
-                saveImageUseCase = saveImageUseCase,
-                toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository),
-                loadEditableMemoUseCase =
-                    com.lomo.domain.usecase.LoadEditableMemoUseCase(
-                        com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository),
-                    ),
-                workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
-                    every { mount } returns engineReadinessRepository.mount
-                },
+                appPreferencesSnapshotRepository = appConfigRepository,
+                customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(
+                    com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                ),
+                preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
+                appScope = CoroutineScope(SupervisorJob() + testDispatcher),
             ),
-        )
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            imageMapProvider = emptyImageMapProvider(),
+            projectionMapper = MemoCollectionProjectionMapper(
+                testMemoUiMapper(
+                    dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher),
+                ),
+            ),
+            searchMemosPageUseCase = SearchMemosPageUseCase(searchRepository),
+            deleteMemoUseCase = deleteMemoUseCase,
+            updateMemoContentUseCase = updateMemoContentUseCase,
+            saveImageUseCase = saveImageUseCase,
+            toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository),
+            loadEditableMemoUseCase =
+            com.lomo.domain.usecase.LoadEditableMemoUseCase(
+                com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository),
+            ),
+            workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
+                every { mount } returns engineReadinessRepository.mount
+            },
+        ),
+    )
 
-    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =
-        ObserveActiveDayCountUseCase(
-            com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
-        )
+    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase = ObserveActiveDayCountUseCase(
+        com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
+    )
 
-    private fun memo(
-        id: String,
-        content: String,
-    ): Memo =
-        Memo(
-            id = id,
-            timestamp = 1L,
-            content = content,
-            rawContent = content,
-            dateKey = "2026_03_24",
-        )
+    private fun memo(id: String, content: String): Memo = Memo(
+        id = id,
+        timestamp = 1L,
+        content = content,
+        rawContent = content,
+        dateKey = "2026_03_24",
+    )
 }

@@ -30,9 +30,8 @@ internal fun resolveMemoParagraphTapOutcome(
     link: MemoTextLinkRange?,
     paragraphHasSelection: Boolean,
     scopeHasSelection: Boolean,
-): MemoParagraphTapOutcome =
-    when {
-        paragraphHasSelection || scopeHasSelection -> MemoParagraphTapOutcome.ClearSelection
-        link != null -> MemoParagraphTapOutcome.OpenLink(link.url)
-        else -> MemoParagraphTapOutcome.InvokeBodyClick
-    }
+): MemoParagraphTapOutcome = when {
+    paragraphHasSelection || scopeHasSelection -> MemoParagraphTapOutcome.ClearSelection
+    link != null -> MemoParagraphTapOutcome.OpenLink(link.url)
+    else -> MemoParagraphTapOutcome.InvokeBodyClick
+}

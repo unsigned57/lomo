@@ -36,9 +36,7 @@ internal interface TrustedLaunchProcessLock {
     fun <T> withLock(block: () -> T): T
 }
 
-class TrustedLaunchSecretStore internal constructor(
-    private val root: TrustedLaunchTrustRoot,
-) {
+class TrustedLaunchSecretStore internal constructor(private val root: TrustedLaunchTrustRoot) {
     fun hmacSha256(payload: ByteArray): ByteArray = root.hmacSha256(payload)
 
     companion object {
@@ -49,19 +47,16 @@ class TrustedLaunchSecretStore internal constructor(
                     plaintext = SharedPreferencesInstallSecret(appContext),
                     hmacKey = AndroidKeystoreHmacKeyEntry(),
                     processLock =
-                        FileChannelTrustedLaunchProcessLock(
-                            File(appContext.noBackupFilesDir, TRUSTED_LAUNCH_LOCK_FILE),
-                        ),
+                    FileChannelTrustedLaunchProcessLock(
+                        File(appContext.noBackupFilesDir, TRUSTED_LAUNCH_LOCK_FILE),
+                    ),
                 ),
             )
         }
     }
 }
 
-internal class TrustedLaunchTrustRootUnavailable(
-    val code: String,
-    cause: Throwable? = null,
-) : Exception(code, cause)
+internal class TrustedLaunchTrustRootUnavailable(val code: String, cause: Throwable? = null) : Exception(code, cause)
 
 internal class TrustedLaunchTrustRoot(
     private val plaintext: TrustedLaunchPlaintextInstallSecret,
@@ -71,13 +66,12 @@ internal class TrustedLaunchTrustRoot(
         ByteArray(INSTALL_SECRET_RANDOM_BYTES).also { SecureRandom().nextBytes(it) }
     },
 ) {
-    fun hmacSha256(payload: ByteArray): ByteArray =
-        processLock.withLock {
-            when (val install = ensureInstalledLocked()) {
-                TrustRootInstall.Ready -> hmacKey.sign(payload)
-                is TrustRootInstall.Failed -> throw install.error
-            }
+    fun hmacSha256(payload: ByteArray): ByteArray = processLock.withLock {
+        when (val install = ensureInstalledLocked()) {
+            TrustRootInstall.Ready -> hmacKey.sign(payload)
+            is TrustRootInstall.Failed -> throw install.error
         }
+    }
 
     private fun ensureInstalledLocked(): TrustRootInstall {
         if (hmacKey.contains()) {
@@ -110,9 +104,7 @@ internal class TrustedLaunchTrustRoot(
     }
 }
 
-internal class SharedPreferencesInstallSecret(
-    context: Context,
-) : TrustedLaunchPlaintextInstallSecret {
+internal class SharedPreferencesInstallSecret(context: Context) : TrustedLaunchPlaintextInstallSecret {
     private val preferences =
         context.getSharedPreferences(TRUSTED_LAUNCH_PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -123,9 +115,8 @@ internal class SharedPreferencesInstallSecret(
     }
 }
 
-internal class AndroidKeystoreHmacKeyEntry(
-    private val alias: String = TRUSTED_LAUNCH_HMAC_ALIAS,
-) : TrustedLaunchHmacKeyEntry {
+internal class AndroidKeystoreHmacKeyEntry(private val alias: String = TRUSTED_LAUNCH_HMAC_ALIAS) :
+    TrustedLaunchHmacKeyEntry {
     override fun contains(): Boolean = keyStore().containsAlias(alias)
 
     override fun importAsciiKey(asciiKeyBytes: ByteArray) {
@@ -159,13 +150,10 @@ internal class AndroidKeystoreHmacKeyEntry(
         }
     }
 
-    private fun keyStore(): KeyStore =
-        KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    private fun keyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 }
 
-internal class FileChannelTrustedLaunchProcessLock(
-    private val lockFile: File,
-) : TrustedLaunchProcessLock {
+internal class FileChannelTrustedLaunchProcessLock(private val lockFile: File) : TrustedLaunchProcessLock {
     override fun <T> withLock(block: () -> T): T {
         lockFile.parentFile?.mkdirs()
         return RandomAccessFile(lockFile, "rw").use { randomAccess ->
@@ -176,10 +164,7 @@ internal class FileChannelTrustedLaunchProcessLock(
     }
 }
 
-internal fun softwareAsciiHmac(
-    asciiKeyBytes: ByteArray,
-    payload: ByteArray,
-): ByteArray {
+internal fun softwareAsciiHmac(asciiKeyBytes: ByteArray, payload: ByteArray): ByteArray {
     val mac = Mac.getInstance(HMAC_SHA_256)
     mac.init(SecretKeySpec(asciiKeyBytes, HMAC_SHA_256))
     return mac.doFinal(payload)
@@ -201,7 +186,5 @@ internal val TRUSTED_LAUNCH_MIGRATION_PROBE: ByteArray =
 private sealed interface TrustRootInstall {
     data object Ready : TrustRootInstall
 
-    data class Failed(
-        val error: TrustedLaunchTrustRootUnavailable,
-    ) : TrustRootInstall
+    data class Failed(val error: TrustedLaunchTrustRootUnavailable) : TrustRootInstall
 }

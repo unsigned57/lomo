@@ -20,20 +20,16 @@ object DateTimeUtils {
      * @param pattern DateTimeFormatter pattern (e.g., "yyyy-MM-dd HH:mm")
      * @return Formatted string, or ISO format on error
      */
-    fun format(
-        timestamp: Long,
-        pattern: String,
-    ): String =
-        runCatching {
-            val formatter =
-                synchronized(cacheLock) {
-                    formatterCache.getOrPut(pattern) {
-                        DateTimeFormatter.ofPattern(pattern).withZone(defaultZone)
-                    }
+    fun format(timestamp: Long, pattern: String): String = runCatching {
+        val formatter =
+            synchronized(cacheLock) {
+                formatterCache.getOrPut(pattern) {
+                    DateTimeFormatter.ofPattern(pattern).withZone(defaultZone)
                 }
-            formatter.format(Instant.ofEpochMilli(timestamp))
-        }
-            .getOrElse { formatIso(timestamp) }
+            }
+        formatter.format(Instant.ofEpochMilli(timestamp))
+    }
+        .getOrElse { formatIso(timestamp) }
 
     /**
      * Format a timestamp using date and time patterns.
@@ -42,22 +38,18 @@ object DateTimeUtils {
      * @param timePattern Time pattern (e.g., "HH:mm")
      * @return Combined formatted string
      */
-    fun format(
-        timestamp: Long,
-        datePattern: String,
-        timePattern: String,
-    ): String = format(timestamp, "$datePattern $timePattern")
+    fun format(timestamp: Long, datePattern: String, timePattern: String): String =
+        format(timestamp, "$datePattern $timePattern")
 
     /**
      * Format timestamp to ISO local date-time format.
      */
-    fun formatIso(timestamp: Long): String =
-        runCatching {
-            DateTimeFormatter.ISO_LOCAL_DATE_TIME
-                .withZone(defaultZone)
-                .format(Instant.ofEpochMilli(timestamp))
-        }
-            .getOrDefault(timestamp.toString())
+    fun formatIso(timestamp: Long): String = runCatching {
+        DateTimeFormatter.ISO_LOCAL_DATE_TIME
+            .withZone(defaultZone)
+            .format(Instant.ofEpochMilli(timestamp))
+    }
+        .getOrDefault(timestamp.toString())
 }
 
 // ===== Extension Functions for Idiomatic Kotlin =====
@@ -75,10 +67,8 @@ fun Long.formatAsDate(pattern: String): String = DateTimeUtils.format(this, patt
  *
  * Usage: memo.timestamp.formatAsDateTime("yyyy-MM-dd", "HH:mm")
  */
-fun Long.formatAsDateTime(
-    datePattern: String,
-    timePattern: String,
-): String = DateTimeUtils.format(this, datePattern, timePattern)
+fun Long.formatAsDateTime(datePattern: String, timePattern: String): String =
+    DateTimeUtils.format(this, datePattern, timePattern)
 
 /**
  * Format this Long (epoch millis) as ISO local date-time.

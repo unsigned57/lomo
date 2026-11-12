@@ -44,9 +44,9 @@ package com.lomo.data.repository
  * - The actual disposal/reset side effects and UI surfaces of the reset decision.
  */
 
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.core.DataStore
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.datastore.LomoOrdinarySettingsRestoreTransaction
 import com.lomo.data.testing.DataFunSpec
@@ -198,12 +198,11 @@ class RestoreSyncIdentityPreflightContractTest : DataFunSpec() {
                         intValues = emptyMap(),
                     ),
                 ),
-        ): Boolean =
-            preflight.movesSyncIdentity(
-                snapshot = MigrationSettingsSnapshot(preferences = preferences, sensitive = sensitive),
-                sensitiveSettings = sensitive,
-                ordinaryPlan = plan,
-            )
+        ): Boolean = preflight.movesSyncIdentity(
+            snapshot = MigrationSettingsSnapshot(preferences = preferences, sensitive = sensitive),
+            sensitiveSettings = sensitive,
+            ordinaryPlan = plan,
+        )
     }
 
     private companion object {
@@ -224,7 +223,6 @@ class RestoreSyncIdentityPreflightContractTest : DataFunSpec() {
         }
 
         // The Restore plan reads ordinary values straight from the payload map.
-        fun restorePayload(vararg pairs: Pair<String, String>): Map<String, String> =
-            mapOf(*pairs)
+        fun restorePayload(vararg pairs: Pair<String, String>): Map<String, String> = mapOf(*pairs)
     }
 }

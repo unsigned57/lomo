@@ -1,9 +1,9 @@
 package com.lomo.app.feature.main
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,23 +19,24 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.EditCalendar
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Update
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
+import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import java.time.LocalDate
@@ -52,13 +53,19 @@ internal fun MainMemoFilterSheetContent(
     onHasTodoChanged: (Boolean?) -> Unit,
     onHasAttachmentChanged: (Boolean?) -> Unit,
     onHasUrlChanged: (Boolean?) -> Unit,
+    onSortDirectionSelected: (Boolean) -> Unit = {},
+    onResetFilter: () -> Unit = {},
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium)) {
-        MainMemoFilterHeader()
+        MainMemoFilterHeader(
+            isFilterActive = filter.isActive,
+            onResetFilter = onResetFilter,
+        )
         MainMemoSortOptionsRow(
             selectedOption = filter.sortOption,
             selectedAscending = filter.sortAscending,
             onSortOptionSelected = onSortOptionSelected,
+            onSortDirectionSelected = onSortDirectionSelected,
         )
         MainMemoContentFlagsRow(
             filter = filter,
@@ -119,29 +126,37 @@ internal fun MainMemoSortOptionsRow(
     selectedOption: MemoSortOption,
     selectedAscending: Boolean,
     onSortOptionSelected: (MemoSortOption) -> Unit,
+    onSortDirectionSelected: (Boolean) -> Unit = {},
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
         MemoSortOption.entries.forEach { option ->
+            val isSelected = selectedOption == option
             MainMemoSortButton(
                 modifier = Modifier.weight(1f),
                 text = sortOptionLabel(option),
-                directionLabel = if (selectedOption == option) sortDirectionLabel(selectedAscending) else null,
+                directionLabel = if (isSelected) sortDirectionLabel(selectedAscending) else null,
                 icon = sortOptionIcon(option),
-                selected = selectedOption == option,
+                selected = isSelected,
                 benchmarkTag =
-                    when (option) {
-                        MemoSortOption.CREATED_TIME -> BenchmarkAnchorContract.SORT_OPTION_CREATED_TIME
-                        MemoSortOption.UPDATED_TIME -> BenchmarkAnchorContract.SORT_OPTION_UPDATED_TIME
-                    },
+                when (option) {
+                    MemoSortOption.CREATED_TIME -> BenchmarkAnchorContract.SORT_OPTION_CREATED_TIME
+                    MemoSortOption.UPDATED_TIME -> BenchmarkAnchorContract.SORT_OPTION_UPDATED_TIME
+                },
                 benchmarkSelectedTag =
-                    when (option) {
-                        MemoSortOption.CREATED_TIME -> BenchmarkAnchorContract.SORT_SELECTED_CREATED_TIME
-                        MemoSortOption.UPDATED_TIME -> BenchmarkAnchorContract.SORT_SELECTED_UPDATED_TIME
-                    },
-                onClick = { onSortOptionSelected(option) },
+                when (option) {
+                    MemoSortOption.CREATED_TIME -> BenchmarkAnchorContract.SORT_SELECTED_CREATED_TIME
+                    MemoSortOption.UPDATED_TIME -> BenchmarkAnchorContract.SORT_SELECTED_UPDATED_TIME
+                },
+                onClick = {
+                    if (isSelected) {
+                        onSortDirectionSelected(!selectedAscending)
+                    } else {
+                        onSortOptionSelected(option)
+                    }
+                },
             )
         }
     }
@@ -185,11 +200,7 @@ internal fun MainMemoDateRangeSection(
 }
 
 @Composable
-internal fun MainMemoDateFieldContent(
-    label: String,
-    value: String,
-    hasValue: Boolean,
-) {
+internal fun MainMemoDateFieldContent(label: String, value: String, hasValue: Boolean) {
     val colors = mainMemoDateFieldColors(hasValue = hasValue, colorScheme = MaterialTheme.colorScheme)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -218,12 +229,12 @@ internal fun MainMemoDateFieldContent(
 
 @Composable
 internal fun BoxScope.MainMemoDateFieldClearAction(onClear: () -> Unit) {
-    IconButton(
+    LomoIconButton(
         onClick = onClear,
         modifier =
-            Modifier
-                .size(24.dp)
-                .align(Alignment.TopEnd),
+        Modifier
+            .size(24.dp)
+            .align(Alignment.TopEnd),
     ) {
         val colors = mainMemoDateFieldColors(hasValue = true, colorScheme = MaterialTheme.colorScheme)
         Icon(
@@ -235,11 +246,10 @@ internal fun BoxScope.MainMemoDateFieldClearAction(onClear: () -> Unit) {
     }
 }
 
-private fun sortOptionIcon(option: MemoSortOption): ImageVector =
-    when (option) {
-        MemoSortOption.CREATED_TIME -> Icons.Rounded.EditCalendar
-        MemoSortOption.UPDATED_TIME -> Icons.Rounded.Update
-    }
+private fun sortOptionIcon(option: MemoSortOption): ImageVector = when (option) {
+    MemoSortOption.CREATED_TIME -> Icons.Rounded.EditCalendar
+    MemoSortOption.UPDATED_TIME -> Icons.Rounded.Update
+}
 
 @Composable
 internal fun MainMemoContentFlagsRow(
@@ -304,21 +314,20 @@ private fun ContentFlagTile(
             null -> null
         }
 
-    Surface(
-        modifier =
-            modifier
-                .clip(RoundedCornerShape(12.dp))
-                .clickable {
-                    haptic.medium()
-                    onValueChanged(nextContentFlagState(value))
-                },
-        shape = RoundedCornerShape(12.dp),
-        color = containerColor,
+    LomoFilledTonalButton(
+        onClick = {
+            haptic.medium()
+            onValueChanged(nextContentFlagState(value))
+        },
+        modifier = modifier,
+        shapes = ButtonShapes(RoundedCornerShape(16.dp), RoundedCornerShape(8.dp)),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = containerColor, contentColor = contentColor),
+        contentPadding = PaddingValues(0.dp),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(12.dp).height(64.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp).height(64.dp),
         ) {
             Icon(
                 imageVector = icon,
@@ -331,6 +340,8 @@ private fun ContentFlagTile(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
                 color = contentColor,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
             if (stateLabelRes != null) {
                 Spacer(modifier = Modifier.height(2.dp))
@@ -339,23 +350,22 @@ private fun ContentFlagTile(
                     style = MaterialTheme.typography.labelSmall,
                     color = contentColor,
                     textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
     }
 }
 
-private fun nextContentFlagState(current: Boolean?): Boolean? =
-    when (current) {
-        null -> true
-        true -> false
-        false -> null
-    }
+private fun nextContentFlagState(current: Boolean?): Boolean? = when (current) {
+    null -> true
+    true -> false
+    false -> null
+}
 
 @Composable
-private fun sortDirectionLabel(sortAscending: Boolean): String =
-    if (sortAscending) {
-        stringResource(R.string.main_filter_sort_direction_ascending)
-    } else {
-        stringResource(R.string.main_filter_sort_direction_descending)
-    }
+private fun sortDirectionLabel(sortAscending: Boolean): String = if (sortAscending) {
+    stringResource(R.string.main_filter_sort_direction_ascending)
+} else {
+    stringResource(R.string.main_filter_sort_direction_descending)
+}

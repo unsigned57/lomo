@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract — P2-06 `BoltFFI` workspace conversion surface
 //!
 //! Capability: expose render / document-command APIs through `lomo-native` as conversion-only
@@ -143,7 +151,7 @@ mod tests {
                     let bytes = fs::read(self.workspace_root.join(path)).test_ok("read");
                     let digest = {
                         use sha2::{Digest, Sha256};
-                        format!("{:x}", Sha256::digest(&bytes))
+                        lomo_core::hex_encode(&Sha256::digest(&bytes))
                     };
                     fs::write(self.exchange_root.join(exchange_token), &bytes).test_ok("exchange");
                     ActionOutcome::Applied {
@@ -179,7 +187,7 @@ mod tests {
                     fs::write(self.workspace_root.join(path), &bytes).test_ok("write");
                     let digest = {
                         use sha2::{Digest, Sha256};
-                        format!("{:x}", Sha256::digest(&bytes))
+                        lomo_core::hex_encode(&Sha256::digest(&bytes))
                     };
                     ActionOutcome::Applied {
                         output: PlatformActionOutput::WriteComplete {
@@ -219,7 +227,9 @@ mod tests {
                         },
                     }
                 }
-                PlatformAction::Stat { .. } | PlatformAction::Move { .. } => {
+                PlatformAction::Stat { .. }
+                | PlatformAction::Inspect { .. }
+                | PlatformAction::Move { .. } => {
                     panic!("unexpected {action:?}")
                 }
             }
@@ -229,7 +239,7 @@ mod tests {
             let bytes = fs::read(self.workspace_root.join(path)).test_ok("read");
             let digest = {
                 use sha2::{Digest, Sha256};
-                format!("{:x}", Sha256::digest(&bytes))
+                lomo_core::hex_encode(&Sha256::digest(&bytes))
             };
             ActionOutcome::Applied {
                 output: PlatformActionOutput::Read {
@@ -260,7 +270,7 @@ mod tests {
             fs::write(self.workspace_root.join(path), &bytes).test_ok("write");
             let digest = {
                 use sha2::{Digest, Sha256};
-                format!("{:x}", Sha256::digest(&bytes))
+                lomo_core::hex_encode(&Sha256::digest(&bytes))
             };
             ActionOutcome::Applied {
                 output: PlatformActionOutput::WriteComplete {
@@ -357,7 +367,7 @@ mod tests {
             };
             let digest = {
                 use sha2::{Digest, Sha256};
-                format!("{:x}", Sha256::digest(&bytes))
+                lomo_core::hex_encode(&Sha256::digest(&bytes))
             };
             DocumentMetadata {
                 target: WorkspaceTarget::Relative {
@@ -393,7 +403,7 @@ mod tests {
             };
             let digest = {
                 use sha2::{Digest, Sha256};
-                format!("{:x}", Sha256::digest(&bytes))
+                lomo_core::hex_encode(&Sha256::digest(&bytes))
             };
             DocumentMetadata {
                 target: WorkspaceTarget::Relative {
@@ -418,6 +428,7 @@ mod tests {
     fn action_id(action: &PlatformAction) -> &str {
         match action {
             PlatformAction::Stat { action_id, .. }
+            | PlatformAction::Inspect { action_id, .. }
             | PlatformAction::ListChildren { action_id, .. }
             | PlatformAction::EnsureDirectory { action_id, .. }
             | PlatformAction::ReadToExchange { action_id, .. }
@@ -492,7 +503,7 @@ mod tests {
             .read_workspace_document_command_result(job_id)
             .test_ok("result");
         assert_eq!(result.path, "2024-02-02.md");
-        assert!(!result.result_fingerprint.is_empty());
+        assert_ne!(result.result_fingerprint, "");
         let affected = result.affected_memo.expect("affected memo facts");
         assert_eq!(affected.identity, "2024-02-02_10:00:00_0");
         assert_eq!(affected.path, result.path);

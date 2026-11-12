@@ -13,9 +13,7 @@ interface DeferredLockWorkStore {
     fun clear()
 }
 
-class FileDeferredLockWorkStore(
-    private val file: File,
-) : DeferredLockWorkStore {
+class FileDeferredLockWorkStore(private val file: File) : DeferredLockWorkStore {
     override fun save(input: Data) {
         val bytes = input.toByteArray()
         val parent = file.parentFile

@@ -7,7 +7,8 @@
  *
  * Scenarios:
  * - Given the session is idle, when the tile is clicked, then the trusted Activity start-recording command is launched.
- * - Given the session is recording, when the tile is clicked, then the trusted Activity stop-recording command is launched.
+ * - Given the session is recording, when the tile is clicked, then the stop command addresses
+ *   the capture identity independently of the receiving draft.
  * - Given the tile observes session state, when presentation is resolved, then idle maps to Start and recording maps to Stop.
  *
  * Observable outcomes: TileClickAction returned by the policy.
@@ -46,6 +47,7 @@ class RecordingTileClickPolicyTest : AppFunSpec() {
                     RecordingSessionState.Recording(
                         filename = "voice_20260702_100000.m4a",
                         startedAtMillis = 1_000L,
+                        captureId = com.lomo.domain.model.RecordingCaptureId("recording-test"),
                         draftId = com.lomo.domain.model.DraftId("recording-test"),
                     ),
                 )
@@ -61,6 +63,7 @@ class RecordingTileClickPolicyTest : AppFunSpec() {
                 RecordingSessionState.Recording(
                     filename = "voice_20260702_100000.m4a",
                     startedAtMillis = 1_000L,
+                    captureId = com.lomo.domain.model.RecordingCaptureId("recording-test"),
                     draftId = com.lomo.domain.model.DraftId("recording-test"),
                 ),
             ) shouldBe RecordingTilePresentation.Stop

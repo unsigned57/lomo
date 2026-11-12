@@ -13,6 +13,8 @@ checks are clear. An explicit documentation audit may inspect the whole document
 | Build, lint, coverage, generated outputs, gate selection or failure triage | [Quality](quality/README.md) |
 | Test authoring, editing or review | [Meaningful Tests](quality/testing/ai-meaningful-tests.md), then the relevant [Kotlin](quality/testing/ai-kotlin-test-style.md) or [Rust](quality/testing/ai-rust-test-style.md) guide |
 | ViewModel state, events or paging presentation | [UDF contract](quality/udf-contract.md) |
+| Device-free UI interaction, redroid container flows or UI bug reproduction | [Android UI test](quality/android-uitest.md) |
+| TUI key-driven interaction, PTY flows or TUI bug reproduction | [TUI UI test](quality/tui-uitest.md) |
 | Release, signing or release resources | [Release](quality/release.md) |
 | Release-note copy | [Release notes](docs/release_notes_format_guide.md) |
 | Fixture semantics or golden changes | [Fixtures](fixtures/README.md), then the affected capability or characterization contract |
@@ -26,6 +28,13 @@ Use `rg` to verify paths, APIs and callers. Code and manifests own implementatio
 history only for a relevant regression or explicit investigation. Historical reports and design
 proposals are evidence, not current instructions or authorization to execute their recommendations.
 Do not repeatedly reopen an unchanged contract already read in this task.
+
+A headless Android device exists for UI debugging: `just uitest`/`uishot`/`build android
+benchmark`/`perf device` reuse any attached adb device, and `--redroid` provisions the pinned
+`lomo-redroid` container (adb `127.0.0.1:5555`) when none is attached. For "what is on screen"
+run `just uishot`; to reproduce an interaction run `just uitest <flow>`; report bundles land under
+`reports/`. Prerequisites, provisioning privileges and evidence semantics are owned by
+[Android UI test](quality/android-uitest.md).
 
 ## Work autonomously within the authorized task
 

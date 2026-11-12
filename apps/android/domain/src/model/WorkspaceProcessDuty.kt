@@ -8,9 +8,7 @@ package com.lomo.domain.model
  * The typed duty is the single injected input; consumers never re-derive ownership from a raw
  * Boolean.
  */
-class WorkspaceProcessDuty private constructor(
-    val ownsNativeEngine: Boolean,
-) {
+class WorkspaceProcessDuty private constructor(val ownsNativeEngine: Boolean) {
     companion object {
         /** The default application process owns the native engine. */
         val OWNED: WorkspaceProcessDuty = WorkspaceProcessDuty(true)
@@ -19,15 +17,10 @@ class WorkspaceProcessDuty private constructor(
         val PROJECTION_ONLY: WorkspaceProcessDuty = WorkspaceProcessDuty(false)
 
         /** Returns whether the process name identifies the default application process. */
-        fun ownsNativeEngine(
-            packageName: String,
-            processName: String,
-        ): Boolean = processName == packageName
+        fun ownsNativeEngine(packageName: String, processName: String): Boolean = processName == packageName
 
         /** Resolves the typed duty for a concrete process identity. */
-        fun forProcess(
-            packageName: String,
-            processName: String,
-        ): WorkspaceProcessDuty = WorkspaceProcessDuty(ownsNativeEngine(packageName, processName))
+        fun forProcess(packageName: String, processName: String): WorkspaceProcessDuty =
+            WorkspaceProcessDuty(ownsNativeEngine(packageName, processName))
     }
 }

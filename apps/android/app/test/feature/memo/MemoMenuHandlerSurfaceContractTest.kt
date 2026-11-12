@@ -11,8 +11,8 @@
  *   MemoInteractionHost and MemoMenuBinder expose only handler-first entrypoints.
  * - Given Tag, Gallery, and GalleryReel menu callsites, when their source surface is inspected,
  *   then each builds a MemoMenuCommandHandler before passing it to the host or binder.
- * - Given LAN share and action-order behavior at those callsites, when the handler builder is
- *   inspected, then payload content/timestamp and scoped action-order callbacks remain wired.
+ * - Given LAN share and the jump context at those callsites, when the handler builder is inspected,
+ *   then payload content/timestamp and the MemoMenuContextAction.Jump context remain wired.
  *
  * Observable outcomes:
  * - Boundary assertions identify forbidden flattened app overloads and target callsites that bypass
@@ -25,6 +25,23 @@
  * Excludes:
  * - ui-components presentation callback APIs, Compose rendering, Android share intents, and editor
  *   input-sheet parameter surfaces.
+ *
+ * Production scope: apps/android/app/src/feature/tag/TagFilterScreen.kt
+ * Production scope: apps/android/app/src/feature/gallery/GalleryScreen.kt
+ * Production scope: apps/android/app/src/navigation/GalleryReelNavigation.kt
+ * Production scope: apps/android/app/src/feature/memo/MemoMenuBinder.kt
+ *
+ * Test Change Justification:
+ * - Reason category: product feature removal (usage-based memo menu auto-reorder) and the menu
+ *   redesign's required context action.
+ * - Old behavior/assertion being replaced: callsites had to wire a MemoActionOrderScopes scope plus
+ *   action-usage and action-order callbacks into the handler.
+ * - Why old assertion is no longer correct: the reorder feature was deleted, so those scopes and
+ *   callbacks no longer exist; non-main surfaces now must provide the jump context action instead.
+ * - Coverage preserved by: handler-first construction, handler passing and LAN payload wiring are
+ *   still asserted; the jump context replaces the removed callback assertion at each callsite.
+ * - Why this is not fitting the test to the implementation: the replacement assertion encodes the
+ *   product rule that every non-main memo surface offers jump as its third tile.
  */
 package com.lomo.app.feature.memo
 
@@ -58,34 +75,21 @@ class MemoMenuHandlerSurfaceContractTest : AppFunSpec() {
                 path = "feature/tag/TagFilterScreen.kt",
                 hostCall = "MemoInteractionHost(",
                 passParameter = "menuCommandHandler = memoMenuCommandHandler",
-                actionScope = "MemoActionOrderScopes.TAG",
-                actionUsageCallback = "viewModel::recordMemoActionUsage",
-                actionOrderCallback = "viewModel.updateMemoActionOrder",
             )
             assertHandlerFirstCallsite(
                 path = "feature/gallery/GalleryScreen.kt",
                 hostCall = "MemoMenuBinder(",
                 passParameter = "commandHandler = memoMenuCommandHandler",
-                actionScope = "MemoActionOrderScopes.GALLERY",
-                actionUsageCallback = "viewModel.recordGalleryMemoActionUsage",
-                actionOrderCallback = "viewModel.updateGalleryMemoActionOrder",
             )
             assertHandlerFirstCallsite(
                 path = "navigation/GalleryReelNavigation.kt",
                 hostCall = "MemoMenuBinder(",
                 passParameter = "commandHandler = memoMenuCommandHandler",
-                actionScope = "MemoActionOrderScopes.GALLERY",
-                actionUsageCallback = "mainViewModel.recordGalleryMemoActionUsage",
-                actionOrderCallback = "mainViewModel.updateGalleryMemoActionOrder",
             )
         }
     }
 
-    private fun assertOnlyHandlerFirstComposable(
-        source: String,
-        functionName: String,
-        handlerParameter: String,
-    ) {
+    private fun assertOnlyHandlerFirstComposable(source: String, functionName: String, handlerParameter: String) {
         val functionCount = Regex("""fun\s+$functionName\s*\(""").findAll(source).count()
         withClue("$functionName must expose one app feature API entrypoint") {
             functionCount shouldBe 1
@@ -99,19 +103,9 @@ class MemoMenuHandlerSurfaceContractTest : AppFunSpec() {
         withClue("$functionName must not keep the flattened LAN share callback surface") {
             source.contains("onLanShare:") shouldBe false
         }
-        withClue("$functionName must not keep the flattened action-order callback surface") {
-            source.contains("onMemoActionInvoked:") shouldBe false
-        }
     }
 
-    private fun assertHandlerFirstCallsite(
-        path: String,
-        hostCall: String,
-        passParameter: String,
-        actionScope: String,
-        actionUsageCallback: String,
-        actionOrderCallback: String,
-    ) {
+    private fun assertHandlerFirstCallsite(path: String, hostCall: String, passParameter: String) {
         val source = appSource(path).readText()
         val handlerIndex = source.indexOf("rememberMemoMenuCommandHandler(")
         val hostIndex = source.indexOf(hostCall)
@@ -122,24 +116,20 @@ class MemoMenuHandlerSurfaceContractTest : AppFunSpec() {
         withClue("$path must pass the handler into $hostCall") {
             source.contains(passParameter) shouldBe true
         }
-        withClue("$path must keep scoped action ordering on the handler presentation state") {
-            source.contains(actionScope) shouldBe true
-        }
         withClue("$path must route LAN share payload through MemoMenuLanShareRequest") {
             source.contains("{ request -> onNavigateToShare(request.content, request.timestamp) }") ||
                 source.contains("{ request -> navigateToShare(request.content, request.timestamp) }") shouldBe true
         }
-        withClue("$path must keep action usage and ordering callbacks on the handler") {
-            (source.contains(actionUsageCallback) && source.contains(actionOrderCallback)) shouldBe true
+        withClue("$path must offer jump as the memo menu context action") {
+            source.contains("MemoMenuContextAction.Jump {") shouldBe true
         }
     }
 
-    private fun appSource(relativePath: String): File =
-        appSourceRoot.resolve(relativePath).also { file ->
-            withClue("Expected app source file exists: ${file.path}") {
-                file.isFile shouldBe true
-            }
+    private fun appSource(relativePath: String): File = appSourceRoot.resolve(relativePath).also { file ->
+        withClue("Expected app source file exists: ${file.path}") {
+            file.isFile shouldBe true
         }
+    }
 
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."

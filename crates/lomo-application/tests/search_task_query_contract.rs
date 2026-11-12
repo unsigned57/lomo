@@ -1,3 +1,20 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
+// Task regression scenarios: Given a durable memo ID and a UTF-8 task span, when toggled,
+// then the same memo commits and both source and task projection show checked.
+// Given fenced examples and star/ordered tasks, when listed/toggled, then only rendered tasks
+// participate and non-marker source bytes retain their spacing.
+// TDD proof: RED rendered_task_span returned invalid_memo_identity; task_board_and returned
+// [example] instead of [actual, ordered]. GREEN cargo test -p lomo-application
+// --test search_task_query_contract --locked.
+//
 //! Behavior Contract
 //! Capability: dual-mode search (Unicode fulltext + pinyin fuzzy) with epoch cancellation,
 //! incremental prefix re-scoring, and Markdown task aggregation/toggle through the shared
@@ -10,6 +27,15 @@
 //! TDD proof: fuzzy continuation skipped the first item after each page; the pagination
 //! regression fails before the fix. Incremental/cached-path counters (`seeded_scans`,
 //! `task_hits`) do not exist before this change — the tests do not compile.
+//! Given unrelated writes, unchanged task bodies are reused by memo version; a changed
+//! task is rehydrated before publishing the next view.
+//! Given one memo whose IR alone exceeds the presentation node budget, when the workspace is
+//! indexed, then rebuild, task listing and task toggle succeed — index/task facts use
+//! `project_markdown_facts`; only IR crossing to a renderer keeps `render_document_too_large`.
+//! TDD proof: RED 2026-11-10 `cargo test -p lomo-application --test search_task_query_contract
+//! --locked single_memo_beyond` — `rebuild_projection` failed `render_document_too_large` (the
+//! Android read-only lock with a long checklist memo); GREEN after fact callers left the
+//! presentation budget.
 //! Excludes: Android UI, TUI rendering, network.
 
 #[cfg(test)]
@@ -100,6 +126,159 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+    }
+
+    #[test]
+    fn imported_missing_attachments_do_not_block_task_edits_or_authorize_new_references() {
+        let ctx = open_session();
+        std::fs::write(
+            ctx.workspace_path.join("2026_09_10.md"),
+            "- 09:00:00\n- [ ] imported task\n\n![external folder](z.png)\n",
+        )
+        .expect("import");
+        ctx.session.rebuild_projection().expect("index import");
+        let task = ctx.session.list_tasks().expect("tasks").remove(0);
+        let id = lomo_workspace::MemoId::parse(&task.memo_id).expect("id");
+        ctx.session
+            .toggle_task_marker(op("imported-toggle"), id.clone(), 2, 5)
+            .expect("toggle imported memo");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        assert!(ctx.session.list_tasks().expect("updated")[0].done);
+        let current = ctx
+            .session
+            .projected_memo(id.as_str())
+            .expect("query")
+            .expect("memo");
+        let error = ctx
+            .session
+            .update_memo(lomo_application::UpdateMemoRequest {
+                operation_id: op("new-missing-reference"),
+                memo_id: id,
+                content: format!("{}\n![new](missing.png)", current.body),
+                expected_document_fingerprint: current.summary.file_fingerprint,
+                pending_promotes: Vec::new(),
+            })
+            .expect_err("new missing attachment must still be rejected");
+        assert_eq!(error.code(), "attachment_file_missing_after_promote");
+    }
+
+    #[test]
+    fn single_memo_beyond_presentation_node_budget_indexes_lists_and_toggles_tasks() {
+        // One memo body whose IR alone exceeds the presentation budget: a plain imported note or a
+        // long checklist. Index/task facts are not presentation, so the workspace must open and
+        // stay writable instead of failing whole with `render_document_too_large`.
+        let ctx = open_session();
+        let task_count = 3_000_usize;
+        let body = (0..task_count)
+            .map(|index| format!("- [ ] task {index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let source = lomo_workspace::SourceBytes::try_from_str(&body).expect("body source");
+        let presentation =
+            lomo_workspace::render_markdown(&source).expect_err("body exceeds presentation budget");
+        assert_eq!(presentation.code(), "render_document_too_large");
+        std::fs::write(
+            ctx.workspace_path.join("2026_11_09.md"),
+            format!("- 09:00:00\n{body}\n"),
+        )
+        .expect("oversized memo");
+
+        ctx.session
+            .rebuild_projection()
+            .expect("oversized memo indexes");
+        let tasks = ctx.session.list_tasks().expect("oversized memo tasks");
+        assert_eq!(tasks.len(), task_count);
+        let id = lomo_workspace::MemoId::parse(&tasks[0].memo_id).expect("id");
+        ctx.session
+            .toggle_task_marker(op("oversized-toggle"), id, 2, 5)
+            .expect("toggle inside oversized memo");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        let done = ctx
+            .session
+            .list_tasks()
+            .expect("updated tasks")
+            .into_iter()
+            .filter(|task| task.done)
+            .map(|task| task.text)
+            .collect::<Vec<_>>();
+        assert_eq!(done, ["task 0"]);
+    }
+
+    #[test]
+    fn task_board_and_memo_cards_share_markdown_task_semantics() {
+        let ctx = open_session();
+        create(
+            &ctx,
+            "markdown-task-create",
+            "2026_09_10.md",
+            "09:00:00",
+            "```markdown\n- [ ] example\n```\n\n* [ ] actual  \n1. [X] ordered",
+            None,
+        );
+        let tasks = ctx.session.list_tasks().expect("tasks");
+        assert_eq!(
+            tasks
+                .iter()
+                .map(|task| task.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["actual", "ordered"]
+        );
+        ctx.session
+            .toggle_task(ToggleTaskRequest {
+                operation_id: op("board-toggle"),
+                memo_id: lomo_workspace::MemoId::parse(&tasks[0].memo_id).expect("memo"),
+                line_index: tasks[0].line_index,
+                done: true,
+            })
+            .expect("toggle star task");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        let written =
+            std::fs::read_to_string(ctx.workspace_path.join("2026_09_10.md")).expect("source");
+        assert!(written.contains("* [x] actual  "));
+        assert!(written.contains("- [ ] example"));
+    }
+
+    #[test]
+    fn rendered_task_span_uses_durable_memo_identity_and_commits_once() {
+        let ctx = open_session();
+        create(
+            &ctx,
+            "task-create",
+            "2026_09_10.md",
+            "09:00:00",
+            "前言\n- [ ] task",
+            None,
+        );
+        let task = ctx.session.list_tasks().expect("tasks").remove(0);
+        let id = lomo_workspace::MemoId::parse(&task.memo_id).expect("id");
+        let start = u64::try_from("前言\n- ".len()).expect("offset");
+        ctx.session
+            .toggle_task_marker(op("task-marker"), id.clone(), start, start + 3)
+            .expect("toggle");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        let tasks = ctx.session.list_tasks().expect("updated tasks");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        assert!(tasks[0].done);
+        assert_eq!(tasks[0].memo_id, id.as_str());
+        let written =
+            std::fs::read_to_string(ctx.workspace_path.join("2026_09_10.md")).expect("source");
+        assert!(written.contains("前言\n- [x] task"));
     }
 
     #[test]
@@ -118,6 +297,9 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("wall");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         create(
             &ctx,
             "c2",
@@ -153,7 +335,7 @@ mod tests {
         let SearchOutcome::Ready(page) = fresh else {
             panic!("fresh epoch must produce hits");
         };
-        assert!(!page.items.is_empty());
+        assert_ne!(page.items, Vec::<lomo_application::SearchHit>::new());
         assert!(page.items[0].summary.body_preview.contains("八达岭长城"));
 
         let discarded = ctx
@@ -257,7 +439,13 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("todo memo");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let tasks = ctx.session.list_tasks().expect("tasks");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert_eq!(tasks.len(), 2);
         assert!(!tasks[0].done);
         assert_eq!(tasks[0].text, "buy milk");
@@ -271,10 +459,19 @@ mod tests {
                 done: true,
             })
             .expect("toggle");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let markdown =
             std::fs::read_to_string(ctx.workspace_path.join("2026_09_10.md")).expect("md");
         assert!(markdown.contains("- [x] buy milk"));
         let tasks = ctx.session.list_tasks().expect("tasks after");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             tasks
                 .iter()
@@ -730,6 +927,110 @@ mod tests {
         let probe = ctx.session.projection_query_stats().expect("probe");
         assert_eq!(probe.task_builds, 2);
         assert_eq!(probe.summary_walks, 2);
+    }
+
+    #[test]
+    fn task_hydration_reuses_unchanged_memos_after_unrelated_commits() {
+        let ctx = open_session();
+        create(
+            &ctx,
+            "tasks-a",
+            "2026_09_10.md",
+            "10:00:00",
+            "- [ ] alpha",
+            None,
+        );
+        create(
+            &ctx,
+            "tasks-b",
+            "2026_09_11.md",
+            "10:00:00",
+            "- [x] beta",
+            None,
+        );
+        let initial = ctx.session.list_tasks().expect("initial task view");
+        assert_eq!(
+            ctx.session
+                .projection_query_stats()
+                .expect("stats")
+                .task_memos_hydrated,
+            2
+        );
+        create(
+            &ctx,
+            "plain",
+            "2026_09_12.md",
+            "10:00:00",
+            "no checkboxes",
+            None,
+        );
+        assert_eq!(
+            ctx.session
+                .list_tasks()
+                .expect("tasks after unrelated write"),
+            initial
+        );
+        assert_eq!(
+            ctx.session
+                .projection_query_stats()
+                .expect("stats")
+                .task_memos_hydrated,
+            2,
+            "an unrelated commit must not re-hydrate existing task bodies"
+        );
+        create(
+            &ctx,
+            "tasks-c",
+            "2026_09_13.md",
+            "10:00:00",
+            "- [ ] gamma",
+            None,
+        );
+        let next = ctx.session.list_tasks().expect("new task view");
+        assert_eq!(next.len(), 3);
+        assert!(next.iter().any(|task| task.text == "gamma"));
+        assert_eq!(
+            ctx.session
+                .projection_query_stats()
+                .expect("stats")
+                .task_memos_hydrated,
+            3,
+            "only the new memo body needs hydration"
+        );
+        let alpha = next
+            .iter()
+            .find(|task| task.text == "alpha")
+            .expect("alpha");
+        ctx.session
+            .toggle_task(ToggleTaskRequest {
+                operation_id: op("toggle-cached-alpha"),
+                memo_id: lomo_workspace::MemoId::parse(&alpha.memo_id).expect("memo id"),
+                line_index: alpha.line_index,
+                done: true,
+            })
+            .expect("toggle");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        let updated = ctx.session.list_tasks().expect("updated task view");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        assert!(
+            updated
+                .iter()
+                .find(|task| task.text == "alpha")
+                .expect("updated alpha")
+                .done
+        );
+        assert_eq!(
+            ctx.session
+                .projection_query_stats()
+                .expect("stats")
+                .task_memos_hydrated,
+            4,
+            "a task edit must refresh exactly its changed memo"
+        );
     }
 
     /// Iteration order is most- to least-recently-used — the tail is the next

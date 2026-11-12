@@ -9,10 +9,7 @@ class NavigationPayloadRegistry<T : Any>(
     private var clock: () -> Long = System::currentTimeMillis,
     private val keyFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
-    private data class Entry<T : Any>(
-        val payload: T,
-        val createdAtMillis: Long,
-    )
+    private data class Entry<T : Any>(val payload: T, val createdAtMillis: Long)
 
     private val store = SynchronizedLruStore<String, Entry<T>>(maxEntries)
 

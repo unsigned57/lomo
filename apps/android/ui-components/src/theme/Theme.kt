@@ -9,14 +9,8 @@ import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MaterialExpressiveTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -24,20 +18,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
-import com.lomo.domain.model.ColorPresetId
 import com.lomo.domain.model.ColorSource
-import com.lomo.ui.generated.resources.Res
-import com.lomo.ui.generated.resources.sidebar_memo
+import com.lomo.domain.model.ContrastLevel
 
 private const val FONT_WEIGHT_ADJUSTMENT_FALLBACK = 0
 
@@ -45,13 +33,12 @@ internal fun shouldAnimateThemeColorTransition(
     themeMode: ThemeMode,
     previousDarkTheme: Boolean?,
     currentDarkTheme: Boolean,
-): Boolean =
-    when {
-        previousDarkTheme == null -> true
-        themeMode != ThemeMode.SYSTEM -> true
-        previousDarkTheme == currentDarkTheme -> true
-        else -> false
-    }
+): Boolean = when {
+    previousDarkTheme == null -> true
+    themeMode != ThemeMode.SYSTEM -> true
+    previousDarkTheme == currentDarkTheme -> true
+    else -> false
+}
 
 private data class AnimatedCoreColors(
     val primary: Color,
@@ -114,6 +101,8 @@ private data class AnimatedFixedColors(
 fun LomoTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     colorSource: ColorSource = ColorSource.default(),
+    contrastLevel: ContrastLevel = ContrastLevel.default(),
+    pureBlackDark: Boolean = false,
     fontFamily: FontFamily = FontFamily.SansSerif,
     typographyScales: TypographyScales = TypographyScales(),
     currentUiMode: Int? = null,
@@ -123,18 +112,19 @@ fun LomoTheme(
     val darkTheme = resolveDarkTheme(themeMode, currentUiMode, isSystemInDarkTheme())
     var previousDarkTheme by remember(themeMode) { mutableStateOf<Boolean?>(null) }
 
-    val targetColorScheme = resolveLomoColorScheme(context, colorSource, darkTheme)
+    val targetColorScheme = resolveLomoColorScheme(context, colorSource, darkTheme, contrastLevel)
+        .withPureBlackSurfaces(isDark = darkTheme, enabled = pureBlackDark)
 
-    val expressiveMotionScheme = rememberExpressiveMotionScheme()
+    val lomoMotion = rememberLomoMotion()
     val animatedColorScheme =
         animateColorSchemeAsState(
             targetColorScheme = targetColorScheme,
             animationSpec =
-                if (shouldAnimateThemeColorTransition(themeMode, previousDarkTheme, darkTheme)) {
-                    expressiveMotionScheme.defaultEffectsSpec()
-                } else {
-                    snap()
-                },
+            if (shouldAnimateThemeColorTransition(themeMode, previousDarkTheme, darkTheme)) {
+                lomoMotion.component.defaultEffectsSpec()
+            } else {
+                snap()
+            },
         )
     val configuration = LocalConfiguration.current
     val systemFontWeightAdjustment =
@@ -165,6 +155,7 @@ fun LomoTheme(
     // (memo menu) inherit the scheme directly and avoid a costly nested MaterialTheme on first use.
     CompositionLocalProvider(
         LocalTextSelectionColors provides memoTextSelectionColors(animatedColorScheme),
+        LocalLomoMotion provides lomoMotion,
     ) {
         ProvideTypographyScales(typographyScales) {
             @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
@@ -172,7 +163,7 @@ fun LomoTheme(
                 colorScheme = animatedColorScheme,
                 typography = typography,
                 shapes = Shapes,
-                motionScheme = expressiveMotionScheme,
+                motionScheme = lomoMotion.component,
                 content = content,
             )
         }
@@ -183,6 +174,8 @@ fun LomoTheme(
 fun LomoTheme(
     themeMode: String,
     colorSource: ColorSource = ColorSource.default(),
+    contrastLevel: ContrastLevel = ContrastLevel.default(),
+    pureBlackDark: Boolean = false,
     fontFamily: FontFamily = FontFamily.SansSerif,
     typographyScales: TypographyScales = TypographyScales(),
     currentUiMode: Int? = null,
@@ -191,6 +184,8 @@ fun LomoTheme(
     LomoTheme(
         themeMode = ThemeMode.fromStorageValue(themeMode),
         colorSource = colorSource,
+        contrastLevel = contrastLevel,
+        pureBlackDark = pureBlackDark,
         fontFamily = fontFamily,
         typographyScales = typographyScales,
         currentUiMode = currentUiMode,
@@ -199,10 +194,7 @@ fun LomoTheme(
 }
 
 @Composable
-fun animateColorSchemeAsState(
-    targetColorScheme: ColorScheme,
-    animationSpec: AnimationSpec<Color>,
-): ColorScheme {
+fun animateColorSchemeAsState(targetColorScheme: ColorScheme, animationSpec: AnimationSpec<Color>): ColorScheme {
     val coreColors = animatedCoreColors(targetColorScheme, animationSpec)
     val surfaceColors = animatedSurfaceColors(targetColorScheme, animationSpec)
     val fixedColors = animatedFixedColors(targetColorScheme, animationSpec)
@@ -263,87 +255,84 @@ fun animateColorSchemeAsState(
 private fun animatedCoreColors(
     targetColorScheme: ColorScheme,
     animationSpec: AnimationSpec<Color>,
-): AnimatedCoreColors =
-    withAnimatedColor(animationSpec) { animateColor ->
-        AnimatedCoreColors(
-            primary = animateColor(targetColorScheme.primary, "primary"),
-            onPrimary = animateColor(targetColorScheme.onPrimary, "onPrimary"),
-            primaryContainer = animateColor(targetColorScheme.primaryContainer, "primaryContainer"),
-            onPrimaryContainer = animateColor(targetColorScheme.onPrimaryContainer, "onPrimaryContainer"),
-            inversePrimary = animateColor(targetColorScheme.inversePrimary, "inversePrimary"),
-            secondary = animateColor(targetColorScheme.secondary, "secondary"),
-            onSecondary = animateColor(targetColorScheme.onSecondary, "onSecondary"),
-            secondaryContainer = animateColor(targetColorScheme.secondaryContainer, "secondaryContainer"),
-            onSecondaryContainer = animateColor(targetColorScheme.onSecondaryContainer, "onSecondaryContainer"),
-            tertiary = animateColor(targetColorScheme.tertiary, "tertiary"),
-            onTertiary = animateColor(targetColorScheme.onTertiary, "onTertiary"),
-            tertiaryContainer = animateColor(targetColorScheme.tertiaryContainer, "tertiaryContainer"),
-            onTertiaryContainer = animateColor(targetColorScheme.onTertiaryContainer, "onTertiaryContainer"),
-            background = animateColor(targetColorScheme.background, "background"),
-            onBackground = animateColor(targetColorScheme.onBackground, "onBackground"),
-            error = animateColor(targetColorScheme.error, "error"),
-            onError = animateColor(targetColorScheme.onError, "onError"),
-            errorContainer = animateColor(targetColorScheme.errorContainer, "errorContainer"),
-            onErrorContainer = animateColor(targetColorScheme.onErrorContainer, "onErrorContainer"),
-        )
-    }
+): AnimatedCoreColors = withAnimatedColor(animationSpec) { animateColor ->
+    AnimatedCoreColors(
+        primary = animateColor(targetColorScheme.primary, "primary"),
+        onPrimary = animateColor(targetColorScheme.onPrimary, "onPrimary"),
+        primaryContainer = animateColor(targetColorScheme.primaryContainer, "primaryContainer"),
+        onPrimaryContainer = animateColor(targetColorScheme.onPrimaryContainer, "onPrimaryContainer"),
+        inversePrimary = animateColor(targetColorScheme.inversePrimary, "inversePrimary"),
+        secondary = animateColor(targetColorScheme.secondary, "secondary"),
+        onSecondary = animateColor(targetColorScheme.onSecondary, "onSecondary"),
+        secondaryContainer = animateColor(targetColorScheme.secondaryContainer, "secondaryContainer"),
+        onSecondaryContainer = animateColor(targetColorScheme.onSecondaryContainer, "onSecondaryContainer"),
+        tertiary = animateColor(targetColorScheme.tertiary, "tertiary"),
+        onTertiary = animateColor(targetColorScheme.onTertiary, "onTertiary"),
+        tertiaryContainer = animateColor(targetColorScheme.tertiaryContainer, "tertiaryContainer"),
+        onTertiaryContainer = animateColor(targetColorScheme.onTertiaryContainer, "onTertiaryContainer"),
+        background = animateColor(targetColorScheme.background, "background"),
+        onBackground = animateColor(targetColorScheme.onBackground, "onBackground"),
+        error = animateColor(targetColorScheme.error, "error"),
+        onError = animateColor(targetColorScheme.onError, "onError"),
+        errorContainer = animateColor(targetColorScheme.errorContainer, "errorContainer"),
+        onErrorContainer = animateColor(targetColorScheme.onErrorContainer, "onErrorContainer"),
+    )
+}
 
 @Composable
 private fun animatedSurfaceColors(
     targetColorScheme: ColorScheme,
     animationSpec: AnimationSpec<Color>,
-): AnimatedSurfaceColors =
-    withAnimatedColor(animationSpec) { animateColor ->
-        AnimatedSurfaceColors(
-            surface = animateColor(targetColorScheme.surface, "surface"),
-            onSurface = animateColor(targetColorScheme.onSurface, "onSurface"),
-            surfaceVariant = animateColor(targetColorScheme.surfaceVariant, "surfaceVariant"),
-            onSurfaceVariant = animateColor(targetColorScheme.onSurfaceVariant, "onSurfaceVariant"),
-            surfaceTint = animateColor(targetColorScheme.surfaceTint, "surfaceTint"),
-            inverseSurface = animateColor(targetColorScheme.inverseSurface, "inverseSurface"),
-            inverseOnSurface = animateColor(targetColorScheme.inverseOnSurface, "inverseOnSurface"),
-            outline = animateColor(targetColorScheme.outline, "outline"),
-            outlineVariant = animateColor(targetColorScheme.outlineVariant, "outlineVariant"),
-            scrim = animateColor(targetColorScheme.scrim, "scrim"),
-            surfaceBright = animateColor(targetColorScheme.surfaceBright, "surfaceBright"),
-            surfaceContainer = animateColor(targetColorScheme.surfaceContainer, "surfaceContainer"),
-            surfaceContainerHigh = animateColor(targetColorScheme.surfaceContainerHigh, "surfaceContainerHigh"),
-            surfaceContainerHighest =
-                animateColor(
-                    targetColorScheme.surfaceContainerHighest,
-                    "surfaceContainerHighest",
-                ),
-            surfaceContainerLow = animateColor(targetColorScheme.surfaceContainerLow, "surfaceContainerLow"),
-            surfaceContainerLowest = animateColor(targetColorScheme.surfaceContainerLowest, "surfaceContainerLowest"),
-            surfaceDim = animateColor(targetColorScheme.surfaceDim, "surfaceDim"),
-        )
-    }
+): AnimatedSurfaceColors = withAnimatedColor(animationSpec) { animateColor ->
+    AnimatedSurfaceColors(
+        surface = animateColor(targetColorScheme.surface, "surface"),
+        onSurface = animateColor(targetColorScheme.onSurface, "onSurface"),
+        surfaceVariant = animateColor(targetColorScheme.surfaceVariant, "surfaceVariant"),
+        onSurfaceVariant = animateColor(targetColorScheme.onSurfaceVariant, "onSurfaceVariant"),
+        surfaceTint = animateColor(targetColorScheme.surfaceTint, "surfaceTint"),
+        inverseSurface = animateColor(targetColorScheme.inverseSurface, "inverseSurface"),
+        inverseOnSurface = animateColor(targetColorScheme.inverseOnSurface, "inverseOnSurface"),
+        outline = animateColor(targetColorScheme.outline, "outline"),
+        outlineVariant = animateColor(targetColorScheme.outlineVariant, "outlineVariant"),
+        scrim = animateColor(targetColorScheme.scrim, "scrim"),
+        surfaceBright = animateColor(targetColorScheme.surfaceBright, "surfaceBright"),
+        surfaceContainer = animateColor(targetColorScheme.surfaceContainer, "surfaceContainer"),
+        surfaceContainerHigh = animateColor(targetColorScheme.surfaceContainerHigh, "surfaceContainerHigh"),
+        surfaceContainerHighest =
+        animateColor(
+            targetColorScheme.surfaceContainerHighest,
+            "surfaceContainerHighest",
+        ),
+        surfaceContainerLow = animateColor(targetColorScheme.surfaceContainerLow, "surfaceContainerLow"),
+        surfaceContainerLowest = animateColor(targetColorScheme.surfaceContainerLowest, "surfaceContainerLowest"),
+        surfaceDim = animateColor(targetColorScheme.surfaceDim, "surfaceDim"),
+    )
+}
 
 @Composable
 private fun animatedFixedColors(
     targetColorScheme: ColorScheme,
     animationSpec: AnimationSpec<Color>,
-): AnimatedFixedColors =
-    withAnimatedColor(animationSpec) { animateColor ->
-        AnimatedFixedColors(
-            primaryFixed = animateColor(targetColorScheme.primaryFixed, "primaryFixed"),
-            primaryFixedDim = animateColor(targetColorScheme.primaryFixedDim, "primaryFixedDim"),
-            onPrimaryFixed = animateColor(targetColorScheme.onPrimaryFixed, "onPrimaryFixed"),
-            onPrimaryFixedVariant = animateColor(targetColorScheme.onPrimaryFixedVariant, "onPrimaryFixedVariant"),
-            secondaryFixed = animateColor(targetColorScheme.secondaryFixed, "secondaryFixed"),
-            secondaryFixedDim = animateColor(targetColorScheme.secondaryFixedDim, "secondaryFixedDim"),
-            onSecondaryFixed = animateColor(targetColorScheme.onSecondaryFixed, "onSecondaryFixed"),
-            onSecondaryFixedVariant =
-                animateColor(
-                    targetColorScheme.onSecondaryFixedVariant,
-                    "onSecondaryFixedVariant",
-                ),
-            tertiaryFixed = animateColor(targetColorScheme.tertiaryFixed, "tertiaryFixed"),
-            tertiaryFixedDim = animateColor(targetColorScheme.tertiaryFixedDim, "tertiaryFixedDim"),
-            onTertiaryFixed = animateColor(targetColorScheme.onTertiaryFixed, "onTertiaryFixed"),
-            onTertiaryFixedVariant = animateColor(targetColorScheme.onTertiaryFixedVariant, "onTertiaryFixedVariant"),
-        )
-    }
+): AnimatedFixedColors = withAnimatedColor(animationSpec) { animateColor ->
+    AnimatedFixedColors(
+        primaryFixed = animateColor(targetColorScheme.primaryFixed, "primaryFixed"),
+        primaryFixedDim = animateColor(targetColorScheme.primaryFixedDim, "primaryFixedDim"),
+        onPrimaryFixed = animateColor(targetColorScheme.onPrimaryFixed, "onPrimaryFixed"),
+        onPrimaryFixedVariant = animateColor(targetColorScheme.onPrimaryFixedVariant, "onPrimaryFixedVariant"),
+        secondaryFixed = animateColor(targetColorScheme.secondaryFixed, "secondaryFixed"),
+        secondaryFixedDim = animateColor(targetColorScheme.secondaryFixedDim, "secondaryFixedDim"),
+        onSecondaryFixed = animateColor(targetColorScheme.onSecondaryFixed, "onSecondaryFixed"),
+        onSecondaryFixedVariant =
+        animateColor(
+            targetColorScheme.onSecondaryFixedVariant,
+            "onSecondaryFixedVariant",
+        ),
+        tertiaryFixed = animateColor(targetColorScheme.tertiaryFixed, "tertiaryFixed"),
+        tertiaryFixedDim = animateColor(targetColorScheme.tertiaryFixedDim, "tertiaryFixedDim"),
+        onTertiaryFixed = animateColor(targetColorScheme.onTertiaryFixed, "onTertiaryFixed"),
+        onTertiaryFixedVariant = animateColor(targetColorScheme.onTertiaryFixedVariant, "onTertiaryFixedVariant"),
+    )
+}
 
 @Composable
 private inline fun <T> withAnimatedColor(
@@ -356,10 +345,8 @@ private inline fun <T> withAnimatedColor(
     return block(animateColor)
 }
 
-private tailrec fun Context.findActivity(): Activity? =
-    when (this) {
-        is Activity -> this
-        is ContextWrapper -> baseContext.findActivity()
-        else -> null
-    }
-
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}

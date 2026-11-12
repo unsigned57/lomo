@@ -86,3 +86,15 @@ pub fn internal(code: &str, diagnostic: &str) -> LomoError {
     )
     .unwrap_or_else(|error| error)
 }
+
+pub fn resource_limit(code: &str, diagnostic: &str) -> LomoError {
+    LomoError::from_platform_boundary(
+        ErrorCategory::ResourceLimit,
+        code,
+        RetryDisposition::Never,
+        None,
+        None,
+        diagnostic,
+    )
+    .unwrap_or_else(|error| error)
+}

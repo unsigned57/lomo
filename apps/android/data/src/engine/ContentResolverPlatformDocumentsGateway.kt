@@ -3,24 +3,143 @@ package com.lomo.data.engine
 import android.content.ContentResolver
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.WorkspaceTarget
 import com.lomo.nativebridge.WriteMode
+import timber.log.Timber
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Production [PlatformDocumentsGateway] over [ContentResolver] / DocumentsContract.
  *
  * Tree URI strings come from [CapabilityRegistry]; conversion to [Uri] stays inside this edge.
+ * Path walking and listing memos live in [DocumentPathResolver], document observation in
+ * [DocumentSnapshotQueries], and create/write/move mechanics in [DocumentWriter]; the gateway
+ * itself only orchestrates the public port methods.
  */
-internal class ContentResolverPlatformDocumentsGateway(
+internal class ContentResolverPlatformDocumentsGateway(private val contentResolver: ContentResolver) :
+    PlatformDocumentsGateway {
+    private val state = SafDocumentState()
+    private val resolverOperations = SafDocumentOperations(contentResolver, state)
+
+    // API 26-28 execute the same operations through ContentResolver; API 29 introduced wrap.
+    // Each modern operation owns one connection until all cursors/streams have closed. There
+    // is no process-global provider lease to leak, evict under a reader, or reuse after death.
+    private fun <T> connected(treeUri: String, operation: (SafDocumentOperations) -> T): T =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            withDocumentProviderConnection(contentResolver, treeUri.toAndroidUri()) { resolver ->
+                operation(SafDocumentOperations(resolver, state))
+            }
+        } else {
+            operation(resolverOperations)
+        }
+
+    override fun stat(treeUri: String, target: WorkspaceTarget, digest: SnapshotDigestMode) =
+        connected(treeUri) { it.stat(treeUri, target, digest) }
+
+    override fun listChildren(treeUri: String, target: WorkspaceTarget, cursor: String?, pageSize: UInt) =
+        if (cursor == null) {
+            connected(treeUri) { it.listChildren(treeUri, target, null, pageSize) }
+        } else {
+            state.pages.resume(treeUri, target, cursor, pageSize)
+        }
+
+    override fun ensureDirectory(treeUri: String, path: String) =
+        connected(treeUri) { it.ensureDirectory(treeUri, path) }
+
+    override fun openRead(treeUri: String, path: String) = connected(treeUri) { it.openRead(treeUri, path) }
+
+    override fun openReadByHandle(treeUri: String, path: String, documentHandle: String) =
+        connected(treeUri) { it.openReadByHandle(treeUri, path, documentHandle) }
+
+    override fun writeFromExchange(
+        treeUri: String,
+        path: String,
+        bytes: ByteArray,
+        mode: WriteMode,
+        mimeType: String?,
+        arbitrate: WriteArbitration,
+    ) = connected(treeUri) { it.writeFromExchange(treeUri, path, bytes, mode, mimeType, arbitrate) }
+
+    override fun writeFromFile(
+        treeUri: String,
+        path: String,
+        source: File,
+        mimeType: String?,
+        arbitrate: WriteArbitration,
+    ) = connected(treeUri) { it.writeFromFile(treeUri, path, source, mimeType, arbitrate) }
+
+    override fun move(treeUri: String, source: String, target: String, targetTreeUri: String) =
+        connected(treeUri) { it.move(treeUri, source, target, targetTreeUri) }
+
+    override fun delete(treeUri: String, path: String) = connected(treeUri) { it.delete(treeUri, path) }
+
+    internal companion object {
+        val DOCUMENT_PROJECTION = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+    }
+}
+
+private class DocumentListingCache {
+    private val childListings = ConcurrentHashMap<ListingKey, ConcurrentHashMap<String, String>>()
+
+    fun snapshot(treeUri: String, parentDocId: String): Map<String, String>? =
+        childListings[ListingKey(treeUri, parentDocId)]
+
+    /** Record a create under [parentDocId] so the memo answers the new name without a re-list. */
+    fun noteChildAdded(treeUri: String, parentDocId: String, name: String, childDocId: String) {
+        childListings.computeIfPresent(ListingKey(treeUri, parentDocId)) { _, listing ->
+            listing.apply { put(name, childDocId) }
+        }
+    }
+
+    /** Record a removal under [parentDocId]; also drops the removed document's own listing. */
+    fun noteChildRemoved(treeUri: String, parentDocId: String, name: String, removedDocId: String) {
+        childListings.computeIfPresent(ListingKey(treeUri, parentDocId)) { _, listing ->
+            listing.apply { remove(name) }
+        }
+        childListings.keys.removeIf { it.treeUri == treeUri && it.parentDocId == removedDocId }
+    }
+
+    /** Record a rename/move: the child leaves one parent listing and enters another. */
+    fun noteChildMoved(treeUri: String, source: ListingChild, target: ListingChild) {
+        noteChildRemoved(treeUri, source.parentDocId, source.name, source.documentId)
+        noteChildAdded(treeUri, target.parentDocId, target.name, target.documentId)
+    }
+
+    fun rememberCompleteListing(treeUri: String, parentDocId: String, nameToDocumentId: Map<String, String>) {
+        childListings[ListingKey(treeUri, parentDocId)] = ConcurrentHashMap(nameToDocumentId)
+    }
+}
+
+private class SafDocumentState {
+    val listings = DocumentListingCache()
+    val pages = SafDirectoryPages()
+    val twoPassTrees: MutableSet<String> = ConcurrentHashMap.newKeySet<String>()
+}
+
+private class SafDocumentOperations(
     private val contentResolver: ContentResolver,
+    private val state: SafDocumentState,
 ) : PlatformDocumentsGateway {
+    private val queries = DocumentSnapshotQueries(contentResolver)
+    private val paths = DocumentPathResolver(contentResolver, queries, state.listings)
+    private val writer = DocumentWriter(contentResolver, paths, queries, state.twoPassTrees)
+
     override fun stat(
         treeUri: String,
         target: WorkspaceTarget,
@@ -29,24 +148,25 @@ internal class ContentResolverPlatformDocumentsGateway(
         val root = treeUri.toAndroidUri()
         return when (target) {
             is WorkspaceTarget.Root -> {
-                val docId = DocumentsContract.getTreeDocumentId(root)
+                val docId = selectedSafDocumentId(treeUri, root)
                 val documentUri = DocumentsContract.buildDocumentUriUsingTree(root, docId)
-                querySnapshot(
+                queries.querySnapshot(
                     documentUri = documentUri,
                     target = WorkspaceTarget.Root,
                     documentId = docId,
                     digestMode = digest,
                 )
             }
-            is WorkspaceTarget.Relative -> {
-                val resolved = resolvePath(root, target.path) ?: return null
-                querySnapshot(
-                    documentUri = resolved.uri,
-                    target = target,
-                    documentId = resolved.documentId,
-                    digestMode = digest,
-                )
-            }
+
+            is WorkspaceTarget.Relative ->
+                paths.resolveObserved(root, treeUri, target.path) { resolved ->
+                    queries.querySnapshot(
+                        documentUri = resolved.uri,
+                        target = target,
+                        documentId = resolved.documentId,
+                        digestMode = digest,
+                    )
+                }
         }
     }
 
@@ -56,99 +176,61 @@ internal class ContentResolverPlatformDocumentsGateway(
         cursor: String?,
         pageSize: UInt,
     ): PlatformMetadataPage {
+        SafDirectoryPages.requirePageSize(pageSize)
+        if (cursor != null) return state.pages.resume(treeUri, target, cursor, pageSize)
         val root = treeUri.toAndroidUri()
         val parentDocId =
             when (target) {
-                is WorkspaceTarget.Root -> DocumentsContract.getTreeDocumentId(root)
+                is WorkspaceTarget.Root -> selectedSafDocumentId(treeUri, root)
+
                 is WorkspaceTarget.Relative ->
-                    resolvePath(root, target.path)?.documentId
-                        ?: return PlatformMetadataPage(
-                            items = emptyList(),
-                            nextCursor = null,
-                            incomplete = true,
-                        )
+                    paths.resolveObserved(root, treeUri, target.path) { it.documentId }
+                        ?: return PlatformMetadataPage(emptyList(), null, incomplete = true)
             }
         val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(root, parentDocId)
-        val items = ArrayList<PlatformDocumentSnapshot>(pageSize.toInt().coerceAtMost(256))
         contentResolver
-            .query(childUri, DOCUMENT_PROJECTION, null, null, null)
+            .query(childUri, ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION, null, null, null)
             ?.use { queryCursor ->
                 val indices = DocumentColumnIndices.from(queryCursor)
-                val skip = cursor?.toIntOrNull() ?: 0
-                var rowsConsumed = 0
-                var hasMoreRows = false
-                if (queryCursor.seekToPosition(skip)) {
-                    do {
-                        rowsConsumed += 1
-                        indices.extractChildSnapshot(queryCursor, target)?.let { items += it }
-                        if (items.size >= pageSize.toInt()) {
-                            hasMoreRows = queryCursor.moveToNext()
-                            break
+                val items = state.pages.capture(
+                    sequence {
+                        while (queryCursor.moveToNext()) {
+                            yield(
+                                indices.extractChildSnapshot(queryCursor, target)
+                                    ?: errorIo("Provider returned a child without its name or document id"),
+                            )
                         }
-                    } while (queryCursor.moveToNext())
-                }
-                val nextCursor =
-                    if (hasMoreRows) {
-                        (skip + rowsConsumed).toString()
-                    } else {
-                        null
-                    }
-                return PlatformMetadataPage(items = items, nextCursor = nextCursor)
+                    },
+                )
+                // The entire provider observation is complete even when the FFI page is small.
+                // Reuse every sibling name; large directories must not fall back to re-listing.
+                paths.listings.rememberCompleteListing(
+                    treeUri,
+                    parentDocId,
+                    items.associate { snapshot ->
+                        val path = (snapshot.target as WorkspaceTarget.Relative).path
+                        path.substringAfterLast('/') to snapshot.documentId
+                    },
+                )
+                return state.pages.first(treeUri, target, items, pageSize)
             }
-        return PlatformMetadataPage(items = items, nextCursor = null, incomplete = true)
+        return PlatformMetadataPage(emptyList(), null, incomplete = true)
     }
 
-    override fun ensureDirectory(
-        treeUri: String,
-        path: String,
-    ): PlatformDocumentSnapshot {
-        val root = treeUri.toAndroidUri()
-        val segments = path.split('/').filter(String::isNotEmpty)
-        require(segments.isNotEmpty()) { "directory path must not be empty" }
-        var parentDocId = DocumentsContract.getTreeDocumentId(root)
-        for (segment in segments) {
-            val existing = findChild(root, parentDocId, segment)
-            if (existing != null) {
-                parentDocId = existing.documentId
-                continue
-            }
-            val parentUri = DocumentsContract.buildDocumentUriUsingTree(root, parentDocId)
-            val created =
-                DocumentsContract.createDocument(
-                    contentResolver,
-                    parentUri,
-                    DocumentsContract.Document.MIME_TYPE_DIR,
-                    segment,
-                ) ?: throw IOException("Failed to create directory segment $segment")
-            parentDocId = DocumentsContract.getDocumentId(created)
-        }
-        // The created/existing leaf document id is already known: observe it directly instead of
-        // re-walking every path segment a second time, and stay metadata-only — a directory never
-        // carries a content digest.
-        return querySnapshot(
-            documentUri = DocumentsContract.buildDocumentUriUsingTree(root, parentDocId),
-            target = WorkspaceTarget.Relative(path),
-            documentId = parentDocId,
-            digestMode = SnapshotDigestMode.METADATA_ONLY,
-        ) ?: throw IOException("Created directory is not observable: $path")
-    }
+    override fun ensureDirectory(treeUri: String, path: String): PlatformDocumentSnapshot =
+        writer.ensureDirectory(treeUri, path)
 
-    override fun openRead(
-        treeUri: String,
-        path: String,
-    ): PlatformReadHandle {
+    override fun openRead(treeUri: String, path: String): PlatformReadHandle {
         val root = treeUri.toAndroidUri()
-        val resolved =
-            resolvePath(root, path)
-                ?: errorIo("Missing document: $path")
-        val snapshot =
-            querySnapshot(
-                documentUri = resolved.uri,
-                target = WorkspaceTarget.Relative(path),
-                documentId = resolved.documentId,
-                digestMode = SnapshotDigestMode.METADATA_ONLY,
-            )
-                ?: errorIo("Missing document metadata: $path")
+        val (resolved, snapshot) =
+            paths.resolveObserved(root, treeUri, path) { document ->
+                queries.querySnapshot(
+                    documentUri = document.uri,
+                    target = WorkspaceTarget.Relative(path),
+                    documentId = document.documentId,
+                    digestMode = SnapshotDigestMode.METADATA_ONLY,
+                )?.let { document to it }
+            } ?: errorNotFound("Missing document: $path")
         val bytes =
             contentResolver.openInputStream(resolved.uri)?.use { input ->
                 // behavior-contract: full-load-ok: complete payload required for parse/hash
@@ -157,28 +239,24 @@ internal class ContentResolverPlatformDocumentsGateway(
                 ?: errorIo("openInputStream returned null for $path")
         return PlatformReadHandle(
             snapshot =
-                snapshot.copy(
-                    digest = bytes.sha256Hex(),
-                    length = bytes.size.toULong(),
-                ),
+            snapshot.copy(
+                digest = bytes.sha256Hex(),
+                length = bytes.size.toULong(),
+            ),
             bytes = bytes,
         )
     }
 
-    override fun openReadByHandle(
-        treeUri: String,
-        path: String,
-        documentHandle: String,
-    ): PlatformReadHandle {
+    override fun openReadByHandle(treeUri: String, path: String, documentHandle: String): PlatformReadHandle {
         val root = treeUri.toAndroidUri()
         val documentUri = DocumentsContract.buildDocumentUriUsingTree(root, documentHandle)
         val snapshot =
-            querySnapshot(
+            queries.querySnapshot(
                 documentUri = documentUri,
                 target = WorkspaceTarget.Relative(path),
                 documentId = documentHandle,
                 digestMode = SnapshotDigestMode.METADATA_ONLY,
-            ) ?: errorIo("Missing document metadata for opaque handle")
+            ) ?: errorNotFound("Missing document metadata for opaque handle")
         val bytes =
             contentResolver.openInputStream(documentUri)?.use { input ->
                 // behavior-contract: full-load-ok: complete payload required for parse/hash
@@ -197,287 +275,273 @@ internal class ContentResolverPlatformDocumentsGateway(
         bytes: ByteArray,
         mode: WriteMode,
         mimeType: String?,
-    ): PlatformDocumentSnapshot =
-        writeToDocument(treeUri, path, ByteArrayInputStream(bytes), mode, mimeType)
+        arbitrate: WriteArbitration,
+    ): WriteOutcome = writer.writeToDocument(treeUri, path, ByteArrayInputStream(bytes), mode, mimeType, arbitrate)
 
     override fun writeFromFile(
         treeUri: String,
         path: String,
         source: File,
-        mode: WriteMode,
         mimeType: String?,
-    ): PlatformDocumentSnapshot =
-        writeToDocument(treeUri, path, source.inputStream().buffered(), mode, mimeType)
-
-    /**
-     * One write law for every source: repair the created document onto the requested display
-     * name, stream the payload chunk-wise, hash the streamed bytes while writing, verify the
-     * persisted document by streaming readback digest, and roll back a document this write
-     * created when any step fails. Memory stays bounded by [WRITE_CHUNK_BYTES].
-     */
-    private fun writeToDocument(
-        treeUri: String,
-        path: String,
-        source: InputStream,
-        mode: WriteMode,
-        mimeType: String?,
-    ): PlatformDocumentSnapshot {
-        val root = treeUri.toAndroidUri()
-        val existing = resolvePath(root, path)
-        val target = resolveWriteTarget(root, treeUri, path, mode, existing, mimeType)
-        var targetUri = target.uri
-        try {
-            if (target.createdByThisWrite) {
-                targetUri =
-                    repairDisplayName(
-                        root = root,
-                        documentUri = target.uri,
-                        parentDocId = resolveParentDocId(root, path),
-                        requestedName = path.substringAfterLast('/'),
-                        description = path,
-                    )
-            }
-            val writtenDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
-            contentResolver.openOutputStream(targetUri, "wt")?.use { output ->
-                val buffer = ByteArray(WRITE_CHUNK_BYTES)
-                while (true) {
-                    val read = source.read(buffer)
-                    if (read < 0) break
-                    output.write(buffer, 0, read)
-                    writtenDigest.update(buffer, 0, read)
-                }
-            } ?: errorIo("openOutputStream returned null for $path")
-            val writtenDigestHex = writtenDigest.finishSha256Hex()
-            val (persistedDigest, persistedLength) =
-                contentResolver.openInputStream(targetUri)?.use { input ->
-                    val readbackDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
-                    val buffer = ByteArray(WRITE_CHUNK_BYTES)
-                    var total = 0L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        readbackDigest.update(buffer, 0, read)
-                        total += read
-                    }
-                    readbackDigest.finishSha256Hex() to total
-                } ?: errorIo("Written document cannot be reopened for verification: $path")
-            if (persistedDigest != writtenDigestHex) {
-                errorIo("Written document readback does not match requested bytes: $path")
-            }
-            val documentId = DocumentsContract.getDocumentId(targetUri)
-            return querySnapshot(
-                documentUri = targetUri,
-                target = WorkspaceTarget.Relative(path),
-                documentId = documentId,
-                digestMode = SnapshotDigestMode.METADATA_ONLY,
-            )
-                ?.copy(
-                    digest = persistedDigest,
-                    length = persistedLength.toULong(),
-                )
-                ?: errorIo("Written document is not observable: $path")
-        } catch (failure: Exception) {
-            if (target.createdByThisWrite) {
-                try {
-                    if (!DocumentsContract.deleteDocument(contentResolver, targetUri)) {
-                        failure.addSuppressed(
-                            IOException("Incomplete created document could not be deleted: $path"),
-                        )
-                    }
-                } catch (rollbackFailure: Exception) {
-                    failure.addSuppressed(rollbackFailure)
-                }
-            }
-            throw failure
-        } finally {
-            source.close()
-        }
-    }
-
-    private fun resolveWriteTarget(
-        root: Uri,
-        treeUri: String,
-        path: String,
-        mode: WriteMode,
-        existing: ResolvedDocument?,
-        mimeType: String?,
-    ): WriteTarget =
-        when {
-            existing != null && mode == WriteMode.CREATE ->
-                errorIo("Create refused over existing path: $path")
-            existing != null -> WriteTarget(existing.uri, createdByThisWrite = false)
-            else ->
-                WriteTarget(
-                    uri = createFile(root, treeUri, path, mimeType ?: "application/octet-stream"),
-                    createdByThisWrite = true,
-                )
-        }
+        arbitrate: WriteArbitration,
+    ): WriteOutcome = writer.writeToDocument(treeUri, path, source.inputStream().buffered(), null, mimeType, arbitrate)
 
     override fun move(
         treeUri: String,
         source: String,
         target: String,
-    ): PlatformDocumentSnapshot {
+        targetTreeUri: String,
+    ): PlatformDocumentSnapshot = writer.move(treeUri, source, target, targetTreeUri)
+
+    override fun delete(treeUri: String, path: String) {
         val root = treeUri.toAndroidUri()
-        val sourceResolved = resolvePath(root, source) ?: errorIo("Missing source: $source")
-        val targetParentPath = target.substringBeforeLast('/', missingDelimiterValue = "")
-        val targetName = target.substringAfterLast('/')
-        val parentDocId =
-            if (targetParentPath.isEmpty()) {
-                DocumentsContract.getTreeDocumentId(root)
-            } else {
-                ensureDirectory(treeUri, targetParentPath).documentId
-            }
-        val sourceParentDocId = resolveParentDocId(root, source)
-        val targetExisting = resolvePath(root, target)
-        if (targetExisting != null && targetExisting.uri != sourceResolved.uri) {
-            DocumentsContract.deleteDocument(contentResolver, targetExisting.uri)
-        }
-        val targetDocUri =
-            if (sourceParentDocId == parentDocId) {
-                sourceResolved.uri
-            } else {
-                DocumentsContract.moveDocument(
-                    contentResolver,
-                    sourceResolved.uri,
-                    DocumentsContract.buildDocumentUriUsingTree(root, sourceParentDocId),
-                    DocumentsContract.buildDocumentUriUsingTree(root, parentDocId),
-                ) ?: errorIo("moveDocument returned null for $source -> $target")
-            }
-        val finalUri =
-            repairDisplayName(
-                root = root,
-                documentUri = targetDocUri,
-                parentDocId = parentDocId,
-                requestedName = targetName,
-                description = target,
-            )
-        // The moved document's identity is the URI the provider just returned — observe it
-        // directly (metadata-only) instead of re-resolving the target path through every
-        // intermediate findChild query a second time.
-        return querySnapshot(
-            documentUri = finalUri,
-            target = WorkspaceTarget.Relative(target),
-            documentId = DocumentsContract.getDocumentId(finalUri),
-            digestMode = SnapshotDigestMode.METADATA_ONLY,
-        ) ?: errorIo("Moved document is not observable: $target")
-    }
-
-    private fun resolveParentDocId(
-        root: Uri,
-        path: String,
-    ): String {
-        val parentPath = path.substringBeforeLast('/', missingDelimiterValue = "")
-        return if (parentPath.isEmpty()) {
-            DocumentsContract.getTreeDocumentId(root)
-        } else {
-            resolvePath(root, parentPath)?.documentId
-                ?: errorIo("Missing source parent: $parentPath")
+        val chain = paths.resolveWriteChain(root, treeUri, path, mode = null)
+        val leaf = chain.leaf ?: return
+        if (DocumentsContract.deleteDocument(contentResolver, leaf.uri)) {
+            paths.listings.noteChildRemoved(treeUri, chain.parentDocId, path.substringAfterLast('/'), leaf.documentId)
         }
     }
+}
 
-    private fun repairDisplayName(
-        root: Uri,
-        documentUri: Uri,
-        parentDocId: String,
-        requestedName: String,
-        description: String,
-    ): Uri {
-        val initialName = queryDisplayName(documentUri)
-        if (initialName == null || initialName == requestedName) return documentUri
-        val existing = findChild(root, parentDocId, requestedName)
-        if (existing != null) {
-            errorIo("Cannot repair display name: $requestedName is occupied")
-        }
-        val renamed =
-            DocumentsContract.renameDocument(contentResolver, documentUri, requestedName)
-                ?: errorIo("rename failed for $description")
-        val finalName = queryDisplayName(renamed)
-        if (finalName != requestedName) {
-            errorIo("rename did not honor requested display name for $description: got $finalName")
-        }
-        return renamed
+/**
+ * Segment-by-segment path resolution plus the child-listing memo.
+ *
+ * Last live child listing per (tree, parent): a name-resolution accelerator only. Positive hits
+ * still observe the document live afterwards. A read miss has a live parent listing and live
+ * name/kind observations for every cached ancestor. Stale ancestors trigger a new verified walk
+ * against the provider ([reverifyPath]). Mutations the gateway itself commits
+ * update the affected parent listing in place, and live listings fetched by bypass walks
+ * repopulate the memo, so the cache never reads stale names.
+ */
+private class DocumentPathResolver(
+    private val contentResolver: ContentResolver,
+    private val queries: DocumentSnapshotQueries,
+    val listings: DocumentListingCache,
+) {
+
+    /** Per-walk record of the directory hops the listing memo answered. */
+    class ResolveTrace {
+        // behavior-contract: mutable-payload-ok: walk-local evidence, never published or shared
+        internal val memoHops = mutableListOf<MemoHop>()
     }
 
+    /** One hop the listing memo answered: the directory [name] resolved to [documentId]. */
+    data class MemoHop(val name: String, val documentId: String)
 
-    override fun delete(
-        treeUri: String,
-        path: String,
-    ) {
-        val root = treeUri.toAndroidUri()
-        val resolved = resolvePath(root, path) ?: return
-        DocumentsContract.deleteDocument(contentResolver, resolved.uri)
-    }
-
-    private fun createFile(
+    fun resolvePath(
         root: Uri,
         treeUri: String,
         path: String,
-        mimeType: String,
-    ): Uri {
-        val parentPath = path.substringBeforeLast('/', missingDelimiterValue = "")
-        val name = path.substringAfterLast('/')
-        val parentDocId =
-            if (parentPath.isEmpty()) {
-                DocumentsContract.getTreeDocumentId(root)
-            } else {
-                ensureDirectory(treeUri, parentPath).documentId
-            }
-        val parentUri = DocumentsContract.buildDocumentUriUsingTree(root, parentDocId)
-        return DocumentsContract.createDocument(contentResolver, parentUri, mimeType, name)
-            ?: throw IOException("Failed to create file $path")
-    }
-
-    private fun resolvePath(
-        root: Uri,
-        path: String,
+        bypassListings: Boolean = false,
+        trace: ResolveTrace? = null,
     ): ResolvedDocument? {
-        var parentDocId = DocumentsContract.getTreeDocumentId(root)
+        var parentDocId = selectedSafDocumentId(treeUri, root)
         val segments = path.split('/').filter(String::isNotEmpty)
         if (segments.isEmpty()) return null
         var current: ResolvedDocument? = null
         for (segment in segments) {
-            current = findChild(root, parentDocId, segment) ?: return null
+            current = findChild(root, treeUri, parentDocId, segment, bypassListings, trace) ?: return null
             parentDocId = current.documentId
         }
         return current
     }
 
-    private fun findChild(
-        root: Uri,
-        parentDocId: String,
-        name: String,
-    ): ResolvedDocument? {
-        val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(root, parentDocId)
-        contentResolver
-            .query(
-                childUri,
-                arrayOf(
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                ),
-                null,
-                null,
-                null,
-            )?.use { cursor ->
-                val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                while (cursor.moveToNext()) {
-                    if (cursor.getString(nameIndex) == name) {
-                        val documentId = cursor.getString(idIndex) ?: continue
-                        return ResolvedDocument(
-                            documentId = documentId,
-                            uri = DocumentsContract.buildDocumentUriUsingTree(root, documentId),
-                        )
-                    }
+    /**
+     * Resolve [path] and pass the resolved document to [observe], holding the re-verify rule in
+     * one place: when the memo walk consulted cached evidence and still missed, or when the
+     * observation of the resolved document itself comes back null, retry once against the live
+     * provider before surfacing null.
+     */
+    fun <T> resolveObserved(root: Uri, treeUri: String, path: String, observe: (ResolvedDocument) -> T?): T? {
+        val trace = ResolveTrace()
+        val resolved =
+            resolvePath(root, treeUri, path, trace = trace)
+                ?: return if (trace.memoHops.all { hop -> directoryStillNamed(root, hop) }) {
+                    // A miss always comes from a live listing of the parent where it occurred.
+                    // It is authoritative once every memo-resolved ancestor still names its path.
+                    null
+                } else {
+                    reverifyPath(root, treeUri, path)?.let(observe)
                 }
-            }
-        return null
+        return observe(resolved)
+            ?: reverifyPath(root, treeUri, path)?.let(observe)
     }
 
-    private fun queryDisplayName(
-        documentUri: Uri,
-    ): String? {
+    /**
+     * Live re-resolution with the write chain's law: each parent handle is observed by name and
+     * kind (re-listing only the parent of a stale handle) and the leaf's own parent is listed live.
+     */
+    private fun reverifyPath(root: Uri, treeUri: String, path: String): ResolvedDocument? {
+        val segments = path.split('/').filter(String::isNotEmpty)
+        if (segments.isEmpty()) return null
+        var parentDocId = selectedSafDocumentId(treeUri, root)
+        for (segment in segments.dropLast(1)) {
+            parentDocId = verifiedParent(root, treeUri, parentDocId, segment) ?: return null
+        }
+        return liveListing(root, treeUri, parentDocId)?.get(segments.last())?.let { resolvedDocument(root, it) }
+    }
+
+    private fun directoryStillNamed(root: Uri, hop: MemoHop): Boolean {
+        val document = resolvedDocument(root, hop.documentId)
+        val observed = queries.queryPresence(document.uri, WorkspaceTarget.Relative(hop.name), hop.documentId)
+        return observed is DocumentPresence.Present &&
+            observed.snapshot.kind == DocumentKind.DIRECTORY &&
+            observed.snapshot.displayName == hop.name
+    }
+
+    /**
+     * Parent handles are hints until their directory kind and name are verified live. This
+     * observes one directory instead of transferring every sibling at every hop. Replacement
+     * and deletion observe the leaf live. Create-only requests may allocate from a name hint;
+     * the provider's new-document receipt and collision checks own the final naming verdict.
+     */
+    fun resolveWriteChain(root: Uri, treeUri: String, path: String, mode: WriteMode?): WriteChain {
+        val segments = path.split('/').filter(String::isNotEmpty)
+        require(segments.isNotEmpty()) { "write path must not be empty" }
+        var parentDocId = selectedSafDocumentId(treeUri, root)
+        val parents = segments.dropLast(1)
+        for ((index, segment) in parents.withIndex()) {
+            val childDocId = verifiedParent(root, treeUri, parentDocId, segment)
+                ?: return WriteChain(
+                    leaf = null,
+                    parentDocId = parentDocId,
+                    missingDirs = parents.drop(index),
+                )
+            parentDocId = childDocId
+        }
+        return WriteChain(
+            leaf = resolveLeaf(root, treeUri, parentDocId, segments.last(), mode),
+            parentDocId = parentDocId,
+            missingDirs = emptyList(),
+        )
+    }
+
+    private fun resolveLeaf(
+        root: Uri,
+        treeUri: String,
+        parentDocId: String,
+        name: String,
+        mode: WriteMode?,
+    ): ResolvedDocument? {
+        val cached = listings.snapshot(treeUri, parentDocId)
+        val cachedId = cached?.get(name)
+        if (cachedId != null) {
+            val candidate = resolvedDocument(root, cachedId)
+            val observed = queries.queryPresence(candidate.uri, WorkspaceTarget.Relative(name), cachedId)
+            if (observed is DocumentPresence.Present && observed.snapshot.displayName == name) {
+                // A live name observation selects the handle; the writer still reads its
+                // current content for CAS arbitration before opening any output stream.
+                return candidate
+            }
+        } else if (mode == WriteMode.CREATE && cached != null) {
+            // Cached absence permits allocation only. Exact-name receipt and collision
+            // repair arbitrate external creates; replacement/deletion must resolve live.
+            return null
+        }
+        return liveListing(root, treeUri, parentDocId)?.get(name)?.let { resolvedDocument(root, it) }
+    }
+
+    private fun verifiedParent(root: Uri, treeUri: String, parentDocId: String, name: String): String? {
+        val cachedId = listings.snapshot(treeUri, parentDocId)?.get(name)
+        if (cachedId != null) {
+            val document = resolvedDocument(root, cachedId)
+            val observed = queries.queryPresence(document.uri, WorkspaceTarget.Relative(name), cachedId)
+            if (observed is DocumentPresence.Present &&
+                observed.snapshot.kind == DocumentKind.DIRECTORY && observed.snapshot.displayName == name
+            ) {
+                return cachedId
+            }
+        }
+        // A missing, renamed or replaced handle cannot anchor a write. Resolve the name
+        // from the provider again; never turn a stale cached miss into directory creation.
+        return liveListing(root, treeUri, parentDocId)?.get(name)
+    }
+
+    fun findChild(
+        root: Uri,
+        treeUri: String,
+        parentDocId: String,
+        name: String,
+        bypassListings: Boolean,
+        trace: ResolveTrace? = null,
+    ): ResolvedDocument? {
+        if (!bypassListings) {
+            val documentId = listings.snapshot(treeUri, parentDocId)?.get(name)
+            if (documentId != null) {
+                trace?.run { memoHops.add(MemoHop(name = name, documentId = documentId)) }
+                return resolvedDocument(root, documentId)
+            }
+        }
+        val listing = liveListing(root, treeUri, parentDocId) ?: return null
+        return listing[name]?.let { resolvedDocument(root, it) }
+    }
+
+    /**
+     * Live listing of one parent. The provider's answer is always memoized — live data is the
+     * freshest evidence for this parent whether or not the current walk trusted the memo.
+     */
+    private fun liveListing(root: Uri, treeUri: String, parentDocId: String): Map<String, String>? {
+        val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(root, parentDocId)
+        val listing =
+            contentResolver
+                .query(
+                    childUri,
+                    arrayOf(
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    ),
+                    null,
+                    null,
+                    null,
+                )?.use { cursor ->
+                    val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                    val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    val names = HashMap<String, String>()
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(nameIndex)
+                        val documentId = cursor.getString(idIndex)
+                        if (name != null && documentId != null) {
+                            names[name] = documentId
+                        }
+                    }
+                    names
+                }
+        if (listing != null) {
+            listings.rememberCompleteListing(treeUri, parentDocId, listing)
+        }
+        return listing
+    }
+
+    private fun resolvedDocument(root: Uri, documentId: String): ResolvedDocument = ResolvedDocument(
+        documentId = documentId,
+        uri = DocumentsContract.buildDocumentUriUsingTree(root, documentId),
+    )
+}
+
+private data class ListingChild(val parentDocId: String, val name: String, val documentId: String)
+
+private data class ResolvedDocument(val documentId: String, val uri: Uri)
+
+/**
+ * One live-walk observation for a write: the resolved leaf (if present), the document id the
+ * create anchors to, the live listing of that parent, and the parent segments still missing.
+ */
+private data class WriteChain(val leaf: ResolvedDocument?, val parentDocId: String, val missingDirs: List<String>)
+
+/**
+ * Live document observation: metadata snapshots, display names and content digests. No caching —
+ * every call hits the provider, which is what makes the listing memo in [DocumentPathResolver]
+ * safe to keep.
+ */
+private class DocumentSnapshotQueries(private val contentResolver: ContentResolver) {
+    fun queryPresence(documentUri: Uri, target: WorkspaceTarget, documentId: String): DocumentPresence = try {
+        val snapshot = querySnapshot(documentUri, target, documentId, SnapshotDigestMode.METADATA_ONLY)
+        if (snapshot == null) DocumentPresence.Missing else DocumentPresence.Present(snapshot)
+    } catch (_: FileNotFoundException) {
+        DocumentPresence.Missing
+    }
+
+    fun queryDisplayName(documentUri: Uri): String? {
         contentResolver
             .query(
                 documentUri,
@@ -492,14 +556,14 @@ internal class ContentResolverPlatformDocumentsGateway(
         return null
     }
 
-    private fun querySnapshot(
+    fun querySnapshot(
         documentUri: Uri,
         target: WorkspaceTarget,
         documentId: String,
         digestMode: SnapshotDigestMode,
     ): PlatformDocumentSnapshot? {
         contentResolver
-            .query(documentUri, DOCUMENT_PROJECTION, null, null, null)
+            .query(documentUri, ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION, null, null, null)
             ?.use { cursor ->
                 if (!cursor.moveToFirst()) return null
                 return snapshotFromCursor(cursor, target, documentId, documentUri, digestMode)
@@ -514,6 +578,7 @@ internal class ContentResolverPlatformDocumentsGateway(
         documentUri: Uri,
         digestMode: SnapshotDigestMode,
     ): PlatformDocumentSnapshot {
+        val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
         val mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
         val sizeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
         val modifiedIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
@@ -545,31 +610,446 @@ internal class ContentResolverPlatformDocumentsGateway(
             lastModifiedEpochMillis = lastModified,
             documentId = documentId,
             digest = digest,
+            displayName = cursor.getString(nameIndex),
         )
     }
 
     private fun digestDocument(documentUri: Uri): String? =
         contentResolver.openInputStream(documentUri)?.use { input -> input.sha256Hex() }
+}
 
-    private data class ResolvedDocument(
-        val documentId: String,
-        val uri: Uri,
-    )
+/**
+ * Create/write/move mechanics for SAF trees. Every mutation the gateway commits is recorded in
+ * [DocumentPathResolver]'s per-parent listing memo, so later name resolutions keep answering
+ * from verified live data instead of re-listing the provider.
+ */
+private class DocumentWriter(
+    private val contentResolver: ContentResolver,
+    private val paths: DocumentPathResolver,
+    private val queries: DocumentSnapshotQueries,
+    /** Per-tree verdict for providers without dual-mode (rwt) file descriptors. */
+    private val twoPassTrees: MutableSet<String>,
+) {
 
-    private data class WriteTarget(
-        val uri: Uri,
-        val createdByThisWrite: Boolean,
-    )
+    fun ensureDirectory(treeUri: String, path: String): PlatformDocumentSnapshot {
+        val root = treeUri.toAndroidUri()
+        val segments = path.split('/').filter(String::isNotEmpty)
+        require(segments.isNotEmpty()) { "directory path must not be empty" }
+        var parentDocId = selectedSafDocumentId(treeUri, root)
+        for (segment in segments) {
+            val existing = paths.findChild(root, treeUri, parentDocId, segment, bypassListings = true)
+            if (existing != null) {
+                parentDocId = existing.documentId
+                continue
+            }
+            val created =
+                createChildDocument(
+                    root,
+                    treeUri,
+                    parentDocId,
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    segment,
+                )
+            parentDocId = DocumentsContract.getDocumentId(created)
+        }
+        // The created/existing leaf document id is already known: observe it directly instead of
+        // re-walking every path segment a second time, and stay metadata-only — a directory never
+        // carries a content digest.
+        return queries.querySnapshot(
+            documentUri = DocumentsContract.buildDocumentUriUsingTree(root, parentDocId),
+            target = WorkspaceTarget.Relative(path),
+            documentId = parentDocId,
+            digestMode = SnapshotDigestMode.METADATA_ONLY,
+        ) ?: errorIo("Created directory is not observable: $path")
+    }
 
-    internal companion object {
-        val DOCUMENT_PROJECTION =
-            arrayOf(
-                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                DocumentsContract.Document.COLUMN_MIME_TYPE,
-                DocumentsContract.Document.COLUMN_SIZE,
-                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+    /**
+     * One write law for every source: replacement observes the existing target live, while a
+     * create allocates a new document and proves its exact name. Arbitration and allocation
+     * share the resolved chain; the create anchors to the resolved
+     * parent, the payload streams chunk-wise while hashing, the persisted document is verified
+     * by digest, and a document this write created is rolled back when any step fails. Memory
+     * stays bounded by [WRITE_CHUNK_BYTES]; [mode] `null` lets the observed presence decide
+     * create-vs-replace.
+     */
+    fun writeToDocument(
+        treeUri: String,
+        path: String,
+        source: InputStream,
+        mode: WriteMode?,
+        mimeType: String?,
+        arbitrate: WriteArbitration,
+    ): WriteOutcome {
+        val root = treeUri.toAndroidUri()
+        val chain = paths.resolveWriteChain(root, treeUri, path, mode)
+        val existing =
+            chain.leaf?.let { leaf ->
+                queries.querySnapshot(
+                    documentUri = leaf.uri,
+                    target = WorkspaceTarget.Relative(path),
+                    documentId = leaf.documentId,
+                    digestMode = SnapshotDigestMode.CONTENT,
+                )
+            }
+        arbitrate(existing)?.let { return WriteOutcome.Satisfied(it) }
+        val effectiveMode = mode ?: if (chain.leaf == null) WriteMode.CREATE else WriteMode.REPLACE
+        if (chain.leaf != null && effectiveMode == WriteMode.CREATE) {
+            errorPostcondition("Create refused over existing path: $path")
+        }
+        val target = if (chain.leaf == null) {
+            createInChain(root, treeUri, path, chain, mimeType ?: "application/octet-stream")
+        } else {
+            ExistingTarget(chain.leaf.uri)
+        }
+        var targetUri = target.uri
+        val requestedName = path.substringAfterLast('/')
+        try {
+            val (persistedDigest, persistedLength) = writeAndVerify(treeUri, targetUri, source)
+            var receipt =
+                queries.querySnapshot(
+                    documentUri = targetUri,
+                    target = WorkspaceTarget.Relative(path),
+                    documentId = DocumentsContract.getDocumentId(targetUri),
+                    digestMode = SnapshotDigestMode.METADATA_ONLY,
+                ) ?: errorIo("Written document is not observable: $path")
+            // The receipt already selects the display name: a provider that sanitized the create
+            // is repaired here, and only the receipt-verified name enters the listing memo.
+            if (target is CreatedTarget && receipt.displayName == null) {
+                errorIo("Created document has no display name: $path")
+            }
+            if (target is CreatedTarget && receipt.displayName != requestedName) {
+                targetUri =
+                    repairDisplayName(
+                        treeUri = treeUri,
+                        documentUri = targetUri,
+                        parentDocId = target.parentDocId,
+                        requestedName = requestedName,
+                        currentName = receipt.displayName,
+                        description = path,
+                    )
+                receipt =
+                    queries.querySnapshot(
+                        documentUri = targetUri,
+                        target = WorkspaceTarget.Relative(path),
+                        documentId = DocumentsContract.getDocumentId(targetUri),
+                        digestMode = SnapshotDigestMode.METADATA_ONLY,
+                    ) ?: errorIo("Renamed document is not observable: $path")
+            }
+            if (target is CreatedTarget) {
+                paths.listings.noteChildAdded(
+                    treeUri,
+                    target.parentDocId,
+                    requestedName,
+                    receipt.documentId,
+                )
+            }
+            return WriteOutcome.Written(
+                receipt.copy(
+                    digest = persistedDigest,
+                    length = persistedLength.toULong(),
+                ),
             )
+        } catch (failure: Exception) {
+            if (target is CreatedTarget) {
+                rollbackCreated(treeUri, path, targetUri, target.parentDocId, requestedName, failure)
+            }
+            throw failure
+        } finally {
+            source.close()
+        }
+    }
+
+    /**
+     * A document this write created must not survive a failed write or verification: the
+     * provider delete is best-effort and a rollback failure stays attached to the failure that
+     * triggered it. The parent's listing memo loses the rolled-back name in the same step.
+     */
+    private fun rollbackCreated(
+        treeUri: String,
+        path: String,
+        targetUri: Uri,
+        parentDocId: String,
+        requestedName: String,
+        failure: Exception,
+    ) {
+        try {
+            if (!DocumentsContract.deleteDocument(contentResolver, targetUri)) {
+                failure.addSuppressed(
+                    IOException("Incomplete created document could not be deleted: $path"),
+                )
+            } else {
+                paths.listings.noteChildRemoved(
+                    treeUri,
+                    parentDocId,
+                    requestedName,
+                    DocumentsContract.getDocumentId(targetUri),
+                )
+            }
+        } catch (rollbackFailure: Exception) {
+            failure.addSuppressed(rollbackFailure)
+        }
+    }
+
+    fun move(treeUri: String, source: String, target: String, targetTreeUri: String): PlatformDocumentSnapshot {
+        val root = treeUri.toAndroidUri()
+        val targetRoot = targetTreeUri.toAndroidUri()
+        val sourceResolved =
+            paths.resolvePath(root, treeUri, source, bypassListings = true)
+                ?: errorNotFound("Missing source: $source")
+        val targetParentPath = target.substringBeforeLast('/', missingDelimiterValue = "")
+        val targetName = target.substringAfterLast('/')
+        val parentDocId =
+            if (targetParentPath.isEmpty()) {
+                selectedSafDocumentId(targetTreeUri, targetRoot)
+            } else {
+                ensureDirectory(targetTreeUri, targetParentPath).documentId
+            }
+        val sourceParentDocId =
+            source.substringBeforeLast('/', missingDelimiterValue = "").let { parentPath ->
+                if (parentPath.isEmpty()) {
+                    selectedSafDocumentId(treeUri, root)
+                } else {
+                    paths.resolvePath(root, treeUri, parentPath, bypassListings = true)?.documentId
+                        ?: errorNotFound("Missing source parent: $parentPath")
+                }
+            }
+        val targetExisting = paths.resolvePath(targetRoot, targetTreeUri, target, bypassListings = true)
+        if (targetExisting != null && targetExisting.uri != sourceResolved.uri) {
+            if (DocumentsContract.deleteDocument(contentResolver, targetExisting.uri)) {
+                paths.listings.noteChildRemoved(targetTreeUri, parentDocId, targetName, targetExisting.documentId)
+            }
+        }
+        val targetDocUri =
+            if (sourceParentDocId == parentDocId) {
+                sourceResolved.uri
+            } else {
+                DocumentsContract.moveDocument(
+                    contentResolver,
+                    sourceResolved.uri,
+                    DocumentsContract.buildDocumentUriUsingTree(root, sourceParentDocId),
+                    DocumentsContract.buildDocumentUriUsingTree(targetRoot, parentDocId),
+                )?.also { movedUri ->
+                    paths.listings.noteChildRemoved(
+                        treeUri,
+                        sourceParentDocId,
+                        source.substringAfterLast('/'),
+                        sourceResolved.documentId,
+                    )
+                    paths.listings.noteChildAdded(
+                        targetTreeUri,
+                        parentDocId,
+                        source.substringAfterLast('/'),
+                        DocumentsContract.getDocumentId(movedUri),
+                    )
+                } ?: errorIo("moveDocument returned null for $source -> $target")
+            }
+        val finalUri =
+            repairDisplayName(
+                treeUri = targetTreeUri,
+                documentUri = targetDocUri,
+                parentDocId = parentDocId,
+                requestedName = targetName,
+                currentName = null,
+                description = target,
+            )
+        // The moved document's identity is the URI the provider just returned — observe it
+        // directly (metadata-only) instead of re-resolving the target path through every
+        // intermediate findChild query a second time.
+        return queries.querySnapshot(
+            documentUri = finalUri,
+            target = WorkspaceTarget.Relative(target),
+            documentId = DocumentsContract.getDocumentId(finalUri),
+            digestMode = SnapshotDigestMode.METADATA_ONLY,
+        ) ?: errorIo("Moved document is not observable: $target")
+    }
+
+    private fun repairDisplayName(
+        treeUri: String,
+        documentUri: Uri,
+        parentDocId: String,
+        requestedName: String,
+        currentName: String?,
+        description: String,
+    ): Uri {
+        val root = treeUri.toAndroidUri()
+        val initialName = currentName ?: queries.queryDisplayName(documentUri)
+        if (initialName == null || initialName == requestedName) return documentUri
+        val existing = paths.findChild(root, treeUri, parentDocId, requestedName, bypassListings = true)
+        if (existing != null) {
+            errorPostcondition("Cannot repair display name: $requestedName is occupied")
+        }
+        val renamed =
+            DocumentsContract.renameDocument(contentResolver, documentUri, requestedName)
+                ?: errorIo("rename failed for $description")
+        paths.listings.noteChildMoved(
+            treeUri,
+            ListingChild(parentDocId, initialName, DocumentsContract.getDocumentId(documentUri)),
+            ListingChild(parentDocId, requestedName, DocumentsContract.getDocumentId(renamed)),
+        )
+        val finalName = queries.queryDisplayName(renamed)
+        if (finalName != requestedName) {
+            errorIo("rename did not honor requested display name for $description: got $finalName")
+        }
+        return renamed
+    }
+
+    /**
+     * Materialize the write target under the walk-resolved parent: create each missing directory
+     * segment (recording each in the parent's listing memo), then the leaf file. The leaf create
+     * is only memoized after the write receipt proves the provider-observed name.
+     */
+    private fun createInChain(
+        root: Uri,
+        treeUri: String,
+        path: String,
+        chain: WriteChain,
+        mimeType: String,
+    ): CreatedTarget {
+        var parentDocId = chain.parentDocId
+        for (segment in chain.missingDirs) {
+            parentDocId =
+                DocumentsContract.getDocumentId(
+                    createChildDocument(root, treeUri, parentDocId, DocumentsContract.Document.MIME_TYPE_DIR, segment),
+                )
+        }
+        val parentUri = DocumentsContract.buildDocumentUriUsingTree(root, parentDocId)
+        val uri =
+            DocumentsContract.createDocument(
+                contentResolver,
+                parentUri,
+                mimeType,
+                path.substringAfterLast('/'),
+            ) ?: errorIo("Failed to create document $path")
+        return CreatedTarget(uri = uri, parentDocId = parentDocId)
+    }
+
+    private fun createChildDocument(
+        root: Uri,
+        treeUri: String,
+        parentDocId: String,
+        mimeType: String,
+        name: String,
+    ): Uri {
+        val parentUri = DocumentsContract.buildDocumentUriUsingTree(root, parentDocId)
+        return DocumentsContract.createDocument(contentResolver, parentUri, mimeType, name)
+            ?.also { created ->
+                paths.listings.noteChildAdded(treeUri, parentDocId, name, DocumentsContract.getDocumentId(created))
+            }
+            ?: errorIo("Failed to create document $name")
+    }
+
+    private sealed interface WriteTarget {
+        val uri: Uri
+    }
+
+    private data class ExistingTarget(override val uri: Uri) : WriteTarget
+
+    private data class CreatedTarget(override val uri: Uri, val parentDocId: String) : WriteTarget
+
+    /**
+     * Persist and prove the landed bytes. Providers with dual-mode descriptors take the
+     * single-descriptor path: write, sync and readback verification share one open, so the
+     * receipt attests durable bytes a crash cannot split from the fsync. Providers rejecting
+     * `rwt` degrade per-tree to the two-pass stream pair.
+     */
+    private fun writeAndVerify(treeUri: String, targetUri: Uri, source: InputStream): Pair<String, Long> =
+        if (treeUri in twoPassTrees) {
+            writeTwoPassAndVerify(targetUri, source)
+        } else {
+            try {
+                writeSyncAndVerify(targetUri, source)
+            } catch (unsupported: java.io.FileNotFoundException) {
+                // behavior-contract: silent-result-ok: a provider without dual-mode
+                // descriptors answers openFileDescriptor with FileNotFoundException; the tree
+                // then takes the two-pass stream pair for this and later writes.
+                Timber.d(unsupported, "provider declined rwt descriptor for %s", treeUri)
+                twoPassTrees += treeUri
+                writeTwoPassAndVerify(targetUri, source)
+            }
+        }
+
+    private fun writeSyncAndVerify(targetUri: Uri, source: InputStream): Pair<String, Long> {
+        val pfd =
+            contentResolver.openFileDescriptor(targetUri, "rwt")
+                ?: throw java.io.FileNotFoundException("provider declined a read/write descriptor")
+        try {
+            val writtenDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
+            var total = 0L
+            val output = java.io.FileOutputStream(pfd.fileDescriptor)
+            val buffer = ByteArray(WRITE_CHUNK_BYTES)
+            while (true) {
+                val read = source.read(buffer)
+                if (read < 0) break
+                output.write(buffer, 0, read)
+                writtenDigest.update(buffer, 0, read)
+                total += read
+            }
+            output.flush()
+            try {
+                pfd.fileDescriptor.sync()
+            } catch (unsupported: java.io.SyncFailedException) {
+                // behavior-contract: silent-result-ok: an unsyncable descriptor still verifies
+                // by readback — durability matches the stream-close guarantee it replaces.
+                Timber.d(unsupported, "provider descriptor refused sync")
+            }
+            val writtenDigestHex = writtenDigest.finishSha256Hex()
+            val persisted =
+                ParcelFileDescriptor.dup(pfd.fileDescriptor)?.let { dupFd ->
+                    ParcelFileDescriptor.AutoCloseInputStream(dupFd).use { input ->
+                        input.channel.position(0)
+                        val readbackDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
+                        val readBuffer = ByteArray(WRITE_CHUNK_BYTES)
+                        var persistedTotal = 0L
+                        while (true) {
+                            val read = input.read(readBuffer)
+                            if (read < 0) break
+                            readbackDigest.update(readBuffer, 0, read)
+                            persistedTotal += read
+                        }
+                        if (persistedTotal != total || readbackDigest.finishSha256Hex() != writtenDigestHex) {
+                            errorPostcondition("Written document readback does not match requested bytes")
+                        }
+                        persistedTotal
+                    }
+                } ?: errorIo("Written document cannot be reopened for verification")
+            return writtenDigestHex to persisted
+        } finally {
+            pfd.close()
+        }
+    }
+
+    private fun writeTwoPassAndVerify(targetUri: Uri, source: InputStream): Pair<String, Long> {
+        val writtenDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
+        contentResolver.openOutputStream(targetUri, "wt")?.use { output ->
+            val buffer = ByteArray(WRITE_CHUNK_BYTES)
+            while (true) {
+                val read = source.read(buffer)
+                if (read < 0) break
+                output.write(buffer, 0, read)
+                writtenDigest.update(buffer, 0, read)
+            }
+        } ?: errorIo("openOutputStream returned null for $targetUri")
+        val writtenDigestHex = writtenDigest.finishSha256Hex()
+        val persisted =
+            contentResolver.openInputStream(targetUri)?.use { input ->
+                val readbackDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
+                val buffer = ByteArray(WRITE_CHUNK_BYTES)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    readbackDigest.update(buffer, 0, read)
+                    total += read
+                }
+                if (readbackDigest.finishSha256Hex() != writtenDigestHex) {
+                    errorPostcondition("Written document readback does not match requested bytes")
+                }
+                total
+            } ?: errorIo("Written document cannot be reopened for verification")
+        return writtenDigestHex to persisted
+    }
+
+    private companion object {
         private const val DIGEST_ALGORITHM = "SHA-256"
 
         private const val WRITE_CHUNK_BYTES = 64 * 1024
@@ -604,35 +1084,42 @@ private data class DocumentColumnIndices(
             lastModifiedEpochMillis = lastModified,
             documentId = documentId,
             digest = null,
+            displayName = name,
         )
     }
 
     companion object {
-        fun from(cursor: Cursor): DocumentColumnIndices =
-            DocumentColumnIndices(
-                idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
-                nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-                mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE),
-                sizeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE),
-                modifiedIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
-            )
+        fun from(cursor: Cursor): DocumentColumnIndices = DocumentColumnIndices(
+            idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+            nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE),
+            sizeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE),
+            modifiedIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
+        )
     }
 }
 
-private fun errorIo(message: String): Nothing = throw IOException(message)
+private fun errorNotFound(message: String): Nothing = throw PlatformActionAccessException(
+    category = "storage",
+    code = "document_not_found",
+    diagnostic = message,
+)
 
-private fun Cursor.seekToPosition(skip: Int): Boolean =
-    try {
-        moveToPosition(skip)
-    } catch (_: Exception) {
-        var advanced = 0
-        var hasMore = false
-        while (advanced <= skip && moveToNext()) {
-            advanced += 1
-            if (advanced > skip) {
-                hasMore = true
-                break
-            }
-        }
-        hasMore
-    }
+private fun errorIo(message: String): Nothing = throw PlatformActionAccessException(
+    category = "storage",
+    code = "platform_io_error",
+    diagnostic = message,
+)
+
+private fun errorPostcondition(message: String): Nothing = throw PlatformActionAccessException(
+    category = "conflict",
+    code = "platform_postcondition_mismatch",
+    diagnostic = message,
+)
+
+private data class ListingKey(val treeUri: String, val parentDocId: String)
+
+private sealed interface DocumentPresence {
+    data class Present(val snapshot: PlatformDocumentSnapshot) : DocumentPresence
+    data object Missing : DocumentPresence
+}

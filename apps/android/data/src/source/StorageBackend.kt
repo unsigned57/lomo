@@ -15,38 +15,22 @@ interface MarkdownStorageBackend {
 
     fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId>
 
-    suspend fun getFileMetadataIn(
-        directory: MemoDirectoryType,
-        filename: String,
-    ): FileMetadata?
+    suspend fun getFileMetadataIn(directory: MemoDirectoryType, filename: String): FileMetadata?
 
-    suspend fun readFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-    ): String?
+    suspend fun readFileIn(directory: MemoDirectoryType, filename: String): String?
 
-    suspend fun fingerprintFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-    ): String?
+    suspend fun fingerprintFileIn(directory: MemoDirectoryType, filename: String): String?
 
     suspend fun readFile(uri: Uri): String?
 
-    suspend fun readFileByDocumentIdIn(
-        directory: MemoDirectoryType,
-        documentId: String,
-    ): String?
+    suspend fun readFileByDocumentIdIn(directory: MemoDirectoryType, documentId: String): String?
 
-    fun streamFileByDocumentIdIn(
-        directory: MemoDirectoryType,
-        documentId: String,
-    ): Flow<String> =
-        flow {
-            readFileByDocumentIdIn(directory, documentId)
-                ?.run {
-                    lineSequence().forEach { line -> emit(line) }
-                }
-        }
+    fun streamFileByDocumentIdIn(directory: MemoDirectoryType, documentId: String): Flow<String> = flow {
+        readFileByDocumentIdIn(directory, documentId)
+            ?.run {
+                lineSequence().forEach { line -> emit(line) }
+            }
+    }
 
     suspend fun saveFileIn(
         directory: MemoDirectoryType,
@@ -56,11 +40,7 @@ interface MarkdownStorageBackend {
         uri: Uri? = null,
     ): String?
 
-    suspend fun deleteFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-        uri: Uri? = null,
-    )
+    suspend fun deleteFileIn(directory: MemoDirectoryType, filename: String, uri: Uri? = null)
 }
 
 interface MediaStorageBackend {

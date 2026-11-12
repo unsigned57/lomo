@@ -38,18 +38,19 @@ import kotlin.io.path.writeText
  * Excludes:
  * - ViewModel state machines and approved behavior-contract caches.
  */
-class StateSafetyRulesTest : FunSpec({
-    test("registers NoStatefulRepositoryOrUseCase and NoAdHocMemoryCache in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoStatefulRepositoryOrUseCase")].shouldNotBeNull()
-        rules[RuleName("NoAdHocMemoryCache")].shouldNotBeNull()
-    }
+class StateSafetyRulesTest :
+    FunSpec({
+        test("registers NoStatefulRepositoryOrUseCase and NoAdHocMemoryCache in rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoStatefulRepositoryOrUseCase")].shouldNotBeNull()
+            rules[RuleName("NoAdHocMemoryCache")].shouldNotBeNull()
+        }
 
-    test("NoStatefulRepositoryOrUseCase: flags var member property in UseCase class") {
-        val findings =
-            rule("NoStatefulRepositoryOrUseCase").findingsForSource(
-                "domain/src/usecase/SyncDataUseCase.kt",
-                """
+        test("NoStatefulRepositoryOrUseCase: flags var member property in UseCase class") {
+            val findings =
+                rule("NoStatefulRepositoryOrUseCase").findingsForSource(
+                    "domain/src/usecase/SyncDataUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SyncDataUseCase {
@@ -58,34 +59,34 @@ class StateSafetyRulesTest : FunSpec({
                     fun execute() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Stateful 'var' property forbidden"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Stateful 'var' property forbidden"
+        }
 
-    test("NoStatefulRepositoryOrUseCase: flags var member property in Repository class") {
-        val findings =
-            rule("NoStatefulRepositoryOrUseCase").findingsForSource(
-                "data/src/repository/UserDataRepositoryImpl.kt",
-                """
+        test("NoStatefulRepositoryOrUseCase: flags var member property in Repository class") {
+            val findings =
+                rule("NoStatefulRepositoryOrUseCase").findingsForSource(
+                    "data/src/repository/UserDataRepositoryImpl.kt",
+                    """
                 package com.lomo.data.repository
 
                 class UserDataRepositoryImpl {
                     private var cachedToken: String? = null
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Stateful 'var' property forbidden"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Stateful 'var' property forbidden"
+        }
 
-    test("NoStatefulRepositoryOrUseCase: allows val property in UseCase class") {
-        val findings =
-            rule("NoStatefulRepositoryOrUseCase").findingsForSource(
-                "domain/src/usecase/SyncDataUseCase.kt",
-                """
+        test("NoStatefulRepositoryOrUseCase: allows val property in UseCase class") {
+            val findings =
+                rule("NoStatefulRepositoryOrUseCase").findingsForSource(
+                    "domain/src/usecase/SyncDataUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SyncDataUseCase(
@@ -94,16 +95,16 @@ class StateSafetyRulesTest : FunSpec({
                     val status: String = "IDLE"
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoStatefulRepositoryOrUseCase: allows local var inside function in UseCase class") {
-        val findings =
-            rule("NoStatefulRepositoryOrUseCase").findingsForSource(
-                "domain/src/usecase/SyncDataUseCase.kt",
-                """
+        test("NoStatefulRepositoryOrUseCase: allows local var inside function in UseCase class") {
+            val findings =
+                rule("NoStatefulRepositoryOrUseCase").findingsForSource(
+                    "domain/src/usecase/SyncDataUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SyncDataUseCase {
@@ -114,16 +115,16 @@ class StateSafetyRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoStatefulRepositoryOrUseCase: allows var with behavior-contract comment") {
-        val findings =
-            rule("NoStatefulRepositoryOrUseCase").findingsForSource(
-                "domain/src/usecase/SyncDataUseCase.kt",
-                """
+        test("NoStatefulRepositoryOrUseCase: allows var with behavior-contract comment") {
+            val findings =
+                rule("NoStatefulRepositoryOrUseCase").findingsForSource(
+                    "domain/src/usecase/SyncDataUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class SyncDataUseCase {
@@ -131,33 +132,33 @@ class StateSafetyRulesTest : FunSpec({
                     private var activeSlot: Int = 0
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoAdHocMemoryCache: flags mutableMapOf property in Repository class") {
-        val findings =
-            rule("NoAdHocMemoryCache").findingsForSource(
-                "data/src/repository/MemoStoreRepository.kt",
-                """
+        test("NoAdHocMemoryCache: flags mutableMapOf property in Repository class") {
+            val findings =
+                rule("NoAdHocMemoryCache").findingsForSource(
+                    "data/src/repository/MemoStoreRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class MemoStoreRepository {
                     private val cache = mutableMapOf<String, String>()
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Ad-hoc in-memory cache detected"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Ad-hoc in-memory cache detected"
+        }
 
-    test("NoAdHocMemoryCache: flags ConcurrentHashMap property in UseCase class") {
-        val findings =
-            rule("NoAdHocMemoryCache").findingsForSource(
-                "domain/src/usecase/ResolveMemoUseCase.kt",
-                """
+        test("NoAdHocMemoryCache: flags ConcurrentHashMap property in UseCase class") {
+            val findings =
+                rule("NoAdHocMemoryCache").findingsForSource(
+                    "domain/src/usecase/ResolveMemoUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 import java.util.concurrent.ConcurrentHashMap
@@ -166,17 +167,17 @@ class StateSafetyRulesTest : FunSpec({
                     private val memoCache = ConcurrentHashMap<String, String>()
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Ad-hoc in-memory cache detected"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Ad-hoc in-memory cache detected"
+        }
 
-    test("NoAdHocMemoryCache: allows local mutableMapOf inside function") {
-        val findings =
-            rule("NoAdHocMemoryCache").findingsForSource(
-                "domain/src/usecase/ResolveMemoUseCase.kt",
-                """
+        test("NoAdHocMemoryCache: allows local mutableMapOf inside function") {
+            val findings =
+                rule("NoAdHocMemoryCache").findingsForSource(
+                    "domain/src/usecase/ResolveMemoUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class ResolveMemoUseCase {
@@ -187,16 +188,16 @@ class StateSafetyRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoAdHocMemoryCache: allows cache property with behavior-contract comment") {
-        val findings =
-            rule("NoAdHocMemoryCache").findingsForSource(
-                "data/src/repository/MemoStoreRepository.kt",
-                """
+        test("NoAdHocMemoryCache: allows cache property with behavior-contract comment") {
+            val findings =
+                rule("NoAdHocMemoryCache").findingsForSource(
+                    "data/src/repository/MemoStoreRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class MemoStoreRepository {
@@ -204,24 +205,18 @@ class StateSafetyRulesTest : FunSpec({
                     private val cache = mutableMapOf<String, String>()
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
-})
+            findings shouldBe emptyList()
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

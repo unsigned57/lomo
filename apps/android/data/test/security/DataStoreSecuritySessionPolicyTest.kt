@@ -23,6 +23,8 @@ package com.lomo.data.security
  * - Why this is not fitting the test to the implementation: the diff contains no semantic change.
  */
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import com.lomo.data.local.datastore.AppSecurityStoreImpl
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.AppLockPreference
@@ -30,8 +32,6 @@ import com.lomo.domain.model.CredentialReadAuthorization
 import com.lomo.domain.model.CredentialReadDenialReason
 import com.lomo.domain.model.SecuritySessionState
 import com.lomo.domain.repository.AuthorizedWorkResume
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,9 +40,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import java.io.IOException
 
-private class FakeAppLockPreferenceSource(
-    initial: AppLockPreference,
-) : AppLockPreferenceSource {
+private class FakeAppLockPreferenceSource(initial: AppLockPreference) : AppLockPreferenceSource {
     private val preference = MutableStateFlow(initial)
 
     override suspend fun read(): AppLockPreference = preference.value

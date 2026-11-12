@@ -12,10 +12,7 @@ class MainMemoListQueryUseCase(
     private val mainListQueryRepository: MainListQueryRepository,
     private val memoListQueryRepository: MemoListQueryRepository,
 ) {
-    fun getMainListPagingSource(
-        query: String,
-        filter: MemoListFilter,
-    ): PagingSource<String, Memo> =
+    fun getMainListPagingSource(query: String, filter: MemoListFilter): PagingSource<String, Memo> =
         mainListQueryRepository.getMainListPagingSource(
             spec = MemoQuerySpec.fromFilter(queryText = query, filter = filter),
         )
@@ -23,19 +20,19 @@ class MainMemoListQueryUseCase(
     fun getGalleryMemosPagingSource(): PagingSource<String, Memo> =
         memoListQueryRepository.getGalleryMemosPagingSource()
 
-    suspend fun rankInDefaultMainList(id: String): Int? =
-        mainListQueryRepository.rankInDefaultMainList(id)
+    suspend fun rankInDefaultMainList(id: String): Int? = mainListQueryRepository.rankInDefaultMainList(id)
 
-    suspend fun rankInMainListQuery(
-        spec: MemoQuerySpec,
-        id: String,
-    ): Int? = mainListQueryRepository.rankInMainListQuery(spec, id)
+    suspend fun rankInMainListQuery(spec: MemoQuerySpec, id: String): Int? =
+        mainListQueryRepository.rankInMainListQuery(spec, id)
 
     fun reanchorMainListToIdentity(id: String) {
         mainListQueryRepository.reanchorMainListToIdentity(id)
     }
 
     suspend fun getMemoById(id: String): Memo? = mainListQueryRepository.getMemoById(id)
+
+    fun observeListProjection(): Flow<com.lomo.domain.model.MemoProjectionPublication> =
+        memoListQueryRepository.observeListProjection()
 
     fun isSyncing(): Flow<Boolean> = mainListQueryRepository.isSyncing()
 }

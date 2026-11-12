@@ -1,6 +1,5 @@
 package com.lomo.app.feature.memo
 
-import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.lomo.app.benchmark.BenchmarkAnchorContract
@@ -19,16 +18,15 @@ fun MemoCardEntry(
     freeTextCopyEnabled: Boolean,
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuSelection) -> Unit,
+    onTodoClick: ((com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit)?,
+    onImageClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     onMemoClick: ((Memo) -> Unit)? = null,
     onTagClick: (String) -> Unit = {},
-    onTodoClick: ((com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit)? = null,
-    onImageClick: (String) -> Unit = {},
     onReminderClick: (com.lomo.domain.model.ReminderMarker) -> Unit = {},
     isExpanded: Boolean? = null,
     onExpandedChange: ((Boolean) -> Unit)? = null,
     anchoredAfterKey: String? = null,
-    isExiting: Boolean = false,
 ) {
     val memo = uiModel.memo
 
@@ -45,21 +43,18 @@ fun MemoCardEntry(
         tags = uiModel.tags,
         reminders = uiModel.reminders,
         modifier = modifier
-            .benchmarkAnchor(BenchmarkAnchorContract.memoCard(memo.id))
-            // Avoid applying animateContentSize() when exiting to prevent conflict
-            // with the custom exit animation wrapper
-            .let { if (isExiting) it else it.animateContentSize() },
+            .benchmarkAnchor(BenchmarkAnchorContract.memoCard(memo.id, isPending = memo.isPending)),
         allowFreeTextCopy = freeTextCopyEnabled,
         expandOnClick = true,
         isExpanded = isExpanded,
         onExpandedChange = onExpandedChange,
         onClick = { onMemoClick?.invoke(memo) },
         onDoubleClick =
-            if (doubleTapEditEnabled) {
-                { onMemoEdit(memo) }
-            } else {
-                null
-            },
+        if (doubleTapEditEnabled) {
+            { onMemoEdit(memo) }
+        } else {
+            null
+        },
         onTagClick = onTagClick,
         onTodoClick = onTodoClick,
         onImageClick = onImageClick,

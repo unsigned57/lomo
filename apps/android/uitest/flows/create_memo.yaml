@@ -1,0 +1,19 @@
+# Creates a memo through the capture sheet and asserts it renders in the feed.
+# Self-contained: provisions a workspace on demand, so it also runs as the
+# first flow on a freshly installed device.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- assertVisible:
+    id: "benchmark_input_editor"
+- tapOn:
+    id: "benchmark_input_editor"
+- inputText: "uitest create-memo probe"
+- hideKeyboard
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible: "uitest create-memo probe"
+- takeScreenshot: created-memo

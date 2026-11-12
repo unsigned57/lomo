@@ -8,8 +8,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import org.jetbrains.compose.resources.StringResource
-import org.jetbrains.compose.resources.stringResource
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncReviewItem
@@ -21,13 +19,11 @@ import com.lomo.ui.generated.resources.sync_conflict_section_ready
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
-internal fun ConflictFileList(
-    source: SyncBackendType,
-    state: ConflictFileListState,
-    modifier: Modifier = Modifier,
-) {
+internal fun ConflictFileList(source: SyncBackendType, state: ConflictFileListState, modifier: Modifier = Modifier) {
     val supportsSkip = source.supportsDeferredConflictResolutionUi()
     val autoResolvableFiles =
         remember(state.files, state.safeChoices) {
@@ -47,15 +43,15 @@ internal fun ConflictFileList(
                 source = source,
                 file = file,
                 state =
-                    ConflictFileCardState(
-                        choice = state.perFileChoices[file.relativePath],
-                        suggestedChoice = state.suggestedChoices[file.relativePath],
-                        supportsSkip = supportsSkip,
-                        isExpanded = state.expandedFilePath == file.relativePath,
-                        reviewMessage = state.reviewMessages[file.relativePath],
-                        onChoiceChanged = { choice -> state.onFileChoiceChanged(file.relativePath, choice) },
-                        onToggleExpanded = { state.onToggleExpanded(file.relativePath) },
-                    ),
+                ConflictFileCardState(
+                    choice = state.perFileChoices[file.relativePath],
+                    suggestedChoice = state.suggestedChoices[file.relativePath],
+                    supportsSkip = supportsSkip,
+                    isExpanded = state.expandedFilePath == file.relativePath,
+                    reviewMessage = state.reviewMessages[file.relativePath],
+                    onChoiceChanged = { choice -> state.onFileChoiceChanged(file.relativePath, choice) },
+                    onToggleExpanded = { state.onToggleExpanded(file.relativePath) },
+                ),
             )
         }
         conflictFileSection(source, manualFiles, false) { file ->
@@ -63,26 +59,22 @@ internal fun ConflictFileList(
                 source = source,
                 file = file,
                 state =
-                    ConflictFileCardState(
-                        choice = state.perFileChoices[file.relativePath],
-                        suggestedChoice = null,
-                        supportsSkip = supportsSkip,
-                        isExpanded = state.expandedFilePath == file.relativePath,
-                        reviewMessage = state.reviewMessages[file.relativePath],
-                        onChoiceChanged = { choice -> state.onFileChoiceChanged(file.relativePath, choice) },
-                        onToggleExpanded = { state.onToggleExpanded(file.relativePath) },
-                    ),
+                ConflictFileCardState(
+                    choice = state.perFileChoices[file.relativePath],
+                    suggestedChoice = null,
+                    supportsSkip = supportsSkip,
+                    isExpanded = state.expandedFilePath == file.relativePath,
+                    reviewMessage = state.reviewMessages[file.relativePath],
+                    onChoiceChanged = { choice -> state.onFileChoiceChanged(file.relativePath, choice) },
+                    onToggleExpanded = { state.onToggleExpanded(file.relativePath) },
+                ),
             )
         }
     }
 }
 
 @Composable
-internal fun ReviewFileList(
-    source: SyncBackendType,
-    state: ReviewFileListState,
-    modifier: Modifier = Modifier,
-) {
+internal fun ReviewFileList(source: SyncBackendType, state: ReviewFileListState, modifier: Modifier = Modifier) {
     val supportsSkip = source.supportsDeferredReviewResolutionUi()
     val autoResolvableItems =
         remember(state.items, state.safeChoices, state.blockedPaths) {
@@ -128,13 +120,12 @@ internal fun ReviewFileList(
     }
 }
 
-private fun conflictListPadding(): PaddingValues =
-    PaddingValues(
-        start = AppSpacing.ScreenHorizontalPadding,
-        end = AppSpacing.ScreenHorizontalPadding,
-        top = AppSpacing.Small,
-        bottom = AppSpacing.ExtraLarge + AppSpacing.ExtraLarge + AppSpacing.ExtraLarge,
-    )
+private fun conflictListPadding(): PaddingValues = PaddingValues(
+    start = AppSpacing.ScreenHorizontalPadding,
+    end = AppSpacing.ScreenHorizontalPadding,
+    top = AppSpacing.Small,
+    bottom = AppSpacing.ExtraLarge + AppSpacing.ExtraLarge + AppSpacing.ExtraLarge,
+)
 
 private fun androidx.compose.foundation.lazy.LazyListScope.conflictFileSection(
     source: SyncBackendType,
@@ -161,23 +152,20 @@ private fun androidx.compose.foundation.lazy.LazyListScope.reviewFileSection(
     item(key = if (autoResolvable) "review-auto-resolvable-header" else "review-manual-header") {
         ConflictSectionHeader(
             text =
-                stringResource(
-                    if (autoResolvable) {
-                        Res.string.sync_conflict_section_ready
-                    } else {
-                        Res.string.sync_conflict_section_attention
-                    },
-                ),
+            stringResource(
+                if (autoResolvable) {
+                    Res.string.sync_conflict_section_ready
+                } else {
+                    Res.string.sync_conflict_section_attention
+                },
+            ),
             count = items.size,
         )
     }
     items(items = items, key = { it.relativePath }) { item -> itemContent(item) }
 }
 
-private fun conflictSectionTitle(
-    source: SyncBackendType,
-    autoResolvable: Boolean,
-): StringResource =
+private fun conflictSectionTitle(source: SyncBackendType, autoResolvable: Boolean): StringResource =
     if (autoResolvable) {
         if (source == SyncBackendType.INBOX) {
             Res.string.sync_conflict_section_ready

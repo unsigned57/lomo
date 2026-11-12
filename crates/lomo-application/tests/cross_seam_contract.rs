@@ -140,7 +140,8 @@ mod tests {
     /// Writes a durable trash record at its canonical hashed path, exactly like a peer's
     /// soft-delete attestation arriving through sync.
     fn write_trash_record(ctx: &Ctx, record: &TrashRecordV1) {
-        let rel = trash_record_relative_path(&record.memo_id).expect("trash path");
+        let rel =
+            trash_record_relative_path(&record.memo_id, &record.source_path).expect("trash path");
         let abs = ctx.workspace.join(rel.as_str());
         fs::create_dir_all(abs.parent().expect("record dir")).expect("record dir");
         write_trash_record_atomic(&abs, record).expect("write record");
@@ -179,6 +180,9 @@ mod tests {
         let ctx = open_session();
         let victim = request("op-consumed-victim", "10:00:00", "consumed body marker");
         ctx.session.create_memo(victim.clone()).expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         // Three seals evict the journal receipt (MAX_RETIRED_EPOCHS = 2), leaving the
         // durable identity record as the only witness for the consumed operation id.
         // Distinct times and bodies keep `reconcile_external` bindings unambiguous.
@@ -190,6 +194,9 @@ mod tests {
             ctx.session
                 .create_memo(request(operation, time, body))
                 .expect("filler create");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             assert!(ctx.session.seal().expect("seal"), "seal must retire");
         }
 
@@ -217,6 +224,9 @@ mod tests {
              got {error:?}"
         );
         let after = fs::read_to_string(&doc_path).expect("doc after");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert_eq!(
             after.matches("consumed body marker").count(),
             1,
@@ -242,6 +252,9 @@ mod tests {
             .create_memo(request("op-trash-src", "10:00:00", "peer-deleted body"))
             .expect("create")
             .memo_id;
+        ctx.session
+            .settle_workspace()
+            .expect("create converges onto the workspace");
         let snapshot = ctx
             .session
             .projected_memo(memo.as_str())
@@ -258,7 +271,7 @@ mod tests {
                 ctx.session
                     .reconcile_observed_paths(&[
                         RelativeWorkspacePath::parse(DOC).expect("doc path"),
-                        RelativeWorkspacePath::parse(".lomo/trash").expect("trash dir"),
+                        RelativeWorkspacePath::parse(".trash").expect("trash dir"),
                     ])
                     .expect("reconcile must not error"),
             );
@@ -302,7 +315,7 @@ mod tests {
         ctx.session
             .reconcile_observed_paths(&[
                 RelativeWorkspacePath::parse(DOC).expect("doc path"),
-                RelativeWorkspacePath::parse(".lomo/trash").expect("trash dir"),
+                RelativeWorkspacePath::parse(".trash").expect("trash dir"),
             ])
             .expect("scoped reconcile");
 
@@ -350,7 +363,7 @@ mod tests {
         ctx.session
             .reconcile_observed_paths(&[
                 RelativeWorkspacePath::parse(DOC).expect("doc path"),
-                RelativeWorkspacePath::parse(".lomo/trash").expect("trash dir"),
+                RelativeWorkspacePath::parse(".trash").expect("trash dir"),
             ])
             .expect("scoped reconcile");
         assert!(

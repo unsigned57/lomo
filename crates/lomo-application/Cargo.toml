@@ -119,3 +119,23 @@ path = "tests/reconcile_identity_binding_contract.rs"
 [[test]]
 name = "attachment_lookup_contract"
 path = "tests/attachment_lookup_contract.rs"
+
+[[test]]
+name = "operation_witness_contract"
+path = "tests/operation_witness_contract.rs"
+
+[[test]]
+name = "import_io_contract"
+path = "tests/import_io_contract.rs"
+
+[[test]]
+name = "rapid_delete_contract"
+path = "tests/rapid_delete_contract.rs"
+
+[[test]]
+name = "external_document_deletion_contract"
+path = "tests/external_document_deletion_contract.rs"
+
+[[test]]
+name = "edit_batch_contract"
+path = "tests/edit_batch_contract.rs"

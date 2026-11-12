@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract (P5-08 conflict, delete, recovery, diagnostics)
 //!
 //! Capability: durable conflict sessions with expected conflict revision; Markdown `MergedBody`
@@ -119,7 +128,7 @@ mod tests {
     #[test]
     fn open_conflict_session_persists_digests_and_revision_one() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session = open_markdown_conflict(&paths);
         let loaded = read_conflict_session(&paths).expect("read");
         assert_eq!(loaded.conflict_revision, 1);
@@ -137,7 +146,7 @@ mod tests {
     #[test]
     fn resolve_with_expected_revision_advances_monotonic_revision() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         open_markdown_conflict(&paths);
         let result = resolve_sync_conflicts(
             &paths,
@@ -165,7 +174,7 @@ mod tests {
     #[test]
     fn stale_resolution_rejects_without_advancing_or_overwriting() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         open_markdown_conflict(&paths);
         resolve_sync_conflicts(
             &paths,
@@ -196,7 +205,7 @@ mod tests {
     #[test]
     fn skip_for_now_holds_baseline_for_that_path() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let records = vec![
             conflict_path_from_open(
                 &path("memo/a.md"),
@@ -256,7 +265,7 @@ mod tests {
     #[test]
     fn binary_merged_body_is_rejected() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let record = conflict_path_from_open(
             &path("media/photo.jpg"),
             Some(&dig(1)),
@@ -286,7 +295,7 @@ mod tests {
     fn markdown_merged_body_is_reparsed_via_workspace() {
         validate_merged_markdown_body("# Title\n\nhello world\n").expect("valid md");
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         open_markdown_conflict(&paths);
         let result = resolve_sync_conflicts(
             &paths,
@@ -340,7 +349,7 @@ mod tests {
     #[test]
     fn user_delete_tombstone_first_then_ensure_absent() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let f = fence();
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(f.clone());
@@ -379,7 +388,7 @@ mod tests {
     #[test]
     fn crash_between_tombstone_and_delete_recovers_ensure_absent() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let f = fence();
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(f.clone());
@@ -497,7 +506,7 @@ mod tests {
     fn identity_reset_clears_control_tree_not_user_files() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let paths = SyncPaths::for_workspace(root);
+        let paths = SyncPaths::for_control_root(root);
         open_markdown_conflict(&paths);
         let user_file = root.join("memo/user.md");
         std::fs::create_dir_all(user_file.parent().expect("parent")).expect("dir");
@@ -536,7 +545,7 @@ mod tests {
         assert!(json.contains("memo/a.md"));
         assert!(json.contains(&dig(1).as_str().to_owned()) || json.contains("baseline"));
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let out = write_diagnostic_export(&paths, &export).expect("write");
         assert!(out.exists());
     }
@@ -544,7 +553,7 @@ mod tests {
     #[test]
     fn open_conflict_from_plan_materializes_session_and_artifacts() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let local_bytes = b"# local body\n".to_vec();
         let remote_bytes = b"# remote body\n".to_vec();
         let baseline_bytes = b"# base body\n".to_vec();
@@ -625,7 +634,7 @@ mod tests {
     #[test]
     fn materialize_rejects_body_digest_mismatch() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(fence());
         baseline.upsert(&path("memo/a.md"), &dig(0), "tok-base".to_owned());
@@ -670,7 +679,7 @@ mod tests {
     #[test]
     fn materialize_without_candidate_bodies_is_rejected() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(fence());
         baseline.upsert(&path("memo/a.md"), &dig(0), "tok-base".to_owned());
@@ -712,7 +721,7 @@ mod tests {
     #[test]
     fn run_sync_cycle_rejects_hollow_open_without_candidate_bodies() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(fence());
         baseline.upsert(&path("memo/a.md"), &dig(0), "tok-base".to_owned());
@@ -763,7 +772,7 @@ mod tests {
     )]
     fn run_sync_cycle_materializes_open_conflict_and_holds_baseline() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let local_a = b"# L\n".to_vec();
         let remote_a = b"# R\n".to_vec();
         let base_a = b"# B\n".to_vec();
@@ -892,7 +901,7 @@ mod tests {
     )]
     fn e2e_plan_materialize_resolve_keep_local_apply_baseline() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let local_bytes = b"# keep local\n".to_vec();
         let remote_bytes = b"# remote side\n".to_vec();
         let base_bytes = b"# base\n".to_vec();
@@ -1064,7 +1073,7 @@ mod tests {
     )]
     fn e2e_plan_materialize_resolve_merged_apply_baseline() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let local_bytes = b"# L\n".to_vec();
         let remote_bytes = b"# R\n".to_vec();
         let base_bytes = b"# B\n".to_vec();
@@ -1195,7 +1204,7 @@ mod tests {
     #[test]
     fn apply_resolved_keep_local_fails_closed_when_artifact_missing() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         // Hollow KeepLocal: digest present, no artifact ref → body wire fails closed.
         let record = conflict_path_from_open(
             &path("memo/a.md"),
@@ -1236,7 +1245,7 @@ mod tests {
         // Honesty residual: KeepRemote status-only is not full apply. Session advances; remote
         // publish and baseline stay unchanged until store expected-revision local apply lands.
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let record = conflict_path_from_open(
             &path("memo/a.md"),
             Some(&dig(1)),
@@ -1293,7 +1302,7 @@ mod tests {
     #[test]
     fn apply_resolved_conflicts_remote_rejects_stale_revision() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         open_markdown_conflict(&paths);
         resolve_sync_conflicts(
             &paths,
@@ -1321,7 +1330,7 @@ mod tests {
     #[test]
     fn run_sync_cycle_reissues_pending_delete_from_tombstone_on_revive() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let f = fence();
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(f.clone());
@@ -1393,7 +1402,7 @@ mod tests {
     #[test]
     fn skip_for_now_blocks_baseline_via_apply_resolved_path() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let record = conflict_path_from_open(
             &path("memo/a.md"),
             Some(&dig(1)),
@@ -1506,7 +1515,7 @@ mod tests {
         );
 
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         for (local_has, token, code) in [
             (false, Some("tok-other"), "user_delete_token_mismatch"),
             (true, Some("tok-a"), "user_delete_local_still_present"),
@@ -1547,7 +1556,7 @@ mod tests {
         );
 
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         open_markdown_conflict(&paths);
         let err = resolve_sync_conflicts(
             &paths,
@@ -1570,7 +1579,7 @@ mod tests {
     #[test]
     fn corrupt_conflict_session_is_corrupt_state_not_clean_slate() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
         std::fs::write(&paths.conflicts, b"BAD!").expect("seed");
         let err = read_conflict_session(&paths).expect_err("corrupt");
@@ -1646,7 +1655,7 @@ mod tests {
         // not user-byte state.
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let paths = SyncPaths::for_workspace(root);
+        let paths = SyncPaths::for_control_root(root);
         let local_body = "# local diverged\n";
         let remote_body = "# remote wins\n";
         let base_body = "# base\n";
@@ -1714,7 +1723,7 @@ mod tests {
     #[test]
     fn keep_remote_local_pull_fails_closed_when_remote_artifact_missing() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let record = conflict_path_from_open(
             &path("memos/hollow.md"),
             Some(&dig(1)),
@@ -1744,7 +1753,7 @@ mod tests {
     fn merged_local_store_apply_body_wire_and_baseline() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let paths = SyncPaths::for_workspace(root);
+        let paths = SyncPaths::for_control_root(root);
         let local_body = "# local side\n";
         let remote_body = "# remote side\n";
         let base_body = "# base\n";
@@ -1827,7 +1836,7 @@ mod tests {
         // Transition: artifacts durable, session head never written (crash before write_conflict_session).
         // Recoverability: no open session → materialize must re-run; no hollow OpenConflict.
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
         let local_bytes = b"# local after crash\n";
         let remote_bytes = b"# remote after crash\n";
@@ -1908,7 +1917,7 @@ mod tests {
         // is just "process death with advanced revision on disk" — re-read must see new revision and
         // re-resolve with stale expected revision must fail closed.
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let _seeded: ConflictSession = open_markdown_conflict(&paths);
         let resolved = resolve_sync_conflicts(
             &paths,
@@ -1957,7 +1966,7 @@ mod tests {
         // this matrix entry asserts the narrower transition: tombstone durable + no session/baseline
         // mutation, recover_pending_delete_intent alone re-issues EnsureAbsent (fail-closed partial).
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let f = fence();
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(f.clone());
@@ -2020,7 +2029,7 @@ mod tests {
         // Transition: partial/corrupt conflict head after interrupted write must surface Corruption
         // and retain bytes (same invariant as corrupt_conflict_session_is_corrupt_state).
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
         // Truncated / garbage head as if rename/fsync interrupted mid-frame.
         std::fs::write(&paths.conflicts, b"LOMO\x01\x00").expect("seed partial");
@@ -2040,7 +2049,7 @@ mod tests {
         // durable but before rename must leave the prior baseline head authoritative (not clean
         // slate; not promote partial temp as head).
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
 
         let mut baseline = BaselineHead::empty();
@@ -2048,7 +2057,7 @@ mod tests {
         baseline.upsert(&path("memo/a.md"), &dig(1), "tok-a".to_owned());
         write_baseline(&paths, &baseline).expect("seed baseline");
         let prior = std::fs::read(&paths.baseline).expect("prior bytes");
-        assert!(!prior.is_empty());
+        assert_ne!(prior, Vec::<u8>::new());
 
         // Simulate interrupted commit: temp sibling exists with garbage; head untouched.
         let temp_path = paths.baseline.with_extension("tmp");
@@ -2075,7 +2084,7 @@ mod tests {
         // open). Re-entry via run_sync_cycle plan-only with empty ports is idle (no open conflict
         // paths); session identity survives.
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session = SyncSession::new(fence(), SessionKind::Incremental, "crash-sess-only")
             .expect("session");
         write_session(&paths, &session).expect("session head");
@@ -2118,7 +2127,7 @@ mod tests {
         // session bookkeeping. Re-running apply_resolved with the **old** expected revision must
         // fail closed (stale fence) — no double baseline advance / no clean slate.
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let local_bytes = b"# local reapply\n";
         let remote_bytes = b"# remote reapply\n";
         let base_bytes = b"# base reapply\n";
@@ -2199,7 +2208,7 @@ mod tests {
     #[test]
     fn crash_after_publish_before_baseline_write_advances_on_reapply() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let local_bytes = b"# local after publish crash\n";
         let remote_bytes = b"# remote after publish crash\n";
         let base_bytes = b"# base after publish crash\n";
@@ -2302,13 +2311,13 @@ mod tests {
     #[test]
     fn crash_after_conflict_session_temp_before_rename_retains_prior_session() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
 
         let session = open_markdown_conflict(&paths);
         assert_eq!(session.conflict_revision, 1);
         let prior = std::fs::read(&paths.conflicts).expect("prior session bytes");
-        assert!(!prior.is_empty());
+        assert_ne!(prior, Vec::<u8>::new());
 
         let temp_path = paths.conflicts.with_extension("tmp");
         std::fs::write(&temp_path, b"LSYN\x00partial-conflict-session").expect("seed temp");
@@ -2331,7 +2340,7 @@ mod tests {
     fn crash_after_local_pull_before_baseline_advance_completes_on_revive() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let paths = SyncPaths::for_workspace(root);
+        let paths = SyncPaths::for_control_root(root);
         let local_body = "# local pull crash\n";
         let remote_body = "# remote pull crash\n";
         let base_body = "# base pull crash\n";
@@ -2404,7 +2413,7 @@ mod tests {
     #[test]
     fn missing_conflict_session_lists_as_absent_not_storage_error() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         assert!(!paths.conflicts.exists());
 
         let page = list_sync_conflicts(&paths, 0, 10)
@@ -2428,13 +2437,13 @@ mod tests {
     #[test]
     fn empty_present_conflict_session_is_not_absent() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session = ConflictSession::open(fence(), "empty-present", Vec::new()).expect("open");
         write_conflict_session(&paths, &session).expect("write");
 
         let page = list_sync_conflicts(&paths, 0, 10).expect("present empty");
         assert_eq!(page.session, ConflictSessionPresence::Present);
-        assert!(page.items.is_empty());
+        assert_eq!(page.items, Vec::<lomo_sync::ConflictPathRecord>::new());
         assert_eq!(page.session_id, "empty-present");
         assert_eq!(page.conflict_revision, 1);
         assert_ne!(page.session, ConflictSessionPresence::Absent);
@@ -2443,7 +2452,7 @@ mod tests {
     #[test]
     fn truncated_conflict_session_list_is_corrupt_not_absent() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
         std::fs::write(&paths.conflicts, b"LSYN\x00truncated").expect("seed");
 
@@ -2459,7 +2468,7 @@ mod tests {
     #[test]
     fn unreadable_conflict_session_list_is_not_absent() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
         // A directory where the session file must live is unreadable as a record, not Absent.
         std::fs::create_dir(&paths.conflicts).expect("dir in place of conflicts.rec");
@@ -2476,7 +2485,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session = ConflictSession::open(fence(), "perm-session", Vec::new()).expect("open");
         write_conflict_session(&paths, &session).expect("write");
         std::fs::set_permissions(&paths.conflicts, std::fs::Permissions::from_mode(0o000))
@@ -2497,7 +2506,7 @@ mod tests {
         // record the user-delete tombstone before EnsureAbsent can publish, so a crash between
         // tombstone and remote delete is recoverable.
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let f = fence();
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(f.clone());
@@ -2568,7 +2577,7 @@ mod tests {
         // Remote token churned since baseline: the delete gate cannot prove the remote side is
         // the baseline bytes, so no tombstone is written and the planner keeps PullPresent.
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let f = fence();
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(f.clone());
@@ -2631,7 +2640,7 @@ mod tests {
         // Production FFI path runs the streaming cycle: the same tombstone-first wiring must
         // apply when the remote listing arrives as pages.
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let f = fence();
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(f.clone());

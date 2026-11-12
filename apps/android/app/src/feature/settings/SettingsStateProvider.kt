@@ -1,11 +1,12 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.common.appWhileSubscribed
-
-import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CalendarHeatmapThresholds
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.FontPreference
+import com.lomo.domain.model.QuickBallConfig
 import com.lomo.domain.model.WebDavProvider
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
@@ -47,6 +48,7 @@ class SettingsStateProvider(
         val quickSaveOnBackEnabled: Boolean,
         val scrollbarEnabled: Boolean,
         val autoOpenInputOnForeground: Boolean,
+        val quickBallConfig: QuickBallConfig,
     )
 
     private data class PrimaryUiSections(
@@ -61,6 +63,7 @@ class SettingsStateProvider(
         val dateFormat: String,
         val timeFormat: String,
         val themeMode: com.lomo.domain.model.ThemeMode,
+        val pureBlackDark: Boolean,
         val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     )
 
@@ -119,15 +122,15 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                StorageSectionState(
-                    rootDirectory = appConfigCoordinator.rootDirectory.value,
-                    imageDirectory = appConfigCoordinator.imageDirectory.value,
-                    voiceDirectory = appConfigCoordinator.voiceDirectory.value,
-                    syncInboxEnabled = appConfigCoordinator.syncInboxEnabled.value,
-                    syncInboxDirectory = appConfigCoordinator.syncInboxDirectory.value,
-                    filenameFormat = appConfigCoordinator.storageFilenameFormat.value,
-                    timestampFormat = appConfigCoordinator.storageTimestampFormat.value,
-                ),
+            StorageSectionState(
+                rootDirectory = appConfigCoordinator.rootDirectory.value,
+                imageDirectory = appConfigCoordinator.imageDirectory.value,
+                voiceDirectory = appConfigCoordinator.voiceDirectory.value,
+                syncInboxEnabled = appConfigCoordinator.syncInboxEnabled.value,
+                syncInboxDirectory = appConfigCoordinator.syncInboxDirectory.value,
+                filenameFormat = appConfigCoordinator.storageFilenameFormat.value,
+                timestampFormat = appConfigCoordinator.storageTimestampFormat.value,
+            ),
         )
 
     private val displayState: StateFlow<DisplaySectionState> =
@@ -137,25 +140,29 @@ class SettingsStateProvider(
                 appConfigCoordinator.timeFormat,
                 appConfigCoordinator.themeMode,
                 appConfigCoordinator.calendarHeatmapThresholds,
-            ) { dateFormat, timeFormat, themeMode, calendarHeatmapThresholds ->
+                appConfigCoordinator.pureBlackDark,
+            ) { dateFormat, timeFormat, themeMode, calendarHeatmapThresholds, pureBlackDark ->
                 DisplayPrimaryState(
                     dateFormat = dateFormat,
                     timeFormat = timeFormat,
                     themeMode = themeMode,
+                    pureBlackDark = pureBlackDark,
                     calendarHeatmapThresholds = calendarHeatmapThresholds,
                 )
             },
             combine(
                 appConfigCoordinator.colorSource,
+                appConfigCoordinator.contrastLevel,
                 appConfigCoordinator.fontPreference,
                 appConfigCoordinator.availableCustomFonts,
                 appConfigCoordinator.colorHistory,
-            ) { colorSource, fontPreference, customFonts, colorHistory ->
+            ) { colorSource, contrastLevel, fontPreference, customFonts, colorHistory ->
                 DisplaySources(
                     colorSource = colorSource,
+                    contrastLevel = contrastLevel,
                     fontPreference = fontPreference,
                     customFonts = customFonts,
-                    colorHistory = colorHistory
+                    colorHistory = colorHistory,
                 )
             },
             combine(
@@ -165,14 +172,16 @@ class SettingsStateProvider(
                 appConfigCoordinator.typographyParagraphSpacingScale,
             ) { fontSize, lineHeight, letterSpacing, paragraphSpacing ->
                 floatArrayOf(fontSize, lineHeight, letterSpacing, paragraphSpacing)
-            }
+            },
         ) { primary, sources, typography ->
             DisplaySectionState(
                 dateFormat = primary.dateFormat,
                 timeFormat = primary.timeFormat,
                 themeMode = primary.themeMode,
+                pureBlackDark = primary.pureBlackDark,
                 calendarHeatmapThresholds = primary.calendarHeatmapThresholds,
                 colorSource = sources.colorSource,
+                contrastLevel = sources.contrastLevel,
                 fontPreference = sources.fontPreference,
                 availableCustomFonts = sources.customFonts.toImmutableList(),
                 colorHistory = sources.colorHistory.toImmutableList(),
@@ -185,24 +194,27 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                DisplaySectionState(
-                    dateFormat = appConfigCoordinator.dateFormat.value,
-                    timeFormat = appConfigCoordinator.timeFormat.value,
-                    themeMode = appConfigCoordinator.themeMode.value,
-                    calendarHeatmapThresholds = appConfigCoordinator.calendarHeatmapThresholds.value,
-                    colorSource = appConfigCoordinator.colorSource.value,
-                    fontPreference = appConfigCoordinator.fontPreference.value,
-                    availableCustomFonts = appConfigCoordinator.availableCustomFonts.value.toImmutableList(),
-                    colorHistory = appConfigCoordinator.colorHistory.value.toImmutableList(),
-                    typographyFontSizeScale = appConfigCoordinator.typographyFontSizeScale.value,
-                    typographyLineHeightScale = appConfigCoordinator.typographyLineHeightScale.value,
-                    typographyLetterSpacingScale = appConfigCoordinator.typographyLetterSpacingScale.value,
-                    typographyParagraphSpacingScale = appConfigCoordinator.typographyParagraphSpacingScale.value,
-                ),
+            DisplaySectionState(
+                dateFormat = appConfigCoordinator.dateFormat.value,
+                timeFormat = appConfigCoordinator.timeFormat.value,
+                themeMode = appConfigCoordinator.themeMode.value,
+                pureBlackDark = appConfigCoordinator.pureBlackDark.value,
+                calendarHeatmapThresholds = appConfigCoordinator.calendarHeatmapThresholds.value,
+                colorSource = appConfigCoordinator.colorSource.value,
+                contrastLevel = appConfigCoordinator.contrastLevel.value,
+                fontPreference = appConfigCoordinator.fontPreference.value,
+                availableCustomFonts = appConfigCoordinator.availableCustomFonts.value.toImmutableList(),
+                colorHistory = appConfigCoordinator.colorHistory.value.toImmutableList(),
+                typographyFontSizeScale = appConfigCoordinator.typographyFontSizeScale.value,
+                typographyLineHeightScale = appConfigCoordinator.typographyLineHeightScale.value,
+                typographyLetterSpacingScale = appConfigCoordinator.typographyLetterSpacingScale.value,
+                typographyParagraphSpacingScale = appConfigCoordinator.typographyParagraphSpacingScale.value,
+            ),
         )
 
     private data class DisplaySources(
         val colorSource: ColorSource,
+        val contrastLevel: ContrastLevel,
         val fontPreference: FontPreference,
         val customFonts: List<CustomFontInfo>,
         val colorHistory: List<Int>,
@@ -218,10 +230,10 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                LanShareSectionState(
-                    enabled = lanShareCoordinator.lanShareEnabled.value,
-                    deviceName = lanShareCoordinator.lanShareDeviceName.value,
-                ),
+            LanShareSectionState(
+                enabled = lanShareCoordinator.lanShareEnabled.value,
+                deviceName = lanShareCoordinator.lanShareDeviceName.value,
+            ),
         )
 
     private val shareCardState: StateFlow<ShareCardSectionState> =
@@ -235,11 +247,11 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                ShareCardSectionState(
-                    appConfigCoordinator.shareCardShowTime.value,
-                    appConfigCoordinator.shareCardShowBrand.value,
-                    appConfigCoordinator.shareCardSignatureText.value,
-                ),
+            ShareCardSectionState(
+                appConfigCoordinator.shareCardShowTime.value,
+                appConfigCoordinator.shareCardShowBrand.value,
+                appConfigCoordinator.shareCardSignatureText.value,
+            ),
         )
 
     private val memoSnapshotInputs: StateFlow<Triple<Boolean, Int, Int>> =
@@ -253,11 +265,11 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                Triple(
-                    appConfigCoordinator.memoSnapshotsEnabled.value,
-                    appConfigCoordinator.memoSnapshotMaxCount.value,
-                    appConfigCoordinator.memoSnapshotMaxAgeDays.value,
-                ),
+            Triple(
+                appConfigCoordinator.memoSnapshotsEnabled.value,
+                appConfigCoordinator.memoSnapshotMaxCount.value,
+                appConfigCoordinator.memoSnapshotMaxAgeDays.value,
+            ),
         )
 
     private val snapshotState: StateFlow<SnapshotSectionState> =
@@ -271,11 +283,11 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                SnapshotSectionState(
-                    memoSnapshotsEnabled = appConfigCoordinator.memoSnapshotsEnabled.value,
-                    memoSnapshotMaxCount = appConfigCoordinator.memoSnapshotMaxCount.value,
-                    memoSnapshotMaxAgeDays = appConfigCoordinator.memoSnapshotMaxAgeDays.value,
-                ),
+            SnapshotSectionState(
+                memoSnapshotsEnabled = appConfigCoordinator.memoSnapshotsEnabled.value,
+                memoSnapshotMaxCount = appConfigCoordinator.memoSnapshotMaxCount.value,
+                memoSnapshotMaxAgeDays = appConfigCoordinator.memoSnapshotMaxAgeDays.value,
+            ),
         )
 
     private val gitExtensionState: StateFlow<GitExtensionState> =
@@ -290,12 +302,12 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                GitExtensionState(
-                    remoteUrl = gitCoordinator.gitRemoteUrl.value,
-                    branch = gitCoordinator.gitBranch.value,
-                    authorName = gitCoordinator.gitAuthorName.value,
-                    authorEmail = gitCoordinator.gitAuthorEmail.value,
-                ),
+            GitExtensionState(
+                remoteUrl = gitCoordinator.gitRemoteUrl.value,
+                branch = gitCoordinator.gitBranch.value,
+                authorName = gitCoordinator.gitAuthorName.value,
+                authorEmail = gitCoordinator.gitAuthorEmail.value,
+            ),
         )
 
     private val gitState: StateFlow<GitSectionState> =
@@ -316,14 +328,14 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                GitSectionState(
-                    providerSettings = gitCoordinator.providerSettingsModel.value,
-                    remoteUrl = gitExtensionState.value.remoteUrl,
-                    branch = gitExtensionState.value.branch,
-                    authorName = gitExtensionState.value.authorName,
-                    authorEmail = gitExtensionState.value.authorEmail,
-                    resetInProgress = gitCoordinator.resetInProgress.value,
-                ),
+            GitSectionState(
+                providerSettings = gitCoordinator.providerSettingsModel.value,
+                remoteUrl = gitExtensionState.value.remoteUrl,
+                branch = gitExtensionState.value.branch,
+                authorName = gitExtensionState.value.authorName,
+                authorEmail = gitExtensionState.value.authorEmail,
+                resetInProgress = gitCoordinator.resetInProgress.value,
+            ),
         )
 
     private val webDavBaseExtensionState: StateFlow<Triple<WebDavProvider, String, String>> =
@@ -337,11 +349,11 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                Triple(
-                    webDavCoordinator.webDavProvider.value,
-                    webDavCoordinator.webDavBaseUrl.value,
-                    webDavCoordinator.webDavEndpointUrl.value,
-                ),
+            Triple(
+                webDavCoordinator.webDavProvider.value,
+                webDavCoordinator.webDavBaseUrl.value,
+                webDavCoordinator.webDavEndpointUrl.value,
+            ),
         )
 
     private val webDavExtensionState: StateFlow<WebDavExtensionState> =
@@ -359,12 +371,12 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                WebDavExtensionState(
-                    provider = webDavCoordinator.webDavProvider.value,
-                    baseUrl = webDavCoordinator.webDavBaseUrl.value,
-                    endpointUrl = webDavCoordinator.webDavEndpointUrl.value,
-                    username = webDavCoordinator.webDavUsername.value,
-                ),
+            WebDavExtensionState(
+                provider = webDavCoordinator.webDavProvider.value,
+                baseUrl = webDavCoordinator.webDavBaseUrl.value,
+                endpointUrl = webDavCoordinator.webDavEndpointUrl.value,
+                username = webDavCoordinator.webDavUsername.value,
+            ),
         )
 
     private val webDavState: StateFlow<WebDavSectionState> =
@@ -383,13 +395,13 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                WebDavSectionState(
-                    providerSettings = webDavCoordinator.providerSettingsModel.value,
-                    provider = webDavExtensionState.value.provider,
-                    baseUrl = webDavExtensionState.value.baseUrl,
-                    endpointUrl = webDavExtensionState.value.endpointUrl,
-                    username = webDavExtensionState.value.username,
-                ),
+            WebDavSectionState(
+                providerSettings = webDavCoordinator.providerSettingsModel.value,
+                provider = webDavExtensionState.value.provider,
+                baseUrl = webDavExtensionState.value.baseUrl,
+                endpointUrl = webDavExtensionState.value.endpointUrl,
+                username = webDavExtensionState.value.username,
+            ),
         )
 
     private val s3State: StateFlow<S3SectionState> = s3StateProvider.sectionState
@@ -409,30 +421,29 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                InteractionPrimaryState(
-                    hapticEnabled = appConfigCoordinator.hapticFeedbackEnabled.value,
-                    showInputHints = appConfigCoordinator.showInputHints.value,
-                    doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
-                ),
+            InteractionPrimaryState(
+                hapticEnabled = appConfigCoordinator.hapticFeedbackEnabled.value,
+                showInputHints = appConfigCoordinator.showInputHints.value,
+                doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
+            ),
         )
 
     private val interactionState: StateFlow<InteractionSectionState> =
         combine(
             interactionPrimaryState,
             appConfigCoordinator.freeTextCopyEnabled,
-            appConfigCoordinator.memoActionAutoReorderEnabled,
             appConfigCoordinator.appLockEnabled,
             combine(
                 appConfigCoordinator.quickSaveOnBackEnabled,
                 appConfigCoordinator.scrollbarEnabled,
                 appConfigCoordinator.autoOpenInputOnForeground,
-            ) { quickSave, scrollbar, autoOpenInputOnForeground ->
-                InteractionSecondaryState(quickSave, scrollbar, autoOpenInputOnForeground)
+                appConfigCoordinator.quickBallConfig,
+            ) { quickSave, scrollbar, autoOpenInputOnForeground, quickBallConfig ->
+                InteractionSecondaryState(quickSave, scrollbar, autoOpenInputOnForeground, quickBallConfig)
             },
         ) {
                 primary,
                 freeTextCopyEnabled,
-                memoActionAutoReorderEnabled,
                 appLockEnabled,
                 secondary,
             ->
@@ -441,27 +452,27 @@ class SettingsStateProvider(
                 showInputHints = primary.showInputHints,
                 doubleTapEditEnabled = primary.doubleTapEditEnabled,
                 freeTextCopyEnabled = freeTextCopyEnabled,
-                memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
                 appLockEnabled = appLockEnabled,
                 quickSaveOnBackEnabled = secondary.quickSaveOnBackEnabled,
                 scrollbarEnabled = secondary.scrollbarEnabled,
+                quickBallConfig = secondary.quickBallConfig,
                 autoOpenInputOnForeground = secondary.autoOpenInputOnForeground,
             )
         }.stateIn(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                InteractionSectionState(
-                    hapticEnabled = appConfigCoordinator.hapticFeedbackEnabled.value,
-                    showInputHints = appConfigCoordinator.showInputHints.value,
-                    doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
-                    freeTextCopyEnabled = appConfigCoordinator.freeTextCopyEnabled.value,
-                    memoActionAutoReorderEnabled = appConfigCoordinator.memoActionAutoReorderEnabled.value,
-                    appLockEnabled = appConfigCoordinator.appLockEnabled.value,
-                    quickSaveOnBackEnabled = appConfigCoordinator.quickSaveOnBackEnabled.value,
-                    scrollbarEnabled = appConfigCoordinator.scrollbarEnabled.value,
-                    autoOpenInputOnForeground = appConfigCoordinator.autoOpenInputOnForeground.value,
-                ),
+            InteractionSectionState(
+                hapticEnabled = appConfigCoordinator.hapticFeedbackEnabled.value,
+                showInputHints = appConfigCoordinator.showInputHints.value,
+                doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
+                freeTextCopyEnabled = appConfigCoordinator.freeTextCopyEnabled.value,
+                appLockEnabled = appConfigCoordinator.appLockEnabled.value,
+                quickSaveOnBackEnabled = appConfigCoordinator.quickSaveOnBackEnabled.value,
+                scrollbarEnabled = appConfigCoordinator.scrollbarEnabled.value,
+                quickBallConfig = appConfigCoordinator.quickBallConfig.value,
+                autoOpenInputOnForeground = appConfigCoordinator.autoOpenInputOnForeground.value,
+            ),
         )
 
     private val systemState: StateFlow<SystemSectionState> =
@@ -492,13 +503,13 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                PrimaryUiSections(
-                    storage = storageState.value,
-                    display = displayState.value,
-                    lanShare = lanShareState.value,
-                    shareCard = shareCardState.value,
-                    snapshot = snapshotState.value,
-                ),
+            PrimaryUiSections(
+                storage = storageState.value,
+                display = displayState.value,
+                lanShare = lanShareState.value,
+                shareCard = shareCardState.value,
+                snapshot = snapshotState.value,
+            ),
         )
 
     private val coreUiSections: StateFlow<CoreUiSections> =
@@ -517,16 +528,16 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                CoreUiSections(
-                    storage = storageState.value,
-                    display = displayState.value,
-                    lanShare = lanShareState.value,
-                    shareCard = shareCardState.value,
-                    snapshot = snapshotState.value,
-                    git = gitState.value,
-                    webDav = webDavState.value,
-                    s3 = s3State.value,
-                ),
+            CoreUiSections(
+                storage = storageState.value,
+                display = displayState.value,
+                lanShare = lanShareState.value,
+                shareCard = shareCardState.value,
+                snapshot = snapshotState.value,
+                git = gitState.value,
+                webDav = webDavState.value,
+                s3 = s3State.value,
+            ),
         )
 
     val uiState: StateFlow<SettingsScreenUiState> =
@@ -553,18 +564,18 @@ class SettingsStateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                SettingsScreenUiState(
-                    storage = coreUiSections.value.storage,
-                    display = coreUiSections.value.display,
-                    lanShare = coreUiSections.value.lanShare,
-                    shareCard = coreUiSections.value.shareCard,
-                    snapshot = coreUiSections.value.snapshot,
-                    git = coreUiSections.value.git,
-                    webDav = coreUiSections.value.webDav,
-                    s3 = coreUiSections.value.s3,
-                    interaction = interactionState.value,
-                    system = systemState.value,
-                    operationError = operationError.value,
-                ),
+            SettingsScreenUiState(
+                storage = coreUiSections.value.storage,
+                display = coreUiSections.value.display,
+                lanShare = coreUiSections.value.lanShare,
+                shareCard = coreUiSections.value.shareCard,
+                snapshot = coreUiSections.value.snapshot,
+                git = coreUiSections.value.git,
+                webDav = coreUiSections.value.webDav,
+                s3 = coreUiSections.value.s3,
+                interaction = interactionState.value,
+                system = systemState.value,
+                operationError = operationError.value,
+            ),
         )
 }

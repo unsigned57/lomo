@@ -9,7 +9,4 @@ import com.lomo.domain.model.EditableMemoSnapshot
  * [EditableMemoSnapshot], so a list preview — or a `copy(contentKind = Full)` forgery of one —
  * can never reach the editor as a baseline.
  */
-data class MemoEditSession(
-    val snapshot: EditableMemoSnapshot,
-    val draftId: DraftId,
-)
+data class MemoEditSession(val snapshot: EditableMemoSnapshot, val draftId: DraftId)

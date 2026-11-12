@@ -24,7 +24,6 @@ pub fn ensure_required(
             RequiredTool::BoltFfi => ensure_boltffi(workspace)?,
             RequiredTool::Nextest => ensure_pinned_tool(workspace, "cargo-nextest")?,
             RequiredTool::Machete => ensure_pinned_tool(workspace, "cargo-machete")?,
-            RequiredTool::Mutants => ensure_pinned_tool(workspace, "cargo-mutants")?,
             RequiredTool::Kotlin => anyhow::ensure!(
                 workspace.root.join("kotlin").is_file(),
                 "missing Kotlin wrapper"
@@ -63,6 +62,7 @@ pub fn bootstrap(workspace: &Workspace) -> Result<()> {
     bootstrap_rust(workspace)?;
     install_ndk(workspace)?;
     install_git_hooks(workspace)?;
+    crate::android::prefetch_redroid_image();
     crate::util::emit_stderr(format_args!("xtask: bootstrap complete"));
     Ok(())
 }
@@ -100,7 +100,7 @@ pub fn ensure_quality(workspace: &Workspace) -> Result<()> {
         let tool = tools
             .iter()
             .find(|tool| tool.package == package)
-            .with_context(|| format!("{package} is missing from tools.toml"))?;
+            .with_context(|| format!("{package} is missing from quality/tools.toml"))?;
         ensure_tool(workspace, tool)?;
     }
     Ok(())
@@ -113,7 +113,7 @@ pub fn ensure_diagnostics(workspace: &Workspace) -> Result<()> {
         let tool = tools
             .iter()
             .find(|tool| tool.package == package)
-            .with_context(|| format!("{package} is missing from tools.toml"))?;
+            .with_context(|| format!("{package} is missing from quality/tools.toml"))?;
         ensure_tool(workspace, tool)?;
     }
     Ok(())
@@ -122,7 +122,7 @@ pub fn ensure_diagnostics(workspace: &Workspace) -> Result<()> {
 /// Resolves the exact pinned version of a quality/diagnostics cargo tool.
 ///
 /// # Errors
-/// Returns an error when `tools.toml` is unreadable or the package has no pin.
+/// Returns an error when `quality/tools.toml` is unreadable or the package has no pin.
 pub fn pinned_tool_version(root: &Path, package: &str) -> Result<String> {
     Ok(quality_and_diagnostic_tools(root)?
         .iter()
@@ -132,7 +132,7 @@ pub fn pinned_tool_version(root: &Path, package: &str) -> Result<String> {
         .clone())
 }
 
-fn ensure_pinned_tool(workspace: &Workspace, package: &str) -> Result<()> {
+pub fn ensure_pinned_tool(workspace: &Workspace, package: &str) -> Result<()> {
     ensure_tool(
         workspace,
         &Tool {
@@ -145,11 +145,17 @@ fn ensure_pinned_tool(workspace: &Workspace, package: &str) -> Result<()> {
 pub fn ensure_boltffi(workspace: &Workspace) -> Result<()> {
     ensure_rust_version(workspace)?;
     let pin = boltffi_pin(workspace)?;
-    let binary = workspace.tool_bin().join(&pin.binary);
+    let binary =
+        workspace
+            .tool_bin()
+            .join(format!("{}{}", pin.binary, std::env::consts::EXE_SUFFIX));
     if !binary.is_file() {
         install_boltffi(workspace)?;
     }
-    let binary = workspace.tool_bin().join(&pin.binary);
+    let binary =
+        workspace
+            .tool_bin()
+            .join(format!("{}{}", pin.binary, std::env::consts::EXE_SUFFIX));
     if !binary.is_file() {
         bail!(
             "{} is not installed at {}; run `just bootstrap`",
@@ -183,7 +189,9 @@ pub fn ensure_boltffi(workspace: &Workspace) -> Result<()> {
 pub fn boltffi_binary(workspace: &Workspace) -> Result<PathBuf> {
     ensure_boltffi(workspace)?;
     let pin = boltffi_pin(workspace)?;
-    Ok(workspace.tool_bin().join(pin.binary))
+    Ok(workspace
+        .tool_bin()
+        .join(format!("{}{}", pin.binary, std::env::consts::EXE_SUFFIX)))
 }
 
 fn install_boltffi(workspace: &Workspace) -> Result<()> {
@@ -204,7 +212,10 @@ fn install_boltffi(workspace: &Workspace) -> Result<()> {
         &pin.package,
     ]);
     run(&mut command)?;
-    let binary = workspace.tool_bin().join(&pin.binary);
+    let binary =
+        workspace
+            .tool_bin()
+            .join(format!("{}{}", pin.binary, std::env::consts::EXE_SUFFIX));
     if !binary.is_file() {
         bail!(
             "installed {} but binary {} is missing",
@@ -232,20 +243,22 @@ fn boltffi_identity_path(workspace: &Workspace) -> PathBuf {
 }
 
 fn boltffi_pin(workspace: &Workspace) -> Result<BoltffiPin> {
-    let path = workspace.root.join("tools.toml");
+    let path = workspace.root.join("quality/tools.toml");
     let document = load_tools_document(&path)?;
     let table = document
         .get("ffi")
         .and_then(|ffi| ffi.get("boltffi_cli"))
         .and_then(Item::as_table_like)
-        .context("missing [ffi.boltffi_cli] in tools.toml")?;
+        .context("missing [ffi.boltffi_cli] in quality/tools.toml")?;
     let string_field = |key: &str| -> Result<String> {
         table
             .get(key)
-            .with_context(|| format!("ffi.boltffi_cli.{key} missing from tools.toml"))?
+            .with_context(|| format!("ffi.boltffi_cli.{key} missing from quality/tools.toml"))?
             .as_str()
             .map(str::to_owned)
-            .with_context(|| format!("ffi.boltffi_cli.{key} must be a string in tools.toml"))
+            .with_context(|| {
+                format!("ffi.boltffi_cli.{key} must be a string in quality/tools.toml")
+            })
     };
     Ok(BoltffiPin {
         package: string_field("package")?,
@@ -305,7 +318,10 @@ fn install_tool(workspace: &Workspace, tool: &Tool) -> Result<()> {
 }
 
 fn ensure_tool(workspace: &Workspace, tool: &Tool) -> Result<()> {
-    let binary = workspace.tool_bin().join(&tool.package);
+    let binary =
+        workspace
+            .tool_bin()
+            .join(format!("{}{}", tool.package, std::env::consts::EXE_SUFFIX));
     if !binary.is_file() {
         bail!(
             "{} {} is not installed at {}; run `just bootstrap`",
@@ -331,17 +347,34 @@ fn ensure_tool(workspace: &Workspace, tool: &Tool) -> Result<()> {
 
 fn installed_version(binary: &PathBuf, package: &str) -> Result<String> {
     let subcommand = package.trim_start_matches("cargo-");
-    for arguments in [
-        vec!["--version".to_owned()],
-        vec![subcommand.to_owned(), "--version".to_owned()],
-    ] {
-        let command_output = Command::new(binary).args(&arguments).output();
-        let Ok(command_output) = command_output else {
-            continue;
-        };
-        if command_output.status.success() {
-            return String::from_utf8(command_output.stdout)
-                .context("tool version output is not UTF-8");
+    // `cargo-*` binaries are cargo subcommands contractually spawned by cargo itself,
+    // which always sets `CARGO`; some (cargo-ndk 4.x) hard-refuse any invocation without
+    // it, while others (cargo-machete) switch argv parsing under it. Probe bare first and
+    // only then under the `CARGO` env cargo would provide — never depending on whichever
+    // ambient environment lomo-xtask happened to inherit (`repository_command`
+    // deliberately strips ambient `CARGO`, so this gate must not rely on it).
+    let passes: &[bool] = if package.starts_with("cargo-") {
+        &[false, true]
+    } else {
+        &[false]
+    };
+    for &with_cargo_env in passes {
+        for arguments in [
+            vec!["--version".to_owned()],
+            vec![subcommand.to_owned(), "--version".to_owned()],
+        ] {
+            let mut probe = Command::new(binary);
+            probe.args(&arguments);
+            if with_cargo_env {
+                probe.env("CARGO", "cargo");
+            }
+            let Ok(command_output) = probe.output() else {
+                continue;
+            };
+            if command_output.status.success() {
+                return String::from_utf8(command_output.stdout)
+                    .context("tool version output is not UTF-8");
+            }
         }
     }
     bail!("unable to query version from {}", binary.display())
@@ -415,7 +448,7 @@ fn load_tools_document(path: &Path) -> Result<toml_edit::DocumentMut> {
 }
 
 fn quality_and_diagnostic_tools(root: &Path) -> Result<Vec<Tool>> {
-    let document = load_tools_document(&root.join("tools.toml"))?;
+    let document = load_tools_document(&root.join("quality/tools.toml"))?;
     let mut tools = Vec::new();
     for section in ["quality", "diagnostics"] {
         let Some(table) = document.get(section).and_then(Item::as_table_like) else {
@@ -423,7 +456,7 @@ fn quality_and_diagnostic_tools(root: &Path) -> Result<Vec<Tool>> {
         };
         for (package, item) in table.iter() {
             let version = item.as_str().with_context(|| {
-                format!("tools.toml [{section}] `{package}` must be a string version")
+                format!("quality/tools.toml [{section}] `{package}` must be a string version")
             })?;
             tools.push(Tool {
                 package: package.to_owned(),
@@ -432,7 +465,7 @@ fn quality_and_diagnostic_tools(root: &Path) -> Result<Vec<Tool>> {
         }
     }
     if tools.is_empty() {
-        bail!("tools.toml contains no quality/diagnostics tools");
+        bail!("quality/tools.toml contains no quality/diagnostics tools");
     }
     Ok(tools)
 }

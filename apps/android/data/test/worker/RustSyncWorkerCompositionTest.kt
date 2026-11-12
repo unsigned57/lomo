@@ -40,16 +40,15 @@ package com.lomo.data.worker
 import android.content.Context
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
+import com.lomo.data.engine.sync.RemoteSyncBackendProbe
 import com.lomo.data.engine.sync.RemoteSyncBoundaryFailure
 import com.lomo.data.engine.sync.RemoteSyncConflictPage
-import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncConflictResolution
+import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncCyclePlanSummary
 import com.lomo.data.engine.sync.RemoteSyncCycleRequest
-import com.lomo.data.engine.sync.RemoteSyncBackendProbe
 import com.lomo.data.engine.sync.RemoteSyncCycleStatus
 import com.lomo.data.engine.sync.RemoteSyncRepository
-import com.lomo.data.engine.sync.RemoteSyncRetryDisposition
 import com.lomo.data.engine.sync.RemoteSyncSecretLease
 import com.lomo.data.engine.sync.RustSyncSecretSupplier
 import com.lomo.data.repository.AuthorizedCredentialReadSessionPolicy
@@ -84,11 +83,8 @@ private class CompositionFakeRepository : RemoteSyncRepository {
             retryDisposition = "after_user_action",
         )
 
-    override fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage = error("composition uses runCycle only")
+    override fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage =
+        error("composition uses runCycle only")
 
     override fun resolveConflicts(
         workspaceRoot: String,
@@ -96,10 +92,8 @@ private class CompositionFakeRepository : RemoteSyncRepository {
         resolutions: List<RemoteSyncConflictResolution>,
     ): RemoteSyncConflictResolveResult = error("resolve not used")
 
-    override fun issueSecretLease(
-        secretBytes: ByteArray,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease = error("issue owned by secret supplier")
+    override fun issueSecretLease(secretBytes: ByteArray, ttlMillis: Long): RemoteSyncSecretLease =
+        error("issue owned by secret supplier")
 
     override fun probeSecretLease(leaseId: String): Int {
         probeCount += 1
@@ -112,7 +106,6 @@ private class CompositionFakeRepository : RemoteSyncRepository {
         error("revoke owned by worker lifecycle")
     }
 
-
     override fun runCycle(request: RemoteSyncCycleRequest): RemoteSyncCyclePlanSummary {
         runCycleCount += 1
         lastRunCycleRequest = request
@@ -120,8 +113,7 @@ private class CompositionFakeRepository : RemoteSyncRepository {
         return cycleSummary
     }
 
-    override fun loadWorkspaceGeneration(workspaceRoot: String): String =
-        error("generation not used by composition")
+    override fun loadWorkspaceGeneration(workspaceRoot: String): String = error("generation not used by composition")
 
     override fun resetControlTree(workspaceRoot: String) {
         error("reset not used by composition")
@@ -134,27 +126,19 @@ private class CompositionFakeRepository : RemoteSyncRepository {
 
     override fun probeBackend(request: RemoteSyncCycleRequest): RemoteSyncBackendProbe =
         error("probe not used by this unit")
-
 }
 
-private class CompositionFakeSecretSupplier(
-    private val leasesByField: MutableMap<String, String> = mutableMapOf(),
-) : RustSyncSecretSupplier {
+private class CompositionFakeSecretSupplier(private val leasesByField: MutableMap<String, String> = mutableMapOf()) :
+    RustSyncSecretSupplier {
     var issueCount: Int = 0
     var revokeCount: Int = 0
     val revokedIds: MutableList<String> = mutableListOf()
 
-    fun putLease(
-        fieldKey: String,
-        leaseId: String,
-    ) {
+    fun putLease(fieldKey: String, leaseId: String) {
         leasesByField[fieldKey] = leaseId
     }
 
-    override fun issueLease(
-        fieldKey: String,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease? {
+    override fun issueLease(fieldKey: String, ttlMillis: Long): RemoteSyncSecretLease? {
         issueCount += 1
         val id = leasesByField[fieldKey] ?: return null
         return RemoteSyncSecretLease(leaseId = id)
@@ -168,129 +152,131 @@ private class CompositionFakeSecretSupplier(
     override fun identityUtf8(fieldKey: String): String? = null
 }
 
-class RustSyncWorkerCompositionTest : FunSpec({
-    test("composition issues lease, real executor probes+runCycle, maps success, revokes") {
-        runTest {
-            val context: Context = mockk(relaxed = true)
-            val params: WorkerParameters = mockk(relaxed = true)
-            every { params.inputData } returns
-                RustSyncWorker.inputData(
-                    backendKind = "hermetic_fake",
-                    remoteDatasetId = "ds-compose",
-                    applyRemote = false,
-                    workspaceRoot = "/ws",
-                    secretFieldKey = "webdav_password",
-                    leaseTtlMillis = 45_000,
-                )
-            val supplier = CompositionFakeSecretSupplier()
-            supplier.putLease("webdav_password", "lease-compose-1")
-            val repo = CompositionFakeRepository()
-            val executor = RemoteSyncRustWorkExecutor(repo)
+class RustSyncWorkerCompositionTest :
+    FunSpec({
+        test("composition issues lease, real executor probes+runCycle, maps success, revokes") {
+            runTest {
+                val context: Context = mockk(relaxed = true)
+                val params: WorkerParameters = mockk(relaxed = true)
+                every { params.inputData } returns
+                    RustSyncWorker.inputData(
+                        backendKind = "hermetic_fake",
+                        remoteDatasetId = "ds-compose",
+                        applyRemote = false,
+                        workspaceRoot = "/ws",
+                        secretFieldKey = "webdav_password",
+                        leaseTtlMillis = 45_000,
+                    )
+                val supplier = CompositionFakeSecretSupplier()
+                supplier.putLease("webdav_password", "lease-compose-1")
+                val repo = CompositionFakeRepository()
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val worker = rustSyncCompositionWorker(context, params, supplier, executor)
-            val result = worker.doWork()
+                val worker = rustSyncCompositionWorker(context, params, supplier, executor)
+                val result = worker.doWork()
 
-            result.shouldBeInstanceOf<ListenableWorker.Result.Success>()
-            supplier.issueCount shouldBe 1
-            supplier.revokeCount shouldBe 1
-            supplier.revokedIds shouldBe listOf("lease-compose-1")
-            repo.probeCount shouldBe 1
-            repo.lastProbeLeaseId shouldBe "lease-compose-1"
-            repo.runCycleCount shouldBe 1
-            repo.inspectCount shouldBe 0
-            repo.lastRunCycleRequest?.workspaceRoot shouldBe "/ws"
-            repo.lastRunCycleRequest?.backendKind shouldBe "hermetic_fake"
+                result.shouldBeInstanceOf<ListenableWorker.Result.Success>()
+                supplier.issueCount shouldBe 1
+                supplier.revokeCount shouldBe 1
+                supplier.revokedIds shouldBe listOf("lease-compose-1")
+                repo.probeCount shouldBe 1
+                repo.lastProbeLeaseId shouldBe "lease-compose-1"
+                repo.runCycleCount shouldBe 1
+                repo.inspectCount shouldBe 0
+                repo.lastRunCycleRequest?.workspaceRoot shouldBe "/ws"
+                repo.lastRunCycleRequest?.backendKind shouldBe "hermetic_fake"
+            }
         }
-    }
 
-    test("composition blank workspace fails closed without inspect") {
-        runTest {
-            val context: Context = mockk(relaxed = true)
-            val params: WorkerParameters = mockk(relaxed = true)
-            every { params.inputData } returns workDataOfBlank()
-            val supplier = CompositionFakeSecretSupplier()
-            val repo = CompositionFakeRepository()
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("composition blank workspace fails closed without inspect") {
+            runTest {
+                val context: Context = mockk(relaxed = true)
+                val params: WorkerParameters = mockk(relaxed = true)
+                every { params.inputData } returns workDataOfBlank()
+                val supplier = CompositionFakeSecretSupplier()
+                val repo = CompositionFakeRepository()
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val worker = rustSyncCompositionWorker(context, params, supplier, executor)
-            val result = worker.doWork()
+                val worker = rustSyncCompositionWorker(context, params, supplier, executor)
+                val result = worker.doWork()
 
-            result.shouldBeInstanceOf<ListenableWorker.Result.Failure>()
-            repo.runCycleCount shouldBe 0
-            repo.inspectCount shouldBe 0
-            supplier.issueCount shouldBe 0
+                result.shouldBeInstanceOf<ListenableWorker.Result.Failure>()
+                repo.runCycleCount shouldBe 0
+                repo.inspectCount shouldBe 0
+                supplier.issueCount shouldBe 0
+            }
         }
-    }
 
-    test("composition missing secret fails closed before executor") {
-        runTest {
-            val context: Context = mockk(relaxed = true)
-            val params: WorkerParameters = mockk(relaxed = true)
-            every { params.inputData } returns
-                RustSyncWorker.inputData(
-                    backendKind = "hermetic_fake",
-                    remoteDatasetId = "ds-compose",
-                    applyRemote = false,
-                    workspaceRoot = "/ws",
-                    secretFieldKey = "webdav_password",
-                )
-            val supplier = CompositionFakeSecretSupplier()
-            val repo = CompositionFakeRepository()
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("composition missing secret fails closed before executor") {
+            runTest {
+                val context: Context = mockk(relaxed = true)
+                val params: WorkerParameters = mockk(relaxed = true)
+                every { params.inputData } returns
+                    RustSyncWorker.inputData(
+                        backendKind = "hermetic_fake",
+                        remoteDatasetId = "ds-compose",
+                        applyRemote = false,
+                        workspaceRoot = "/ws",
+                        secretFieldKey = "webdav_password",
+                    )
+                val supplier = CompositionFakeSecretSupplier()
+                val repo = CompositionFakeRepository()
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val worker = rustSyncCompositionWorker(context, params, supplier, executor)
-            val result = worker.doWork()
+                val worker = rustSyncCompositionWorker(context, params, supplier, executor)
+                val result = worker.doWork()
 
-            result.shouldBeInstanceOf<ListenableWorker.Result.Failure>()
-            supplier.issueCount shouldBe 1
-            repo.runCycleCount shouldBe 0
-            repo.inspectCount shouldBe 0
-            repo.probeCount shouldBe 0
-            supplier.revokeCount shouldBe 0
+                result.shouldBeInstanceOf<ListenableWorker.Result.Failure>()
+                supplier.issueCount shouldBe 1
+                repo.runCycleCount shouldBe 0
+                repo.inspectCount shouldBe 0
+                repo.probeCount shouldBe 0
+                supplier.revokeCount shouldBe 0
+            }
         }
-    }
 
-    test("composition runCycle Transient maps to retry and still revokes lease") {
-        runTest {
-            val context: Context = mockk(relaxed = true)
-            val params: WorkerParameters = mockk(relaxed = true)
-            every { params.inputData } returns
-                RustSyncWorker.inputData(
-                    backendKind = "hermetic_fake",
-                    remoteDatasetId = "ds-compose",
-                    applyRemote = false,
-                    workspaceRoot = "/ws",
-                    secretFieldKey = "s3_secret",
-                )
-            val supplier = CompositionFakeSecretSupplier()
-            supplier.putLease("s3_secret", "lease-transient")
-            val repo = CompositionFakeRepository()
-            repo.runCycleError =
-                RemoteSyncBoundaryFailure(
-                    category = "network",
-                    code = "sync_remote_unreachable",
-                    retryDisposition = "transient",
-                    diagnostic = "connection reset",
-                )
-            val executor = RemoteSyncRustWorkExecutor(repo)
+        test("composition runCycle Transient maps to retry and still revokes lease") {
+            runTest {
+                val context: Context = mockk(relaxed = true)
+                val params: WorkerParameters = mockk(relaxed = true)
+                every { params.inputData } returns
+                    RustSyncWorker.inputData(
+                        backendKind = "hermetic_fake",
+                        remoteDatasetId = "ds-compose",
+                        applyRemote = false,
+                        workspaceRoot = "/ws",
+                        secretFieldKey = "s3_secret",
+                    )
+                val supplier = CompositionFakeSecretSupplier()
+                supplier.putLease("s3_secret", "lease-transient")
+                val repo = CompositionFakeRepository()
+                repo.runCycleError =
+                    RemoteSyncBoundaryFailure(
+                        category = "network",
+                        code = "sync_remote_unreachable",
+                        retryDisposition = "transient",
+                        diagnostic = "connection reset",
+                    )
+                val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val worker = rustSyncCompositionWorker(context, params, supplier, executor)
-            val result = worker.doWork()
+                val worker = rustSyncCompositionWorker(context, params, supplier, executor)
+                val result = worker.doWork()
 
-            result.shouldBeInstanceOf<ListenableWorker.Result.Retry>()
-            supplier.revokeCount shouldBe 1
-            supplier.revokedIds shouldBe listOf("lease-transient")
-            repo.probeCount shouldBe 1
-            repo.runCycleCount shouldBe 1
+                result.shouldBeInstanceOf<ListenableWorker.Result.Retry>()
+                supplier.revokeCount shouldBe 1
+                supplier.revokedIds shouldBe listOf("lease-transient")
+                repo.probeCount shouldBe 1
+                repo.runCycleCount shouldBe 1
+            }
         }
-    }
-})
+    })
 
-private fun workDataOfBlank() =
-    RustSyncWorker.inputData(backendKind = "hermetic_fake",
-                    remoteDatasetId = "ds-compose",
-                    applyRemote = false,
-                    workspaceRoot = "  ")
+private fun workDataOfBlank() = RustSyncWorker.inputData(
+    backendKind = "hermetic_fake",
+    remoteDatasetId = "ds-compose",
+    applyRemote = false,
+    workspaceRoot = "  ",
+)
 
 private class CompositionDeferredLockStore : DeferredLockWorkStore {
     override fun save(input: androidx.work.Data) = Unit
@@ -305,45 +291,43 @@ private fun rustSyncCompositionWorker(
     params: WorkerParameters,
     supplier: RustSyncSecretSupplier,
     executor: RustSyncWorkExecutor,
-): RustSyncWorker =
-    RustSyncWorker(
-        appContext = context,
-        workerParams = params,
-        secretSupplier = supplier,
-        workExecutor = executor,
-        securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
-        engineReadiness = com.lomo.data.testing.fakes.FakeEngineReadinessRepository(),
-        deferredLockStore = CompositionDeferredLockStore(),
-    )
+): RustSyncWorker = RustSyncWorker(
+    appContext = context,
+    workerParams = params,
+    secretSupplier = supplier,
+    workExecutor = executor,
+    securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+    engineReadiness = com.lomo.data.testing.fakes.FakeEngineReadinessRepository(),
+    deferredLockStore = CompositionDeferredLockStore(),
+)
 
-private fun noRecordCycleStatus(): RemoteSyncCycleStatus =
-    RemoteSyncCycleStatus(
-        hasRecord = false,
-        cycleSeq = 0L,
-        cycleId = "",
-        fenceKey = "",
-        backendKind = "",
-        sessionId = "",
-        applyRemote = false,
-        phase = RemoteSyncCycleStatus.PHASE_IDLE,
-        stage = RemoteSyncCycleStatus.STAGE_FINISHED,
-        ensurePresentCount = 0,
-        ensureAbsentCount = 0,
-        pullPresentCount = 0,
-        openConflictCount = 0,
-        holdCount = 0,
-        localEntryCount = 0,
-        remoteListedCount = 0,
-        baselineEntryCount = 0,
-        pagesApplied = 0,
-        baselineAdvanced = false,
-        retryDisposition = "never",
-        failureCode = null,
-        failureMessage = null,
-        cancelRequested = false,
-        startedAtMs = 0L,
-        updatedAtMs = 0L,
-        finishedAtMs = null,
-        lastSuccessfulAtMs = null,
-        stateStamp = 0L,
-    )
+private fun noRecordCycleStatus(): RemoteSyncCycleStatus = RemoteSyncCycleStatus(
+    hasRecord = false,
+    cycleSeq = 0L,
+    cycleId = "",
+    fenceKey = "",
+    backendKind = "",
+    sessionId = "",
+    applyRemote = false,
+    phase = RemoteSyncCycleStatus.PHASE_IDLE,
+    stage = RemoteSyncCycleStatus.STAGE_FINISHED,
+    ensurePresentCount = 0,
+    ensureAbsentCount = 0,
+    pullPresentCount = 0,
+    openConflictCount = 0,
+    holdCount = 0,
+    localEntryCount = 0,
+    remoteListedCount = 0,
+    baselineEntryCount = 0,
+    pagesApplied = 0,
+    baselineAdvanced = false,
+    retryDisposition = "never",
+    failureCode = null,
+    failureMessage = null,
+    cancelRequested = false,
+    startedAtMs = 0L,
+    updatedAtMs = 0L,
+    finishedAtMs = null,
+    lastSuccessfulAtMs = null,
+    stateStamp = 0L,
+)

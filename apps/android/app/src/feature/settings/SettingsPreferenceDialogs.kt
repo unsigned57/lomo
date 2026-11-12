@@ -6,29 +6,32 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.runtime.Composable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.CalendarHeatmapThresholds
+import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.dialog.SelectionDialog
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -63,17 +66,15 @@ internal fun DisplayPreferenceDialogs(
             dialogState.showTimeDialog = false
         },
     )
-    SelectionDialogIfVisible(
+    ThemePreferenceDialog(
         visible = dialogState.showThemeDialog,
-        title = stringResource(R.string.settings_select_theme),
+        currentThemeMode = uiState.display.themeMode,
+        pureBlackDark = uiState.display.pureBlackDark,
         options = options.themeModes.toImmutableList(),
-        currentSelection = uiState.display.themeMode,
+        themeModeLabels = options.themeModeLabels,
+        onSelectThemeMode = { displayFeature.updateThemeMode(it) },
+        onTogglePureBlackDark = { displayFeature.updatePureBlackDark(it) },
         onDismiss = { dialogState.showThemeDialog = false },
-        onSelect = {
-            displayFeature.updateThemeMode(it)
-            dialogState.showThemeDialog = false
-        },
-        labelProvider = { options.themeModeLabels[it] ?: it.value },
     )
     SelectionDialogIfVisible(
         visible = dialogState.showLanguageDialog,
@@ -150,7 +151,7 @@ internal fun ShareCardPreferenceDialogs(
             )
         },
         confirmButton = {
-            TextButton(
+            LomoTextButton(
                 onClick = {
                     shareCardFeature.updateShareCardSignatureText(dialogState.shareCardSignatureInput.trim())
                     dialogState.showShareCardSignatureDialog = false
@@ -160,7 +161,7 @@ internal fun ShareCardPreferenceDialogs(
             }
         },
         dismissButton = {
-            TextButton(onClick = { dialogState.showShareCardSignatureDialog = false }) {
+            LomoTextButton(onClick = { dialogState.showShareCardSignatureDialog = false }) {
                 Text(stringResource(R.string.action_cancel))
             }
         },
@@ -168,10 +169,7 @@ internal fun ShareCardPreferenceDialogs(
 }
 
 @Composable
-internal fun MigrationPreferenceDialogs(
-    dialogState: SettingsDialogState,
-    migrationPickers: MigrationPickerActions,
-) {
+internal fun MigrationPreferenceDialogs(dialogState: SettingsDialogState, migrationPickers: MigrationPickerActions) {
     MigrationPasswordDialog(
         visible = dialogState.showMigrationExportSettingsPasswordDialog,
         title = stringResource(R.string.settings_migration_export_settings_password_title),
@@ -211,21 +209,43 @@ private fun MigrationPasswordDialog(
     if (!visible) {
         return
     }
+    MigrationPasswordDialogContent(
+        title = title,
+        confirmLabel = confirmLabel,
+        password = password,
+        onPasswordChange = onPasswordChange,
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+    )
+}
+
+@Composable
+private fun MigrationPasswordDialogContent(
+    title: String,
+    confirmLabel: String,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val textState = remember { TextFieldState(password) }
+    LaunchedEffect(textState) {
+        snapshotFlow { textState.text.toString() }.collect { onPasswordChange(it) }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             OutlinedTextField(
-                value = password,
-                onValueChange = onPasswordChange,
+                state = textState,
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+                lineLimits = TextFieldLineLimits.SingleLine,
                 label = { Text(stringResource(R.string.settings_migration_password_hint)) },
-                visualTransformation = PasswordVisualTransformation(),
+                outputTransformation = PasswordOutputTransformation,
             )
         },
         confirmButton = {
-            TextButton(
+            LomoTextButton(
                 enabled = password.isNotBlank(),
                 onClick = onConfirm,
             ) {
@@ -233,7 +253,7 @@ private fun MigrationPasswordDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            LomoTextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.action_cancel))
             }
         },
@@ -288,7 +308,21 @@ private fun CalendarHeatmapThresholdPreferenceDialog(
                 )
                 editorState.validationError?.let { error ->
                     Text(
-                        text = calendarHeatmapThresholdErrorLabel(error),
+                        text =
+                        when (error) {
+                            CalendarHeatmapThresholdValidationError.NON_NUMERIC ->
+                                stringResource(R.string.settings_heatmap_threshold_error_non_numeric)
+
+                            CalendarHeatmapThresholdValidationError.OUT_OF_RANGE ->
+                                stringResource(
+                                    R.string.settings_heatmap_threshold_error_out_of_range,
+                                    CalendarHeatmapThresholds.MIN_THRESHOLD,
+                                    CalendarHeatmapThresholds.MAX_THRESHOLD,
+                                )
+
+                            CalendarHeatmapThresholdValidationError.NOT_STRICTLY_INCREASING ->
+                                stringResource(R.string.settings_heatmap_threshold_error_increasing)
+                        },
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -296,7 +330,7 @@ private fun CalendarHeatmapThresholdPreferenceDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            LomoTextButton(
                 enabled = editorState.canSave,
                 onClick = {
                     editorState.thresholds?.let(onSave)
@@ -306,7 +340,7 @@ private fun CalendarHeatmapThresholdPreferenceDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            LomoTextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.action_cancel))
             }
         },
@@ -329,11 +363,7 @@ private fun CalendarHeatmapThresholdRanges(thresholds: CalendarHeatmapThresholds
 }
 
 @Composable
-private fun CalendarHeatmapBoundaryControl(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-) {
+private fun CalendarHeatmapBoundaryControl(label: String, value: String, onValueChange: (String) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -344,7 +374,7 @@ private fun CalendarHeatmapBoundaryControl(
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
         )
-        IconButton(
+        LomoIconButton(
             onClick = { onValueChange(stepCalendarHeatmapThresholdValue(value, delta = -1)) },
         ) {
             Icon(
@@ -359,7 +389,7 @@ private fun CalendarHeatmapBoundaryControl(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
-        IconButton(
+        LomoIconButton(
             onClick = { onValueChange(stepCalendarHeatmapThresholdValue(value, delta = 1)) },
         ) {
             Icon(
@@ -370,25 +400,7 @@ private fun CalendarHeatmapBoundaryControl(
     }
 }
 
-@Composable
-private fun calendarHeatmapThresholdErrorLabel(error: CalendarHeatmapThresholdValidationError): String =
-    when (error) {
-        CalendarHeatmapThresholdValidationError.NON_NUMERIC ->
-            stringResource(R.string.settings_heatmap_threshold_error_non_numeric)
-        CalendarHeatmapThresholdValidationError.OUT_OF_RANGE ->
-            stringResource(
-                R.string.settings_heatmap_threshold_error_out_of_range,
-                CalendarHeatmapThresholds.MIN_THRESHOLD,
-                CalendarHeatmapThresholds.MAX_THRESHOLD,
-            )
-        CalendarHeatmapThresholdValidationError.NOT_STRICTLY_INCREASING ->
-            stringResource(R.string.settings_heatmap_threshold_error_increasing)
-    }
-
-private fun stepCalendarHeatmapThresholdValue(
-    value: String,
-    delta: Int,
-): String {
+private fun stepCalendarHeatmapThresholdValue(value: String, delta: Int): String {
     val current = value.trim().toIntOrNull()
     if (current == null) {
         return value

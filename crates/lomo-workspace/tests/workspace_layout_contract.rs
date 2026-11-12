@@ -1,4 +1,10 @@
 //! Behavior Contract (P-26 / R-09 workspace layout single dispatch)
+//! Test Change Justification:
+//! Reason category: requested external trash Markdown namespace.
+//! Old behavior/assertion being replaced: trash had to be a child of the internal control tree.
+//! Why old assertion is no longer correct: recoverable Markdown belongs directly under `.trash`.
+//! Coverage preserved by: exact layout paths, complete private inventory, and namespace assertions.
+//! Why this is not fitting the test to the implementation: the requested public folder is the oracle.
 //!
 //! Capability: `lomo-workspace` is the sole dispatch point for every path under
 //! `<workspace>/.lomo/` and for every name minted inside a session-private state
@@ -58,7 +64,7 @@ mod tests {
             lomo.join("local").join("v1").join("generation.rec")
         );
         assert_eq!(layout.identity, lomo.join("identity").join("v1"));
-        assert_eq!(layout.trash, lomo.join("trash").join("v1"));
+        assert_eq!(layout.trash, root.join(".trash"));
         assert_eq!(layout.purged, lomo.join("purged").join("v1"));
         assert_eq!(layout.sync, lomo.join("sync").join("v1"));
         assert_eq!(layout.migration_staging, lomo.join("migration-staging"));
@@ -151,7 +157,6 @@ mod tests {
         for prefix in [
             layout::relative::HISTORY_PREFIX,
             layout::relative::STATE_PREFIX,
-            layout::relative::TRASH_PREFIX,
             layout::relative::PURGED_PREFIX,
             layout::relative::IDENTITY_V1_PREFIX,
             layout::relative::LOCAL_PREFIX,
@@ -164,6 +169,7 @@ mod tests {
                 "{prefix} must live under .lomo/"
             );
         }
+        assert_eq!(layout::relative::TRASH_PREFIX, ".trash/");
         // `.lomo-remote`/`".lomo-sqlite"` are reserved sibling roots beside `.lomo`,
         // not children of it — their spellings still live in this one inventory.
         assert_eq!(

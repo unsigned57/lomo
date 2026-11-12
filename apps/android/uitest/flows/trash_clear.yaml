@@ -1,0 +1,80 @@
+# Behavior Contract: In a fresh test-owned SAF workspace, permanently deleting the last
+# memo and clearing multiple trashed memos both show the empty state within two seconds.
+# A unique folder ensures this flow never clears existing user trash.
+appId: com.lomo.app
+---
+- launchApp
+- evalScript: ${output.trashWorkspace = "lomo-trash-uitest-" + Date.now()}
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_settings"
+- tapOn: "Memo Directory"
+- tapOn:
+    id: "option_menu_create_dir"
+- inputText: ${output.trashWorkspace}
+- tapOn: "OK"
+- tapOn: "USE THIS FOLDER"
+- tapOn:
+    text: "(?i)allow"
+- runFlow:
+    when:
+      visible:
+        id: "benchmark_settings_root"
+    commands:
+      - tapOn:
+          id: "benchmark_settings_back_button"
+- assertVisible:
+    id: "benchmark_main_root"
+- repeat:
+    times: 3
+    commands:
+      - tapOn:
+          id: "benchmark_main_create_fab"
+      - tapOn:
+          id: "benchmark_input_editor"
+      - inputText: "uitest-trash-clear-probe"
+      - hideKeyboard
+      - tapOn:
+          id: "benchmark_input_submit"
+      - assertVisible: "uitest-trash-clear-probe"
+      - longPressOn: "uitest-trash-clear-probe"
+      - tapOn:
+          id: "benchmark_memo_action_delete"
+      - waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_trash"
+- assertVisible: "uitest-trash-clear-probe"
+- tapOn: "Clear trash"
+- tapOn: "Clear"
+- extendedWaitUntil:
+    visible: "Trash is empty"
+    timeout: 2000
+- takeScreenshot: bulk-clear-empty
+- back
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- inputText: "uitest-trash-last-probe"
+- hideKeyboard
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible: "uitest-trash-last-probe"
+- longPressOn: "uitest-trash-last-probe"
+- tapOn:
+    id: "benchmark_memo_action_delete"
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_trash"
+- longPressOn: "uitest-trash-last-probe"
+- tapOn:
+    id: "benchmark_trash_action_delete_permanently"
+- extendedWaitUntil:
+    visible: "Trash is empty"
+    timeout: 2000
+- takeScreenshot: last-delete-empty

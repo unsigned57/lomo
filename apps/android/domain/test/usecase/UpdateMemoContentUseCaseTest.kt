@@ -17,10 +17,10 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.EditableMemoSnapshot
-import com.lomo.domain.model.MemoUpdateAttempt
-import com.lomo.domain.model.MemoOperationId
-import com.lomo.domain.model.MemoConstraints
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoConstraints
+import com.lomo.domain.model.MemoOperationId
+import com.lomo.domain.model.MemoUpdateAttempt
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import io.kotest.matchers.shouldBe
@@ -64,7 +64,14 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
             runTest {
                 val thrown =
                     runCatching {
-                        useCase(MemoUpdateAttempt(MemoOperationId("update-test"), com.lomo.domain.model.DraftId("draft-test"), EditableMemoSnapshot.fromFullSnapshot(memo), "   "))
+                        useCase(
+                            MemoUpdateAttempt(
+                                MemoOperationId("update-test"),
+                                com.lomo.domain.model.DraftId("draft-test"),
+                                EditableMemoSnapshot.fromFullSnapshot(memo),
+                                "   ",
+                            ),
+                        )
                     }.exceptionOrNull()
 
                 thrown.shouldBeInstanceOf<MemoValidationException>()
@@ -76,7 +83,14 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
 
         test("update flow validates first then persists updated content") {
             runTest {
-                useCase(MemoUpdateAttempt(MemoOperationId("update-test"), com.lomo.domain.model.DraftId("draft-test"), EditableMemoSnapshot.fromFullSnapshot(memo), "new-content"))
+                useCase(
+                    MemoUpdateAttempt(
+                        MemoOperationId("update-test"),
+                        com.lomo.domain.model.DraftId("draft-test"),
+                        EditableMemoSnapshot.fromFullSnapshot(memo),
+                        "new-content",
+                    ),
+                )
 
                 repository.updatedMemos shouldBe
                     listOf(FakeMemoStore.UpdatedMemo(memo, "new-content"))
@@ -91,7 +105,14 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
 
                 val thrown =
                     runCatching {
-                        useCase(MemoUpdateAttempt(MemoOperationId("update-test"), com.lomo.domain.model.DraftId("draft-test"), EditableMemoSnapshot.fromFullSnapshot(memo), invalidContent))
+                        useCase(
+                            MemoUpdateAttempt(
+                                MemoOperationId("update-test"),
+                                com.lomo.domain.model.DraftId("draft-test"),
+                                EditableMemoSnapshot.fromFullSnapshot(memo),
+                                invalidContent,
+                            ),
+                        )
                     }.exceptionOrNull()
 
                 thrown.shouldBeInstanceOf<MemoValidationException>()

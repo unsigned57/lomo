@@ -3,37 +3,42 @@ package com.lomo.app.feature.synccenter
 import com.lomo.domain.model.RemoteSyncConflictResolution
 import kotlinx.collections.immutable.toImmutableMap
 
-fun reduceSyncCenter(
-    state: SyncCenterUiState,
-    intent: SyncCenterIntent,
-): SyncCenterReduceResult =
-    when (intent) {
-        is SyncCenterIntent.Open -> reduceOpen(state, intent)
-        SyncCenterIntent.Refresh -> reduceRefresh(state)
-        SyncCenterIntent.LoadMoreConflicts -> reduceLoadMore(state)
-        is SyncCenterIntent.SelectConflict -> reduceSelectConflict(state, intent)
-        SyncCenterIntent.ClearSelection -> reduceClearSelection(state)
-        is SyncCenterIntent.SetResolutionKind -> reduceSetResolutionKind(state, intent)
-        is SyncCenterIntent.SetMergedDraft -> reduceSetMergedDraft(state, intent)
-        SyncCenterIntent.ApplyResolutions -> reduceApplyResolutions(state)
-        SyncCenterIntent.NavigateOverview ->
-            SyncCenterReduceResult(state.copy(pane = SyncCenterPane.Overview))
-        SyncCenterIntent.NavigateConflicts ->
-            SyncCenterReduceResult(state.copy(pane = SyncCenterPane.Conflicts))
-        SyncCenterIntent.NavigateRecovery ->
-            SyncCenterReduceResult(state.copy(pane = SyncCenterPane.Recovery))
-        is SyncCenterIntent.SetListDetail -> reduceSetListDetail(state, intent)
-        SyncCenterIntent.CancelSession ->
-            SyncCenterReduceResult(
-                state = state,
-                effects = listOf(SyncCenterEffect.RequestCancel),
-            )
-    }
+fun reduceSyncCenter(state: SyncCenterUiState, intent: SyncCenterIntent): SyncCenterReduceResult = when (intent) {
+    is SyncCenterIntent.Open -> reduceOpen(state, intent)
 
-private fun reduceOpen(
-    state: SyncCenterUiState,
-    intent: SyncCenterIntent.Open,
-): SyncCenterReduceResult {
+    SyncCenterIntent.Refresh -> reduceRefresh(state)
+
+    SyncCenterIntent.LoadMoreConflicts -> reduceLoadMore(state)
+
+    is SyncCenterIntent.SelectConflict -> reduceSelectConflict(state, intent)
+
+    SyncCenterIntent.ClearSelection -> reduceClearSelection(state)
+
+    is SyncCenterIntent.SetResolutionKind -> reduceSetResolutionKind(state, intent)
+
+    is SyncCenterIntent.SetMergedDraft -> reduceSetMergedDraft(state, intent)
+
+    SyncCenterIntent.ApplyResolutions -> reduceApplyResolutions(state)
+
+    SyncCenterIntent.NavigateOverview ->
+        SyncCenterReduceResult(state.copy(pane = SyncCenterPane.Overview))
+
+    SyncCenterIntent.NavigateConflicts ->
+        SyncCenterReduceResult(state.copy(pane = SyncCenterPane.Conflicts))
+
+    SyncCenterIntent.NavigateRecovery ->
+        SyncCenterReduceResult(state.copy(pane = SyncCenterPane.Recovery))
+
+    is SyncCenterIntent.SetListDetail -> reduceSetListDetail(state, intent)
+
+    SyncCenterIntent.CancelSession ->
+        SyncCenterReduceResult(
+            state = state,
+            effects = listOf(SyncCenterEffect.RequestCancel),
+        )
+}
+
+private fun reduceOpen(state: SyncCenterUiState, intent: SyncCenterIntent.Open): SyncCenterReduceResult {
     val opened =
         state.copy(
             workspaceRoot = intent.workspaceRoot,
@@ -66,13 +71,13 @@ private fun reduceLoadMore(state: SyncCenterUiState): SyncCenterReduceResult {
     return SyncCenterReduceResult(
         state = state,
         effects =
-            listOf(
-                SyncCenterEffect.LoadMore(
-                    workspaceRoot = state.workspaceRoot,
-                    cursor = cursor,
-                    limit = SYNC_CENTER_CONFLICT_PAGE_LIMIT,
-                ),
+        listOf(
+            SyncCenterEffect.LoadMore(
+                workspaceRoot = state.workspaceRoot,
+                cursor = cursor,
+                limit = SYNC_CENTER_CONFLICT_PAGE_LIMIT,
             ),
+        ),
     )
 }
 
@@ -92,27 +97,27 @@ private fun reduceSelectConflict(
     val needsDetail = selected.isMarkdown || selected.isBinary
     return SyncCenterReduceResult(
         state =
-            state.copy(
-                pane = nextPane,
-                load =
-                    ready.copy(
-                        selectedPath = intent.path,
-                        isLoadingDetail = needsDetail,
-                        lastError = null,
-                    ),
+        state.copy(
+            pane = nextPane,
+            load =
+            ready.copy(
+                selectedPath = intent.path,
+                isLoadingDetail = needsDetail,
+                lastError = null,
             ),
+        ),
         effects =
-            if (needsDetail) {
-                listOf(
-                    SyncCenterEffect.LoadConflictDetail(
-                        workspaceRoot = state.workspaceRoot,
-                        path = selected,
-                        mergedDraft = ready.mergedDrafts[intent.path],
-                    ),
-                )
-            } else {
-                emptyList()
-            },
+        if (needsDetail) {
+            listOf(
+                SyncCenterEffect.LoadConflictDetail(
+                    workspaceRoot = state.workspaceRoot,
+                    path = selected,
+                    mergedDraft = ready.mergedDrafts[intent.path],
+                ),
+            )
+        } else {
+            emptyList()
+        },
     )
 }
 
@@ -120,14 +125,14 @@ private fun reduceClearSelection(state: SyncCenterUiState): SyncCenterReduceResu
     val ready = state.load as? SyncCenterLoadState.Ready ?: return SyncCenterReduceResult(state)
     return SyncCenterReduceResult(
         state =
-            state.copy(
-                pane = SyncCenterPane.Conflicts,
-                load =
-                    ready.copy(
-                        selectedPath = null,
-                        isLoadingDetail = false,
-                    ),
+        state.copy(
+            pane = SyncCenterPane.Conflicts,
+            load =
+            ready.copy(
+                selectedPath = null,
+                isLoadingDetail = false,
             ),
+        ),
     )
 }
 
@@ -153,14 +158,14 @@ private fun reduceSetResolutionKind(
         }
     return SyncCenterReduceResult(
         state =
-            state.copy(
-                load =
-                    ready.copy(
-                        perPathResolutionKind = nextKinds,
-                        mergedDrafts = nextDrafts,
-                        lastError = null,
-                    ),
+        state.copy(
+            load =
+            ready.copy(
+                perPathResolutionKind = nextKinds,
+                mergedDrafts = nextDrafts,
+                lastError = null,
             ),
+        ),
     )
 }
 
@@ -183,13 +188,13 @@ private fun reduceSetMergedDraft(
             }.toImmutableMap()
     return SyncCenterReduceResult(
         state =
-            state.copy(
-                load =
-                    ready.copy(
-                        mergedDrafts = nextDrafts,
-                        perPathResolutionKind = nextKinds,
-                    ),
+        state.copy(
+            load =
+            ready.copy(
+                mergedDrafts = nextDrafts,
+                perPathResolutionKind = nextKinds,
             ),
+        ),
     )
 }
 
@@ -200,41 +205,42 @@ private fun reduceApplyResolutions(state: SyncCenterUiState): SyncCenterReduceRe
     if (resolutions.isEmpty()) {
         return SyncCenterReduceResult(
             state =
-                state.copy(
-                    load = ready.copy(lastError = "no_resolutions_selected"),
-                ),
+            state.copy(
+                load = ready.copy(lastError = "no_resolutions_selected"),
+            ),
         )
     }
     return SyncCenterReduceResult(
         state = state.copy(load = ready.copy(isResolving = true, lastError = null)),
         effects =
-            listOf(
-                SyncCenterEffect.Resolve(
-                    workspaceRoot = state.workspaceRoot,
-                    expectedRevision = ready.conflictPage.conflictRevision,
-                    resolutions = resolutions,
-                ),
+        listOf(
+            SyncCenterEffect.Resolve(
+                workspaceRoot = state.workspaceRoot,
+                expectedRevision = ready.conflictPage.conflictRevision,
+                resolutions = resolutions,
             ),
+        ),
     )
 }
 
 private fun reduceSetListDetail(
     state: SyncCenterUiState,
     intent: SyncCenterIntent.SetListDetail,
-): SyncCenterReduceResult =
-    SyncCenterReduceResult(
-        state =
-            state.copy(
-                layout = SyncCenterLayoutMode(isListDetail = intent.isListDetail),
-                pane =
-                    when {
-                        intent.isListDetail && state.pane == SyncCenterPane.ConflictDetail ->
-                            SyncCenterPane.Conflicts
-                        !intent.isListDetail &&
-                            state.pane == SyncCenterPane.Conflicts &&
-                            (state.load as? SyncCenterLoadState.Ready)?.selectedPath != null ->
-                            SyncCenterPane.ConflictDetail
-                        else -> state.pane
-                    },
-            ),
-    )
+): SyncCenterReduceResult = SyncCenterReduceResult(
+    state =
+    state.copy(
+        layout = SyncCenterLayoutMode(isListDetail = intent.isListDetail),
+        pane =
+        when {
+            intent.isListDetail && state.pane == SyncCenterPane.ConflictDetail ->
+                SyncCenterPane.Conflicts
+
+            !intent.isListDetail &&
+                state.pane == SyncCenterPane.Conflicts &&
+                (state.load as? SyncCenterLoadState.Ready)?.selectedPath != null ->
+                SyncCenterPane.ConflictDetail
+
+            else -> state.pane
+        },
+    ),
+)

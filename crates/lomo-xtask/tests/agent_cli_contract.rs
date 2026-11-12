@@ -1,9 +1,22 @@
+//! Test Change Justification:
+//! Reason category: gate contents changed under an unchanged CLI contract.
+//! Old behavior/assertion being replaced: `fmt check` ran only `cargo fmt`, so a PATH holding a
+//! fake `cargo` alone exercised the whole command.
+//! Why old assertion is no longer correct: `fmt check` now also verifies Kotlin layout through
+//! the policy script, which needs `bash` on PATH; without it the passing case cannot pass.
+//! Coverage preserved by: the same exit/JSON/stderr assertions for both child outcomes; a `bash`
+//! stub stands for a passing Kotlin check so only the injected `cargo` outcome varies.
+//! Why this is not fitting the test to the implementation: the asserted JSON/exit contract is
+//! unchanged; the stub only supplies the second child the command now legitimately runs.
+//!
 //! Behavior Contract:
 //! Capability: agents discover commands and consume results without parsing terminal prose;
 //! owning layer: lomo-xtask; priority: P0.
 //! Scenarios:
 //! - Given no command, when invoked, then stdout contains one versioned JSON command catalog.
 //! - Given invalid command input, when invoked, then JSON explains failure and exit is nonzero.
+//! - Given the unified application build entry, when the catalog is inspected, then `build`
+//!   exists and per-app commands (`android`, `tui`, `install-tui`) do not.
 //! - Given cache discovery, when invoked, then resolved paths are JSON data.
 //! - Given a child tool writing stdout, when formatting, then logs cannot corrupt result JSON.
 //! - Given a passing/failing verification tool, when executing, then JSON agrees with the saved
@@ -53,11 +66,13 @@ mod tests {
                 .context("commands")?;
             ensure!(commands.iter().any(|command| command["name"] == "dev"));
             ensure!(commands.iter().any(|command| command["name"] == "check"));
-            ensure!(
-                !commands
-                    .iter()
-                    .any(|command| command["name"] == "install-tui")
-            );
+            ensure!(commands.iter().any(|command| command["name"] == "build"));
+            for retired in ["install-tui", "android", "tui"] {
+                ensure!(
+                    !commands.iter().any(|command| command["name"] == retired),
+                    "retired per-app command remains in catalog: {retired}"
+                );
+            }
         }
         Ok(())
     }
@@ -69,6 +84,10 @@ mod tests {
             &["cache", "missing-mode"][..],
             &["commands", "unexpected"][..],
             &["dev", "--scope"][..],
+            &["build"][..],
+            &["build", "missing-target"][..],
+            &["build", "tui", "missing-profile"][..],
+            &["build", "tui", "debug", "extra"][..],
         ] {
             let output = invoke(arguments)?;
             ensure!(!output.status.success());
@@ -121,6 +140,9 @@ mod tests {
                 format!("#!/bin/sh\necho child-diagnostic\nexit {exit}\n"),
             )?;
             fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755))?;
+            let bash = directory.path().join("bash");
+            fs::write(&bash, "#!/bin/sh\nexit 0\n")?;
+            fs::set_permissions(&bash, fs::Permissions::from_mode(0o755))?;
             let output = Command::new(env!("CARGO_BIN_EXE_lomo-xtask"))
                 .args(["fmt", "check"])
                 .env("PATH", directory.path())
@@ -167,6 +189,7 @@ exit "$LOMO_TEST_TOOL_EXIT"
                 .env("LOMO_TEST_REAL_CARGO", env!("CARGO"))
                 .env("LOMO_TEST_TOOL_EXIT", exit.to_string())
                 .env("CARGO_TARGET_DIR", directory.path().join("target"))
+                .env("LOMO_GENERATED_ROOT", directory.path().join("generated"))
                 .output()?;
             let result = document(&output)?;
             ensure!(output.status.success() == (exit == 0), "{result}");

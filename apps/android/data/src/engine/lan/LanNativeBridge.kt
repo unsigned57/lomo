@@ -1,10 +1,7 @@
 package com.lomo.data.engine.lan
 
 /** Android network fact accepted by the Rust LAN owner. */
-internal data class LanBindCandidate(
-    val host: String,
-    val port: UInt,
-)
+internal data class LanBindCandidate(val host: String, val port: UInt)
 
 /** Monotonic Android network snapshot. */
 internal data class LanNetworkFacts(
@@ -23,20 +20,14 @@ internal data class LanDiscoveredPeer(
 )
 
 /** Monotonic Android discovery snapshot. */
-internal data class LanDiscoveryFacts(
-    val revision: ULong,
-    val peers: List<LanDiscoveredPeer>,
-)
+internal data class LanDiscoveryFacts(val revision: ULong, val peers: List<LanDiscoveredPeer>)
 
 internal enum class LanServicePhase {
     Stopped,
     Listening,
 }
 
-internal data class LanServiceState(
-    val phase: LanServicePhase,
-    val listenAddress: String?,
-)
+internal data class LanServiceState(val phase: LanServicePhase, val listenAddress: String?)
 
 internal data class LanTransferShape(
     val bodySlot: UInt,
@@ -63,15 +54,9 @@ internal data class LanProtocolLimits(
 )
 
 /** Public half of the non-exportable Android Keystore device identity. */
-internal data class LanDeviceIdentity(
-    val publicKey: ByteArray,
-    val displayName: String,
-)
+internal data class LanDeviceIdentity(val publicKey: ByteArray, val displayName: String)
 
-internal data class LanLocalIdentity(
-    val deviceId: String,
-    val displayName: String,
-)
+internal data class LanLocalIdentity(val deviceId: String, val displayName: String)
 
 /** Transcript facts displayed and signed by the platform. */
 internal interface LanSigningChallenge {
@@ -98,11 +83,7 @@ internal enum class LanSessionPhase {
     Authenticated,
 }
 
-internal data class LanSessionState(
-    val sessionId: String,
-    val peerDeviceId: String,
-    val phase: LanSessionPhase,
-)
+internal data class LanSessionState(val sessionId: String, val peerDeviceId: String, val phase: LanSessionPhase)
 
 internal data class LanPeer(
     val deviceId: String,
@@ -113,10 +94,7 @@ internal data class LanPeer(
     val revokedAtMs: Long?,
 )
 
-internal data class LanPeerPage(
-    val peers: List<LanPeer>,
-    val total: UInt,
-)
+internal data class LanPeerPage(val peers: List<LanPeer>, val total: UInt)
 
 internal data class LanAttachmentPlan(
     val slot: UInt,
@@ -145,10 +123,7 @@ internal data class LanBatchPreview(
     val titles: List<String>,
 )
 
-internal data class LanPendingBatch(
-    val sessionId: String,
-    val preview: LanBatchPreview,
-)
+internal data class LanPendingBatch(val sessionId: String, val preview: LanBatchPreview)
 
 internal enum class LanReceivedBatchDecision {
     Pending,
@@ -160,22 +135,13 @@ internal sealed interface LanReceivedItemRecovery {
     val itemId: String
     val itemIndex: UInt
 
-    data class Pending(
-        override val itemId: String,
-        override val itemIndex: UInt,
-    ) : LanReceivedItemRecovery
+    data class Pending(override val itemId: String, override val itemIndex: UInt) : LanReceivedItemRecovery
 
-    data class Committed(
-        override val itemId: String,
-        override val itemIndex: UInt,
-        val memoId: String,
-    ) : LanReceivedItemRecovery
+    data class Committed(override val itemId: String, override val itemIndex: UInt, val memoId: String) :
+        LanReceivedItemRecovery
 
-    data class Failed(
-        override val itemId: String,
-        override val itemIndex: UInt,
-        val code: String,
-    ) : LanReceivedItemRecovery
+    data class Failed(override val itemId: String, override val itemIndex: UInt, val code: String) :
+        LanReceivedItemRecovery
 }
 
 internal enum class LanReceivedBatchDrive {
@@ -217,10 +183,7 @@ internal data class LanOutgoingBatch(
     val totalBytes: ULong,
 )
 
-internal data class LanCommittableItem(
-    val batchId: String,
-    val itemIndex: UInt,
-)
+internal data class LanCommittableItem(val batchId: String, val itemIndex: UInt)
 
 internal data class LanInboxWait(
     val generation: ULong,
@@ -268,84 +231,40 @@ internal interface LanRuntimeNativeBridge {
 
 internal interface LanPairingNativeBridge {
 
-    fun beginLanPairing(
-        peerDeviceId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ): LanPairingChallenge
+    fun beginLanPairing(peerDeviceId: String, nowMs: Long, ttlMs: Long): LanPairingChallenge
 
     fun lanPairingChallenge(pairingId: String): LanPairingChallenge
 
-    fun confirmLanPairing(
-        pairingId: String,
-        signature: ByteArray,
-        nowMs: Long,
-    )
+    fun confirmLanPairing(pairingId: String, signature: ByteArray, nowMs: Long)
 
     fun declineLanPairing(pairingId: String)
 
-    fun beginLanSession(
-        peerDeviceId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ): LanSessionChallenge
+    fun beginLanSession(peerDeviceId: String, nowMs: Long, ttlMs: Long): LanSessionChallenge
 
-    fun confirmLanSession(
-        sessionId: String,
-        signature: ByteArray,
-        nowMs: Long,
-    )
+    fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long)
 
     fun lanSessionState(sessionId: String): LanSessionState
 }
 
 internal interface LanTransferNativeBridge {
 
-    fun prepareLanBatch(
-        sessionId: String,
-        batchId: String,
-        items: List<LanSendItemPlan>,
-    )
+    fun prepareLanBatch(sessionId: String, batchId: String, items: List<LanSendItemPlan>)
 
-    fun approveLanBatch(
-        sessionId: String,
-        batchId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    )
+    fun approveLanBatch(sessionId: String, batchId: String, nowMs: Long, ttlMs: Long)
 
-    fun rejectLanBatch(
-        sessionId: String,
-        batchId: String,
-        rejectedAtMs: Long,
-    )
+    fun rejectLanBatch(sessionId: String, batchId: String, rejectedAtMs: Long)
 
     fun sendLanBatchChunks(chunks: List<LanChunkSend>)
 
-    fun lanUnconfirmedBatchChunks(
-        batchId: String,
-        itemIndex: UInt,
-        attachmentSlot: UInt,
-    ): List<UInt>
+    fun lanUnconfirmedBatchChunks(batchId: String, itemIndex: UInt, attachmentSlot: UInt): List<UInt>
 
-    fun commitReceivedLanItem(
-        batchId: String,
-        itemIndex: UInt,
-        nowMs: Long,
-    ): com.lomo.nativebridge.StoreMemoCommit
+    fun commitReceivedLanItem(batchId: String, itemIndex: UInt, nowMs: Long): com.lomo.nativebridge.StoreMemoCommit
 
-    fun failReceivedLanItem(
-        batchId: String,
-        itemIndex: UInt,
-        code: String,
-    )
+    fun failReceivedLanItem(batchId: String, itemIndex: UInt, code: String)
 
     fun listLanPeers(): LanPeerPage
 
-    fun revokeLanPeer(
-        deviceId: String,
-        revokedAtMs: Long,
-    ): LanPeerPage
+    fun revokeLanPeer(deviceId: String, revokedAtMs: Long): LanPeerPage
 }
 
 internal interface LanNativeBridge :

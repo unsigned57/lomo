@@ -15,17 +15,15 @@ import kotlin.math.roundToInt
 
 private const val DEFAULT_SHARE_CARD_HIGHLIGHT_COLOR = 0x66FFE082
 
-
 internal fun createBlankRenderLine(
     bodyLine: ShareBodyLine,
     spec: ShareCardLayoutSpec,
     paintSet: ShareCardPaintSet,
-): ShareCardRenderLine =
-    ShareCardRenderLine(
-        type = bodyLine.type,
-        layout = buildStaticLayout(BLANK_LAYOUT_TEXT, paintSet.paragraphPaint, spec.contentWidth),
-        height = spec.lineSpacing,
-    )
+): ShareCardRenderLine = ShareCardRenderLine(
+    type = bodyLine.type,
+    layout = buildStaticLayout(BLANK_LAYOUT_TEXT, paintSet.paragraphPaint, spec.contentWidth),
+    height = spec.lineSpacing,
+)
 
 internal fun createCodeRenderLine(
     bodyLine: ShareBodyLine,
@@ -124,20 +122,26 @@ private fun ShareBodyLine.toStyledText(linkColor: Int? = null): CharSequence {
         if (range.start >= range.end || range.start < 0 || range.end > text.length) return@forEach
         when (range.kind) {
             ShareInlineStyleKind.Bold -> styled.setSpan(StyleSpan(Typeface.BOLD), range.start, range.end)
+
             ShareInlineStyleKind.Italic -> styled.setSpan(StyleSpan(Typeface.ITALIC), range.start, range.end)
+
             ShareInlineStyleKind.Strikethrough -> styled.setSpan(StrikethroughSpan(), range.start, range.end)
+
             ShareInlineStyleKind.InlineCode -> styled.setSpan(TypefaceSpan("monospace"), range.start, range.end)
+
             ShareInlineStyleKind.Link -> {
                 styled.setSpan(UnderlineSpan(), range.start, range.end)
                 if (linkColor != null) {
                     styled.setSpan(ForegroundColorSpan(linkColor), range.start, range.end)
                 }
             }
+
             ShareInlineStyleKind.Underline -> styled.setSpan(UnderlineSpan(), range.start, range.end)
+
             ShareInlineStyleKind.Highlight -> styled.setSpan(
                 android.text.style.BackgroundColorSpan(DEFAULT_SHARE_CARD_HIGHLIGHT_COLOR),
                 range.start,
-                range.end
+                range.end,
             )
         }
     }
@@ -150,22 +154,18 @@ private fun ShareBodyLine.withoutQuoteTextPrefix(): ShareBodyLine {
     return copy(
         text = text.removePrefix(QUOTE_PREFIX),
         inlineStyles =
-            inlineStyles.mapNotNull { range ->
-                val shiftedStart = max(0, range.start - offset)
-                val shiftedEnd = max(0, range.end - offset)
-                if (shiftedStart >= shiftedEnd) {
-                    null
-                } else {
-                    range.copy(start = shiftedStart, end = shiftedEnd)
-                }
-            },
+        inlineStyles.mapNotNull { range ->
+            val shiftedStart = max(0, range.start - offset)
+            val shiftedEnd = max(0, range.end - offset)
+            if (shiftedStart >= shiftedEnd) {
+                null
+            } else {
+                range.copy(start = shiftedStart, end = shiftedEnd)
+            }
+        },
     )
 }
 
-private fun SpannableString.setSpan(
-    span: Any,
-    start: Int,
-    end: Int,
-) {
+private fun SpannableString.setSpan(span: Any, start: Int, end: Int) {
     setSpan(span, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
 }

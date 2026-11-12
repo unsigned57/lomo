@@ -8,17 +8,11 @@ package com.lomo.data.sync.pendingreview
  * `.lomo/sync/v1` in `lomo-sync`; memo/query/FTS projections remain in the Rust store owner only.
  */
 interface PendingReviewTable {
-    suspend fun getByBackend(
-        backend: String,
-        workspaceGeneration: String,
-    ): PendingSyncReviewRecord?
+    suspend fun getByBackend(backend: String, workspaceGeneration: String): PendingSyncReviewRecord?
 
     suspend fun upsert(record: PendingSyncReviewRecord)
 
-    suspend fun deleteByBackend(
-        backend: String,
-        workspaceGeneration: String,
-    )
+    suspend fun deleteByBackend(backend: String, workspaceGeneration: String)
 
     /** Removes every record across backends and workspace generations. */
     suspend fun clearAll()

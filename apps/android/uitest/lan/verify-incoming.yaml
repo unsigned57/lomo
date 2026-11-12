@@ -1,0 +1,18 @@
+# Part of the opt-in two-device LAN journey; run via just uitest lan_share.
+appId: com.lomo.app
+---
+- tapOn:
+    id: "benchmark_main_search_button"
+- tapOn:
+    id: "benchmark_search_input"
+- inputText: ${LAN_INCOMING_PROBE}
+- hideKeyboard
+- extendedWaitUntil:
+    visible:
+      id: "benchmark_memo_card_.*"
+    timeout: 15000
+- takeScreenshot: received-memo-search
+- back
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_main_root"

@@ -1,44 +1,34 @@
 package com.lomo.data.engine.store
 
 import com.lomo.data.repository.StoreProjectionObserver
-import com.lomo.domain.model.MemoDocumentMutation
 
 /**
  * Store write adapter that observes owner stamps onto the single projection publication bus.
  *
  * Callers still receive the command result for reminder/media side effects; they must not publish.
  */
-internal class PublishingStorePort(
-    private val delegate: StorePort,
-    private val observer: StoreProjectionObserver,
-) : StorePort by delegate {
+internal class PublishingStorePort(private val delegate: StorePort, private val observer: StoreProjectionObserver) :
+    StorePort by delegate {
+    /**
+     * Every stamp — acceptance, withdrawal and the durable commit — publishes: the committed row
+     * replaces the pending one and the commit revision stales every acceptance-revision cursor.
+     */
     override fun applyMemoCommand(
         command: StoreMemoCommand,
-        onPublication: (StoreMemoCommit) -> Unit,
+        onPublication: (StoreMemoCommandPublication) -> Unit,
     ): StoreMemoCommit {
-        var midFlight = false
         val commit =
-            delegate.applyMemoCommand(command) { pending ->
-                midFlight = true
-                observer.observeCommit(pending)
-                onPublication(pending)
+            delegate.applyMemoCommand(command) { publication ->
+                observer.observeCommit(publication.commit)
+                onPublication(publication)
             }
-        observer.observeCommit(commit, midFlightAlreadyPublished = midFlight)
+        observer.observeCommit(commit)
         return commit
     }
 
-    override fun permanentDeleteMany(
-        operationId: String,
-        targets: List<StoreMemoDeleteTarget>,
-    ): StoreMemoBatchCommit {
+    override fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit {
         val commit = delegate.permanentDeleteMany(operationId, targets)
         observer.observeBatch(commit)
-        return commit
-    }
-
-    override fun commitDocumentMutation(mutation: MemoDocumentMutation): StoreMemoCommit {
-        val commit = delegate.commitDocumentMutation(mutation)
-        observer.observeCommit(commit)
         return commit
     }
 

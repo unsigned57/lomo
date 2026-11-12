@@ -1,29 +1,24 @@
 package com.lomo.app.feature.settings
 
-import androidx.compose.ui.unit.LayoutDirection
-
-import androidx.compose.material3.MaterialTheme
-
 import androidx.activity.compose.PredictiveBackHandler
-import androidx.compose.animation.core.SeekableTransitionState
-import androidx.compose.animation.core.rememberTransition
-import com.lomo.ui.component.navigation.consumePredictiveBackGesture
-import kotlinx.coroutines.flow.map
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.togetherWith
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.AppBuildInfo
@@ -31,7 +26,6 @@ import com.lomo.app.R
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.app.feature.update.LomoAppUpdateDialog
 import com.lomo.app.util.injectedKoinViewModel
-import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
@@ -40,9 +34,9 @@ import com.lomo.domain.model.SnapshotPreferenceOptions
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
-import kotlinx.collections.immutable.ImmutableMap
+import com.lomo.ui.component.navigation.predictiveBackProgress
+import kotlinx.coroutines.flow.map
 
 private const val SYSTEM_LANGUAGE_TAG = "system"
 private const val ENGLISH_LANGUAGE_TAG = "en"
@@ -143,7 +137,6 @@ fun SettingsScreen(
             unknownErrorMessage = resources.messages.unknownErrorMessage,
         )
 
-
     HandleSettingsUpdateDialogs(
         manualUpdateState = manualUpdateState,
         debugPreviewDialogState = debugPreviewDialogState,
@@ -199,10 +192,10 @@ fun SettingsScreen(
     )
 }
 
-
 @Composable
-private fun rememberSettingsPageTransition(dialogState: SettingsDialogState):
-    androidx.compose.animation.core.Transition<SettingsSubPage> {
+private fun rememberSettingsPageTransition(
+    dialogState: SettingsDialogState,
+): androidx.compose.animation.core.Transition<SettingsSubPage> {
     val pageTransitionState = remember { SeekableTransitionState(dialogState.activeSubPage) }
     val pageTransition = rememberTransition(pageTransitionState, label = "SettingsSubPagesTransition")
     var isSeekingBack by remember { mutableStateOf(false) }
@@ -211,17 +204,19 @@ private fun rememberSettingsPageTransition(dialogState: SettingsDialogState):
     }
     PredictiveBackHandler(enabled = dialogState.activeSubPage != SettingsSubPage.NONE) { events ->
         val initialPage = dialogState.activeSubPage
+        val parentPage = if (initialPage == SettingsSubPage.QUICK_BALL) {
+            SettingsSubPage.INTERACTION_SECURITY
+        } else {
+            SettingsSubPage.NONE
+        }
         isSeekingBack = true
         try {
-            consumePredictiveBackGesture(
-                progress = events.map { it.progress },
-                onProgress = { pageTransitionState.seekTo(it, SettingsSubPage.NONE) },
-                onCommit = {
-                    dialogState.activeSubPage = SettingsSubPage.NONE
-                    pageTransitionState.animateTo(SettingsSubPage.NONE)
-                },
-                onCancel = { pageTransitionState.animateTo(initialPage) },
-            )
+            events
+                .map { it.progress }
+                .predictiveBackProgress(onCancel = { pageTransitionState.animateTo(initialPage) })
+                .collect { pageTransitionState.seekTo(it, parentPage) }
+            dialogState.activeSubPage = parentPage
+            pageTransitionState.animateTo(parentPage)
         } finally {
             isSeekingBack = false
         }
@@ -246,105 +241,124 @@ private fun SettingsSubPagesAnimatedContent(
     onOpenSyncCenter: (() -> Unit)? = null,
 ) {
     val pageTransition = rememberSettingsPageTransition(dialogState)
+    val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     pageTransition.AnimatedContent(
         transitionSpec = settingsSubPagesTransitionSpec(),
     ) { activePage ->
-        when (activePage) {
-            SettingsSubPage.NONE -> {
-                SettingsScreenScaffold(
-                    onBackClick = onBackClick,
-                    snackbarHostState = snackbarHostState,
-                    uiState = uiState,
-                    dialogState = dialogState,
-                    features = features,
-                    resources = resources,
-                    storagePickers = storagePickers,
-                    currentVersion = currentVersion,
-                    manualUpdateState = manualUpdateState,
-                    onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
-                )
-            }
-            SettingsSubPage.SYNC_BACKUP -> {
-                SyncBackupSettingsPage(
-                    uiState = uiState,
-                    dialogState = dialogState,
-                    features = features,
-                    dialogOptions = resources.dialogOptions,
-                    storagePickers = storagePickers,
-                    migrationPickers = migrationPickers,
-                    snackbarHostState = snackbarHostState,
-                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
-                    onOpenSyncCenter = onOpenSyncCenter,
-                )
-            }
-            SettingsSubPage.STORAGE_FORMATS -> {
-                StorageFormatsSettingsPage(
-                    uiState = uiState,
-                    dialogState = dialogState,
-                    features = features,
-                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
-                )
-            }
-            SettingsSubPage.INTERACTION_SECURITY -> {
-                InteractionSecuritySettingsPage(
-                    uiState = uiState,
-                    features = features,
-                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
-                )
-            }
-            SettingsSubPage.TYPOGRAPHY -> {
-                TypographySettingsPage(
-                    uiState = uiState.display,
-                    displayFeature = features.display,
-                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
-                )
-            }
-            SettingsSubPage.COLOR_PALETTE -> {
-                ColorPaletteSettingsPage(
-                    uiState = uiState.display,
-                    displayFeature = features.display,
-                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
-                )
-            }
-            SettingsSubPage.FONT -> {
-                FontSettingsPage(
-                    uiState = uiState.display,
-                    displayFeature = features.display,
-                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
-                )
-            }
-            SettingsSubPage.ABOUT -> {
-                AboutSettingsPage(
-                    uiState = uiState,
-                    aboutState =
+        pageStates.SaveableStateProvider(activePage.name) {
+            when (activePage) {
+                SettingsSubPage.NONE -> {
+                    SettingsScreenScaffold(
+                        onBackClick = onBackClick,
+                        snackbarHostState = snackbarHostState,
+                        uiState = uiState,
+                        dialogState = dialogState,
+                        features = features,
+                        resources = resources,
+                        storagePickers = storagePickers,
+                        currentVersion = currentVersion,
+                        manualUpdateState = manualUpdateState,
+                        onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
+                    )
+                }
+
+                SettingsSubPage.SYNC_BACKUP -> {
+                    SyncBackupSettingsPage(
+                        uiState = uiState,
+                        dialogState = dialogState,
+                        features = features,
+                        dialogOptions = resources.dialogOptions,
+                        storagePickers = storagePickers,
+                        migrationPickers = migrationPickers,
+                        snackbarHostState = snackbarHostState,
+                        onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                        onOpenSyncCenter = onOpenSyncCenter,
+                    )
+                }
+
+                SettingsSubPage.STORAGE_FORMATS -> {
+                    StorageFormatsSettingsPage(
+                        uiState = uiState,
+                        dialogState = dialogState,
+                        features = features,
+                        onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                    )
+                }
+
+                SettingsSubPage.INTERACTION_SECURITY -> {
+                    InteractionSecuritySettingsPage(
+                        uiState = uiState,
+                        features = features,
+                        onOpenQuickBall = { dialogState.activeSubPage = SettingsSubPage.QUICK_BALL },
+                        onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                    )
+                }
+
+                SettingsSubPage.QUICK_BALL -> {
+                    QuickBallSettingsPage(
+                        config = uiState.interaction.quickBallConfig,
+                        feature = features.interaction,
+                        onBack = { dialogState.activeSubPage = SettingsSubPage.INTERACTION_SECURITY },
+                    )
+                }
+
+                SettingsSubPage.TYPOGRAPHY -> {
+                    TypographySettingsPage(
+                        uiState = uiState.display,
+                        displayFeature = features.display,
+                        onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                    )
+                }
+
+                SettingsSubPage.COLOR_PALETTE -> {
+                    ColorPaletteSettingsPage(
+                        uiState = uiState.display,
+                        displayFeature = features.display,
+                        onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                    )
+                }
+
+                SettingsSubPage.FONT -> {
+                    FontSettingsPage(
+                        uiState = uiState.display,
+                        displayFeature = features.display,
+                        onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                    )
+                }
+
+                SettingsSubPage.ABOUT -> {
+                    AboutSettingsPage(
+                        uiState = uiState,
+                        aboutState =
                         AboutSectionState(
                             currentVersion = currentVersion,
                             manualUpdateState = manualUpdateState,
                             showDebugUpdateTools = isDebuggable,
                         ),
-                    features = features,
-                    onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
-                    onPreviewDebugUpdate = features.system::openDebugLatestReleasePreview,
-                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
-                )
+                        features = features,
+                        onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
+                        onPreviewDebugUpdate = features.system::openDebugLatestReleasePreview,
+                        onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun settingsSubPagesTransitionSpec():
-    AnimatedContentTransitionScope<SettingsSubPage>.() -> ContentTransform {
-    val scheme = MaterialTheme.motionScheme
+private fun settingsSubPagesTransitionSpec(): AnimatedContentTransitionScope<SettingsSubPage>.() -> ContentTransform {
+    val scheme = com.lomo.ui.theme.LocalLomoMotion.current.layout
     val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val pageOffsetPx = with(density) { com.lomo.ui.theme.PageTransitionDistance.toPx() }
     val forward = if (layoutDirection == LayoutDirection.Ltr) 1 else -1
     return {
         val direction = if (initialState == SettingsSubPage.NONE) forward else -forward
-        com.lomo.ui.theme.pageEnterTransition(scheme, direction) togetherWith
-            com.lomo.ui.theme.pageExitTransition(scheme, -direction)
+        com.lomo.ui.theme.pageEnterTransition(scheme, direction, pageOffsetPx) togetherWith
+            com.lomo.ui.theme.pageExitTransition(scheme, -direction, pageOffsetPx)
     }
 }
-
 
 @Composable
 private fun HandleSettingsUpdateDialogs(

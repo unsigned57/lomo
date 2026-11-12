@@ -30,10 +30,7 @@ import coil3.compose.rememberAsyncImagePainter
  * has errored out, to avoid blank frames.
  */
 @Composable
-fun rememberRetainedSuccessPainter(
-    modelKey: Any?,
-    state: AsyncImagePainter.State,
-): Painter? {
+fun rememberRetainedSuccessPainter(modelKey: Any?, state: AsyncImagePainter.State): Painter? {
     var retained by remember(modelKey) { mutableStateOf<Painter?>(null) }
     val successPainter = (state as? AsyncImagePainter.State.Success)?.painter
     LaunchedEffect(modelKey, successPainter) {
@@ -94,10 +91,9 @@ fun RetainedAsyncImage(
     )
 }
 
-internal fun AsyncImagePainter.State.toRetainedAsyncImageLoadState(): RetainedAsyncImageLoadState =
-    when (this) {
-        is AsyncImagePainter.State.Success -> RetainedAsyncImageLoadState.Success
-        is AsyncImagePainter.State.Error -> RetainedAsyncImageLoadState.Error
-        is AsyncImagePainter.State.Loading -> RetainedAsyncImageLoadState.Loading
-        AsyncImagePainter.State.Empty -> RetainedAsyncImageLoadState.Empty
-    }
+internal fun AsyncImagePainter.State.toRetainedAsyncImageLoadState(): RetainedAsyncImageLoadState = when (this) {
+    is AsyncImagePainter.State.Success -> RetainedAsyncImageLoadState.Success
+    is AsyncImagePainter.State.Error -> RetainedAsyncImageLoadState.Error
+    is AsyncImagePainter.State.Loading -> RetainedAsyncImageLoadState.Loading
+    AsyncImagePainter.State.Empty -> RetainedAsyncImageLoadState.Empty
+}

@@ -133,7 +133,7 @@ class PreferencesCorruptionWitnessCoexistenceContractTest : DataFunSpec() {
                         catalogValues = emptyMap(),
                         stringValues = mapOf(kotlin.Pair(LomoDataStoreKeys.THEME_MODE, "dark")),
                         nullableStringValues =
-                            mapOf(kotlin.Pair(LomoDataStoreKeys.GIT_REMOTE_URL, null)),
+                        mapOf(kotlin.Pair(LomoDataStoreKeys.GIT_REMOTE_URL, null)),
                         booleanValues = emptyMap(),
                         intValues = emptyMap(),
                     ),
@@ -150,7 +150,9 @@ class PreferencesCorruptionWitnessCoexistenceContractTest : DataFunSpec() {
             }
         }
 
-        test("an acknowledgement whose durable write fails still clears the live notice and re-surfaces after restart") {
+        test(
+            "an acknowledgement whose durable write fails still clears the live notice and re-surfaces after restart",
+        ) {
             runTest {
                 val backing = corruptBackingFile()
                 val firstProcess = processScope(coroutineContext)
@@ -189,16 +191,15 @@ class PreferencesCorruptionWitnessCoexistenceContractTest : DataFunSpec() {
         backing: File,
         scope: CoroutineScope,
         registry: PreferencesCorruptionRegistry,
-    ): DataStore<Preferences> =
-        PreferenceDataStoreFactory.create(
-            scope = scope,
-            corruptionHandler =
-                lomoPreferencesCorruptionHandler(
-                    corruptionFile = { backing },
-                    registry = registry,
-                ),
-            produceFile = { backing },
-        )
+    ): DataStore<Preferences> = PreferenceDataStoreFactory.create(
+        scope = scope,
+        corruptionHandler =
+        lomoPreferencesCorruptionHandler(
+            corruptionFile = { backing },
+            registry = registry,
+        ),
+        produceFile = { backing },
+    )
 
     private fun lomoDataStoreOf(store: DataStore<Preferences>): LomoDataStore {
         val constructor = LomoDataStore::class.java.getDeclaredConstructor(DataStore::class.java)
@@ -207,9 +208,7 @@ class PreferencesCorruptionWitnessCoexistenceContractTest : DataFunSpec() {
     }
 }
 
-private class EditFailingDataStore(
-    private val delegate: DataStore<Preferences>,
-) : DataStore<Preferences> {
+private class EditFailingDataStore(private val delegate: DataStore<Preferences>) : DataStore<Preferences> {
     override val data: Flow<Preferences>
         get() = delegate.data
 
@@ -217,9 +216,8 @@ private class EditFailingDataStore(
         throw IOException("simulated durable-write failure")
 }
 
-private fun tempPreferencesFile(): File =
-    Files
-        .createTempDirectory("lomo-prefs-witness-3")
-        .toFile()
-        .apply { deleteOnExit() }
-        .let { File(it, "lomo.preferences_pb") }
+private fun tempPreferencesFile(): File = Files
+    .createTempDirectory("lomo-prefs-witness-3")
+    .toFile()
+    .apply { deleteOnExit() }
+    .let { File(it, "lomo.preferences_pb") }

@@ -33,26 +33,25 @@ internal class BoltFfiSyncConflictSuggestionPort : SyncConflictSuggestionPort {
         localLastModifiedMs: Long?,
         remoteLastModifiedMs: Long?,
         isBinary: Boolean,
-    ): SyncMergeSuggestion =
-        try {
-            conflictMergeSuggestion(
-                localBody = localBody,
-                remoteBody = remoteBody,
-                localLastModifiedMs = localLastModifiedMs,
-                remoteLastModifiedMs = remoteLastModifiedMs,
-                isBinary = isBinary,
-            )
-        } catch (error: EngineError.Failure) {
-            val failure = error.failure
-            throw RemoteSyncBoundaryFailure(
-                category = failure.category,
-                code = failure.code,
-                retryDisposition = failure.retryDisposition,
-                diagnostic = failure.diagnostic,
-                operationId = failure.operationId,
-                jobId = failure.jobId,
-            ).also { mapped -> mapped.initCause(error) }
-        }
+    ): SyncMergeSuggestion = try {
+        conflictMergeSuggestion(
+            localBody = localBody,
+            remoteBody = remoteBody,
+            localLastModifiedMs = localLastModifiedMs,
+            remoteLastModifiedMs = remoteLastModifiedMs,
+            isBinary = isBinary,
+        )
+    } catch (error: EngineError.Failure) {
+        val failure = error.failure
+        throw RemoteSyncBoundaryFailure(
+            category = failure.category,
+            code = failure.code,
+            retryDisposition = failure.retryDisposition,
+            diagnostic = failure.diagnostic,
+            operationId = failure.operationId,
+            jobId = failure.jobId,
+        ).also { mapped -> mapped.initCause(error) }
+    }
 }
 
 private fun conflictMergeSuggestion(
@@ -77,11 +76,10 @@ private fun conflictMergeSuggestion(
     )
 }
 
-private fun String?.toMergeChoice(): SyncMergeChoice? =
-    when (this) {
-        null -> null
-        "keep_local" -> SyncMergeChoice.KEEP_LOCAL
-        "keep_remote" -> SyncMergeChoice.KEEP_OTHER
-        "merge_text" -> SyncMergeChoice.MERGE_TEXT
-        else -> error("unknown conflict suggestion kind: $this")
-    }
+private fun String?.toMergeChoice(): SyncMergeChoice? = when (this) {
+    null -> null
+    "keep_local" -> SyncMergeChoice.KEEP_LOCAL
+    "keep_remote" -> SyncMergeChoice.KEEP_OTHER
+    "merge_text" -> SyncMergeChoice.MERGE_TEXT
+    else -> error("unknown conflict suggestion kind: $this")
+}

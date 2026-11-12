@@ -19,12 +19,21 @@ internal fun countShareCardImageSlots(document: MarkdownRenderDocument): Int {
                         count++
                     }
                 }
+
                 is MarkdownRenderInline.Link -> walkInlines(inline.inlines)
+
                 is MarkdownRenderInline.Strong -> walkInlines(inline.inlines)
+
                 is MarkdownRenderInline.Emphasis -> walkInlines(inline.inlines)
+
                 is MarkdownRenderInline.Strikethrough -> walkInlines(inline.inlines)
+
+                is MarkdownRenderInline.Underline -> walkInlines(inline.inlines)
+
                 is MarkdownRenderInline.Highlight -> walkInlines(inline.inlines)
+
                 is MarkdownRenderInline.WikiReference -> walkInlines(inline.inlines)
+
                 else -> Unit
             }
         }
@@ -33,13 +42,18 @@ internal fun countShareCardImageSlots(document: MarkdownRenderDocument): Int {
         blocks.forEach { block ->
             when (block) {
                 is com.lomo.domain.model.markdown.MarkdownRenderBlock.Paragraph -> walkInlines(block.inlines)
+
                 is com.lomo.domain.model.markdown.MarkdownRenderBlock.Heading -> walkInlines(block.inlines)
+
                 is com.lomo.domain.model.markdown.MarkdownRenderBlock.BlockQuote -> walkBlocks(block.blocks)
+
                 is com.lomo.domain.model.markdown.MarkdownRenderBlock.ListBlock ->
                     block.items.forEach { item -> walkBlocks(item.blocks) }
+
                 is com.lomo.domain.model.markdown.MarkdownRenderBlock.Table -> {
                     (block.header + block.rows.flatten()).forEach { cell -> walkInlines(cell.inlines) }
                 }
+
                 else -> Unit
             }
         }
@@ -55,10 +69,7 @@ internal fun countShareCardImageSlots(document: MarkdownRenderDocument): Int {
  * Legacy line classifier used only for already-tokenized presentation lines (image markers from
  * IR projection). Not a Markdown semantic authority.
  */
-internal fun buildShareBodyLines(
-    bodyText: String,
-    imagePlaceholder: String,
-): List<ShareBodyLine> {
+internal fun buildShareBodyLines(bodyText: String, imagePlaceholder: String): List<ShareBodyLine> {
     if (bodyText.isBlank()) {
         return listOf(defaultParagraphLine())
     }
@@ -86,13 +97,9 @@ internal fun buildShareBodyLines(
     return lines.ifEmpty { listOf(defaultParagraphLine()) }
 }
 
-private fun defaultParagraphLine(): ShareBodyLine =
-    ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Paragraph)
+private fun defaultParagraphLine(): ShareBodyLine = ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Paragraph)
 
-private fun parseShareBodyLine(
-    rawLine: String,
-    imagePlaceholder: String,
-): ShareBodyLine? {
+private fun parseShareBodyLine(rawLine: String, imagePlaceholder: String): ShareBodyLine? {
     val line = rawLine.trimEnd()
     val trimmed = line.trimStart()
     val cleanedLine = replaceInlineImageMarkers(trimmed, imagePlaceholder)
@@ -100,18 +107,23 @@ private fun parseShareBodyLine(
 
     return when {
         trimmed.isBlank() -> null
+
         imageLine != null -> imageLine
+
         line.startsWith(CODE_BLOCK_PREFIX) -> ShareBodyLine(cleanedLine, ShareBodyLineType.Code)
+
         cleanedLine.startsWith(QUOTE_PREFIX) ->
             ShareBodyLine(
                 cleanedLine.removePrefix(QUOTE_PREFIX).trim().normalizeCjkMixedSpacingForDisplay(),
                 ShareBodyLineType.Quote,
             )
+
         cleanedLine.isBulletShareLine() ->
             ShareBodyLine(
                 cleanedLine.normalizeCjkMixedSpacingForDisplay(),
                 ShareBodyLineType.Bullet,
             )
+
         else ->
             ShareBodyLine(
                 cleanedLine.normalizeCjkMixedSpacingForDisplay(),
@@ -132,17 +144,13 @@ private fun parseImageMarkerLine(trimmed: String): ShareBodyLine? {
         ?.let { ShareBodyLine(trimmed, ShareBodyLineType.Image, imageIndex = imageIndex) }
 }
 
-private fun replaceInlineImageMarkers(
-    text: String,
-    imagePlaceholder: String,
-): String =
+private fun replaceInlineImageMarkers(text: String, imagePlaceholder: String): String =
     if (IMAGE_MARKER_PATTERN.containsMatchIn(text)) {
         IMAGE_MARKER_PATTERN.replace(text, imagePlaceholder)
     } else {
         text
     }
 
-private fun String.isBulletShareLine(): Boolean =
-    startsWith(UNCHECKED_TODO_PREFIX) ||
-        startsWith(CHECKED_TODO_PREFIX) ||
-        startsWith(BULLET_PREFIX)
+private fun String.isBulletShareLine(): Boolean = startsWith(UNCHECKED_TODO_PREFIX) ||
+    startsWith(CHECKED_TODO_PREFIX) ||
+    startsWith(BULLET_PREFIX)

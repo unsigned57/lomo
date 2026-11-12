@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract — P5-09 dark `BoltFFI` sync surface (host hermetic)
 //!
 //! - Unit under test: free-function `sync_*` `BoltFFI` conversion APIs in `lomo-native`
@@ -93,7 +102,7 @@ mod tests {
     }
 
     fn seed_markdown_conflict(workspace: &std::path::Path) -> SyncPaths {
-        let paths = SyncPaths::for_workspace(workspace);
+        let paths = SyncPaths::for_control_root(workspace);
         let mut record = conflict_path_from_open(
             &path("memo/a.md"),
             Some(&dig(1)),
@@ -139,8 +148,13 @@ mod tests {
         std::fs::create_dir_all(&workspace).expect("ws");
         seed_markdown_conflict(&workspace);
 
-        let page =
-            sync_list_conflicts(workspace.to_string_lossy().into_owned(), 0, 10).test_ok("list");
+        let page = sync_list_conflicts(
+            workspace.to_string_lossy().into_owned(),
+            workspace.to_string_lossy().into_owned(),
+            0,
+            10,
+        )
+        .test_ok("list");
         assert_eq!(page.session, SyncConflictSessionStateDto::Present);
         assert_eq!(page.session_id, "ffi-session-1");
         assert_eq!(page.conflict_revision, 1);
@@ -167,11 +181,16 @@ mod tests {
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
 
-        let page = sync_list_conflicts(workspace.to_string_lossy().into_owned(), 0, 10)
-            .test_ok("absent is a domain state");
+        let page = sync_list_conflicts(
+            workspace.to_string_lossy().into_owned(),
+            workspace.to_string_lossy().into_owned(),
+            0,
+            10,
+        )
+        .test_ok("absent is a domain state");
         assert_eq!(page.session, SyncConflictSessionStateDto::Absent);
         assert!(page.items.is_empty());
-        assert!(page.session_id.is_empty());
+        assert_eq!(page.session_id, "");
         assert_eq!(page.conflict_revision, 0);
     }
 
@@ -180,12 +199,17 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         paths.ensure_layout().expect("layout");
         std::fs::write(&paths.conflicts, b"BAD!").expect("seed");
 
-        let err = sync_list_conflicts(workspace.to_string_lossy().into_owned(), 0, 10)
-            .test_err("truncated is EngineError");
+        let err = sync_list_conflicts(
+            workspace.to_string_lossy().into_owned(),
+            workspace.to_string_lossy().into_owned(),
+            0,
+            10,
+        )
+        .test_err("truncated is EngineError");
         assert_eq!(err.category(), "corruption");
         assert_ne!(err.code(), "conflict_session_missing");
     }
@@ -200,6 +224,7 @@ mod tests {
 
         let result = sync_resolve_conflicts(
             root.clone(),
+            root.clone(),
             1,
             vec![SyncConflictResolutionDto {
                 path: "memo/a.md".to_owned(),
@@ -212,7 +237,7 @@ mod tests {
         assert_eq!(result.applied_paths, vec!["memo/a.md".to_owned()]);
         assert_eq!(result.session_id, "ffi-session-1");
 
-        let page = sync_list_conflicts(root, 0, 10).test_ok("list after");
+        let page = sync_list_conflicts(root.clone(), root, 0, 10).test_ok("list after");
         assert_eq!(page.conflict_revision, 2);
         assert_eq!(
             page.items.first().expect("i").status,
@@ -238,6 +263,7 @@ mod tests {
 
         let err = sync_resolve_conflicts(
             workspace.to_string_lossy().into_owned(),
+            workspace.to_string_lossy().into_owned(),
             1,
             vec![SyncConflictResolutionDto {
                 path: "memo/a.md".to_owned(),
@@ -259,6 +285,7 @@ mod tests {
 
         let err = sync_resolve_conflicts(
             workspace.to_string_lossy().into_owned(),
+            workspace.to_string_lossy().into_owned(),
             1,
             vec![SyncConflictResolutionDto {
                 path: "memo/a.md".to_owned(),
@@ -269,7 +296,7 @@ mod tests {
         .test_err("bad kind");
         assert_eq!(err.code(), "sync_ffi_resolution_kind_invalid");
 
-        let err = sync_list_conflicts(String::new(), 0, 10).test_err("empty root");
+        let err = sync_list_conflicts(String::new(), String::new(), 0, 10).test_err("empty root");
         assert_eq!(err.code(), "sync_ffi_workspace_root_invalid");
     }
 
@@ -281,11 +308,12 @@ mod tests {
         seed_markdown_conflict(&workspace);
         let root = workspace.to_string_lossy().into_owned();
 
-        let err = sync_list_conflicts(root, 0, 0).test_err("zero limit");
+        let err = sync_list_conflicts(root.clone(), root, 0, 0).test_err("zero limit");
         assert_eq!(err.code(), "sync_ffi_conflict_page_limit");
         assert_eq!(err.category(), "resource_limit");
 
         let err = sync_list_conflicts(
+            temporary.path().join("ws").to_string_lossy().into_owned(),
             temporary.path().join("ws").to_string_lossy().into_owned(),
             0,
             101,
@@ -333,10 +361,10 @@ mod tests {
         std::fs::create_dir_all(&workspace).expect("ws");
         seed_markdown_conflict(&workspace);
         let root = workspace.to_string_lossy().into_owned();
-        let page = sync_list_conflicts(root.clone(), 0, 10).test_ok("list");
+        let page = sync_list_conflicts(root.clone(), root.clone(), 0, 10).test_ok("list");
         let item = page.items.first().expect("item");
         let local_ref = item.local_artifact_ref.clone().expect("local ref");
-        let body = sync_read_conflict_artifact(root, local_ref).test_ok("read");
+        let body = sync_read_conflict_artifact(root.clone(), root, local_ref).test_ok("read");
         assert_eq!(body, b"# local body\n");
     }
 
@@ -348,10 +376,12 @@ mod tests {
         seed_markdown_conflict(&workspace);
         let root = workspace.to_string_lossy().into_owned();
 
-        let err = sync_read_conflict_artifact(root.clone(), String::new()).test_err("empty");
+        let err = sync_read_conflict_artifact(root.clone(), root.clone(), String::new())
+            .test_err("empty");
         assert_eq!(err.code(), "sync_ffi_artifact_ref_invalid");
 
-        let err = sync_read_conflict_artifact(root, "../escape".to_owned()).test_err("traversal");
+        let err = sync_read_conflict_artifact(root.clone(), root, "../escape".to_owned())
+            .test_err("traversal");
         assert_eq!(err.code(), "invalid_conflict_artifact_ref");
     }
 
@@ -369,6 +399,7 @@ mod tests {
 
         let root = workspace.to_string_lossy().into_owned();
         let summary = sync_run_cycle(
+            root.clone(),
             root,
             config_dto("hermetic_fake", "ds-composed"),
             String::new(),
@@ -392,6 +423,7 @@ mod tests {
     fn run_cycle_fail_closed_blank_workspace_and_invalid_backend() {
         let err = sync_run_cycle(
             String::new(),
+            String::new(),
             config_dto("hermetic_fake", "ds"),
             String::new(),
             false,
@@ -406,6 +438,7 @@ mod tests {
 
         let err = sync_run_cycle(
             root.clone(),
+            root.clone(),
             config_dto("not-a-backend", "ds"),
             String::new(),
             false,
@@ -413,12 +446,19 @@ mod tests {
         .test_err("invalid backend");
         assert_eq!(err.code(), "sync_ffi_backend_kind_invalid");
 
-        let err = sync_run_cycle(root.clone(), config_dto("git", "ds"), String::new(), false)
-            .test_err("git incomplete");
+        let err = sync_run_cycle(
+            root.clone(),
+            root.clone(),
+            config_dto("git", "ds"),
+            String::new(),
+            false,
+        )
+        .test_err("git incomplete");
         assert_eq!(err.code(), "git_config_incomplete");
 
         // Git remote URL with embedded userinfo is rejected at the FFI edge (before adapter).
         let err = sync_run_cycle(
+            root.clone(),
             root.clone(),
             SyncBackendConfigDto {
                 endpoint_url: "https://alice:s3cr3t@example.com/repo.git".to_owned(),
@@ -433,6 +473,7 @@ mod tests {
 
         // Fields belonging to another backend kind are a wire violation, not a silent borrow.
         let err = sync_run_cycle(
+            root.clone(),
             root,
             SyncBackendConfigDto {
                 s3_bucket: "leaked".to_owned(),
@@ -468,6 +509,7 @@ mod tests {
         let root = workspace.to_string_lossy().into_owned();
         let bare_url = bare.to_string_lossy().into_owned();
         let summary = sync_run_cycle(
+            root.clone(),
             root,
             SyncBackendConfigDto {
                 endpoint_url: bare_url,
@@ -500,6 +542,7 @@ mod tests {
         let root = workspace.to_string_lossy().into_owned();
 
         let err = sync_run_cycle(
+            root.clone(),
             root,
             SyncBackendConfigDto {
                 endpoint_url: "https://dav.example/remote.php/dav".to_owned(),
@@ -518,11 +561,12 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws-lock");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let _held = lomo_platform_fs::ProcessFileLock::try_acquire(&paths.cycle_lock)
             .test_ok("hold cycle lock");
 
         let err = sync_run_cycle(
+            workspace.to_string_lossy().into_owned(),
             workspace.to_string_lossy().into_owned(),
             config_dto("hermetic_fake", "ds-lock"),
             String::new(),
@@ -545,7 +589,7 @@ mod tests {
         let memo = workspace.join("memos");
         std::fs::create_dir_all(&memo).expect("memos");
         std::fs::write(memo.join("keep.md"), "user-bytes").expect("user markdown");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         write_session(
             &paths,
             &SyncSession::new(fence(), SessionKind::Incremental, "reset-session")
@@ -554,7 +598,11 @@ mod tests {
         .test_ok("write session");
         assert!(paths.session.exists());
 
-        sync_reset_control_tree(workspace.to_string_lossy().into_owned()).test_ok("reset");
+        sync_reset_control_tree(
+            workspace.to_string_lossy().into_owned(),
+            workspace.to_string_lossy().into_owned(),
+        )
+        .test_ok("reset");
 
         assert!(!paths.session.exists());
         assert_eq!(
@@ -568,8 +616,11 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws-gen");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let missing = sync_workspace_generation(workspace.to_string_lossy().into_owned())
-            .test_err("missing generation");
+        let missing = sync_workspace_generation(
+            workspace.to_string_lossy().into_owned(),
+            workspace.to_string_lossy().into_owned(),
+        )
+        .test_err("missing generation");
         assert_eq!(missing.code(), "workspace_generation_missing");
         assert!(
             !lomo_workspace::WorkspaceLayout::for_workspace(&workspace)
@@ -580,8 +631,11 @@ mod tests {
 
         let minted =
             lomo_workspace::load_or_mint_workspace_generation(&workspace).test_ok("mint write");
-        let loaded = sync_workspace_generation(workspace.to_string_lossy().into_owned())
-            .test_ok("load generation");
+        let loaded = sync_workspace_generation(
+            workspace.to_string_lossy().into_owned(),
+            workspace.to_string_lossy().into_owned(),
+        )
+        .test_ok("load generation");
         assert_eq!(loaded, minted.as_str());
     }
 
@@ -600,12 +654,13 @@ mod tests {
         let root = workspace.to_string_lossy().into_owned();
 
         // No durable cycle yet: honest idle, not a fabricated zero-count record.
-        let idle = sync_cycle_status(root.clone()).test_ok("empty status");
+        let idle = sync_cycle_status(root.clone(), root.clone()).test_ok("empty status");
         assert!(!idle.has_record);
         assert_eq!(idle.phase, "idle");
         assert_eq!(idle.cycle_seq, 0);
 
         let summary = sync_run_cycle(
+            root.clone(),
             root.clone(),
             config_dto("hermetic_fake", "ds-status"),
             String::new(),
@@ -615,7 +670,7 @@ mod tests {
         assert!(summary.ensure_present_count >= 1);
 
         // Durable record is the authority: cycle facts round-trip without Kotlin-side state.
-        let status = sync_cycle_status(root.clone()).test_ok("status after cycle");
+        let status = sync_cycle_status(root.clone(), root.clone()).test_ok("status after cycle");
         assert!(status.has_record);
         assert_eq!(status.phase, "completed");
         assert_eq!(status.stage, "finished");
@@ -629,7 +684,7 @@ mod tests {
         assert!(status.finished_at_ms.is_some());
 
         // Second read observes the same durable fact — no memory-only state.
-        let again = sync_cycle_status(root).test_ok("status re-read");
+        let again = sync_cycle_status(root.clone(), root).test_ok("status re-read");
         assert_eq!(again.cycle_id, status.cycle_id);
         assert_eq!(again.state_stamp, status.state_stamp);
     }
@@ -644,20 +699,21 @@ mod tests {
         run_rebuild(&workspace, 8).expect("index seed");
         let root = workspace.to_string_lossy().into_owned();
 
-        let err = sync_request_cancel(root.clone()).test_err("no running cycle");
+        let err = sync_request_cancel(root.clone(), root.clone()).test_err("no running cycle");
         assert_eq!(err.code(), "sync_cycle_not_running");
 
         // A completed cycle is not running — cancel must not rewrite a terminal record.
         sync_run_cycle(
+            root.clone(),
             root.clone(),
             config_dto("hermetic_fake", "ds-cancel"),
             String::new(),
             false,
         )
         .test_ok("completed cycle");
-        let err = sync_request_cancel(root.clone()).test_err("terminal cycle");
+        let err = sync_request_cancel(root.clone(), root.clone()).test_err("terminal cycle");
         assert_eq!(err.code(), "sync_cycle_not_running");
-        let status = sync_cycle_status(root).test_ok("status preserved");
+        let status = sync_cycle_status(root.clone(), root).test_ok("status preserved");
         assert_eq!(status.phase, "completed");
         assert!(!status.cancel_requested);
     }
@@ -675,6 +731,7 @@ mod tests {
         // Hermetic probe: real port construction + listing round-trip (empty remote).
         let probe = sync_probe_backend(
             root.clone(),
+            root.clone(),
             config_dto("hermetic_fake", "ds-probe"),
             String::new(),
         )
@@ -685,10 +742,11 @@ mod tests {
         assert!(probe.conditional_delete);
         assert!(probe.probed_at_ms > 0);
         // Probe must not invent a cycle record — status stays idle.
-        let status = sync_cycle_status(root.clone()).test_ok("post-probe status");
+        let status = sync_cycle_status(root.clone(), root.clone()).test_ok("post-probe status");
         assert!(!status.has_record);
 
         let err = sync_probe_backend(
+            String::new(),
             String::new(),
             config_dto("hermetic_fake", "ds-probe"),
             String::new(),
@@ -697,11 +755,16 @@ mod tests {
         assert_eq!(err.code(), "sync_ffi_workspace_root_invalid");
 
         // A held cycle lock refuses the probe — remote mutation observation must not race.
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let _held = lomo_platform_fs::ProcessFileLock::try_acquire(&paths.cycle_lock)
             .test_ok("hold cycle lock");
-        let err = sync_probe_backend(root, config_dto("hermetic_fake", "ds-probe"), String::new())
-            .test_err("probe under held lock");
+        let err = sync_probe_backend(
+            root.clone(),
+            root,
+            config_dto("hermetic_fake", "ds-probe"),
+            String::new(),
+        )
+        .test_err("probe under held lock");
         assert_eq!(err.code(), "sync_cycle_lock_held");
     }
 }

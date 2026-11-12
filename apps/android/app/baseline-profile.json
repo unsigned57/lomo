@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "baseline_sha256": "720b058ad581b38cc271d51eca521873fb489fb70a6a5f753c27a56b71c68870",
+  "startup_sha256": "e0c2c16e8608cd04b5488bd19204a7c71355fe8c17012d68d3aea31a262f34c2",
+  "capture": {
+    "apk_sha256": "e8517dc626774f5de4bb30778212a122669b021d7d1b8f706ccc804da89cbb7c",
+    "corpus_sha256": "728e7517c093cf67adfca522efb4ca5bf1aa02916e0c4cad8d5d97742f2db16a",
+    "device_fingerprint": "redroid/redroid_x86_64_only/redroid_x86_64_only:15/BP1A.250505.005.D1/eng.root:userdebug/test-keys",
+    "source_revision": "55233d2c4832386b3409c559e9d2e00e48a029fb-dirty"
+  }
+}

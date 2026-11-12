@@ -64,16 +64,19 @@ class SyncConflictStateHandlerTest : AppFunSpec() {
 
             consumeSyncConflictState(
                 syncState =
-                    UnifiedSyncState.Error(
-                        error = UnifiedSyncError(provider = SyncBackendType.GIT, message = "git failed"),
-                        timestamp = 123L,
-                    ),
+                UnifiedSyncState.Error(
+                    error = UnifiedSyncError(provider = SyncBackendType.GIT, message = "git failed"),
+                    timestamp = 123L,
+                ),
                 providers = setOf(SyncBackendType.GIT),
                 onShowConflictDialog = recorder::showConflict,
                 onShowReviewDialog = recorder::showReview,
             )
             consumeSyncConflictState(
-                syncState = UnifiedSyncState.ConflictDetected(SyncBackendType.INBOX, conflictSet(SyncBackendType.INBOX)),
+                syncState = UnifiedSyncState.ConflictDetected(
+                    SyncBackendType.INBOX,
+                    conflictSet(SyncBackendType.INBOX),
+                ),
                 providers = setOf(SyncBackendType.S3),
                 onShowConflictDialog = recorder::showConflict,
                 onShowReviewDialog = recorder::showReview,
@@ -84,13 +87,9 @@ class SyncConflictStateHandlerTest : AppFunSpec() {
     }
 
     private sealed interface ConflictDialogEvent {
-        data class ShowConflict(
-            val conflictSet: SyncConflictSet,
-        ) : ConflictDialogEvent
+        data class ShowConflict(val conflictSet: SyncConflictSet) : ConflictDialogEvent
 
-        data class ShowReview(
-            val review: SyncReviewSession,
-        ) : ConflictDialogEvent
+        data class ShowReview(val review: SyncReviewSession) : ConflictDialogEvent
     }
 
     private class RecordingConflictCallbacks {
@@ -106,33 +105,31 @@ class SyncConflictStateHandlerTest : AppFunSpec() {
     }
 }
 
-private fun conflictSet(source: SyncBackendType): SyncConflictSet =
-    SyncConflictSet(
-        source = source,
-        files =
-            listOf(
-                SyncConflictFile(
-                    relativePath = "memos/2026_06_10.md",
-                    localContent = "local",
-                    remoteContent = "remote",
-                    isBinary = false,
-                ),
-            ),
-        timestamp = 123L,
-    )
+private fun conflictSet(source: SyncBackendType): SyncConflictSet = SyncConflictSet(
+    source = source,
+    files =
+    listOf(
+        SyncConflictFile(
+            relativePath = "memos/2026_06_10.md",
+            localContent = "local",
+            remoteContent = "remote",
+            isBinary = false,
+        ),
+    ),
+    timestamp = 123L,
+)
 
-private fun reviewSession(source: SyncBackendType): SyncReviewSession =
-    SyncReviewSession(
-        source = source,
-        items =
-            listOf(
-                SyncReviewItem(
-                    relativePath = "memos/2026_06_10.md",
-                    localContent = null,
-                    incomingContent = "incoming",
-                    isBinary = false,
-                ),
-            ),
-        timestamp = 123L,
-        kind = SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW,
-    )
+private fun reviewSession(source: SyncBackendType): SyncReviewSession = SyncReviewSession(
+    source = source,
+    items =
+    listOf(
+        SyncReviewItem(
+            relativePath = "memos/2026_06_10.md",
+            localContent = null,
+            incomingContent = "incoming",
+            isBinary = false,
+        ),
+    ),
+    timestamp = 123L,
+    kind = SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW,
+)

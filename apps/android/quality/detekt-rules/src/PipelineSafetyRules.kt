@@ -20,12 +20,11 @@ import org.jetbrains.kotlin.psi.KtThrowExpression
 import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.psiUtil.anyDescendantOfType
 
-internal class NoSwallowedCancellationInPagingSourceRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "PagingSource load implementations must propagate cancellation before converting a caught failure to LoadResult.Error.",
-) {
+internal class NoSwallowedCancellationInPagingSourceRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "PagingSource load implementations must propagate cancellation before converting a caught failure to LoadResult.Error.",
+    ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
         if (!expression.containingKtFile.isProductionSource()) return
@@ -55,10 +54,9 @@ internal class NoSwallowedCancellationInPagingSourceRule(
 }
 
 private data class FailureBoundary(val parameter: String, val body: KtBlockExpression) {
-    fun rethrowsBefore(conversion: KtExpression): Boolean =
-        body.statements.firstOrNull()?.let { first ->
-            first.textRange.startOffset < conversion.textRange.startOffset && first.rethrowsCancellation(parameter)
-        } == true
+    fun rethrowsBefore(conversion: KtExpression): Boolean = body.statements.firstOrNull()?.let { first ->
+        first.textRange.startOffset < conversion.textRange.startOffset && first.rethrowsCancellation(parameter)
+    } == true
 }
 
 internal fun KtExpression.rethrowsCancellation(parameter: String): Boolean {
@@ -73,23 +71,32 @@ internal fun KtBlockExpression.preservesCaughtCancellation(parameter: String): B
 
 private fun KtExpression.coversCancellation(parameter: String): Boolean = when (this) {
     is KtParenthesizedExpression -> expression?.coversCancellation(parameter) == true
-    is KtIsExpression -> !isNegated && leftHandSide.text == parameter &&
-        typeReference?.text?.let { containingKtFile.importedName(it).substringAfterLast('.') } == "CancellationException"
+
+    is KtIsExpression ->
+        !isNegated && leftHandSide.text == parameter &&
+            typeReference?.text?.let {
+                containingKtFile.importedName(
+                    it,
+                ).substringAfterLast('.')
+            } == "CancellationException"
+
     is KtBinaryExpression -> when (operationToken) {
         KtTokens.OROR -> left?.coversCancellation(parameter) == true || right?.coversCancellation(parameter) == true
         KtTokens.ANDAND -> left?.coversCancellation(parameter) == true && right?.coversCancellation(parameter) == true
         else -> false
     }
+
     else -> false
 }
 
-private fun KtExpression.rethrows(parameter: String): Boolean =
-    when (this) {
-        is KtThrowExpression -> thrownExpression?.text == parameter
-        is KtBlockExpression -> statements.lastOrNull()?.rethrows(parameter) == true &&
-            statements.dropLast(1).none { it.canExitBeforeRethrow() }
-        else -> false
-    }
+private fun KtExpression.rethrows(parameter: String): Boolean = when (this) {
+    is KtThrowExpression -> thrownExpression?.text == parameter
+
+    is KtBlockExpression -> statements.lastOrNull()?.rethrows(parameter) == true &&
+        statements.dropLast(1).none { it.canExitBeforeRethrow() }
+
+    else -> false
+}
 
 private fun KtExpression.canExitBeforeRethrow(): Boolean =
     this is KtReturnExpression || this is KtBreakExpression || this is KtContinueExpression ||
@@ -111,7 +118,9 @@ private fun KtLambdaExpression.failureBoundary(): FailureBoundary? {
     val handlesFailure = when (call.calleeExpression?.text) {
         "fold" -> argument.getArgumentName()?.asName?.identifier == "onFailure" ||
             (argument.getArgumentName() == null && call.valueArguments.indexOf(argument) == 1)
+
         "getOrElse", "recover", "recoverCatching" -> true
+
         else -> false
     }
     if (!handlesFailure) return null

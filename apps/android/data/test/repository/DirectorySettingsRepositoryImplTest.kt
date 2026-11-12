@@ -1,44 +1,40 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.test.runTest
-import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
+import com.lomo.domain.model.WorkspaceRootTransitionCorruptionException
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.nulls.shouldBeNull
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.core.Preferences
-import java.io.File
-import java.nio.file.Files
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 
 /*
  * Behavior Contract:
+ * Capability: selected workspace and attachment locations commit only after candidate verification; owner: data; priority: P0.
+ * Scenarios: prepared and activated journals preserve prior selections; commit publishes candidate bindings;
+ * recovery discards uncommitted candidates; stale media baselines reject activation.
+ * Observable outcomes: real DataStore locations, decoded journal values and typed transaction failures.
+ * TDD proof: target/lomo/reports/manual/directory-selection/transaction-red.log observes premature media publication;
+ * verification-green.log in that directory verifies durable prepare/activate/commit/recover behavior.
+ * Test Change Justification:
+ * Reason category: unified directory transaction protocol.
+ * Old behavior/assertion being replaced: root-only preparation calls supplied a candidate without attachment binding information.
+ * Why old assertion is no longer correct: the same journal also prepares attachment rebinds; root-only calls explicitly supply no rebind.
+ * Coverage preserved by: all root persistence, rollback, activation and display assertions remain unchanged; new media transaction cases extend them.
+ * Why this is not fitting the test to the implementation: settings must never publish a directory whose indexing has not succeeded.
  * - Unit under test: DirectorySettingsRepositoryImpl
  * - Behavior focus: storage-area to root-type mapping, current location from the config source, and display/apply delegation.
  * - Observable outcomes: observed StorageLocation raw values, null fallthrough, and setRoot arguments.
@@ -47,6 +43,72 @@ import kotlinx.coroutines.CoroutineScope
  */
 class DirectorySettingsRepositoryImplTest : DataFunSpec() {
     init {
+        test(
+            "given media selection changes outside a prepared transition when activated then the stale transaction is rejected",
+        ) {
+            runTest {
+                val (_, store, repository) = setUpTest()
+                val root = StorageLocation("/workspace")
+                val old = StorageLocation("/old-images")
+                store.updateRootDirectory(root.raw)
+                store.updateImageDirectory(old.raw)
+                val transition = repository.prepareRootTransition(
+                    root,
+                    com.lomo.domain.model.MediaDirectoryChange(StorageArea.IMAGE, old, StorageLocation("/new-images")),
+                )
+                store.updateImageDirectory("/external-selection")
+
+                shouldThrow<WorkspaceRootTransitionCorruptionException> {
+                    repository.markRootTransitionActivated(transition.id)
+                }
+                repository.currentLocation(StorageArea.IMAGE) shouldBe StorageLocation("/external-selection")
+            }
+        }
+        for (area in listOf(StorageArea.IMAGE, StorageArea.VOICE)) {
+            test(
+                "given a prepared $area binding when activated and committed then its selection publishes only at commit",
+            ) {
+                runTest {
+                    val (_, store, repository) = setUpTest()
+                    val root = StorageLocation("/workspace")
+                    val previous = StorageLocation("/old-${area.name}")
+                    val candidate = StorageLocation("/new-${area.name}")
+                    store.updateRootDirectory(root.raw)
+                    when (area) {
+                        StorageArea.IMAGE -> store.updateImageDirectory(previous.raw)
+                        StorageArea.VOICE -> store.updateVoiceDirectory(previous.raw)
+                        else -> error("Unexpected test area")
+                    }
+                    val change = com.lomo.domain.model.MediaDirectoryChange(area, previous, candidate)
+                    val transition = repository.prepareRootTransition(root, change)
+                    repository.pendingRootTransition()?.mediaChange shouldBe change
+                    repository.currentLocation(area) shouldBe previous
+                    repository.markRootTransitionActivated(transition.id)
+                    repository.currentLocation(area) shouldBe previous
+                    repository.commitRootTransition(transition.id)
+
+                    repository.currentRootLocation() shouldBe root
+                    repository.currentLocation(area) shouldBe candidate
+                    repository.pendingRootTransition() shouldBe null
+                }
+            }
+            test(
+                "given an activated but uncommitted first $area selection when recovered then its candidate is discarded",
+            ) {
+                runTest {
+                    val (_, store, repository) = setUpTest()
+                    val root = StorageLocation("/workspace")
+                    store.updateRootDirectory(root.raw)
+                    val change = com.lomo.domain.model.MediaDirectoryChange(area, null, StorageLocation("/candidate"))
+                    val transition = repository.prepareRootTransition(root, change)
+                    repository.markRootTransitionActivated(transition.id)
+
+                    repository.recoverRootLocation() shouldBe root
+                    repository.currentLocation(area) shouldBe null
+                    repository.pendingRootTransition() shouldBe null
+                }
+            }
+        }
         test("observeLocation maps ROOT area to MAIN root flow and wraps raw location") {
             runTest {
                 val (dataSource, _, repository) = setUpTest()
@@ -115,7 +177,7 @@ class DirectorySettingsRepositoryImplTest : DataFunSpec() {
                 val (_, dataStore, repository) = setUpTest()
                 dataStore.updateRootDirectory("/workspace-a")
 
-                repository.prepareRootTransition(StorageLocation("/workspace-b"))
+                repository.prepareRootTransition(StorageLocation("/workspace-b"), mediaChange = null)
 
                 repository.currentRootLocation() shouldBe StorageLocation("/workspace-a")
                 repository.recoverRootLocation() shouldBe StorageLocation("/workspace-a")
@@ -127,7 +189,10 @@ class DirectorySettingsRepositoryImplTest : DataFunSpec() {
             runTest {
                 val (_, dataStore, repository) = setUpTest()
                 dataStore.updateRootDirectory("/workspace-a")
-                val transition = repository.prepareRootTransition(StorageLocation("content://workspace-b"))
+                val transition = repository.prepareRootTransition(
+                    StorageLocation("content://workspace-b"),
+                    mediaChange = null,
+                )
 
                 repository.markRootTransitionActivated(transition.id)
                 repository.commitRootTransition(transition.id)
@@ -141,7 +206,7 @@ class DirectorySettingsRepositoryImplTest : DataFunSpec() {
             runTest {
                 val (_, dataStore, repository) = setUpTest()
                 dataStore.updateRootDirectory("/workspace-a")
-                val transition = repository.prepareRootTransition(StorageLocation("/workspace-b"))
+                val transition = repository.prepareRootTransition(StorageLocation("/workspace-b"), mediaChange = null)
                 repository.markRootTransitionActivated(transition.id)
 
                 repository.recoverRootLocation() shouldBe StorageLocation("/workspace-a")
@@ -154,7 +219,7 @@ class DirectorySettingsRepositoryImplTest : DataFunSpec() {
             runTest {
                 val (_, dataStore, repository) = setUpTest()
                 dataStore.updateRootDirectory("/workspace-a")
-                val transition = repository.prepareRootTransition(StorageLocation("/workspace-b"))
+                val transition = repository.prepareRootTransition(StorageLocation("/workspace-b"), mediaChange = null)
 
                 val failure = runCatching { repository.commitRootTransition(transition.id) }.exceptionOrNull()
 
@@ -165,7 +230,11 @@ class DirectorySettingsRepositoryImplTest : DataFunSpec() {
         }
     }
 
-    private fun kotlinx.coroutines.test.TestScope.setUpTest(): Triple<DirectoryFakeWorkspaceConfigSource, LomoDataStore, DirectorySettingsRepositoryImpl> {
+    private fun TestScope.setUpTest(): Triple<
+        DirectoryFakeWorkspaceConfigSource,
+        LomoDataStore,
+        DirectorySettingsRepositoryImpl,
+        > {
         val dataSource = DirectoryFakeWorkspaceConfigSource()
         val dataStore = createLomoDataStore(backgroundScope)
         val repository =
@@ -184,7 +253,9 @@ class DirectorySettingsRepositoryImplTest : DataFunSpec() {
             scope = scope,
             produceFile = { backingFile },
         )
-        val constructor = LomoDataStore::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+        val constructor = LomoDataStore::class.java.getDeclaredConstructor(
+            androidx.datastore.core.DataStore::class.java,
+        )
         constructor.isAccessible = true
         return constructor.newInstance(realDataStore)
     }
@@ -201,8 +272,7 @@ private class DirectoryFakeWorkspaceConfigSource : WorkspaceConfigSource {
         roots.value = roots.value + (type to pathOrUri)
     }
 
-    override fun getRootFlow(type: StorageRootType): Flow<String?> =
-        roots.map { it[type] }
+    override fun getRootFlow(type: StorageRootType): Flow<String?> = roots.map { it[type] }
 
     override fun getRootDisplayNameFlow(type: StorageRootType): Flow<String?> =
         roots.map { it[type]?.substringAfterLast('/') }

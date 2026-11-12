@@ -10,7 +10,6 @@ import dev.detekt.test.utils.compileForTest
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -39,18 +38,19 @@ import kotlin.io.path.writeText
  * Excludes:
  * - Test fixtures and explicitly bounded one-shot reads.
  */
-class ThreadBoundaryAndMemoryRulesTest : FunSpec({
-    test("registers NoUnconfinedIoOrNative and NoUnpaginatedFullLoad in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoUnconfinedIoOrNative")].shouldNotBeNull()
-        rules[RuleName("NoUnpaginatedFullLoad")].shouldNotBeNull()
-    }
+class ThreadBoundaryAndMemoryRulesTest :
+    FunSpec({
+        test("registers NoUnconfinedIoOrNative and NoUnpaginatedFullLoad in rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoUnconfinedIoOrNative")].shouldNotBeNull()
+            rules[RuleName("NoUnpaginatedFullLoad")].shouldNotBeNull()
+        }
 
-    test("NoUnconfinedIoOrNative: flags readText outside withContext(Dispatchers.IO)") {
-        val findings =
-            rule("NoUnconfinedIoOrNative").findingsForSource(
-                "app/src/feature/SampleView.kt",
-                """
+        test("NoUnconfinedIoOrNative: flags readText outside withContext(Dispatchers.IO)") {
+            val findings =
+                rule("NoUnconfinedIoOrNative").findingsForSource(
+                    "app/src/feature/SampleView.kt",
+                    """
                 package com.lomo.app.feature
 
                 import java.io.File
@@ -61,17 +61,17 @@ class ThreadBoundaryAndMemoryRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Blocking I/O operation 'readText' executed outside Dispatchers.IO"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Blocking I/O operation 'readText' executed outside Dispatchers.IO"
+        }
 
-    test("NoUnconfinedIoOrNative: allows readText inside withContext(Dispatchers.IO)") {
-        val findings =
-            rule("NoUnconfinedIoOrNative").findingsForSource(
-                "app/src/feature/SampleView.kt",
-                """
+        test("NoUnconfinedIoOrNative: allows readText inside withContext(Dispatchers.IO)") {
+            val findings =
+                rule("NoUnconfinedIoOrNative").findingsForSource(
+                    "app/src/feature/SampleView.kt",
+                    """
                 package com.lomo.app.feature
 
                 import java.io.File
@@ -85,16 +85,16 @@ class ThreadBoundaryAndMemoryRulesTest : FunSpec({
                         }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoUnconfinedIoOrNative: allows readText with behavior-contract comment") {
-        val findings =
-            rule("NoUnconfinedIoOrNative").findingsForSource(
-                "app/src/feature/SampleView.kt",
-                """
+        test("NoUnconfinedIoOrNative: allows readText with behavior-contract comment") {
+            val findings =
+                rule("NoUnconfinedIoOrNative").findingsForSource(
+                    "app/src/feature/SampleView.kt",
+                    """
                 package com.lomo.app.feature
 
                 import java.io.File
@@ -106,16 +106,16 @@ class ThreadBoundaryAndMemoryRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoUnconfinedIoOrNative: flags writeText outside withContext(Dispatchers.IO)") {
-        val findings =
-            rule("NoUnconfinedIoOrNative").findingsForSource(
-                "app/src/navigation/NavCache.kt",
-                """
+        test("NoUnconfinedIoOrNative: flags writeText outside withContext(Dispatchers.IO)") {
+            val findings =
+                rule("NoUnconfinedIoOrNative").findingsForSource(
+                    "app/src/navigation/NavCache.kt",
+                    """
                 package com.lomo.app.navigation
 
                 import java.io.File
@@ -126,17 +126,17 @@ class ThreadBoundaryAndMemoryRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Blocking I/O operation 'writeText' executed outside Dispatchers.IO"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Blocking I/O operation 'writeText' executed outside Dispatchers.IO"
+        }
 
-    test("NoUnpaginatedFullLoad: flags getAllMemos returning List<Memo> without limit or pageSize") {
-        val findings =
-            rule("NoUnpaginatedFullLoad").findingsForSource(
-                "domain/src/usecase/GetAllMemosUseCase.kt",
-                """
+        test("NoUnpaginatedFullLoad: flags getAllMemos returning List<Memo> without limit or pageSize") {
+            val findings =
+                rule("NoUnpaginatedFullLoad").findingsForSource(
+                    "domain/src/usecase/GetAllMemosUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class GetAllMemosUseCase {
@@ -145,17 +145,17 @@ class ThreadBoundaryAndMemoryRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Unpaginated full-dataset query 'getAllMemos'"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Unpaginated full-dataset query 'getAllMemos'"
+        }
 
-    test("NoUnpaginatedFullLoad: allows getAllMemos with limit parameter") {
-        val findings =
-            rule("NoUnpaginatedFullLoad").findingsForSource(
-                "domain/src/usecase/GetAllMemosUseCase.kt",
-                """
+        test("NoUnpaginatedFullLoad: allows getAllMemos with limit parameter") {
+            val findings =
+                rule("NoUnpaginatedFullLoad").findingsForSource(
+                    "domain/src/usecase/GetAllMemosUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class GetAllMemosUseCase {
@@ -164,16 +164,16 @@ class ThreadBoundaryAndMemoryRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoUnpaginatedFullLoad: allows getAllMemos with behavior-contract comment") {
-        val findings =
-            rule("NoUnpaginatedFullLoad").findingsForSource(
-                "domain/src/usecase/GetAllMemosUseCase.kt",
-                """
+        test("NoUnpaginatedFullLoad: allows getAllMemos with behavior-contract comment") {
+            val findings =
+                rule("NoUnpaginatedFullLoad").findingsForSource(
+                    "domain/src/usecase/GetAllMemosUseCase.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class GetAllMemosUseCase {
@@ -183,16 +183,16 @@ class ThreadBoundaryAndMemoryRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoUnpaginatedFullLoad: flags readBytes call without behavior-contract comment") {
-        val findings =
-            rule("NoUnpaginatedFullLoad").findingsForSource(
-                "data/src/repository/MediaRepository.kt",
-                """
+        test("NoUnpaginatedFullLoad: flags readBytes call without behavior-contract comment") {
+            val findings =
+                rule("NoUnpaginatedFullLoad").findingsForSource(
+                    "data/src/repository/MediaRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 import java.io.File
@@ -203,17 +203,17 @@ class ThreadBoundaryAndMemoryRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Unbounded memory allocation: calling 'readBytes()'"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Unbounded memory allocation: calling 'readBytes()'"
+        }
 
-    test("NoUnpaginatedFullLoad: allows readBytes with behavior-contract full-load-ok comment") {
-        val findings =
-            rule("NoUnpaginatedFullLoad").findingsForSource(
-                "data/src/repository/MediaRepository.kt",
-                """
+        test("NoUnpaginatedFullLoad: allows readBytes with behavior-contract full-load-ok comment") {
+            val findings =
+                rule("NoUnpaginatedFullLoad").findingsForSource(
+                    "data/src/repository/MediaRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 import java.io.File
@@ -225,23 +225,19 @@ class ThreadBoundaryAndMemoryRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
-})
+            findings.shouldHaveSize(0)
+        }
+    })
 
-private fun rule(name: String): Rule =
-    LomoArchitectureRuleSetProvider()
-        .instance()
-        .rules[RuleName(name)]
-        ?.invoke(Config.empty)
-        ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
+private fun rule(name: String): Rule = LomoArchitectureRuleSetProvider()
+    .instance()
+    .rules[RuleName(name)]
+    ?.invoke(Config.empty)
+    ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("detekt-test")
     val file = tempDir.resolve(relativePath)
     file.parent?.createDirectories()

@@ -44,15 +44,9 @@ internal enum class LanRuntimeFailureOperation {
     PeerDiscoveryRejected,
 }
 
-internal data class LanRuntimeFailure(
-    val operation: LanRuntimeFailureOperation,
-    val diagnostic: String,
-)
+internal data class LanRuntimeFailure(val operation: LanRuntimeFailureOperation, val diagnostic: String)
 
-internal data class LanPlatformNetworkSnapshot(
-    val permissionGranted: Boolean,
-    val candidates: List<LanBindCandidate>,
-)
+internal data class LanPlatformNetworkSnapshot(val permissionGranted: Boolean, val candidates: List<LanBindCandidate>)
 
 internal interface LanRuntimeNetworkMonitor {
     fun snapshot(): LanPlatformNetworkSnapshot
@@ -100,20 +94,15 @@ internal sealed interface LanReceivedItemResolution {
     data class Fail(val code: String) : LanReceivedItemResolution
 }
 
-private class ManagedLanCoordinatorEngine(
-    private val engine: ManagedEngineSession,
-) : LanCoordinatorEngine {
+private class ManagedLanCoordinatorEngine(private val engine: ManagedEngineSession) : LanCoordinatorEngine {
     override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity =
         engine.configureLanIdentity(identity)
 
-    override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) =
-        engine.updateLanNetworkSnapshot(snapshot)
+    override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) = engine.updateLanNetworkSnapshot(snapshot)
 
-    override fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts) =
-        engine.updateLanDiscoverySnapshot(snapshot)
+    override fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts) = engine.updateLanDiscoverySnapshot(snapshot)
 
-    override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> =
-        engine.listLanDiscoveredPeers()
+    override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> = engine.listLanDiscoveredPeers()
 
     override fun startLanService(): LanServiceState = engine.startLanService()
 
@@ -127,11 +116,7 @@ private class ManagedLanCoordinatorEngine(
     override fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long) =
         engine.confirmLanSession(sessionId, signature, nowMs)
 
-    override fun resolveReceivedLanItem(
-        batchId: String,
-        itemIndex: UInt,
-        resolution: LanReceivedItemResolution,
-    ) {
+    override fun resolveReceivedLanItem(batchId: String, itemIndex: UInt, resolution: LanReceivedItemResolution) {
         when (resolution) {
             is LanReceivedItemResolution.Commit -> engine.commitReceivedLanItem(batchId, itemIndex, resolution.nowMs)
             is LanReceivedItemResolution.Fail -> engine.failReceivedLanItem(batchId, itemIndex, resolution.code)
@@ -139,9 +124,7 @@ private class ManagedLanCoordinatorEngine(
     }
 }
 
-private class AndroidLanRuntimeMulticastLease(
-    context: Context,
-) : LanRuntimeMulticastLease {
+private class AndroidLanRuntimeMulticastLease(context: Context) : LanRuntimeMulticastLease {
     private val manager =
         LanShareMulticastLockManager(
             requireNotNull(context.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager) {
@@ -178,7 +161,8 @@ internal class LanRuntimeCoordinator internal constructor(
     private val multicastLease: LanRuntimeMulticastLease,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-) : LanRuntimePlatform, AutoCloseable {
+) : LanRuntimePlatform,
+    AutoCloseable {
     internal constructor(
         context: Context,
         engine: ManagedEngineSession,
@@ -307,12 +291,15 @@ internal class LanRuntimeCoordinator internal constructor(
                 reportFailure(LanRuntimeFailureOperation.Permission, "local-network permission is not granted")
                 false
             }
+
             snapshot.candidates.isEmpty() -> {
                 stopActualService()
                 reportFailure(LanRuntimeFailureOperation.Topology, "no eligible LAN network candidate is available")
                 false
             }
+
             serviceStarted && serviceNetwork == snapshot -> true
+
             else -> {
                 if (serviceStarted) stopActualService()
                 multicastLease.acquireService()
@@ -354,12 +341,15 @@ internal class LanRuntimeCoordinator internal constructor(
                 reportFailure(LanRuntimeFailureOperation.Permission, "local-network permission is not granted")
                 false
             }
+
             snapshot.candidates.isEmpty() -> {
                 stopActualDiscovery()
                 reportFailure(LanRuntimeFailureOperation.Topology, "no eligible LAN network candidate is available")
                 false
             }
+
             discoveryStarted && discoveryNetwork == snapshot -> true
+
             else -> {
                 if (discoveryStarted) stopActualDiscovery()
                 multicastLease.acquireDiscovery()
@@ -517,16 +507,21 @@ internal class LanRuntimeCoordinator internal constructor(
         _failure.value = LanRuntimeFailure(operation, diagnostic)
         when (operation) {
             LanRuntimeFailureOperation.Discovery -> stopActualDiscovery()
+
             LanRuntimeFailureOperation.Permission,
             LanRuntimeFailureOperation.Topology,
-            LanRuntimeFailureOperation.Network -> {
+            LanRuntimeFailureOperation.Network,
+            -> {
                 stopActualService()
                 stopActualDiscovery()
             }
+
             LanRuntimeFailureOperation.ServiceFailed -> stopActualService()
+
             LanRuntimeFailureOperation.ConnectionRejected,
             LanRuntimeFailureOperation.ItemFailed,
-            LanRuntimeFailureOperation.PeerDiscoveryRejected -> Unit
+            LanRuntimeFailureOperation.PeerDiscoveryRejected,
+            -> Unit
         }
     }
 
@@ -535,10 +530,7 @@ internal class LanRuntimeCoordinator internal constructor(
     }
 }
 
-private fun LanCoordinatorEngine.publishNetwork(
-    revision: AtomicLong,
-    snapshot: LanPlatformNetworkSnapshot,
-) {
+private fun LanCoordinatorEngine.publishNetwork(revision: AtomicLong, snapshot: LanPlatformNetworkSnapshot) {
     updateLanNetworkSnapshot(
         LanNetworkFacts(
             revision = revision.incrementAndGet().toULong(),
@@ -570,20 +562,19 @@ private fun publishDiscoverySnapshot(
     return engine.listLanDiscoveredPeers()
 }
 
-private fun Throwable.lanRuntimeDiagnostic(): String =
-    when (this) {
-        is com.lomo.domain.model.EngineCommandFailureException ->
-            "${failure.category.wireValue}/${failure.code}: ${failure.diagnostic}"
-        else -> message ?: this::class.simpleName.orEmpty()
-    }
+private fun Throwable.lanRuntimeDiagnostic(): String = when (this) {
+    is com.lomo.domain.model.EngineCommandFailureException ->
+        "${failure.category.wireValue}/${failure.code}: ${failure.diagnostic}"
 
-private fun emptyRuntimeInbox() =
-    LanRuntimeInbox(
-        pairingChallenges = emptyList(),
-        sessionChallenges = emptyList(),
-        activeSessions = emptyList(),
-        pendingBatches = emptyList(),
-        batchRecoveries = emptyList(),
-        committableItems = emptyList(),
-        outgoingBatches = emptyList(),
-    )
+    else -> message ?: this::class.simpleName.orEmpty()
+}
+
+private fun emptyRuntimeInbox() = LanRuntimeInbox(
+    pairingChallenges = emptyList(),
+    sessionChallenges = emptyList(),
+    activeSessions = emptyList(),
+    pendingBatches = emptyList(),
+    batchRecoveries = emptyList(),
+    committableItems = emptyList(),
+    outgoingBatches = emptyList(),
+)

@@ -11,6 +11,7 @@ package com.lomo.data.engine
  *   postcondition match.
  *
  * Scenarios:
+ * - Given Inspect, metadata-only evidence has the same listing token and length without hashed bytes.
  * - Given a registered capability and present document, when Stat runs, then metadata carries
  *   target/kind/length/digest/fingerprint without content bytes.
  * - Given a registered Direct root, when Stat runs, then metadata is read from the bound directory
@@ -39,6 +40,11 @@ package com.lomo.data.engine
  * - Batch orchestration (AndroidPlatformActionExecutor) and Rust job advancement.
  *
  * Test Change Justification:
+ * - Reason category: explicit metadata observation capability.
+ * - Old behavior/assertion being replaced: no existing assertions replaced; Stat remains a verified content observation.
+ * - Why old assertion is no longer correct: Inspect adds metadata-only resource semantics alongside the existing action.
+ * - Coverage preserved by: new Unknown-digest evidence assertion paired with the existing verified Stat control.
+ * - Why this is not fitting the test to the implementation: the caller must receive the evidence depth it requested.
  * - Reason category: platform protocol contract change.
  * - Old behavior/assertion being replaced: listed documents were read by resolving their mutable path again.
  * - Why old assertion is no longer correct: listing now returns an opaque provider handle that must identify the later read.
@@ -51,13 +57,13 @@ import com.lomo.nativebridge.ActionEvidence
 import com.lomo.nativebridge.ActionOutcome
 import com.lomo.nativebridge.ContentDigest
 import com.lomo.nativebridge.DocumentKind
+import com.lomo.nativebridge.ExchangeArtifact
 import com.lomo.nativebridge.ExpectedFingerprint
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
 import com.lomo.nativebridge.StagedArtifactSource
 import com.lomo.nativebridge.WorkspaceTarget
 import com.lomo.nativebridge.WriteMode
-import com.lomo.nativebridge.ExchangeArtifact
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import java.io.File
@@ -65,6 +71,25 @@ import java.security.MessageDigest
 
 class AndroidPlatformActionAccessTest : DataFunSpec() {
     init {
+        test("given a present file when Inspect runs then listing metadata is returned without content authority") {
+            val fixture = Fixture()
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
+            fixture.gateway.seedFile("memo.md", content = "hello", documentId = "doc-memo")
+            val outcome = fixture.access.execute(
+                PlatformAction.Inspect("action-inspect", CAPABILITY, WorkspaceTarget.Relative("memo.md")),
+            )
+            val output = outcome.shouldBeInstanceOf<ActionOutcome.Applied>().output
+                .shouldBeInstanceOf<PlatformActionOutput.Stat>()
+            output.metadata.evidence.length shouldBe 5uL
+            output.metadata.evidence.digest shouldBe ContentDigest.Unknown
+            output.metadata.evidence.fingerprint shouldBe PlatformActionEvidence.fingerprint(
+                "doc-memo",
+                fixture.gateway.lastModified("memo.md"),
+                5uL,
+            )
+            fixture.gateway.sideEffectCount shouldBe 0
+        }
+
         test("given present file when Stat runs then typed metadata evidence is returned") {
             val fixture = Fixture()
             fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
@@ -257,6 +282,46 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
             failed.failure.category shouldBe "validation"
             failed.failure.code shouldBe "invalid_exchange_token"
             fixture.gateway.readCount shouldBe 0
+        }
+
+        test("given provider reports document absent when Read runs then document_not_found is returned") {
+            val fixture = Fixture()
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
+            fixture.gateway.readFailure = { throw java.io.FileNotFoundException("gone: memo.md") }
+
+            val outcome =
+                fixture.access.execute(
+                    PlatformAction.Read(
+                        "action-read-absent",
+                        CAPABILITY,
+                        "memo.md",
+                        ExpectedFingerprint.Absent,
+                    ),
+                )
+
+            val failed = outcome.shouldBeInstanceOf<ActionOutcome.Failed>()
+            failed.failure.category shouldBe "storage"
+            failed.failure.code shouldBe "document_not_found"
+        }
+
+        test("given provider IO failure when Read runs then a typed storage failure is returned") {
+            val fixture = Fixture()
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
+            fixture.gateway.readFailure = { throw java.io.IOException("provider stream failed") }
+
+            val outcome =
+                fixture.access.execute(
+                    PlatformAction.Read(
+                        "action-read-io",
+                        CAPABILITY,
+                        "memo.md",
+                        ExpectedFingerprint.Absent,
+                    ),
+                )
+
+            val failed = outcome.shouldBeInstanceOf<ActionOutcome.Failed>()
+            failed.failure.category shouldBe "storage"
+            failed.failure.code shouldBe "platform_io_error"
         }
 
         test("given registered Direct root when Stat runs then file metadata is returned without SAF IO") {
@@ -515,21 +580,16 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
                 documents = gateway,
             )
 
-        fun currentEvidence(
-            path: String,
-            content: String,
-            documentId: String,
-        ): ActionEvidence =
-            ActionEvidence(
+        fun currentEvidence(path: String, content: String, documentId: String): ActionEvidence = ActionEvidence(
+            length = content.length.toULong(),
+            digest = ContentDigest.Verified(sha256Hex(content.toByteArray())),
+            fingerprint =
+            PlatformActionEvidence.fingerprint(
+                documentId = documentId,
+                lastModifiedEpochMillis = gateway.lastModified(path),
                 length = content.length.toULong(),
-                digest = ContentDigest.Verified(sha256Hex(content.toByteArray())),
-                fingerprint =
-                    PlatformActionEvidence.fingerprint(
-                        documentId = documentId,
-                        lastModifiedEpochMillis = gateway.lastModified(path),
-                        length = content.length.toULong(),
-                    ),
-            )
+            ),
+        )
     }
 
     private companion object {
@@ -539,11 +599,10 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
     }
 }
 
-private fun sha256Hex(bytes: ByteArray): String =
-    MessageDigest
-        .getInstance("SHA-256")
-        .digest(bytes)
-        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+private fun sha256Hex(bytes: ByteArray): String = MessageDigest
+    .getInstance("SHA-256")
+    .digest(bytes)
+    .joinToString(separator = "") { byte -> "%02x".format(byte) }
 
 /**
  * In-memory SAF tree collaborator. Records side-effecting mutations so replay tests can prove
@@ -570,12 +629,7 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
     var handleReadCount: Int = 0
         private set
 
-    fun seedFile(
-        path: String,
-        content: String,
-        documentId: String,
-        lastModified: Long = 1_700_000_000_000L,
-    ) {
+    fun seedFile(path: String, content: String, documentId: String, lastModified: Long = 1_700_000_000_000L) {
         files[path] =
             Node(
                 documentId = documentId,
@@ -609,6 +663,7 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
                     documentId = "root",
                     digest = null,
                 )
+
             is WorkspaceTarget.Relative -> files[target.path]?.toSnapshot(target, digest)
         }
     }
@@ -638,10 +693,7 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
         return PlatformMetadataPage(items = items, nextCursor = null)
     }
 
-    override fun ensureDirectory(
-        treeUri: String,
-        path: String,
-    ): PlatformDocumentSnapshot {
+    override fun ensureDirectory(treeUri: String, path: String): PlatformDocumentSnapshot {
         sideEffectCount += 1
         val node =
             files.getOrPut(path) {
@@ -656,27 +708,38 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
         return node.toSnapshot(WorkspaceTarget.Relative(path))
     }
 
-    override fun openRead(
-        treeUri: String,
-        path: String,
-    ): PlatformReadHandle {
+    var readFailure: (() -> Nothing)? = null
+
+    override fun openRead(treeUri: String, path: String): PlatformReadHandle {
         readCount += 1
         pathReadCount += 1
-        val node = files[path] ?: error("missing $path")
+        readFailure?.invoke()
+        val node =
+            files[path]
+                ?: throw PlatformActionAccessException(
+                    category = "storage",
+                    code = "document_not_found",
+                    diagnostic = "missing $path",
+                )
         return PlatformReadHandle(
             snapshot = node.toSnapshot(WorkspaceTarget.Relative(path)),
             bytes = node.bytes.copyOf(),
         )
     }
 
-    override fun openReadByHandle(
-        treeUri: String,
-        path: String,
-        documentHandle: String,
-    ): PlatformReadHandle {
+    override fun openReadByHandle(treeUri: String, path: String, documentHandle: String): PlatformReadHandle {
         readCount += 1
         handleReadCount += 1
-        val node = files.entries.single { (_, value) -> value.documentId == documentHandle }.value
+        readFailure?.invoke()
+        val node =
+            files.entries
+                .singleOrNull { (_, value) -> value.documentId == documentHandle }
+                ?.value
+                ?: throw PlatformActionAccessException(
+                    category = "storage",
+                    code = "document_not_found",
+                    diagnostic = "missing handle $documentHandle",
+                )
         return PlatformReadHandle(
             snapshot = node.toSnapshot(WorkspaceTarget.Relative(path)),
             bytes = node.bytes.copyOf(),
@@ -689,12 +752,15 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
         bytes: ByteArray,
         mode: WriteMode,
         mimeType: String?,
-    ): PlatformDocumentSnapshot {
-        sideEffectCount += 1
+        arbitrate: WriteArbitration,
+    ): WriteOutcome {
         val existing = files[path]
+        arbitrate(existing?.toSnapshot(WorkspaceTarget.Relative(path), SnapshotDigestMode.CONTENT))
+            ?.let { return WriteOutcome.Satisfied(it) }
         if (mode == WriteMode.CREATE && existing != null) {
             error("create refused over existing path")
         }
+        sideEffectCount += 1
         val node =
             Node(
                 documentId = existing?.documentId ?: "doc-$path",
@@ -704,25 +770,38 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
                 lastModified = (existing?.lastModified ?: 0L) + 1L,
             )
         files[path] = node
-        return node.toSnapshot(WorkspaceTarget.Relative(path))
+        return WriteOutcome.Written(node.toSnapshot(WorkspaceTarget.Relative(path)))
     }
 
     override fun writeFromFile(
         treeUri: String,
         path: String,
         source: java.io.File,
-        mode: WriteMode,
         mimeType: String?,
-    ): PlatformDocumentSnapshot =
-        writeFromExchange(treeUri, path, source.readBytes(), mode, mimeType)
+        arbitrate: WriteArbitration,
+    ): WriteOutcome = writeFromExchange(
+        treeUri,
+        path,
+        source.readBytes(),
+        if (files.containsKey(path)) WriteMode.REPLACE else WriteMode.CREATE,
+        mimeType,
+        arbitrate,
+    )
 
     override fun move(
         treeUri: String,
         source: String,
         target: String,
+        targetTreeUri: String,
     ): PlatformDocumentSnapshot {
         sideEffectCount += 1
-        val node = files.remove(source) ?: error("missing source")
+        val node =
+            files.remove(source)
+                ?: throw PlatformActionAccessException(
+                    category = "storage",
+                    code = "document_not_found",
+                    diagnostic = "missing source",
+                )
         files[target] = node.copy(documentId = "doc-$target", lastModified = node.lastModified + 1)
         return files.getValue(target).toSnapshot(
             WorkspaceTarget.Relative(target),
@@ -730,10 +809,7 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
         )
     }
 
-    override fun delete(
-        treeUri: String,
-        path: String,
-    ) {
+    override fun delete(treeUri: String, path: String) {
         sideEffectCount += 1
         files.remove(path)
     }
@@ -741,19 +817,18 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
     private fun Node.toSnapshot(
         target: WorkspaceTarget,
         digest: SnapshotDigestMode = SnapshotDigestMode.CONTENT,
-    ): PlatformDocumentSnapshot =
-        PlatformDocumentSnapshot(
-            target = target,
-            kind = kind,
-            mimeType = mimeType,
-            length = bytes.size.toULong(),
-            lastModifiedEpochMillis = lastModified,
-            documentId = documentId,
-            digest =
-                if (digest == SnapshotDigestMode.CONTENT && kind == DocumentKind.FILE) {
-                    sha256Hex(bytes)
-                } else {
-                    null
-                },
-        )
+    ): PlatformDocumentSnapshot = PlatformDocumentSnapshot(
+        target = target,
+        kind = kind,
+        mimeType = mimeType,
+        length = bytes.size.toULong(),
+        lastModifiedEpochMillis = lastModified,
+        documentId = documentId,
+        digest =
+        if (digest == SnapshotDigestMode.CONTENT && kind == DocumentKind.FILE) {
+            sha256Hex(bytes)
+        } else {
+            null
+        },
+    )
 }

@@ -44,18 +44,17 @@ import io.kotest.matchers.shouldBe
  * - Editor session lifecycle, draft media leases and UI admission (covered by app-layer specs).
  */
 class EditableSnapshotBaselineContractTest : DomainFunSpec() {
-    private fun previewMemo(): Memo =
-        Memo(
-            id = "memo-1",
-            timestamp = 1_700_000_000_000L,
-            content = "truncated preview body…",
-            rawContent = "truncated preview body…",
-            dateKey = "2026_09_09",
-            // List previews carry a real baseline pair; see StorePagingSource.toDomainMemo.
-            contentRevision = 7L,
-            fileFingerprint = "fp-real-file",
-            contentKind = MemoContentKind.Preview,
-        )
+    private fun previewMemo(): Memo = Memo(
+        id = "memo-1",
+        timestamp = 1_700_000_000_000L,
+        content = "truncated preview body…",
+        rawContent = "truncated preview body…",
+        dateKey = "2026_09_09",
+        // List previews carry a real baseline pair; see StorePagingSource.toDomainMemo.
+        contentRevision = 7L,
+        fileFingerprint = "fp-real-file",
+        contentKind = MemoContentKind.Preview,
+    )
 
     init {
         test("a genuine Preview memo is rejected as an edit baseline") {

@@ -3,9 +3,9 @@ package com.lomo.app.feature.memo
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
 import io.kotest.matchers.shouldBe
+import kotlinx.collections.immutable.persistentListOf
 import java.time.LocalDate
 import java.time.ZoneId
-import kotlinx.collections.immutable.persistentListOf
 
 /*
  * Behavior Contract:
@@ -35,11 +35,11 @@ class MemoJumpNavigationHandlerTest : AppFunSpec() {
             val handled =
                 handleMemoJumpToMain(
                     selection =
-                        memoMenuSelection(
-                            memo = memo("memo-42"),
-                            dateFormat = "yyyy-MM-dd",
-                            timeFormat = "HH:mm",
-                        ),
+                    memoMenuSelection(
+                        memo = memo("memo-42"),
+                        dateFormat = "yyyy-MM-dd",
+                        timeFormat = "HH:mm",
+                    ),
                     requestFocusMemo = { memoId -> calls += "focus:$memoId" },
                     navigateToMain = { calls += "navigate" },
                 )
@@ -49,19 +49,18 @@ class MemoJumpNavigationHandlerTest : AppFunSpec() {
         }
     }
 
-    private fun memo(id: String): Memo =
-        Memo(
-            id = id,
-            timestamp =
-                LocalDate
-                    .of(2026, 5, 5)
-                    .atStartOfDay(ZoneId.systemDefault())
-                    .toInstant()
-                    .toEpochMilli(),
-            content = id,
-            rawContent = id,
-            dateKey = "2026_05_05",
-            localDate = LocalDate.of(2026, 5, 5),
-            tags = persistentListOf(),
-        )
+    private fun memo(id: String): Memo = Memo(
+        id = id,
+        timestamp =
+        LocalDate
+            .of(2026, 5, 5)
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli(),
+        content = id,
+        rawContent = id,
+        dateKey = "2026_05_05",
+        localDate = LocalDate.of(2026, 5, 5),
+        tags = persistentListOf(),
+    )
 }

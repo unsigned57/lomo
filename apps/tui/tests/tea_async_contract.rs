@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 // adversarial-reaudit: independent re-verification of the TEA async fixes.
 //
 // # Behavior Contract
@@ -1574,7 +1583,7 @@ mod tests {
             "a saved record boots the composer past the committed revision"
         );
         assert_eq!(loaded.composer.persisted_revision, 2);
-        assert!(loaded.composer.text.text().is_empty());
+        assert_eq!(loaded.composer.text.text(), "");
     }
 
     /// A crash mid-commit — Pending record on disk, no Saved — restores the

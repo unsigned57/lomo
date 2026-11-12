@@ -115,10 +115,7 @@ class StorageFormatCompatibilityFixtureTest : DomainFunSpec() {
     }
 }
 
-private data class ExternalFilenameFixture(
-    val label: String,
-    val filename: String,
-)
+private data class ExternalFilenameFixture(val label: String, val filename: String)
 
 private data class ExternalHeaderFixture(
     val label: String,

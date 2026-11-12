@@ -1,0 +1,77 @@
+# A single physical root serves notes, images and voice. New images retain images/
+# and restarting must neither duplicate the memo nor lose its media.
+appId: com.lomo.app
+---
+- stopApp
+- launchApp
+- evalScript: ${output.sharedDirectory = "lomo-shared-uitest-" + Date.now(); output.sharedMemo = "uitest shared directory " + Date.now()}
+- runFlow:
+    when:
+      visible: "Go to Settings"
+    commands:
+      - tapOn: "Go to Settings"
+- runFlow:
+    when:
+      visible: "Menu"
+    commands:
+      - tapOn: "Menu"
+      - tapOn: "Settings"
+- tapOn: "Memo Directory"
+- tapOn:
+    id: "option_menu_create_dir"
+- inputText: ${output.sharedDirectory}
+- tapOn: "OK"
+- tapOn: "USE THIS FOLDER"
+- tapOn: "Allow"
+- extendedWaitUntil:
+    notVisible: "USE THIS FOLDER"
+    timeout: 10000
+- waitForAnimationToEnd
+- tapOn: "Image Storage"
+- tapOn: "USE THIS FOLDER"
+- tapOn: "Allow"
+- extendedWaitUntil:
+    notVisible: "USE THIS FOLDER"
+    timeout: 10000
+- waitForAnimationToEnd
+- tapOn: "Voice Storage"
+- tapOn: "USE THIS FOLDER"
+- tapOn: "Allow"
+- extendedWaitUntil:
+    notVisible: "USE THIS FOLDER"
+    timeout: 10000
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_settings_root"
+- takeScreenshot: shared-directory-settings
+- back
+- assertVisible:
+    id: "benchmark_main_root"
+- addMedia:
+    - "../assets/image-1.png"
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- inputText: ${output.sharedMemo}
+- tapOn: "Add Image"
+- tapOn:
+    text: "Photo taken on.*"
+    index: 0
+- tapOn: "Add \\(1\\)"
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible: "${output.sharedMemo}\\s*"
+- assertNotVisible: "Image failed to load"
+- assertNotVisible:
+    text: "${output.sharedMemo}\\s*"
+    index: 1
+- stopApp
+- launchApp
+- assertVisible: "${output.sharedMemo}\\s*"
+- assertVisible: "^image$"
+- assertNotVisible: "Image failed to load"
+- assertNotVisible:
+    text: "${output.sharedMemo}\\s*"
+    index: 1
+- takeScreenshot: shared-directory-after-restart

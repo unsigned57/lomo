@@ -18,15 +18,10 @@ data class AppUpdateAssetCandidate(
 )
 
 sealed interface AppUpdateAssetVerification {
-    data class Verified(
-        val packageName: String,
-        val versionName: String,
-        val versionCode: Long? = null,
-    ) : AppUpdateAssetVerification
+    data class Verified(val packageName: String, val versionName: String, val versionCode: Long? = null) :
+        AppUpdateAssetVerification
 
-    data class Unsupported(
-        val reason: AppUpdateAssetUnsupportedReason,
-    ) : AppUpdateAssetVerification
+    data class Unsupported(val reason: AppUpdateAssetUnsupportedReason) : AppUpdateAssetVerification
 }
 
 enum class AppUpdateAssetUnsupportedReason {

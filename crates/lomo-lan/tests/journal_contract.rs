@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract (Stage-6 P6-05 durable app-private LAN journal)
 //!
 //! Capability: LAN peer trust, accepted session identities, batch approvals and confirmed chunk
@@ -124,7 +132,7 @@ mod tests {
             &batch,
             0,
             1_700_000_000_000,
-            &format!("{:x}", Sha256::digest(body)),
+            &lomo_core::hex_encode(&Sha256::digest(body)),
             body.len() as u64,
             "Recovery title",
             Vec::new(),
@@ -519,7 +527,7 @@ mod tests {
         );
         assert_eq!(
             payload.digest(),
-            format!("{:x}", Sha256::digest(b"first payload"))
+            lomo_core::hex_encode(&Sha256::digest(b"first payload"))
         );
         assert_eq!(
             std::fs::read(payload.path()).expect("assembled payload reads"),
@@ -932,7 +940,7 @@ mod tests {
                 .assemble_confirmed_payload(&batch(), 0, ATTACHMENT_SLOT_BODY, 2)
                 .expect("the recovered payload assembles")
                 .map(|payload| payload.digest().to_owned()),
-            Some(format!("{:x}", Sha256::digest(&body)))
+            Some(lomo_core::hex_encode(&Sha256::digest(&body)))
         );
     }
 }

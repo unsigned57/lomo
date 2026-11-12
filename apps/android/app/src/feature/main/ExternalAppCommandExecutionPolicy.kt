@@ -91,18 +91,18 @@ private fun planStartRecordingCommand(
         return ExternalAppCommandExecutionPlan(
             statusUpdate = ExternalAppCommandStatus.WaitingForRecordAudioPermission,
             steps =
-                listOf(
-                    editorStep,
-                    ExternalAppCommandStep.RequestRecordAudioPermission,
-                ),
+            listOf(
+                editorStep,
+                ExternalAppCommandStep.RequestRecordAudioPermission,
+            ),
         )
     }
     return ExternalAppCommandExecutionPlan(
         steps =
-            listOf(
-                editorStep,
-                ExternalAppCommandStep.StartRecording,
-            ),
+        listOf(
+            editorStep,
+            ExternalAppCommandStep.StartRecording,
+        ),
         terminalResult = ExternalAppCommandTerminalResult.Executed,
     )
 }
@@ -125,10 +125,10 @@ private fun planStopRecordingCommand(
             ?: return waitForEditor(command.status)
     return ExternalAppCommandExecutionPlan(
         steps =
-            listOf(
-                editorStep,
-                ExternalAppCommandStep.StopRecording,
-            ),
+        listOf(
+            editorStep,
+            ExternalAppCommandStep.StopRecording,
+        ),
         terminalResult = ExternalAppCommandTerminalResult.Executed,
     )
 }
@@ -136,30 +136,27 @@ private fun planStopRecordingCommand(
 private fun editorTargetStep(
     status: ExternalAppCommandStatus,
     readiness: ExternalAppCommandReadiness,
-): ExternalAppCommandStep? =
-    when {
-        readiness.editorVisible -> ExternalAppCommandStep.EnsureEditorVisible
-        readiness.canOpenDraftEditor -> ExternalAppCommandStep.OpenDraftEditor
-        status == ExternalAppCommandStatus.WaitingForEditor -> null
-        else -> null
-    }
+): ExternalAppCommandStep? = when {
+    readiness.editorVisible -> ExternalAppCommandStep.EnsureEditorVisible
+    readiness.canOpenDraftEditor -> ExternalAppCommandStep.OpenDraftEditor
+    status == ExternalAppCommandStatus.WaitingForEditor -> null
+    else -> null
+}
 
-private fun waitForEditor(status: ExternalAppCommandStatus): ExternalAppCommandExecutionPlan =
-    waitFor(
-        status = ExternalAppCommandStatus.WaitingForEditor,
-        currentStatus = status,
-    )
+private fun waitForEditor(status: ExternalAppCommandStatus): ExternalAppCommandExecutionPlan = waitFor(
+    status = ExternalAppCommandStatus.WaitingForEditor,
+    currentStatus = status,
+)
 
 private fun waitFor(
     status: ExternalAppCommandStatus,
     currentStatus: ExternalAppCommandStatus,
     firstWaitStep: ExternalAppCommandStep? = null,
-): ExternalAppCommandExecutionPlan =
-    if (currentStatus == status) {
-        ExternalAppCommandExecutionPlan()
-    } else {
-        ExternalAppCommandExecutionPlan(
-            statusUpdate = status,
-            steps = listOfNotNull(firstWaitStep),
-        )
-    }
+): ExternalAppCommandExecutionPlan = if (currentStatus == status) {
+    ExternalAppCommandExecutionPlan()
+} else {
+    ExternalAppCommandExecutionPlan(
+        statusUpdate = status,
+        steps = listOfNotNull(firstWaitStep),
+    )
+}

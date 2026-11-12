@@ -32,7 +32,6 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.fakes.MemorySecretMaterialSource
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest

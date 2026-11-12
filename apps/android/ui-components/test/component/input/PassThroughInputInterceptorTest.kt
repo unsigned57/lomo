@@ -1,9 +1,9 @@
 package com.lomo.ui.component.input
 
-import com.lomo.ui.testing.UiComponentsFunSpec
-import io.kotest.matchers.shouldBe
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -16,29 +16,29 @@ import androidx.compose.ui.text.input.TextFieldValue
 class PassThroughInputInterceptorTest : UiComponentsFunSpec() {
     init {
         test("double trailing line breaks remain editable content") {
-        val interceptor = passThroughInputInterceptor()
+            val interceptor = passThroughInputInterceptor()
 
-        val result =
-            interceptor.intercept(
-                previousValue = TextFieldValue("memo\n", TextRange(5)),
-                newValue = TextFieldValue("memo\n\n", TextRange(6)),
-            )
+            val result =
+                interceptor.intercept(
+                    previousValue = TextFieldValue("memo\n", TextRange(5)),
+                    newValue = TextFieldValue("memo\n\n", TextRange(6)),
+                )
 
-        (result) shouldBe (InputInterceptionResult.UpdateValue(TextFieldValue("memo\n\n", TextRange(6))))
+            (result) shouldBe (InputInterceptionResult.UpdateValue(TextFieldValue("memo\n\n", TextRange(6))))
         }
     }
 
     init {
         test("triple trailing line breaks remain editable content") {
-        val interceptor = passThroughInputInterceptor()
+            val interceptor = passThroughInputInterceptor()
 
-        val result =
-            interceptor.intercept(
-                previousValue = TextFieldValue("memo\n\n", TextRange(6)),
-                newValue = TextFieldValue("memo\n\n\n", TextRange(7)),
-            )
+            val result =
+                interceptor.intercept(
+                    previousValue = TextFieldValue("memo\n\n", TextRange(6)),
+                    newValue = TextFieldValue("memo\n\n\n", TextRange(7)),
+                )
 
-        (result) shouldBe (InputInterceptionResult.UpdateValue(TextFieldValue("memo\n\n\n", TextRange(7))))
+            (result) shouldBe (InputInterceptionResult.UpdateValue(TextFieldValue("memo\n\n\n", TextRange(7))))
         }
     }
 }

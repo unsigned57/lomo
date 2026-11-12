@@ -8,6 +8,10 @@ set -euo pipefail
 #   When the resource parity check runs, Then it exits successfully and reports checked modules.
 # - Given a zh-rCN strings.xml omits a key present in the default values strings.xml,
 #   When the resource parity check runs, Then it fails with the module path and missing key.
+# - Given a key declared in another values XML file (plurals.xml) without a zh-rCN counterpart,
+#   When the check runs, Then it fails: parity covers every values file, not only strings.xml.
+# - Given a listed module without its values-zh-rCN directory, When the check runs, Then it
+#   fails instead of silently skipping the module.
 # Observable outcomes: shell exit status and diagnostic text name the affected module/key.
 # TDD proof: this smoke test is expected to fail before check_string_resource_parity.sh exists, then pass once implemented.
 # Excludes: translation quality, placeholder semantics, unused strings, and Android resource merge behavior.
@@ -99,10 +103,14 @@ run_case() {
   local zh_mode="$2"
   local expected_status="$3"
   local expected_message="$4"
+  local mutation="${5:-}"
   local temp_dir
   temp_dir="$(mktemp -d)"
   local repo_dir="$temp_dir/repo"
   create_fixture_repo "$repo_dir" "$zh_mode"
+  if [ -n "$mutation" ]; then
+    (cd "$repo_dir" && eval "$mutation")
+  fi
 
   local output
   local status
@@ -123,5 +131,9 @@ run_case() {
 
 run_case "complete_parity" "complete" 0 "string resource parity OK"
 run_case "missing_zh_key" "missing" 1 "missing in values-zh-rCN: release_permission_hint"
+run_case "split_plurals_file" "complete" 1 "missing in values-zh-rCN: extra_count" \
+  "printf '%s\\n' '<resources><plurals name=\"extra_count\"><item quantity=\"other\">%d</item></plurals></resources>' > app/res/values/plurals.xml"
+run_case "missing_zh_directory" "complete" 1 "missing values-zh-rCN directory" \
+  "rm -rf ui-components/composeResources/values-zh-rCN"
 
 echo "check_string_resource_parity smoke tests passed"

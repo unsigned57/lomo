@@ -1,6 +1,5 @@
 package com.lomo.app.feature.common
 
-
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.CustomFontHost
 import com.lomo.app.feature.preferences.observeAppPreferences
@@ -12,7 +11,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 
-
 class AppConfigStateProvider(
     private val appConfigUiCoordinator: AppConfigUiCoordinator,
     appPreferencesSnapshotRepository: AppPreferencesSnapshotRepository,
@@ -21,35 +19,35 @@ class AppConfigStateProvider(
     private val preferencesHealthRepository: PreferencesHealthRepository,
     private val appScope: CoroutineScope,
 ) {
-        val rootDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .rootDirectory()
-                .stateIn(appScope, appWhileSubscribed(), null)
+    val rootDirectory: StateFlow<String?> =
+        appConfigUiCoordinator
+            .rootDirectory()
+            .stateIn(appScope, appWhileSubscribed(), null)
 
-        val imageDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .imageDirectory()
-                .stateIn(appScope, appWhileSubscribed(), null)
+    val imageDirectory: StateFlow<String?> =
+        appConfigUiCoordinator
+            .imageDirectory()
+            .stateIn(appScope, appWhileSubscribed(), null)
 
-        val voiceDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .voiceDirectory()
-                .stateIn(appScope, appWhileSubscribed(), null)
+    val voiceDirectory: StateFlow<String?> =
+        appConfigUiCoordinator
+            .voiceDirectory()
+            .stateIn(appScope, appWhileSubscribed(), null)
 
-        val appPreferences: StateFlow<AppPreferencesState> =
-            appPreferencesSnapshotRepository
-                .observeAppPreferences(customFontStore, customFontHost)
-                .stateIn(appScope, appWhileSubscribed(), AppPreferencesState.defaults())
+    val appPreferences: StateFlow<AppPreferencesState> =
+        appPreferencesSnapshotRepository
+            .observeAppPreferences(customFontStore, customFontHost)
+            .stateIn(appScope, appWhileSubscribed(), AppPreferencesState.defaults())
 
-        val preferencesCorruptionNotice: StateFlow<PreferencesCorruptionNotice?> =
-            preferencesHealthRepository.corruptionNotice
+    val preferencesCorruptionNotice: StateFlow<PreferencesCorruptionNotice?> =
+        preferencesHealthRepository.corruptionNotice
 
-        suspend fun acknowledgeCorruptionNotice() = preferencesHealthRepository.acknowledgeCorruptionNotice()
+    suspend fun acknowledgeCorruptionNotice() = preferencesHealthRepository.acknowledgeCorruptionNotice()
 
-        val appLockEnabled: StateFlow<Boolean?> =
-            appConfigUiCoordinator
-                .appLockEnabled()
-                .stateIn(appScope, appWhileSubscribed(), null)
+    val appLockEnabled: StateFlow<Boolean?> =
+        appConfigUiCoordinator
+            .appLockEnabled()
+            .stateIn(appScope, appWhileSubscribed(), null)
 
-        suspend fun currentImageDirectory(): String? = appConfigUiCoordinator.currentImageDirectory()
-    }
+    suspend fun currentImageDirectory(): String? = appConfigUiCoordinator.currentImageDirectory()
+}

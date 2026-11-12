@@ -5,14 +5,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
@@ -22,9 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.component.common.LomoPageIndicator
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import me.saket.telephoto.zoomable.EnabledZoomGestures
@@ -36,15 +35,10 @@ import me.saket.telephoto.zoomable.rememberZoomableState
 private const val IMAGE_VIEWER_SCROLL_LOCK_THRESHOLD = 0.01f
 private const val IMAGE_VIEWER_MAX_ZOOM_FACTOR = 5f
 private const val IMAGE_VIEWER_SINGLE_PAGE_THRESHOLD = 1
-private const val IMAGE_VIEWER_PAGE_INDEX_OFFSET = 1
-private const val IMAGE_VIEWER_PAGE_INDICATOR_ALPHA = 0.92f
 private val IMAGE_VIEWER_PAGE_INDICATOR_BOTTOM_PADDING = 20.dp
 private val IMAGE_VIEWER_CLOSE_BUTTON_PADDING = 16.dp
 
-private data class ImageViewerContentState(
-    val urls: ImmutableList<String>,
-    val initialIndex: Int,
-)
+private data class ImageViewerContentState(val urls: ImmutableList<String>, val initialIndex: Int)
 
 @Composable
 fun ImageViewerScreen(
@@ -62,9 +56,9 @@ fun ImageViewerScreen(
 
     Box(
         modifier =
-            modifier
-                .fillMaxSize()
-                .background(Color.Black),
+        modifier
+            .fillMaxSize()
+            .background(Color.Black),
     ) {
         if (contentState.urls.isNotEmpty()) {
             ImageViewerPager(
@@ -105,10 +99,7 @@ private fun rememberImageViewerContentState(
 }
 
 @Composable
-private fun Modifier.rememberImageViewerSharedModifier(
-    urls: ImmutableList<String>,
-    initialIndex: Int,
-): Modifier {
+private fun Modifier.rememberImageViewerSharedModifier(urls: ImmutableList<String>, initialIndex: Int): Modifier {
     val sharedTransitionScope = com.lomo.ui.util.LocalSharedTransitionScope.current
     val animatedVisibilityScope = com.lomo.ui.util.LocalAnimatedVisibilityScope.current
 
@@ -144,8 +135,8 @@ private fun BoxScope.ImageViewerPager(
         modifier = Modifier.fillMaxSize(),
         beyondViewportPageCount = IMAGE_VIEWER_SINGLE_PAGE_THRESHOLD,
         userScrollEnabled =
-            contentState.urls.size > IMAGE_VIEWER_SINGLE_PAGE_THRESHOLD &&
-                activeZoomFraction <= IMAGE_VIEWER_SCROLL_LOCK_THRESHOLD,
+        contentState.urls.size > IMAGE_VIEWER_SINGLE_PAGE_THRESHOLD &&
+            activeZoomFraction <= IMAGE_VIEWER_SCROLL_LOCK_THRESHOLD,
     ) { page ->
         ImageViewerPage(
             page = page,
@@ -158,15 +149,14 @@ private fun BoxScope.ImageViewerPager(
     }
 
     if (contentState.urls.size > IMAGE_VIEWER_SINGLE_PAGE_THRESHOLD) {
-        Text(
-            text = "${pagerState.currentPage + IMAGE_VIEWER_PAGE_INDEX_OFFSET} / ${contentState.urls.size}",
-            style = MaterialTheme.typography.labelLarge,
-            color = Color.White.copy(alpha = IMAGE_VIEWER_PAGE_INDICATOR_ALPHA),
-            textAlign = TextAlign.Center,
+        LomoPageIndicator(
+            current = pagerState.currentPage,
+            total = contentState.urls.size,
+            onMedia = true,
             modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = IMAGE_VIEWER_PAGE_INDICATOR_BOTTOM_PADDING),
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = IMAGE_VIEWER_PAGE_INDICATOR_BOTTOM_PADDING),
         )
     }
 }
@@ -194,15 +184,15 @@ private fun ImageViewerPage(
         contentDescription = stringResource(R.string.cd_image_viewer_fullscreen),
         gestures = EnabledZoomGestures(zoom = true, pan = canPanImage),
         modifier =
-            Modifier
-                .fillMaxSize()
-                .then(
-                    if (isInitiallyShared) {
-                        modifier
-                    } else {
-                        Modifier
-                    },
-                ),
+        Modifier
+            .fillMaxSize()
+            .then(
+                if (isInitiallyShared) {
+                    modifier
+                } else {
+                    Modifier
+                },
+            ),
         state = zoomableImageState,
         contentScale = ContentScale.Fit,
         onClick = { onBackClick() },
@@ -211,12 +201,13 @@ private fun ImageViewerPage(
 
 @Composable
 private fun BoxScope.ImageViewerCloseButton(onBackClick: () -> Unit) {
-    IconButton(
+    LomoIconButton(
         onClick = onBackClick,
         modifier =
-            Modifier
-                .align(Alignment.TopStart)
-                .padding(IMAGE_VIEWER_CLOSE_BUTTON_PADDING),
+        Modifier
+            .align(Alignment.TopStart)
+            .statusBarsPadding()
+            .padding(IMAGE_VIEWER_CLOSE_BUTTON_PADDING),
     ) {
         Icon(
             imageVector = Icons.Rounded.Close,

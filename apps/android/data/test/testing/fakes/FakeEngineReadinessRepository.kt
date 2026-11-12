@@ -1,10 +1,10 @@
 package com.lomo.data.testing.fakes
 
-import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.DerivedIndexRebuildSummary
+import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.RecoveryWorkspaceKind
-import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.WorkspaceMount
@@ -16,9 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** Host-test readiness collaborator for data-layer write-gate contracts. */
-class FakeEngineReadinessRepository(
-    initial: EngineReadiness = EngineReadiness.Ready,
-) : EngineReadinessRepository {
+class FakeEngineReadinessRepository(initial: EngineReadiness = EngineReadiness.Ready) : EngineReadinessRepository {
     private val _readiness = MutableStateFlow(initial)
     private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
     private val _workspaceAuthority =
@@ -68,7 +66,7 @@ class FakeEngineReadinessRepository(
             )
     }
 
-    override fun resnapshot() = Unit
+    override suspend fun resnapshot() = Unit
 
     override suspend fun requestEngineStart(): EngineReadiness {
         engineStartRequests += 1
@@ -90,13 +88,15 @@ class FakeEngineReadinessRepository(
         return DerivedIndexRebuildSummary(0uL, 0uL, 0uL, 0uL, 1uL)
     }
 
-    private fun workspaceKind(): RecoveryWorkspaceKind =
-        when (val location = activeWorkspaceLocation.value?.raw) {
-            null -> RecoveryWorkspaceKind.NONE
-            else -> if (location.startsWith("content://")) RecoveryWorkspaceKind.SAF else RecoveryWorkspaceKind.DIRECT
-        }
+    private fun workspaceKind(): RecoveryWorkspaceKind = when (val location = activeWorkspaceLocation.value?.raw) {
+        null -> RecoveryWorkspaceKind.NONE
+        else -> if (location.startsWith("content://")) RecoveryWorkspaceKind.SAF else RecoveryWorkspaceKind.DIRECT
+    }
 
-    override suspend fun activateWorkspace(location: StorageLocation) {
+    override suspend fun activateWorkspace(
+        location: StorageLocation,
+        mediaChange: com.lomo.domain.model.MediaDirectoryChange?,
+    ) {
         activateCount += 1
         _activeWorkspaceLocation.value = location
         _workspaceAuthority.value =

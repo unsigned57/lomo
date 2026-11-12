@@ -29,7 +29,7 @@
  * Excludes:
  * - Compose rendering, horizontal scrolling, DiffViewer row styling, and domain
  *   LCS correctness.
-  * Test Change Justification:
+ * Test Change Justification:
  * - Reason category: production field rename — DiffResult.TooLarge.maxMatrixCells renamed to
  *   maxComparedCells.
  * - Old behavior/assertion being replaced: TooLarge construction using maxMatrixCells.
@@ -55,13 +55,13 @@ class ConflictTextDiffPresentationTest : UiComponentsFunSpec() {
             val hunk =
                 SimpleLineDiff.DiffHunk(
                     lines =
-                        listOf(
-                            SimpleLineDiff.DiffLine(
-                                op = SimpleLineDiff.DiffOp.INSERT,
-                                text = "remote",
-                                newLineNumber = 1,
-                            ),
+                    listOf(
+                        SimpleLineDiff.DiffLine(
+                            op = SimpleLineDiff.DiffOp.INSERT,
+                            text = "remote",
+                            newLineNumber = 1,
                         ),
+                    ),
                 )
 
             val presentation =
@@ -104,10 +104,7 @@ class ConflictTextDiffPresentationTest : UiComponentsFunSpec() {
         }
     }
 
-    private fun conflictStringResource(
-        localeDirectory: String,
-        name: String,
-    ): String {
+    private fun conflictStringResource(localeDirectory: String, name: String): String {
         val file =
             listOf(
                 File("ui-components/composeResources/$localeDirectory/strings.xml"),

@@ -1,0 +1,47 @@
+# Thirteen short lines overflow the viewport despite fewer than 600 source characters.
+# Use explicit Enter events: Maestro inputText removes embedded newlines.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- eraseText
+- inputText: "uitest-visible-preview"
+- pressKey: Enter
+- inputText: "second visible line"
+- pressKey: Enter
+- inputText: "third visible line"
+- pressKey: Enter
+- inputText: "fourth visible line"
+- pressKey: Enter
+- inputText: "fifth visible line"
+- pressKey: Enter
+- inputText: "sixth visible line"
+- pressKey: Enter
+- inputText: "seventh visible line"
+- pressKey: Enter
+- inputText: "eighth visible line"
+- pressKey: Enter
+- inputText: "ninth visible line"
+- pressKey: Enter
+- inputText: "tenth visible line"
+- pressKey: Enter
+- inputText: "eleventh visible line"
+- pressKey: Enter
+- inputText: "twelfth visible line"
+- pressKey: Enter
+- inputText: "thirteenth visible line"
+- tapOn:
+    id: "benchmark_input_submit"
+- assertNotVisible:
+    id: "benchmark_input_editor"
+- waitForAnimationToEnd
+- assertVisible: ".*uitest-visible-preview.*"
+- assertVisible: "Expand"
+- takeScreenshot: collapsed-preview
+- tapOn: ".*uitest-visible-preview.*"
+- assertVisible: ".*thirteenth visible line.*"
+- takeScreenshot: expanded-preview

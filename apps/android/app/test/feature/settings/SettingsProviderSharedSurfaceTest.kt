@@ -26,6 +26,18 @@ import io.kotest.matchers.shouldBe
  *   because provider renderer classes still declare local common-control helpers and
  *   RemoteProviderSectionSurface has no shared Compose renderer.
  *
+ * Test Change Justification:
+ * - Reason category: M3 Expressive settings migration re-shaped the shared surface from
+ *   composable functions into a `SettingsGroupScope.remoteProviderSection` extension that
+ *   registers segmented rows and expandable regions directly.
+ * - Old behavior/assertion being replaced: PascalCase composable method names on RemoteProviderSectionSurfaceKt.
+ * - Why old assertion is no longer correct: the shared surface API is now camelCase
+ *   `remoteProviderSection`/`remoteProviderBehaviorPreferences`/`remoteProviderActionPreferences`;
+ *   the sync interval row is folded into the behavior preferences instead of a separate renderer.
+ * - Coverage preserved by: provider-local helper ban plus shared-surface ownership assertions.
+ * - Why this is not fitting the test to the implementation: the ownership contract is unchanged;
+ *   only the declared method names followed the M3 Expressive API rename.
+ *
  * Excludes:
  * - Repository-contract narrowing, sync engine execution, credential storage, and pixel-level UI tests.
  */
@@ -73,8 +85,7 @@ private val providerLocalCommonRendererMethodNames =
 
 private val sharedCommonRendererMethodNames =
     setOf(
-        "RemoteProviderSectionSurface",
-        "RemoteProviderBehaviorPreferences",
-        "RemoteProviderActionPreferences",
-        "RemoteProviderSyncIntervalPreference",
+        "remoteProviderSection",
+        "remoteProviderBehaviorPreferences",
+        "remoteProviderActionPreferences",
     )

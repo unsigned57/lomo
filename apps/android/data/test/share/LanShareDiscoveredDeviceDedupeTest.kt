@@ -50,17 +50,12 @@ class LanShareDiscoveredDeviceDedupeTest : DataFunSpec() {
     }
 }
 
-private fun device(
-    deviceId: String,
-    name: String,
-    host: String,
-): DiscoveredDevice =
-    DiscoveredDevice(
-        deviceId = deviceId,
-        name = name,
-        host = host,
-        port = TEST_PORT,
-    )
+private fun device(deviceId: String, name: String, host: String): DiscoveredDevice = DiscoveredDevice(
+    deviceId = deviceId,
+    name = name,
+    host = host,
+    port = TEST_PORT,
+)
 
 private const val PEER_A_DEVICE_ID = "1111111111111111111111111111111111111111111111111111111111111111"
 private const val PEER_B_DEVICE_ID = "2222222222222222222222222222222222222222222222222222222222222222"

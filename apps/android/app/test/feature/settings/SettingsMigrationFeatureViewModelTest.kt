@@ -142,22 +142,20 @@ private fun createFeature(
     repository: FakeMigrationArchiveRepository,
     workspaceStateResolver: WorkspaceStateResolver = FakeWorkspaceStateResolver(),
     scope: kotlinx.coroutines.CoroutineScope,
-): SettingsMigrationFeatureViewModel =
-    SettingsMigrationFeatureViewModel(
-        scope = scope,
-        exportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(repository),
-        importAllNotesArchiveUseCase =
-            ImportAllNotesArchiveUseCase(
-                repository = repository,
-                workspaceStateResolver = workspaceStateResolver,
-            ),
-        exportEncryptedSettingsUseCase = ExportEncryptedSettingsUseCase(repository),
-        importEncryptedSettingsUseCase = ImportEncryptedSettingsUseCase(repository),
-    )
+): SettingsMigrationFeatureViewModel = SettingsMigrationFeatureViewModel(
+    scope = scope,
+    exportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(repository),
+    importAllNotesArchiveUseCase =
+    ImportAllNotesArchiveUseCase(
+        repository = repository,
+        workspaceStateResolver = workspaceStateResolver,
+    ),
+    exportEncryptedSettingsUseCase = ExportEncryptedSettingsUseCase(repository),
+    importEncryptedSettingsUseCase = ImportEncryptedSettingsUseCase(repository),
+)
 
-private class FakeMigrationArchiveRepository(
-    private val settingsImportFailure: Throwable? = null,
-) : MigrationArchiveRepository {
+private class FakeMigrationArchiveRepository(private val settingsImportFailure: Throwable? = null) :
+    MigrationArchiveRepository {
     var notesArchiveBytes: ByteArray = byteArrayOf()
     var notesExportSummary = MigrationArchiveSummary()
     var notesImportSummary = MigrationArchiveSummary()
@@ -177,18 +175,12 @@ private class FakeMigrationArchiveRepository(
         return notesImportSummary
     }
 
-    override suspend fun exportEncryptedSettings(
-        output: OutputStream,
-        password: String,
-    ): MigrationSettingsSummary {
+    override suspend fun exportEncryptedSettings(output: OutputStream, password: String): MigrationSettingsSummary {
         output.write(password.toByteArray())
         return MigrationSettingsSummary(settingCount = 2, sensitiveSettingCount = 1)
     }
 
-    override suspend fun importEncryptedSettings(
-        input: InputStream,
-        password: String,
-    ): MigrationSettingsSummary {
+    override suspend fun importEncryptedSettings(input: InputStream, password: String): MigrationSettingsSummary {
         importSettingsCallCount += 1
         settingsImportFailure?.let { throw it }
         input.readBytes()

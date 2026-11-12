@@ -26,7 +26,7 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Compose card layout, full document rendering.
-  * Test Change Justification:
+ * Test Change Justification:
  * - Reason category: production DTO field migration — attachmentDestinations replaced by
  *   typed attachments: List<MarkdownAttachment>.
  * - Old behavior/assertion being replaced: the attachmentDestinations = emptyList() fixture
@@ -40,7 +40,9 @@ import io.kotest.matchers.shouldBe
 */
 class MemoCardCollapsedSummaryTest : UiComponentsFunSpec() {
     init {
-        test("given markdown document with tags and reminders when collapsed summary is built then tags and reminders are omitted") {
+        test(
+            "given markdown document with tags and reminders when collapsed summary is built then tags and reminders are omitted",
+        ) {
             val document =
                 MarkdownRenderDocument(
                     sourceByteLength = 80uL,
@@ -48,22 +50,28 @@ class MemoCardCollapsedSummaryTest : UiComponentsFunSpec() {
                     tagNames = listOf("work"),
                     attachments = emptyList(),
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = MarkdownSourceSpan(0uL, 80uL),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Text(MarkdownSourceSpan(0uL, 10uL), "Task item "),
-                                        MarkdownRenderInline.Tag(MarkdownSourceSpan(10uL, 15uL), "work"),
-                                        MarkdownRenderInline.Text(MarkdownSourceSpan(15uL, 16uL), " "),
-                                        MarkdownRenderInline.Reminder(MarkdownSourceSpan(16uL, 34uL), "@2026-09-02-12:00"),
-                                        MarkdownRenderInline.Text(MarkdownSourceSpan(34uL, 39uL), " done"),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = MarkdownSourceSpan(0uL, 80uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(MarkdownSourceSpan(0uL, 10uL), "Task item "),
+                                MarkdownRenderInline.Tag(MarkdownSourceSpan(10uL, 15uL), "work"),
+                                MarkdownRenderInline.Text(MarkdownSourceSpan(15uL, 16uL), " "),
+                                MarkdownRenderInline.Reminder(
+                                    MarkdownSourceSpan(16uL, 34uL),
+                                    "@2026-09-02-12:00",
+                                ),
+                                MarkdownRenderInline.Text(MarkdownSourceSpan(34uL, 39uL), " done"),
                             ),
                         ),
+                    ),
                 )
 
-            val summary = buildMemoCardCollapsedSummary(document = document, policy = MarkdownPresentationPolicy.MEMO_CARD)
+            val summary = buildMemoCardCollapsedSummary(
+                document = document,
+                policy = MarkdownPresentationPolicy.MEMO_CARD,
+            )
 
             summary shouldBe "Task item done"
         }

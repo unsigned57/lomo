@@ -1,23 +1,6 @@
 // architectural-boundary-check
 package com.lomo.detektrules
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import dev.detekt.api.Config
 import dev.detekt.api.Finding
 import dev.detekt.api.Rule
@@ -54,24 +37,33 @@ import kotlin.io.path.writeText
  *
  * Excludes:
  * - full Toolchain task integration and semantic type resolution.
+ * Test Change Justification:
+ * Reason category: source-input classification bug fix.
+ * Old behavior/assertion being replaced: existing forbidden Kotlin-source cases remain unchanged.
+ * Why old assertion is no longer correct: JSON byte assertions were wrongly classified as source tests.
+ * Coverage preserved by: forbidden .kt input, architecture controls and the persisted JSON legal control.
+ * Why this is not fitting the test to the implementation: a JSON file is durable product data.
+ * Rule regression proof: quality-cleanup/rule-red.log fails the JSON legal control (18/19 pass);
+ * quality-cleanup/rule-green.log passes all 19 tests after source classification is fixed.
  */
-class TestAntiPatternRulesTest : FunSpec({
-    test("registers test anti-pattern guard rules") {
-        val rules = LomoTestStyleRuleSetProvider().instance().rules
+class TestAntiPatternRulesTest :
+    FunSpec({
+        test("registers test anti-pattern guard rules") {
+            val rules = LomoTestStyleRuleSetProvider().instance().rules
 
-        rules[RuleName("NoRelaxedMockk")].shouldNotBeNull()
-        rules[RuleName("NoThreadSleepInTests")].shouldNotBeNull()
-        rules[RuleName("NoInteractionOnlyTest")].shouldNotBeNull()
-        rules[RuleName("NoFlowFirstForStateSequence")].shouldNotBeNull()
-        rules[RuleName("ExcessiveMockStubbing")].shouldNotBeNull()
-        rules[RuleName("NoSourceStringBehaviorTest")].shouldNotBeNull()
-        rules[RuleName("NoAssertionlessTest")].shouldNotBeNull()
-    }
+            rules[RuleName("NoRelaxedMockk")].shouldNotBeNull()
+            rules[RuleName("NoThreadSleepInTests")].shouldNotBeNull()
+            rules[RuleName("NoInteractionOnlyTest")].shouldNotBeNull()
+            rules[RuleName("NoFlowFirstForStateSequence")].shouldNotBeNull()
+            rules[RuleName("ExcessiveMockStubbing")].shouldNotBeNull()
+            rules[RuleName("NoSourceStringBehaviorTest")].shouldNotBeNull()
+            rules[RuleName("NoAssertionlessTest")].shouldNotBeNull()
+        }
 
-    test("flags relaxed MockK for stateful collaborators") {
-        val findings =
-            rule("NoRelaxedMockk").findingsForTestSource(
-                """
+        test("flags relaxed MockK for stateful collaborators") {
+            val findings =
+                rule("NoRelaxedMockk").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.mockk.mockk
@@ -82,16 +74,16 @@ class TestAntiPatternRulesTest : FunSpec({
                     private val repository: MemoRepository = mockk(relaxed = true)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "relaxed"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "relaxed"
+        }
 
-    test("allows relaxed MockK for Android framework seams") {
-        val findings =
-            rule("NoRelaxedMockk").findingsForTestSource(
-                """
+        test("allows relaxed MockK for Android framework seams") {
+            val findings =
+                rule("NoRelaxedMockk").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import android.content.Context
@@ -101,15 +93,15 @@ class TestAntiPatternRulesTest : FunSpec({
                     private val context: Context = mockk(relaxed = true)
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("flags Thread.sleep in test source") {
-        val findings =
-            rule("NoThreadSleepInTests").findingsForTestSource(
-                """
+        test("flags Thread.sleep in test source") {
+            val findings =
+                rule("NoThreadSleepInTests").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 class SlowTest {
@@ -118,16 +110,16 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "deterministic"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "deterministic"
+        }
 
-    test("flags interaction-only tests") {
-        val findings =
-            rule("NoInteractionOnlyTest").findingsForTestSource(
-                """
+        test("flags interaction-only tests") {
+            val findings =
+                rule("NoInteractionOnlyTest").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -139,16 +131,16 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 })
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "observable"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "observable"
+        }
 
-    test("allows interaction checks with an observable assertion") {
-        val findings =
-            rule("NoInteractionOnlyTest").findingsForTestSource(
-                """
+        test("allows interaction checks with an observable assertion") {
+            val findings =
+                rule("NoInteractionOnlyTest").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -162,16 +154,16 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 })
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("flags ViewModel state flow first usage") {
-        val findings =
-            rule("NoFlowFirstForStateSequence").findingsForTestSource(
-                relativePath = "test/feature/main/MainViewModelTest.kt",
-                code =
+        test("flags ViewModel state flow first usage") {
+            val findings =
+                rule("NoFlowFirstForStateSequence").findingsForTestSource(
+                    relativePath = "test/feature/main/MainViewModelTest.kt",
+                    code =
                     """
                     package com.lomo.sample
 
@@ -181,16 +173,16 @@ class TestAntiPatternRulesTest : FunSpec({
                         viewModel.uiState.first()
                     }
                     """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Turbine"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Turbine"
+        }
 
-    test("flags excessive mock stubbings when limit exceeded") {
-        val findings =
-            rule("ExcessiveMockStubbing").findingsForTestSource(
-                """
+        test("flags excessive mock stubbings when limit exceeded") {
+            val findings =
+                rule("ExcessiveMockStubbing").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.mockk.every
@@ -206,16 +198,16 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Excessive mock stubbings"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Excessive mock stubbings"
+        }
 
-    test("allows few mock stubbings within limit") {
-        val findings =
-            rule("ExcessiveMockStubbing").findingsForTestSource(
-                """
+        test("allows few mock stubbings within limit") {
+            val findings =
+                rule("ExcessiveMockStubbing").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.mockk.every
@@ -226,16 +218,16 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("flags non-architecture source-string behavior tests") {
-        val findings =
-            rule("NoSourceStringBehaviorTest").findingsForTestSource(
-                relativePath = "test/sample/BusinessLogicTest.kt",
-                code =
+        test("flags non-architecture source-string behavior tests") {
+            val findings =
+                rule("NoSourceStringBehaviorTest").findingsForTestSource(
+                    relativePath = "test/sample/BusinessLogicTest.kt",
+                    code =
                     """
                     package com.lomo.sample
 
@@ -249,17 +241,40 @@ class TestAntiPatternRulesTest : FunSpec({
                         }
                     }
                     """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Source-string assertion test forbidden"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Source-string assertion test forbidden"
+        }
 
-    test("allows source-string test if in architecture package") {
-        val findings =
-            rule("NoSourceStringBehaviorTest").findingsForTestSource(
-                relativePath = "test/sample/architecture/DomainPurityTest.kt",
-                code =
+        test("allows assertions on persisted JSON bytes outside architecture tests") {
+            val findings =
+                rule("NoSourceStringBehaviorTest").findingsForTestSource(
+                    relativePath = "test/sample/SnapshotStoreTest.kt",
+                    code =
+                    """
+                    package com.lomo.sample
+
+                    import java.io.File
+                    import io.kotest.matchers.shouldBe
+
+                    class SnapshotStoreTest {
+                        fun testSnapshot() {
+                            val file = File("snapshot.json")
+                            file.readText().contains("workspace-1") shouldBe true
+                        }
+                    }
+                    """,
+                )
+
+            findings shouldBe emptyList()
+        }
+
+        test("allows source-string test if in architecture package") {
+            val findings =
+                rule("NoSourceStringBehaviorTest").findingsForTestSource(
+                    relativePath = "test/sample/architecture/DomainPurityTest.kt",
+                    code =
                     """
                     package com.lomo.sample.architecture
 
@@ -273,16 +288,16 @@ class TestAntiPatternRulesTest : FunSpec({
                         }
                     }
                     """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("allows source-string test if architectural-boundary-check marker is present") {
-        val findings =
-            rule("NoSourceStringBehaviorTest").findingsForTestSource(
-                relativePath = "test/sample/BusinessLogicTest.kt",
-                code =
+        test("allows source-string test if architectural-boundary-check marker is present") {
+            val findings =
+                rule("NoSourceStringBehaviorTest").findingsForTestSource(
+                    relativePath = "test/sample/BusinessLogicTest.kt",
+                    code =
                     """
                     // architectural-boundary-check
                     package com.lomo.sample
@@ -297,15 +312,15 @@ class TestAntiPatternRulesTest : FunSpec({
                         }
                     }
                     """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("flags test with no assertions and no verify") {
-        val findings =
-            rule("NoAssertionlessTest").findingsForTestSource(
-                """
+        test("flags test with no assertions and no verify") {
+            val findings =
+                rule("NoAssertionlessTest").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -316,16 +331,16 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 })
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Assertionless test detected"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Assertionless test detected"
+        }
 
-    test("allows test with Kotest should assertion") {
-        val findings =
-            rule("NoAssertionlessTest").findingsForTestSource(
-                """
+        test("allows test with Kotest should assertion") {
+            val findings =
+                rule("NoAssertionlessTest").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -337,15 +352,15 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 })
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("allows test with assert or fail call") {
-        val findings =
-            rule("NoAssertionlessTest").findingsForTestSource(
-                """
+        test("allows test with assert or fail call") {
+            val findings =
+                rule("NoAssertionlessTest").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -356,15 +371,15 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 })
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("delegates test with verify calls to interaction-only rule without flagging here") {
-        val findings =
-            rule("NoAssertionlessTest").findingsForTestSource(
-                """
+        test("delegates test with verify calls to interaction-only rule without flagging here") {
+            val findings =
+                rule("NoAssertionlessTest").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -376,15 +391,15 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 })
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("allows a test that delegates assertions to a same-file scenario helper") {
-        val findings =
-            rule("NoAssertionlessTest").findingsForTestSource(
-                """
+        test("allows a test that delegates assertions to a same-file scenario helper") {
+            val findings =
+                rule("NoAssertionlessTest").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -400,15 +415,15 @@ class TestAntiPatternRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("allows mock stubbings inside a named Fixture harness") {
-        val findings =
-            rule("ExcessiveMockStubbing").findingsForTestSource(
-                """
+        test("allows mock stubbings inside a named Fixture harness") {
+            val findings =
+                rule("ExcessiveMockStubbing").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.mockk.every
@@ -428,16 +443,13 @@ class TestAntiPatternRulesTest : FunSpec({
 
                 class SampleTest
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
-})
+            findings shouldBe emptyList()
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoTestStyleRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)

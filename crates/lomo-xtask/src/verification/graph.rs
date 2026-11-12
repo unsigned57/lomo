@@ -17,6 +17,12 @@ pub enum OwnerKind {
     Kotlin,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum DependencyUse {
+    Verification,
+    Runtime,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Owner {
     pub name: String,
@@ -103,7 +109,7 @@ impl ImpactGraph {
                 .context("module name")?
                 .to_owned();
             let manifest = load_yaml_document(&root.join(&path).join("module.yaml"))?;
-            let dependencies = kotlin_dependencies(&manifest)?;
+            let dependencies = kotlin_dependencies(&manifest, DependencyUse::Verification)?;
             ensure!(
                 owners
                     .insert(
@@ -129,6 +135,56 @@ impl ImpactGraph {
             }
         }
         Ok(Self { owners })
+    }
+
+    /// Kotlin product modules reachable from `module` through declared Amper edges. Generated
+    /// bindings and the rule JAR are not product sources and are excluded.
+    ///
+    /// # Errors
+    /// Rejects unknown or non-Kotlin owners instead of shrinking the closure.
+    pub fn kotlin_product_closure(&self, module: &str) -> Result<BTreeSet<String>> {
+        let mut pending = vec![module.to_owned()];
+        let mut modules = BTreeSet::new();
+        while let Some(name) = pending.pop() {
+            let owner = self
+                .owners
+                .get(&name)
+                .with_context(|| format!("unknown Kotlin product owner: {name}"))?;
+            ensure!(
+                owner.kind == OwnerKind::Kotlin,
+                "non-Kotlin product owner: {name}"
+            );
+            if modules.insert(name) {
+                pending.extend(owner.dependencies.iter().cloned());
+            }
+        }
+        modules.retain(|name| !matches!(name.as_str(), "native-bindings" | "detekt-rules"));
+        Ok(modules)
+    }
+
+    /// Resolves production Kotlin module dependencies, including runtime-only edges.
+    ///
+    /// # Errors
+    /// Rejects unknown/non-Kotlin owners and malformed or missing manifests.
+    pub fn kotlin_runtime_closure(&self, root: &Path, module: &str) -> Result<BTreeSet<String>> {
+        let mut pending = vec![module.to_owned()];
+        let mut modules = BTreeSet::new();
+        while let Some(name) = pending.pop() {
+            if !modules.insert(name.clone()) {
+                continue;
+            }
+            let owner = self
+                .owners
+                .get(&name)
+                .with_context(|| format!("unknown Kotlin runtime owner: {name}"))?;
+            ensure!(
+                owner.kind == OwnerKind::Kotlin,
+                "non-Kotlin runtime owner: {name}"
+            );
+            let manifest = load_yaml_document(&root.join(&owner.path).join("module.yaml"))?;
+            pending.extend(kotlin_dependencies(&manifest, DependencyUse::Runtime)?);
+        }
+        Ok(modules)
     }
 
     /// Resolves source, removed files, golden vectors and configuration to verification owners.
@@ -217,17 +273,21 @@ impl ImpactGraph {
             || path.starts_with("crates/boltffi-facade")
             || path.starts_with("apps/android/native-bindings")
             || path == Path::new("crates/lomo-xtask/src/native.rs")
-            || path == Path::new("tools.toml")
+            || path == Path::new("quality/tools.toml")
             || path == Path::new("crates/lomo-native/boltffi.toml")
     }
 
     pub(super) fn task_inputs(&self, action: &TaskAction) -> BTreeSet<PathBuf> {
         let owners: BTreeSet<String> = match action {
-            TaskAction::RustClippy { package }
-            | TaskAction::RustTests { package }
-            | TaskAction::RustMutants { package } => BTreeSet::from([package.clone()]),
+            TaskAction::RustClippy { package } | TaskAction::RustTests { package } => {
+                BTreeSet::from([package.clone()])
+            }
             TaskAction::KotlinTests { module } => BTreeSet::from([module.clone()]),
             TaskAction::KotlinRules => BTreeSet::from(["detekt-rules".to_owned()]),
+            TaskAction::KotlinFormat => ["app", "data", "domain", "ui-components", "detekt-rules"]
+                .map(str::to_owned)
+                .into_iter()
+                .collect(),
             TaskAction::BaselineProfile => BTreeSet::from(["app".to_owned()]),
             TaskAction::KotlinLight { modules }
             | TaskAction::KotlinFull { modules }
@@ -267,7 +327,12 @@ impl ImpactGraph {
                 "Cargo.toml",
                 "Cargo.lock",
                 "rust-toolchain.toml",
-                "tools.toml",
+                "quality/tools.toml",
+                ".cargo/config.toml",
+                ".cargo/local.toml",
+                ".clippy.toml",
+                ".rustfmt.toml",
+                ".config/nextest.toml",
                 "kotlin",
                 "apps/android/kotlin",
                 "apps/android/project.yaml",
@@ -285,11 +350,15 @@ impl ImpactGraph {
     }
 }
 
-fn kotlin_dependencies(manifest: &Yaml) -> Result<BTreeSet<String>> {
+fn kotlin_dependencies(manifest: &Yaml, dependency_use: DependencyUse) -> Result<BTreeSet<String>> {
     let mut dependencies = BTreeSet::new();
+    let sections: &[&str] = match dependency_use {
+        DependencyUse::Verification => &["dependencies", "test-dependencies"],
+        DependencyUse::Runtime => &["dependencies"],
+    };
     for (key, value) in manifest.as_hash().context("Amper module mapping")? {
         let key = key.as_str().context("Amper mapping key")?;
-        if !["dependencies", "test-dependencies"]
+        if !sections
             .iter()
             .any(|section| key == *section || key.starts_with(&format!("{section}@")))
         {
@@ -297,6 +366,13 @@ fn kotlin_dependencies(manifest: &Yaml) -> Result<BTreeSet<String>> {
         }
         for dependency in value.as_vec().context("Amper dependency list")? {
             let coordinate = dependency_coordinate(dependency)?;
+            let compile_only = dependency
+                .as_hash()
+                .and_then(|mapping| mapping.iter().next())
+                .is_some_and(|(_, scope)| scope.as_str() == Some("compile-only"));
+            if dependency_use == DependencyUse::Runtime && compile_only {
+                continue;
+            }
             if let Some(target) = coordinate.strip_prefix("//") {
                 dependencies.insert(target.to_owned());
             }

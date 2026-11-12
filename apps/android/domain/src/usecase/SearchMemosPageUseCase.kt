@@ -6,9 +6,7 @@ import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSearchMode
 import com.lomo.domain.repository.MemoSearchRepository
 
-class SearchMemosPageUseCase(
-    private val repository: MemoSearchRepository,
-) {
+class SearchMemosPageUseCase(private val repository: MemoSearchRepository) {
     fun getPagingSource(
         query: String,
         filter: MemoListFilter,
@@ -27,12 +25,11 @@ class SearchMemosPageUseCase(
 }
 
 private class EmptyMemoPagingSource : PagingSource<String, Memo>() {
-    override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> =
-        LoadResult.Page(
-            data = emptyList(),
-            prevKey = null,
-            nextKey = null,
-        )
+    override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> = LoadResult.Page(
+        data = emptyList(),
+        prevKey = null,
+        nextKey = null,
+    )
 
     override fun getRefreshKey(state: androidx.paging.PagingState<String, Memo>): String? = null
 }

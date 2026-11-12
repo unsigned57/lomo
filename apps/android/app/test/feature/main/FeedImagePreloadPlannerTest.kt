@@ -37,7 +37,7 @@ import kotlinx.collections.immutable.toImmutableList
  *
  * Excludes:
  * - Coil request execution, bitmap decoding, LazyColumn frame timing, and memo height-change animation.
- 
+
  * Test Change Justification:
  * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
  * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
@@ -63,17 +63,17 @@ class FeedImagePreloadPlannerTest : AppFunSpec() {
             val plan =
                 planner.planViewport(
                     loadedWindow =
-                        FeedImagePreloadWindow(
-                            placeholdersBefore = 0,
-                            memos =
-                                listOf(
-                                    memoUiModel("memo-0", "m0-a"),
-                                    memoUiModel("memo-1", "m1-a", "m1-b", "m1-c"),
-                                    memoUiModel("memo-2", "m2-a", "m2-b"),
-                                    memoUiModel("memo-3", "m3-a"),
-                                    memoUiModel("memo-4", "m4-a"),
-                                ).toImmutableList(),
-                        ),
+                    FeedImagePreloadWindow(
+                        placeholdersBefore = 0,
+                        memos =
+                        listOf(
+                            memoUiModel("memo-0", "m0-a"),
+                            memoUiModel("memo-1", "m1-a", "m1-b", "m1-c"),
+                            memoUiModel("memo-2", "m2-a", "m2-b"),
+                            memoUiModel("memo-3", "m3-a"),
+                            memoUiModel("memo-4", "m4-a"),
+                        ).toImmutableList(),
+                    ),
                     firstVisible = 1,
                     visibleCount = 1,
                     preloadSize = preloadSize,
@@ -97,11 +97,11 @@ class FeedImagePreloadPlannerTest : AppFunSpec() {
                 FeedImagePreloadWindow(
                     placeholdersBefore = 40,
                     memos =
-                        listOf(
-                            memoUiModel("memo-40", "loaded-40"),
-                            memoUiModel("memo-41", "loaded-41"),
-                            memoUiModel("memo-42", "loaded-42"),
-                        ).toImmutableList(),
+                    listOf(
+                        memoUiModel("memo-40", "loaded-40"),
+                        memoUiModel("memo-41", "loaded-41"),
+                        memoUiModel("memo-42", "loaded-42"),
+                    ).toImmutableList(),
                 )
 
             val plan =
@@ -128,12 +128,12 @@ class FeedImagePreloadPlannerTest : AppFunSpec() {
                 FeedImagePreloadWindow(
                     placeholdersBefore = 40,
                     memos =
-                        listOf(
-                            memoUiModel("memo-40", "loaded-40"),
-                            memoUiModel("memo-41", "loaded-41"),
-                            memoUiModel("memo-42", "loaded-42"),
-                            memoUiModel("memo-43", "loaded-43"),
-                        ).toImmutableList(),
+                    listOf(
+                        memoUiModel("memo-40", "loaded-40"),
+                        memoUiModel("memo-41", "loaded-41"),
+                        memoUiModel("memo-42", "loaded-42"),
+                        memoUiModel("memo-43", "loaded-43"),
+                    ).toImmutableList(),
                 )
 
             val plan =
@@ -197,15 +197,15 @@ class FeedImagePreloadPlannerTest : AppFunSpec() {
             val plan =
                 planner.planStartup(
                     loadedWindow =
-                        FeedImagePreloadWindow(
-                            placeholdersBefore = 0,
-                            memos =
-                                listOf(
-                                    memoUiModel("memo-1", "cover-1", "cover-2"),
-                                    memoUiModel("memo-2", "cover-3"),
-                                    memoUiModel("memo-3", "cover-4"),
-                                ).toImmutableList(),
-                        ),
+                    FeedImagePreloadWindow(
+                        placeholdersBefore = 0,
+                        memos =
+                        listOf(
+                            memoUiModel("memo-1", "cover-1", "cover-2"),
+                            memoUiModel("memo-2", "cover-3"),
+                            memoUiModel("memo-3", "cover-4"),
+                        ).toImmutableList(),
+                    ),
                     preloadSize = preloadSize,
                 )
 
@@ -249,22 +249,18 @@ class FeedImagePreloadPlannerTest : AppFunSpec() {
         }
     }
 
-    private fun memoUiModel(
-        id: String,
-        vararg imageUrls: String,
-    ): MemoUiModel =
-        MemoUiModel(
-            memo =
-                Memo(
-                    id = id,
-                    timestamp = 1L,
-                    content = id,
-                    rawContent = id,
-                    dateKey = "2026_04_02",
-                ),
-            processedContent = id,
-            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
-            tags = persistentListOf(),
-            imageUrls = persistentListOf(*imageUrls),
-        )
+    private fun memoUiModel(id: String, vararg imageUrls: String): MemoUiModel = MemoUiModel(
+        memo =
+        Memo(
+            id = id,
+            timestamp = 1L,
+            content = id,
+            rawContent = id,
+            dateKey = "2026_04_02",
+        ),
+        processedContent = id,
+        renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
+        tags = persistentListOf(),
+        imageUrls = persistentListOf(*imageUrls),
+    )
 }

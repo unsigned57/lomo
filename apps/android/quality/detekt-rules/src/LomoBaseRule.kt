@@ -7,16 +7,12 @@ import dev.detekt.api.Rule
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtElement
-import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import java.nio.file.Files
 import java.nio.file.Path
 
-internal abstract class LomoBaseRule(
-    config: Config,
-    description: String,
-) : Rule(config, description) {
+internal abstract class LomoBaseRule(config: Config, description: String) : Rule(config, description) {
     protected fun KtFile.path(): String = getViewProvider().getVirtualFile().getPath().replace('\\', '/')
 
     protected fun KtFile.isProductionSource(): Boolean {
@@ -31,20 +27,18 @@ internal abstract class LomoBaseRule(
         return normalizedPath.contains("/test/") || normalizedPath.contains("/test@android/")
     }
 
-    protected fun KtFile.bodyText(): String =
-        text
-            .lineSequence()
-            .filterNot { line ->
-                val trimmed = line.trimStart()
-                trimmed.startsWith("package ") || trimmed.startsWith("import ")
-            }.joinToString("\n")
+    protected fun KtFile.bodyText(): String = text
+        .lineSequence()
+        .filterNot { line ->
+            val trimmed = line.trimStart()
+            trimmed.startsWith("package ") || trimmed.startsWith("import ")
+        }.joinToString("\n")
 
-    protected fun KtFile.importPaths(): List<String> =
-        importDirectives.mapNotNull { directive ->
-            directive.importedFqName?.asString()?.let { name ->
-                if (directive.isAllUnder) "$name.*" else name
-            }
+    protected fun KtFile.importPaths(): List<String> = importDirectives.mapNotNull { directive ->
+        directive.importedFqName?.asString()?.let { name ->
+            if (directive.isAllUnder) "$name.*" else name
         }
+    }
 
     protected fun KtFile.findForbiddenQualifiedReference(prefixes: List<String>): String? =
         forbiddenCodeReference(prefixes)
@@ -66,17 +60,15 @@ internal abstract class LomoBaseRule(
         }
     }
 
-    protected fun KtClassOrObject.constructorTypeTexts(): List<String> =
-        (this as? KtClass)
-            ?.getPrimaryConstructorParameters()
-            ?.mapNotNull { it.getTypeReference()?.text?.trim() }
-            .orEmpty()
+    protected fun KtClassOrObject.constructorTypeTexts(): List<String> = (this as? KtClass)
+        ?.getPrimaryConstructorParameters()
+        ?.mapNotNull { it.getTypeReference()?.text?.trim() }
+        .orEmpty()
 
-    protected fun String.typeIdentifiers(): Set<String> =
-        Regex("""[A-Za-z_][A-Za-z0-9_]*""")
-            .findAll(this)
-            .map { it.value }
-            .toSet()
+    protected fun String.typeIdentifiers(): Set<String> = Regex("""[A-Za-z_][A-Za-z0-9_]*""")
+        .findAll(this)
+        .map { it.value }
+        .toSet()
 
     protected fun KtElement.hasOptOutComment(marker: Regex): Boolean = hasBehaviorContractException(marker)
 
@@ -84,24 +76,15 @@ internal abstract class LomoBaseRule(
         report(Finding(Entity.from(file), message))
     }
 
-    protected fun reportElement(
-        element: org.jetbrains.kotlin.psi.KtElement,
-        message: String,
-    ) {
+    protected fun reportElement(element: org.jetbrains.kotlin.psi.KtElement, message: String) {
         report(Finding(Entity.from(element), message))
     }
 
-    protected fun reportDeclaration(
-        declaration: KtClassOrObject,
-        message: String,
-    ) {
+    protected fun reportDeclaration(declaration: KtClassOrObject, message: String) {
         report(Finding(Entity.from(declaration), message))
     }
 
-    protected fun reportNamedDeclaration(
-        declaration: KtNamedDeclaration,
-        message: String,
-    ) {
+    protected fun reportNamedDeclaration(declaration: KtNamedDeclaration, message: String) {
         report(Finding(Entity.from(declaration), message))
     }
 

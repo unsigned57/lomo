@@ -18,14 +18,14 @@
 
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -33,7 +33,6 @@ package com.lomo.domain.usecase
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.testing.DomainFunSpec
@@ -47,29 +46,37 @@ class SaveImageUseCaseTest : DomainFunSpec() {
     init {
         test("saveWithCacheSyncStatus returns success when both save and cache sync succeed") {
             runTest {
-                        val source = StorageLocation("uri")
-                        val saved = StorageLocation("/images/a.jpg")
-                        mediaRepository.nextImportResult = saved
+                val source = StorageLocation("uri")
+                val saved = StorageLocation("/images/a.jpg")
+                mediaRepository.nextImportResult = saved
 
-                        val result = useCase.saveWithCacheSyncStatus(source, com.lomo.domain.model.DraftId("draft-test"))
+                val result = useCase.saveWithCacheSyncStatus(
+                    source,
+                    com.lomo.domain.model.DraftId("draft-test"),
+                )
 
-                        result shouldBe SaveImageResult.SavedAndCacheSynced(saved)
-                        mediaRepository.importedSources shouldBe listOf(source)
-                        mediaRepository.refreshImageLocationsCallCount shouldBe 0
-                    }
+                result shouldBe SaveImageResult.SavedAndCacheSynced(saved)
+                mediaRepository.importedSources shouldBe listOf(source)
+                mediaRepository.refreshImageLocationsCallCount shouldBe 0
+            }
         }
 
         test("saveWithCacheSyncStatus rethrows import failure and skips full refresh") {
             runTest {
-                        val source = StorageLocation("uri")
-                        val failure = IllegalArgumentException("invalid source")
-                        mediaRepository.importFailure = failure
+                val source = StorageLocation("uri")
+                val failure = IllegalArgumentException("invalid source")
+                mediaRepository.importFailure = failure
 
-                        val thrown = runCatching { useCase.saveWithCacheSyncStatus(source, com.lomo.domain.model.DraftId("draft-test")) }.exceptionOrNull()
+                val thrown = runCatching {
+                    useCase.saveWithCacheSyncStatus(
+                        source,
+                        com.lomo.domain.model.DraftId("draft-test"),
+                    )
+                }.exceptionOrNull()
 
-                        thrown shouldBe failure
-                        mediaRepository.refreshImageLocationsCallCount shouldBe 0
-                    }
+                thrown shouldBe failure
+                mediaRepository.refreshImageLocationsCallCount shouldBe 0
+            }
         }
     }
 }

@@ -12,16 +12,10 @@ package com.lomo.domain.usecase
  * outbox file flush, and reconcile all match a memo to its file block by this stable id.
  */
 class MemoIdentityPolicy {
-    fun buildId(
-        dateKey: String,
-        timePart: String,
-        ordinal: Int,
-    ): String = "${dateKey}_${timePart}_${ordinal.coerceAtLeast(0)}"
+    fun buildId(dateKey: String, timePart: String, ordinal: Int): String =
+        "${dateKey}_${timePart}_${ordinal.coerceAtLeast(0)}"
 
-    fun applyTimestampOffset(
-        baseTimestampMillis: Long,
-        occurrenceIndex: Int,
-    ): Long {
+    fun applyTimestampOffset(baseTimestampMillis: Long, occurrenceIndex: Int): Long {
         val safeOffset = occurrenceIndex.coerceIn(0, MAX_TIMESTAMP_OFFSET_MS)
         return baseTimestampMillis + safeOffset
     }

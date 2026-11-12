@@ -23,19 +23,13 @@ internal object SkeletonTokens {
 
 internal object EmptyStateTokens {
     val ContentPadding = AppSpacing.ExtraLarge
-    val IconSize = 64.dp
-    val IconBottomPadding = AppSpacing.Medium
+
+    /** Tonal MaterialShapes container that frames the empty-state icon. */
+    val IconContainerSize = 96.dp
+    val IconSize = 40.dp
+    val TitleTopPadding = AppSpacing.Large
     val DescriptionTopPadding = AppSpacing.Small
     val ActionSpacing = AppSpacing.Medium
-
-    private const val IconAlpha = 0.5f
-    private const val DescriptionAlpha = 0.7f
-
-    fun iconColor(colorScheme: ColorScheme): Color =
-        colorScheme.onSurfaceVariant.copy(alpha = IconAlpha)
-
-    fun descriptionColor(colorScheme: ColorScheme): Color =
-        colorScheme.onSurfaceVariant.copy(alpha = DescriptionAlpha)
 }
 
 internal object LoadingOverlayTokens {
@@ -44,8 +38,7 @@ internal object LoadingOverlayTokens {
 
     private const val BackgroundAlpha = 0.9f
 
-    fun backgroundColor(colorScheme: ColorScheme): Color =
-        colorScheme.background.copy(alpha = BackgroundAlpha)
+    fun backgroundColor(colorScheme: ColorScheme): Color = colorScheme.background.copy(alpha = BackgroundAlpha)
 }
 
 internal object DraggableScrollbarTokens {

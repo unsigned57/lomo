@@ -43,9 +43,10 @@ class FakeMarkdownWorkspaceRepository(
     }
 
     override suspend fun toggleTask(
+        operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,
         actionSpan: MarkdownSourceSpan,
-    ): com.lomo.domain.model.MemoDocumentMutation = error("toggleTask is not expected in this fake")
+    ): String = error("toggleTask is not expected in this fake")
 }
 
 /**
@@ -57,17 +58,15 @@ fun testMemoUiMapper(
     workspace: MarkdownWorkspaceRepository = FakeMarkdownWorkspaceRepository(),
     dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider =
         com.lomo.domain.usecase.DefaultDispatcherProvider(),
-): com.lomo.app.feature.main.MemoUiMapper =
-    com.lomo.app.feature.main.MemoUiMapper(
-        dispatcherProvider = dispatcherProvider,
-        markdownWorkspaceRepository = workspace,
-    )
+): com.lomo.app.feature.main.MemoUiMapper = com.lomo.app.feature.main.MemoUiMapper(
+    dispatcherProvider = dispatcherProvider,
+    markdownWorkspaceRepository = workspace,
+)
 
-fun emptyRenderDocument(source: String = ""): MarkdownRenderDocument =
-    MarkdownRenderDocument(
-        sourceByteLength = source.encodeToByteArray().size.toULong(),
-        plainText = source,
-        tagNames = emptyList(),
-        attachments = emptyList(),
-        blocks = emptyList(),
-    )
+fun emptyRenderDocument(source: String = ""): MarkdownRenderDocument = MarkdownRenderDocument(
+    sourceByteLength = source.encodeToByteArray().size.toULong(),
+    plainText = source,
+    tagNames = emptyList(),
+    attachments = emptyList(),
+    blocks = emptyList(),
+)

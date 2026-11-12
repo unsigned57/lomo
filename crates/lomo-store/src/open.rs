@@ -7,10 +7,11 @@ use rusqlite::{Connection, OpenFlags, params};
 
 use crate::error::{corruption, from_sqlite, storage, validation};
 use crate::schema::{
-    BUSY_TIMEOUT_MS, MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL, MIGRATE_V3_TO_V4_DDL,
-    MIGRATE_V4_TO_V5_DDL, MIGRATE_V5_TO_V6_DDL, MIGRATE_V6_TO_V7_DDL, MIGRATE_V7_TO_V8_DDL,
-    MIGRATE_V8_TO_V9_DDL, MIGRATE_V9_TO_V10_DDL, MIGRATE_V10_TO_V11_DDL, MIGRATE_V11_TO_V12_DDL,
-    MIGRATE_V12_TO_V13_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
+    BUSY_TIMEOUT_MS, INCREMENTAL_STATS_DDL, MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL,
+    MIGRATE_V3_TO_V4_DDL, MIGRATE_V4_TO_V5_DDL, MIGRATE_V5_TO_V6_DDL, MIGRATE_V6_TO_V7_DDL,
+    MIGRATE_V7_TO_V8_DDL, MIGRATE_V8_TO_V9_DDL, MIGRATE_V9_TO_V10_DDL, MIGRATE_V10_TO_V11_DDL,
+    MIGRATE_V11_TO_V12_DDL, MIGRATE_V12_TO_V13_DDL, MIGRATE_V13_TO_V14_DDL, MIGRATE_V14_TO_V15_DDL,
+    MIGRATE_V16_TO_V17_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
 };
 
 /// Ordered additive migrations; `user_version` N upgrades by applying `MIGRATIONS[N - 1..]` in
@@ -28,6 +29,10 @@ const MIGRATIONS: &[&str] = &[
     MIGRATE_V10_TO_V11_DDL,
     MIGRATE_V11_TO_V12_DDL,
     MIGRATE_V12_TO_V13_DDL,
+    MIGRATE_V13_TO_V14_DDL,
+    MIGRATE_V14_TO_V15_DDL,
+    INCREMENTAL_STATS_DDL,
+    MIGRATE_V16_TO_V17_DDL,
 ];
 
 /// Relative directory for rebuildable `SQLite` files (must never live under `.lomo/`).
@@ -192,9 +197,18 @@ fn admit_schema(
                 "database schema cannot be upgraded to the supported version",
             )
         })?;
-        connection
-            .execute_batch(&format!("BEGIN IMMEDIATE;{}COMMIT;", ddl.concat()))
+        let transaction = rusqlite::Transaction::new_unchecked(
+            connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )
+        .map_err(|err| from_sqlite(&err))?;
+        transaction
+            .execute_batch(&ddl.concat())
             .map_err(|err| from_sqlite(&err))?;
+        if user_version < 15 {
+            migrate_render_projections(&transaction)?;
+        }
+        transaction.commit().map_err(|err| from_sqlite(&err))?;
     } else if user_version != STORE_SCHEMA_VERSION {
         // `open_store` refuses anything newer first; the admission boundary still
         // fails closed so a future caller cannot admit an unknown schema by mistake.
@@ -204,6 +218,27 @@ fn admit_schema(
         ));
     }
 
+    Ok(())
+}
+
+/// Stream one persisted body at a time; the migration never accumulates a workspace in memory.
+fn migrate_render_projections(connection: &Connection) -> Result<(), lomo_core::LomoError> {
+    let mut statement = connection
+        .prepare("SELECT rowid, body FROM memo WHERE body IS NOT NULL ORDER BY rowid")
+        .map_err(|err| from_sqlite(&err))?;
+    let mut rows = statement.query([]).map_err(|err| from_sqlite(&err))?;
+    while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
+        let row_id: i64 = row.get(0).map_err(|err| from_sqlite(&err))?;
+        let body: String = row.get(1).map_err(|err| from_sqlite(&err))?;
+        let preview = crate::body_preview(&body);
+        let has_url = crate::project_content_facts(&body)?.has_url;
+        connection
+            .execute(
+                "UPDATE memo SET body_preview=?1, has_url=?2 WHERE rowid=?3",
+                params![preview, has_url, row_id],
+            )
+            .map_err(|err| from_sqlite(&err))?;
+    }
     Ok(())
 }
 
@@ -224,7 +259,11 @@ fn backup_before_upgrade(
         .tempfile_in(&directory)
         .map_err(|error| storage("upgrade_backup_create_failed", &error.to_string()))?;
     connection
-        .backup(rusqlite::MAIN_DB, temporary.path(), None)
+        .backup(
+            rusqlite::MAIN_DB,
+            temporary.path(),
+            None::<fn(rusqlite::backup::Progress)>,
+        )
         .map_err(|error| from_sqlite(&error))?;
     temporary
         .as_file()
@@ -344,14 +383,12 @@ fn sweep_stale_pending_creates(connection: &Connection) -> Result<(), lomo_core:
             )
             .map_err(|error| from_sqlite(&error))?;
     }
-    let swept = connection
+    connection
         .execute(
             "DELETE FROM memo WHERE pending_operation_id IS NOT NULL",
             [],
         )
         .map_err(|error| from_sqlite(&error))?;
-    if swept > 0 {
-        crate::query::recompute_stats(connection)?;
-    }
+
     Ok(())
 }

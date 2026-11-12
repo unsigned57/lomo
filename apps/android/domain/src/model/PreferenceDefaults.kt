@@ -1,6 +1,8 @@
 package com.lomo.domain.model
 
 object PreferenceDefaults {
+    const val QUICK_BALL_CONFIG = "v1|RECORD|SCROLL_TOP|SEARCH|LONG_TEXT|FILTER"
+
     const val DATE_FORMAT = "yyyy-MM-dd"
     const val TIME_FORMAT = "HH:mm:ss"
     const val HAPTIC_FEEDBACK_ENABLED = true
@@ -8,10 +10,7 @@ object PreferenceDefaults {
     const val SHOW_INPUT_HINTS = true
     const val DOUBLE_TAP_EDIT_ENABLED = true
     const val FREE_TEXT_COPY_ENABLED = false
-    const val MEMO_ACTION_AUTO_REORDER_ENABLED = false
     const val AUTO_OPEN_INPUT_ON_FOREGROUND = false
-    const val MEMO_ACTION_ORDER = ""
-    const val MEMO_ACTION_ORDERS_BY_SCOPE = ""
     const val INPUT_TOOLBAR_TOOL_ORDER = ""
     const val SIDEBAR_TAG_ORDER = ""
     const val QUICK_SAVE_ON_BACK_ENABLED = true
@@ -19,8 +18,10 @@ object PreferenceDefaults {
     const val APP_LOCK_ENABLED = false
     const val LAN_SHARE_ENABLED = true
     const val THEME_MODE = "system"
+    const val PURE_BLACK_DARK = false
     const val CALENDAR_HEATMAP_THRESHOLDS = "1,3,6"
     const val COLOR_SOURCE = "dynamic"
+    const val CONTRAST_LEVEL = "standard"
     const val FONT_PREFERENCE = "system"
     const val SHARE_CARD_SHOW_TIME = true
     const val SHARE_CARD_SHOW_BRAND = true

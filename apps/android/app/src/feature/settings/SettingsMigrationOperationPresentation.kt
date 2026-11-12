@@ -28,34 +28,36 @@ internal fun HandleMigrationOperationState(
 }
 
 @Composable
-private fun migrationSuccessMessage(state: SettingsMigrationOperationState.Success): String =
-    when (state.kind) {
-        SettingsMigrationOperationKind.EXPORT_NOTES ->
-            stringResource(
-                R.string.settings_migration_export_notes_success,
-                state.summary.noteCount,
-                state.summary.trashCount,
-                state.summary.imageCount,
-                state.summary.voiceCount,
-            )
-        SettingsMigrationOperationKind.IMPORT_NOTES ->
-            stringResource(
-                R.string.settings_migration_import_notes_success,
-                state.summary.noteCount,
-                state.summary.trashCount,
-                state.summary.imageCount,
-                state.summary.voiceCount,
-            )
-        SettingsMigrationOperationKind.EXPORT_SETTINGS ->
-            stringResource(
-                R.string.settings_migration_export_settings_success,
-                state.settingsSummary.settingCount,
-                state.settingsSummary.sensitiveSettingCount,
-            )
-        SettingsMigrationOperationKind.IMPORT_SETTINGS ->
-            stringResource(
-                R.string.settings_migration_import_settings_success,
-                state.settingsSummary.settingCount,
-                state.settingsSummary.sensitiveSettingCount,
-            )
-    }
+private fun migrationSuccessMessage(state: SettingsMigrationOperationState.Success): String = when (state.kind) {
+    SettingsMigrationOperationKind.EXPORT_NOTES ->
+        stringResource(
+            R.string.settings_migration_export_notes_success,
+            state.summary.noteCount,
+            state.summary.trashCount,
+            state.summary.imageCount,
+            state.summary.voiceCount,
+        )
+
+    SettingsMigrationOperationKind.IMPORT_NOTES ->
+        stringResource(
+            R.string.settings_migration_import_notes_success,
+            state.summary.noteCount,
+            state.summary.trashCount,
+            state.summary.imageCount,
+            state.summary.voiceCount,
+        )
+
+    SettingsMigrationOperationKind.EXPORT_SETTINGS ->
+        stringResource(
+            R.string.settings_migration_export_settings_success,
+            state.settingsSummary.settingCount,
+            state.settingsSummary.sensitiveSettingCount,
+        )
+
+    SettingsMigrationOperationKind.IMPORT_SETTINGS ->
+        stringResource(
+            R.string.settings_migration_import_settings_success,
+            state.settingsSummary.settingCount,
+            state.settingsSummary.sensitiveSettingCount,
+        )
+}

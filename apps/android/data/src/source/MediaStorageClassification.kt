@@ -9,5 +9,4 @@ import com.lomo.nativebridge.attachmentMediaClass
  * Storage enumeration uses the same owner classifier as render and query facts; Kotlin never
  * inspects MIME prefixes or extensions itself.
  */
-internal fun isImageAttachmentFileName(name: String): Boolean =
-    attachmentMediaClass(name) == MediaClass.IMAGE
+internal fun isImageAttachmentFileName(name: String): Boolean = attachmentMediaClass(name) == MediaClass.IMAGE

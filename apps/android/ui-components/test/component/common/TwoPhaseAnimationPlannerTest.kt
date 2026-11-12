@@ -10,15 +10,15 @@ import io.kotest.matchers.shouldBe
  * - Unit under test: TwoPhaseAnimationPlanner and TwoPhaseSettlePolicy.
  * - Owning layer: ui-components/common.
  * - Priority tier: P1.
- * - Capability: own the two-phase sequential ordering (expand-then-fade for enter,
+ * - Capability: own sequential appearance (expand-then-fade for enter,
  *   fade-then-collapse for exit) and the settle-once / dispose-settle / rollback-reset
  *   contract, decoupled from any SubcomposeLayout so the LazyColumn slot-reuse contract
  *   is never violated by nested reuse groups.
  *
  * Scenarios:
- * - Given ENTER direction, when the plan is computed, then HEIGHT_FRACTION step precedes ALPHA step.
+ * - Given ENTER direction, when the plan is computed, then HEIGHT_FRACTION precedes ALPHA.
  * - Given EXIT direction, when the plan is computed, then ALPHA step precedes HEIGHT_FRACTION step.
- * - Given any direction, when the plan is computed, then exactly one step is final and it is the last.
+ * - Given EXIT direction, when the plan is computed, then fading and collapse remain sequential.
  * - Given ENTER direction, when the plan is computed, then both targets are 1f (expand and reveal).
  * - Given EXIT direction, when the plan is computed, then both targets are 0f (fade and collapse).
  * - Given a started cycle, when markSettled is called twice, then onSettled fires exactly once.
@@ -33,7 +33,7 @@ import io.kotest.matchers.shouldBe
  *   resolved, then exactly one direction is selected and EXIT wins.
  *
  * Observable outcomes:
- * - ordered list of steps with property, targetValue, and isFinal flags.
+ * - ordered steps of properties and their target values.
  * - number of times the onSettled callback is invoked per lifecycle transition.
  * - isSettled flag value after each transition.
  * - startValue for each direction.
@@ -50,130 +50,142 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Composable rendering, Animatable timing, LazyColumn layout internals, SubcomposeLayout behavior.
+ * Test Change Justification:
+ * Reason category: explicit user correction restoring the established animation.
+ * Old behavior/assertion being replaced: enter height and alpha shared a concurrent phase.
+ * Why old assertion is no longer correct: the user explicitly requires expand-then-fade;
+ * the defect to investigate is latency before entry starts.
+ * Coverage preserved by: ordered enter/exit properties, targets, lifecycle checks and real
+ * frame samples in ListItemAppearanceTimingTest.
+ * Why this is not fitting the test to the implementation: sequential choreography is the
+ * user's stated requirement, independent of the timing fix.
+ * TDD proof: creation-start-latency/sequence-red.log fails with alpha=0.5 during expansion;
+ * sequence-green.log verifies restored ordering under target/lomo/reports/manual/.
  */
 
-class TwoPhaseAnimationPlannerTest : FunSpec({
-    test("given ENTER direction when plan is computed then HEIGHT_FRACTION precedes ALPHA") {
-        val steps = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.ENTER)
+class TwoPhaseAnimationPlannerTest :
+    FunSpec({
+        test("given ENTER direction when plan is computed then HEIGHT_FRACTION precedes ALPHA") {
+            val steps = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.ENTER)
 
-        steps.map { it.property } shouldContainExactly
-            listOf(TwoPhaseProperty.HEIGHT_FRACTION, TwoPhaseProperty.ALPHA)
-    }
+            steps.map { it.property } shouldContainExactly
+                listOf(TwoPhaseProperty.HEIGHT_FRACTION, TwoPhaseProperty.ALPHA)
+        }
 
-    test("given EXIT direction when plan is computed then ALPHA precedes HEIGHT_FRACTION") {
-        val steps = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.EXIT)
+        test("given EXIT direction when plan is computed then ALPHA precedes HEIGHT_FRACTION") {
+            val steps = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.EXIT)
 
-        steps.map { it.property } shouldContainExactly
-            listOf(TwoPhaseProperty.ALPHA, TwoPhaseProperty.HEIGHT_FRACTION)
-    }
+            steps.map { it.property } shouldContainExactly
+                listOf(TwoPhaseProperty.ALPHA, TwoPhaseProperty.HEIGHT_FRACTION)
+        }
 
-    test("given any direction when plan is computed then exactly one final step is last") {
-        val enter = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.ENTER)
-        val exit = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.EXIT)
+        test(
+            "given enter and exit when plans are computed then both plans animate exactly two properties sequentially",
+        ) {
+            val enter = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.ENTER)
+            val exit = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.EXIT)
 
-        enter.filter { it.isFinal } shouldHaveSize 1
-        exit.filter { it.isFinal } shouldHaveSize 1
-        enter.last().isFinal shouldBe true
-        exit.last().isFinal shouldBe true
-    }
+            enter shouldHaveSize 2
+            exit shouldHaveSize 2
+        }
 
-    test("given ENTER direction when plan is computed then both targets expand to 1f") {
-        val steps = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.ENTER)
+        test("given ENTER direction when plan is computed then both targets expand to 1f") {
+            val steps = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.ENTER)
 
-        steps.map { it.targetValue } shouldContainExactly listOf(1f, 1f)
-    }
+            steps.map { it.targetValue } shouldContainExactly listOf(1f, 1f)
+        }
 
-    test("given EXIT direction when plan is computed then both targets collapse to 0f") {
-        val steps = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.EXIT)
+        test("given EXIT direction when plan is computed then both targets collapse to 0f") {
+            val steps = TwoPhaseAnimationPlanner.plan(TwoPhaseDirection.EXIT)
 
-        steps.map { it.targetValue } shouldContainExactly listOf(0f, 0f)
-    }
+            steps.map { it.targetValue } shouldContainExactly listOf(0f, 0f)
+        }
 
-    test("given a started cycle when markSettled is called twice then onSettled fires exactly once") {
-        val policy = TwoPhaseSettlePolicy()
-        var invokeCount = 0
-        policy.markStarted()
+        test("given a started cycle when markSettled is called twice then onSettled fires exactly once") {
+            val policy = TwoPhaseSettlePolicy()
+            var invokeCount = 0
+            policy.markStarted()
 
-        policy.markSettled { invokeCount++ }
-        policy.markSettled { invokeCount++ }
+            policy.markSettled { invokeCount++ }
+            policy.markSettled { invokeCount++ }
 
-        invokeCount shouldBe 1
-        policy.isSettled shouldBe true
-    }
+            invokeCount shouldBe 1
+            policy.isSettled shouldBe true
+        }
 
-    test("given a started unsettled cycle when markDisposed with isActive=true then onSettled fires once") {
-        val policy = TwoPhaseSettlePolicy()
-        var invokeCount = 0
-        policy.markStarted()
+        test("given a started unsettled cycle when markDisposed with isActive=true then onSettled fires once") {
+            val policy = TwoPhaseSettlePolicy()
+            var invokeCount = 0
+            policy.markStarted()
 
-        policy.markDisposed(isActive = true) { invokeCount++ }
+            policy.markDisposed(isActive = true) { invokeCount++ }
 
-        invokeCount shouldBe 1
-        policy.isSettled shouldBe true
-    }
+            invokeCount shouldBe 1
+            policy.isSettled shouldBe true
+        }
 
-    test("given an already settled cycle when markDisposed with isActive=true then onSettled does not fire") {
-        val policy = TwoPhaseSettlePolicy()
-        var invokeCount = 0
-        policy.markStarted()
-        policy.markSettled { invokeCount++ }
+        test("given an already settled cycle when markDisposed with isActive=true then onSettled does not fire") {
+            val policy = TwoPhaseSettlePolicy()
+            var invokeCount = 0
+            policy.markStarted()
+            policy.markSettled { invokeCount++ }
 
-        policy.markDisposed(isActive = true) { invokeCount++ }
+            policy.markDisposed(isActive = true) { invokeCount++ }
 
-        invokeCount shouldBe 1
-        policy.isSettled shouldBe true
-    }
+            invokeCount shouldBe 1
+            policy.isSettled shouldBe true
+        }
 
-    test("given a started unsettled cycle when markDisposed with isActive=false then onSettled does not fire") {
-        val policy = TwoPhaseSettlePolicy()
-        var invokeCount = 0
-        policy.markStarted()
+        test("given a started unsettled cycle when markDisposed with isActive=false then onSettled does not fire") {
+            val policy = TwoPhaseSettlePolicy()
+            var invokeCount = 0
+            policy.markStarted()
 
-        policy.markDisposed(isActive = false) { invokeCount++ }
+            policy.markDisposed(isActive = false) { invokeCount++ }
 
-        invokeCount shouldBe 0
-        policy.isSettled shouldBe false
-    }
+            invokeCount shouldBe 0
+            policy.isSettled shouldBe false
+        }
 
-    test("given a started cycle when markRollback then onSettled does not fire and isSettled is false") {
-        val policy = TwoPhaseSettlePolicy()
-        var invokeCount = 0
-        policy.markStarted()
+        test("given a started cycle when markRollback then onSettled does not fire and isSettled is false") {
+            val policy = TwoPhaseSettlePolicy()
+            var invokeCount = 0
+            policy.markStarted()
 
-        policy.markRollback()
+            policy.markRollback()
 
-        invokeCount shouldBe 0
-        policy.isSettled shouldBe false
-    }
+            invokeCount shouldBe 0
+            policy.isSettled shouldBe false
+        }
 
-    test("given a rolled-back cycle when a new cycle starts and settles then onSettled fires for the new cycle") {
-        val policy = TwoPhaseSettlePolicy()
-        var invokeCount = 0
-        policy.markStarted()
-        policy.markRollback()
+        test("given a rolled-back cycle when a new cycle starts and settles then onSettled fires for the new cycle") {
+            val policy = TwoPhaseSettlePolicy()
+            var invokeCount = 0
+            policy.markStarted()
+            policy.markRollback()
 
-        policy.markStarted()
-        policy.markSettled { invokeCount++ }
+            policy.markStarted()
+            policy.markSettled { invokeCount++ }
 
-        invokeCount shouldBe 1
-        policy.isSettled shouldBe true
-    }
+            invokeCount shouldBe 1
+            policy.isSettled shouldBe true
+        }
 
-    test("given ENTER direction when startValue is queried then it returns 0f") {
-        TwoPhaseAnimationPlanner.startValue(TwoPhaseDirection.ENTER) shouldBe 0f
-    }
+        test("given ENTER direction when startValue is queried then it returns 0f") {
+            TwoPhaseAnimationPlanner.startValue(TwoPhaseDirection.ENTER) shouldBe 0f
+        }
 
-    test("given EXIT direction when startValue is queried then it returns 1f") {
-        TwoPhaseAnimationPlanner.startValue(TwoPhaseDirection.EXIT) shouldBe 1f
-    }
+        test("given EXIT direction when startValue is queried then it returns 1f") {
+            TwoPhaseAnimationPlanner.startValue(TwoPhaseDirection.EXIT) shouldBe 1f
+        }
 
-    test("given enter and exit flags when active direction is resolved then exactly one direction owns the row") {
-        TwoPhaseAnimationPlanner.activeDirection(isEntering = false, isExiting = false) shouldBe null
-        TwoPhaseAnimationPlanner.activeDirection(isEntering = true, isExiting = false) shouldBe
-            TwoPhaseDirection.ENTER
-        TwoPhaseAnimationPlanner.activeDirection(isEntering = false, isExiting = true) shouldBe
-            TwoPhaseDirection.EXIT
-        TwoPhaseAnimationPlanner.activeDirection(isEntering = true, isExiting = true) shouldBe
-            TwoPhaseDirection.EXIT
-    }
-})
+        test("given enter and exit flags when active direction is resolved then exactly one direction owns the row") {
+            TwoPhaseAnimationPlanner.activeDirection(isEntering = false, isExiting = false) shouldBe null
+            TwoPhaseAnimationPlanner.activeDirection(isEntering = true, isExiting = false) shouldBe
+                TwoPhaseDirection.ENTER
+            TwoPhaseAnimationPlanner.activeDirection(isEntering = false, isExiting = true) shouldBe
+                TwoPhaseDirection.EXIT
+            TwoPhaseAnimationPlanner.activeDirection(isEntering = true, isExiting = true) shouldBe
+                TwoPhaseDirection.EXIT
+        }
+    })

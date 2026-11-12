@@ -1,7 +1,6 @@
 package com.lomo.app.feature.update
 
 import androidx.lifecycle.ViewModel
-
 import kotlinx.coroutines.flow.StateFlow
 
 enum class DebugAppUpdateScenario {
@@ -27,30 +26,30 @@ class AppUpdateViewModel(
     private val updateStartupOrchestrator: UpdateStartupOrchestrator,
     private val appUpdateDownloadManager: AppUpdateDownloadManager,
 ) : ViewModel() {
-        val dialogState: StateFlow<AppUpdateDialogState?> = updateStartupOrchestrator.dialogState
-        val progressDialogState: StateFlow<AppUpdateProgressDialogState?> = appUpdateDownloadManager.progressDialogState
+    val dialogState: StateFlow<AppUpdateDialogState?> = updateStartupOrchestrator.dialogState
+    val progressDialogState: StateFlow<AppUpdateProgressDialogState?> = appUpdateDownloadManager.progressDialogState
 
-        fun startInAppUpdate(update: AppUpdateDialogState? = null) {
-            val resolvedUpdate = update ?: updateStartupOrchestrator.consumeUpdateDialog() ?: return
-            if (update != null) {
-                updateStartupOrchestrator.dismissUpdateDialog()
-            }
-            appUpdateDownloadManager.startInAppUpdate(resolvedUpdate)
-        }
-
-        fun retryInAppUpdate() {
-            appUpdateDownloadManager.retryInAppUpdate()
-        }
-
-        fun cancelInAppUpdate() {
-            appUpdateDownloadManager.cancelInAppUpdate()
-        }
-
-        fun dismissProgressDialog() {
-            appUpdateDownloadManager.dismissProgressDialog()
-        }
-
-        fun dismissUpdateDialog() {
+    fun startInAppUpdate(update: AppUpdateDialogState? = null) {
+        val resolvedUpdate = update ?: updateStartupOrchestrator.consumeUpdateDialog() ?: return
+        if (update != null) {
             updateStartupOrchestrator.dismissUpdateDialog()
         }
+        appUpdateDownloadManager.startInAppUpdate(resolvedUpdate)
     }
+
+    fun retryInAppUpdate() {
+        appUpdateDownloadManager.retryInAppUpdate()
+    }
+
+    fun cancelInAppUpdate() {
+        appUpdateDownloadManager.cancelInAppUpdate()
+    }
+
+    fun dismissProgressDialog() {
+        appUpdateDownloadManager.dismissProgressDialog()
+    }
+
+    fun dismissUpdateDialog() {
+        updateStartupOrchestrator.dismissUpdateDialog()
+    }
+}

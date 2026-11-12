@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,6 +23,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.component.common.LomoFilledIconButton
+import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.cd_cancel_recording
 import com.lomo.ui.generated.resources.cd_stop_recording
@@ -37,15 +38,9 @@ private const val MIN_RECORDING_AMPLITUDE = 0
 private const val MAX_RECORDING_AMPLITUDE = 32767
 private const val MIN_WAVEFORM_WIDTH = 50
 private const val WAVEFORM_WIDTH_RANGE = 200
-data class VoiceRecordingPanelState(
-    val recordingDuration: Long = 0L,
-    val recordingAmplitude: Int? = null,
-)
+data class VoiceRecordingPanelState(val recordingDuration: Long = 0L, val recordingAmplitude: Int? = null)
 
-data class VoiceRecordingPanelCallbacks(
-    val onCancel: () -> Unit,
-    val onStop: () -> Unit,
-)
+data class VoiceRecordingPanelCallbacks(val onCancel: () -> Unit, val onStop: () -> Unit)
 
 @Composable
 fun VoiceRecordingPanel(
@@ -60,15 +55,15 @@ fun VoiceRecordingPanel(
 
     Column(
         modifier =
-            modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = AppSpacing.Small),
+        modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(bottom = AppSpacing.Small),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text =
-                org.jetbrains.compose.resources.stringResource(Res.string.recording_in_progress),
+            org.jetbrains.compose.resources.stringResource(Res.string.recording_in_progress),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -85,13 +80,13 @@ fun VoiceRecordingPanel(
 
         Row(
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(InputSheetTokens.RecordingTrackHeight)
-                    .background(
-                        MaterialTheme.colorScheme.surfaceContainerHigh,
-                        AppShapes.Medium,
-                    ),
+            Modifier
+                .fillMaxWidth()
+                .height(InputSheetTokens.RecordingTrackHeight)
+                .background(
+                    MaterialTheme.colorScheme.surfaceContainerHigh,
+                    AppShapes.Medium,
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
@@ -110,10 +105,10 @@ fun VoiceRecordingPanel(
 private fun RecordingAmplitudeBar(width: Float) {
     Box(
         modifier =
-            Modifier
-                .width(width.dp)
-                .height(InputSheetTokens.RecordingWaveformHeight)
-                .background(MaterialTheme.colorScheme.primary, AppShapes.ExtraSmall),
+        Modifier
+            .width(width.dp)
+            .height(InputSheetTokens.RecordingWaveformHeight)
+            .background(MaterialTheme.colorScheme.primary, AppShapes.ExtraSmall),
     )
 }
 
@@ -124,35 +119,35 @@ private fun VoiceRecordingControls(callbacks: VoiceRecordingPanelCallbacks) {
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
+        LomoIconButton(
             onClick = callbacks.onCancel,
             modifier = Modifier.size(InputSheetTokens.RecordingCancelButtonSize),
         ) {
             Icon(
                 Icons.Rounded.Close,
                 contentDescription =
-                    org.jetbrains.compose.resources.stringResource(
-                        Res.string.cd_cancel_recording,
-                    ),
+                org.jetbrains.compose.resources.stringResource(
+                    Res.string.cd_cancel_recording,
+                ),
                 tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(InputSheetTokens.RecordingCancelIconSize),
             )
         }
 
-        androidx.compose.material3.FilledIconButton(
+        LomoFilledIconButton(
             onClick = callbacks.onStop,
             modifier = Modifier.size(InputSheetTokens.RecordingStopButtonSize),
             colors =
-                androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                ),
+            androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+            ),
         ) {
             Icon(
                 Icons.Rounded.Stop,
                 contentDescription =
-                    org.jetbrains.compose.resources.stringResource(
-                        Res.string.cd_stop_recording,
-                    ),
+                org.jetbrains.compose.resources.stringResource(
+                    Res.string.cd_stop_recording,
+                ),
                 modifier = Modifier.size(InputSheetTokens.RecordingStopIconSize),
             )
         }

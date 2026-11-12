@@ -27,16 +27,14 @@ private val CHINESE_TYPOGRAPHY_CONTEXT_CHARS =
 
 internal fun CharSequence.containsCjkScript(): Boolean = any { it.isCjkScript() }
 
-internal fun CharSequence.shouldUseCjkJustify(): Boolean =
-    containsCjkScript() &&
-        !containsLatinScriptLetter()
+internal fun CharSequence.shouldUseCjkJustify(): Boolean = containsCjkScript() &&
+    !containsLatinScriptLetter()
 
-internal fun CharSequence.preferredCjkLocaleList(): LocaleList =
-    when {
-        any { it.isJapaneseScript() } -> JA_LOCALE_LIST
-        any { it.isKoreanScript() } -> KO_LOCALE_LIST
-        else -> ZH_LOCALE_LIST
-    }
+internal fun CharSequence.preferredCjkLocaleList(): LocaleList = when {
+    any { it.isJapaneseScript() } -> JA_LOCALE_LIST
+    any { it.isKoreanScript() } -> KO_LOCALE_LIST
+    else -> ZH_LOCALE_LIST
+}
 
 internal fun Char.isCjkScript(): Boolean {
     val block = Character.UnicodeBlock.of(this)
@@ -60,5 +58,4 @@ internal fun Char.isLatinScriptLetter(): Boolean {
     return script == Character.UnicodeScript.LATIN
 }
 
-internal fun Char.isChineseTypographyContextChar(): Boolean =
-    isCjkScript() || this in CHINESE_TYPOGRAPHY_CONTEXT_CHARS
+internal fun Char.isChineseTypographyContextChar(): Boolean = isCjkScript() || this in CHINESE_TYPOGRAPHY_CONTEXT_CHARS

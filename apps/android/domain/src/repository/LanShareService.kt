@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 interface LanShareStateRepository {
     val discoveredDevices: StateFlow<List<DiscoveredDevice>>
     val pendingPairing: StateFlow<LanPairingRequest?>
+
     /** Every active inbound batch; nothing hides behind a first-item selection. */
     val incomingBatches: StateFlow<List<LanIncomingBatch>>
     val trustedPeers: StateFlow<List<LanTrustedPeer>>
@@ -52,15 +53,9 @@ interface LanShareTransferController {
 
     fun declinePairing(pairingId: String)
 
-    fun approveIncoming(
-        sessionId: String,
-        batchId: String,
-    )
+    fun approveIncoming(sessionId: String, batchId: String)
 
-    fun rejectIncoming(
-        sessionId: String,
-        batchId: String,
-    )
+    fun rejectIncoming(sessionId: String, batchId: String)
 
     fun revokePeer(deviceId: String)
 

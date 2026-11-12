@@ -1,13 +1,13 @@
 package com.lomo.ui.theme
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,11 +16,10 @@ package com.lomo.ui.theme
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
-import com.lomo.ui.testing.UiComponentsFunSpec
-import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.PlatformTextStyle
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Behavior Contract:
@@ -36,12 +35,13 @@ class MemoTypographyVisualParityTest : UiComponentsFunSpec() {
 
     init {
         test("memo typography tokens disable platform font padding for card and editor parity") {
-        val expectedPlatformStyle = PlatformTextStyle(includeFontPadding = false)
+            val expectedPlatformStyle = PlatformTextStyle(includeFontPadding = false)
 
-        (typography.memoBodyTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
-        (typography.memoBodyTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle) // editor delegates to body
-        (typography.memoSummaryTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
-        (typography.memoHintTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
+            (typography.memoBodyTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
+            // The editor delegates to the body style.
+            (typography.memoBodyTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
+            (typography.memoSummaryTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
+            (typography.memoHintTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
         }
     }
 }

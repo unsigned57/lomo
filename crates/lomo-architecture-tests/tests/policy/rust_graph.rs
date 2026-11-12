@@ -121,7 +121,7 @@ const OWNERS: &[Owner] = &[
     Owner {
         name: "lomo-feasibility",
         directory: "crates/lomo-feasibility",
-        internal_dependencies: &[],
+        internal_dependencies: &["lomo-core"],
         capabilities: &[
             Capability::Portable,
             Capability::Filesystem,
@@ -133,7 +133,7 @@ const OWNERS: &[Owner] = &[
     Owner {
         name: "lomo-xtask",
         directory: "crates/lomo-xtask",
-        internal_dependencies: &["lomo-feasibility"],
+        internal_dependencies: &["lomo-core", "lomo-feasibility"],
         capabilities: &[
             Capability::Portable,
             Capability::Filesystem,

@@ -28,10 +28,7 @@ interface RustSyncSecretSupplier {
      * Issues a lease for [fieldKey] when secret material is present.
      * @return lease id, or null when the field is unset (not an error).
      */
-    fun issueLease(
-        fieldKey: String,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease?
+    fun issueLease(fieldKey: String, ttlMillis: Long): RemoteSyncSecretLease?
 
     fun revokeLease(leaseId: String)
 
@@ -51,10 +48,7 @@ class KeystoreRustSyncSecretSupplier(
     private val materialSource: SecretMaterialSource,
     private val remoteSync: RemoteSyncRepository,
 ) : RustSyncSecretSupplier {
-    override fun issueLease(
-        fieldKey: String,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease? {
+    override fun issueLease(fieldKey: String, ttlMillis: Long): RemoteSyncSecretLease? {
         require(fieldKey.isNotBlank()) { "credential field key must be non-blank" }
         require(ttlMillis > 0) { "secret lease TTL must be positive" }
         val material = materialSource.readSecretBytes(fieldKey) ?: return null

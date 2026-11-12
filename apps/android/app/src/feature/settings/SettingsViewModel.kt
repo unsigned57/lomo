@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 
-
 class SettingsViewModel(
     coordinatorFactory: SettingsCoordinatorFactory,
     exportAllNotesArchiveUseCase: ExportAllNotesArchiveUseCase,
@@ -26,131 +25,131 @@ class SettingsViewModel(
     getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase,
     appUpdateDownloadManager: AppUpdateDownloadManager,
 ) : ViewModel() {
-        private val appConfigCoordinator =
-            coordinatorFactory.createAppConfigCoordinator(viewModelScope)
+    private val appConfigCoordinator =
+        coordinatorFactory.createAppConfigCoordinator(viewModelScope)
 
-        private val lanShareCoordinator =
-            coordinatorFactory.createLanShareCoordinator(viewModelScope)
+    private val lanShareCoordinator =
+        coordinatorFactory.createLanShareCoordinator(viewModelScope)
 
-        private val gitCoordinator =
-            coordinatorFactory.createGitCoordinator(viewModelScope)
+    private val gitCoordinator =
+        coordinatorFactory.createGitCoordinator(viewModelScope)
 
-        private val webDavCoordinator =
-            coordinatorFactory.createWebDavCoordinator(viewModelScope)
+    private val webDavCoordinator =
+        coordinatorFactory.createWebDavCoordinator(viewModelScope)
 
-        private val s3Coordinator =
-            coordinatorFactory.createS3Coordinator(viewModelScope)
+    private val s3Coordinator =
+        coordinatorFactory.createS3Coordinator(viewModelScope)
 
-        private val _operationError = MutableStateFlow<SettingsOperationError?>(null)
-        private val operationErrorFlow = _operationError.asStateFlow()
-        private val errorMapper = coordinatorFactory.createErrorMapper()
-        private val actionCoordinator =
-            SettingsActionCoordinator(
-                scope = viewModelScope,
-                lanShareCoordinator = lanShareCoordinator,
-                gitCoordinator = gitCoordinator,
-                webDavCoordinator = webDavCoordinator,
-                s3Coordinator = s3Coordinator,
-                errorMapper = errorMapper,
-            ) { message ->
-                _operationError.value = message
-            }
-        private val stateProvider =
-            SettingsStateProvider(
-                appConfigCoordinator = appConfigCoordinator,
-                lanShareCoordinator = lanShareCoordinator,
-                gitCoordinator = gitCoordinator,
-                webDavCoordinator = webDavCoordinator,
-                s3Coordinator = s3Coordinator,
-                operationError = operationErrorFlow,
-                scope = viewModelScope,
-            )
-
-        val uiState: StateFlow<SettingsScreenUiState> =
-            stateProvider.uiState.stateIn(
-                viewModelScope,
-                appWhileSubscribed(),
-                stateProvider.uiState.value,
-            )
-
-        val connectionTestState: StateFlow<RemoteProviderConnectionTestState> = stateProvider.connectionTestState
-        val operationError: StateFlow<SettingsOperationError?> = stateProvider.operationError
-
-        val storageFeature =
-            SettingsStorageFeatureViewModel(
-                scope = viewModelScope,
-                appConfigCoordinator = appConfigCoordinator,
-                mount = coordinatorFactory.mount(),
-                onError = { error ->
-                    _operationError.value = errorMapper.map(error, "Failed to update storage settings")
-                },
-            )
-        val displayFeature =
-            coordinatorFactory.createDisplayFeature(
-                scope = viewModelScope,
-                appConfigCoordinator = appConfigCoordinator,
-            )
-        val shareCardFeature =
-            SettingsShareCardFeatureViewModel(
-                scope = viewModelScope,
-                appConfigCoordinator = appConfigCoordinator,
-            )
-        val snapshotFeature =
-            SettingsSnapshotFeatureViewModel(
-                scope = viewModelScope,
-                appConfigCoordinator = appConfigCoordinator,
-            )
-        val interactionFeature =
-            SettingsInteractionFeatureViewModel(
-                scope = viewModelScope,
-                appConfigCoordinator = appConfigCoordinator,
-            )
-        val systemFeature =
-            SettingsSystemFeatureViewModel(
-                scope = viewModelScope,
-                appConfigCoordinator = appConfigCoordinator,
-                appUpdateChecker = appUpdateChecker,
-                getCurrentAppVersionUseCase = getCurrentAppVersionUseCase,
-                appUpdateDownloadManager = appUpdateDownloadManager,
-            )
-        val migrationFeature =
-            SettingsMigrationFeatureViewModel(
-                scope = viewModelScope,
-                exportAllNotesArchiveUseCase = exportAllNotesArchiveUseCase,
-                importAllNotesArchiveUseCase = importAllNotesArchiveUseCase,
-                exportEncryptedSettingsUseCase = exportEncryptedSettingsUseCase,
-                importEncryptedSettingsUseCase = importEncryptedSettingsUseCase,
-            )
-        val lanShareFeature =
-            SettingsLanShareFeatureViewModel(
-                actionCoordinator = actionCoordinator,
-            )
-        val gitFeature =
-            SettingsGitFeatureViewModel(
-                providerActions = actionCoordinator,
-                gitActions = actionCoordinator,
-                gitCoordinator = gitCoordinator,
-            )
-        val webDavFeature =
-            SettingsWebDavFeatureViewModel(
-                providerActions = actionCoordinator,
-                webDavActions = actionCoordinator,
-                webDavCoordinator = webDavCoordinator,
-            )
-        val s3Feature =
-            SettingsS3FeatureViewModel(
-                providerActions = actionCoordinator,
-                s3Actions = actionCoordinator,
-                s3Coordinator = s3Coordinator,
-            )
-
-        init {
-            actionCoordinator.refreshPatConfigured()
-            actionCoordinator.refreshWebDavPasswordConfigured()
-            actionCoordinator.refreshS3CredentialConfigured()
+    private val _operationError = MutableStateFlow<SettingsOperationError?>(null)
+    private val operationErrorFlow = _operationError.asStateFlow()
+    private val errorMapper = coordinatorFactory.createErrorMapper()
+    private val actionCoordinator =
+        SettingsActionCoordinator(
+            scope = viewModelScope,
+            lanShareCoordinator = lanShareCoordinator,
+            gitCoordinator = gitCoordinator,
+            webDavCoordinator = webDavCoordinator,
+            s3Coordinator = s3Coordinator,
+            errorMapper = errorMapper,
+        ) { message ->
+            _operationError.value = message
         }
+    private val stateProvider =
+        SettingsStateProvider(
+            appConfigCoordinator = appConfigCoordinator,
+            lanShareCoordinator = lanShareCoordinator,
+            gitCoordinator = gitCoordinator,
+            webDavCoordinator = webDavCoordinator,
+            s3Coordinator = s3Coordinator,
+            operationError = operationErrorFlow,
+            scope = viewModelScope,
+        )
 
-        fun clearOperationError() {
-            _operationError.value = null
-        }
+    val uiState: StateFlow<SettingsScreenUiState> =
+        stateProvider.uiState.stateIn(
+            viewModelScope,
+            appWhileSubscribed(),
+            stateProvider.uiState.value,
+        )
+
+    val connectionTestState: StateFlow<RemoteProviderConnectionTestState> = stateProvider.connectionTestState
+    val operationError: StateFlow<SettingsOperationError?> = stateProvider.operationError
+
+    val storageFeature =
+        SettingsStorageFeatureViewModel(
+            scope = viewModelScope,
+            appConfigCoordinator = appConfigCoordinator,
+            mount = coordinatorFactory.mount(),
+            onError = { error ->
+                _operationError.value = errorMapper.map(error, "Failed to update storage settings")
+            },
+        )
+    val displayFeature =
+        coordinatorFactory.createDisplayFeature(
+            scope = viewModelScope,
+            appConfigCoordinator = appConfigCoordinator,
+        )
+    val shareCardFeature =
+        SettingsShareCardFeatureViewModel(
+            scope = viewModelScope,
+            appConfigCoordinator = appConfigCoordinator,
+        )
+    val snapshotFeature =
+        SettingsSnapshotFeatureViewModel(
+            scope = viewModelScope,
+            appConfigCoordinator = appConfigCoordinator,
+        )
+    val interactionFeature =
+        SettingsInteractionFeatureViewModel(
+            scope = viewModelScope,
+            appConfigCoordinator = appConfigCoordinator,
+        )
+    val systemFeature =
+        SettingsSystemFeatureViewModel(
+            scope = viewModelScope,
+            appConfigCoordinator = appConfigCoordinator,
+            appUpdateChecker = appUpdateChecker,
+            getCurrentAppVersionUseCase = getCurrentAppVersionUseCase,
+            appUpdateDownloadManager = appUpdateDownloadManager,
+        )
+    val migrationFeature =
+        SettingsMigrationFeatureViewModel(
+            scope = viewModelScope,
+            exportAllNotesArchiveUseCase = exportAllNotesArchiveUseCase,
+            importAllNotesArchiveUseCase = importAllNotesArchiveUseCase,
+            exportEncryptedSettingsUseCase = exportEncryptedSettingsUseCase,
+            importEncryptedSettingsUseCase = importEncryptedSettingsUseCase,
+        )
+    val lanShareFeature =
+        SettingsLanShareFeatureViewModel(
+            actionCoordinator = actionCoordinator,
+        )
+    val gitFeature =
+        SettingsGitFeatureViewModel(
+            providerActions = actionCoordinator,
+            gitActions = actionCoordinator,
+            gitCoordinator = gitCoordinator,
+        )
+    val webDavFeature =
+        SettingsWebDavFeatureViewModel(
+            providerActions = actionCoordinator,
+            webDavActions = actionCoordinator,
+            webDavCoordinator = webDavCoordinator,
+        )
+    val s3Feature =
+        SettingsS3FeatureViewModel(
+            providerActions = actionCoordinator,
+            s3Actions = actionCoordinator,
+            s3Coordinator = s3Coordinator,
+        )
+
+    init {
+        actionCoordinator.refreshPatConfigured()
+        actionCoordinator.refreshWebDavPasswordConfigured()
+        actionCoordinator.refreshS3CredentialConfigured()
     }
+
+    fun clearOperationError() {
+        _operationError.value = null
+    }
+}

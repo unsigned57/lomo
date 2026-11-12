@@ -11,21 +11,15 @@ import java.security.MessageDigest
 import java.util.Locale
 
 internal sealed interface DownloadedApkVerificationResult {
-    data class Valid(
-        val metadata: VerifiedAppUpdatePackageMetadata,
-    ) : DownloadedApkVerificationResult
+    data class Valid(val metadata: VerifiedAppUpdatePackageMetadata) : DownloadedApkVerificationResult
 
-    data class Invalid(
-        val message: String,
-    ) : DownloadedApkVerificationResult
+    data class Invalid(val message: String) : DownloadedApkVerificationResult
 }
 
 internal sealed interface AppUpdateInstallerResult {
     data object Installed : AppUpdateInstallerResult
 
-    data class Failed(
-        val message: String,
-    ) : AppUpdateInstallerResult
+    data class Failed(val message: String) : AppUpdateInstallerResult
 }
 
 internal data class VerifiedAppUpdatePackageMetadata(
@@ -43,10 +37,7 @@ internal data class DownloadedApkMetadata(
 )
 
 internal object AppUpdateApkSignerPolicy {
-    fun isSignedByInstalledAppSigner(
-        archiveSignerDigests: Set<String>,
-        installedSignerDigests: Set<String>,
-    ): Boolean =
+    fun isSignedByInstalledAppSigner(archiveSignerDigests: Set<String>, installedSignerDigests: Set<String>): Boolean =
         archiveSignerDigests.isNotEmpty() &&
             installedSignerDigests.isNotEmpty() &&
             archiveSignerDigests == installedSignerDigests
@@ -88,12 +79,12 @@ internal fun verifyDownloadedApkMetadata(
     return mismatch
         ?: DownloadedApkVerificationResult.Valid(
             metadata =
-                VerifiedAppUpdatePackageMetadata(
-                    packageName = expectedPackageName,
-                    versionName = metadata.versionName.orEmpty(),
-                    versionCode = metadata.versionCode,
-                    signerCertificateSha256Digests = metadata.signerCertificateSha256Digests,
-                ),
+            VerifiedAppUpdatePackageMetadata(
+                packageName = expectedPackageName,
+                versionName = metadata.versionName.orEmpty(),
+                versionCode = metadata.versionCode,
+                signerCertificateSha256Digests = metadata.signerCertificateSha256Digests,
+            ),
         )
 }
 
@@ -121,20 +112,18 @@ internal fun installedPackageMatchesVerifiedUpdate(
     )
 }
 
-internal fun packageSigningInfoFlags(): Int =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        PackageManager.GET_SIGNING_CERTIFICATES
-    } else {
-        GET_SIGNATURES_COMPAT
-    }
+internal fun packageSigningInfoFlags(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+    PackageManager.GET_SIGNING_CERTIFICATES
+} else {
+    GET_SIGNATURES_COMPAT
+}
 
-internal fun PackageInfo.toDownloadedApkMetadata(): DownloadedApkMetadata =
-    DownloadedApkMetadata(
-        packageName = packageName,
-        versionName = versionName.orEmpty(),
-        versionCode = PackageInfoCompat.getLongVersionCode(this),
-        signerCertificateSha256Digests = signerCertificateSha256Digests(),
-    )
+internal fun PackageInfo.toDownloadedApkMetadata(): DownloadedApkMetadata = DownloadedApkMetadata(
+    packageName = packageName,
+    versionName = versionName.orEmpty(),
+    versionCode = PackageInfoCompat.getLongVersionCode(this),
+    signerCertificateSha256Digests = signerCertificateSha256Digests(),
+)
 
 private fun firstApkMetadataMismatch(
     metadata: DownloadedApkMetadata,
@@ -178,13 +167,12 @@ private fun PackageInfo.legacySignatures(): List<Signature> =
         rawSignatures.orEmpty().filterIsInstance<Signature>()
     }.getOrDefault(emptyList())
 
-private fun Signature.sha256DigestHex(): String =
-    MessageDigest
-        .getInstance("SHA-256")
-        .digest(toByteArray())
-        .joinToString(separator = "") { byte ->
-            String.format(Locale.ROOT, "%02x", byte.toInt() and UNSIGNED_BYTE_MASK)
-        }
+private fun Signature.sha256DigestHex(): String = MessageDigest
+    .getInstance("SHA-256")
+    .digest(toByteArray())
+    .joinToString(separator = "") { byte ->
+        String.format(Locale.ROOT, "%02x", byte.toInt() and UNSIGNED_BYTE_MASK)
+    }
 
 private fun normalizeApkVersionName(versionName: String?): String = versionName.orEmpty().removePrefix("v")
 

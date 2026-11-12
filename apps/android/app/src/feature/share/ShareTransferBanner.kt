@@ -24,11 +24,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.domain.model.ShareTransferState
+import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 private val TRANSFER_BANNER_ICON_SIZE = 20.dp
 private val TRANSFER_BANNER_LOADING_SIZE = 18.dp
 private val TRANSFER_BANNER_PROGRESS_HEIGHT = 24.dp
@@ -48,11 +51,17 @@ fun TransferStateBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
+    val motionScheme = LocalLomoMotion.current.layout
     val bannerState = transferBannerState(state, isTechnicalMessage) ?: return
 
     Surface(
-        modifier = modifier,
+        modifier = modifier.benchmarkAnchor(
+            when (state) {
+                is ShareTransferState.Success -> BenchmarkAnchorContract.LAN_TRANSFER_SUCCESS
+                is ShareTransferState.Error -> BenchmarkAnchorContract.LAN_TRANSFER_ERROR
+                else -> null
+            },
+        ),
         color = bannerState.containerColor,
         shape = AppShapes.Medium,
         onClick = {
@@ -63,10 +72,10 @@ fun TransferStateBanner(
     ) {
         Column(
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .animateContentSize(animationSpec = motionScheme.defaultSpatialSpec())
-                    .padding(AppSpacing.Medium),
+            Modifier
+                .fillMaxWidth()
+                .animateContentSize(animationSpec = motionScheme.defaultSpatialSpec())
+                .padding(AppSpacing.Medium),
         ) {
             TransferStateBannerHeader(bannerState = bannerState)
             if (state is ShareTransferState.Transferring) {
@@ -74,9 +83,9 @@ fun TransferStateBanner(
                 ExpressiveContainedLoadingIndicator(
                     progress = { state.progress },
                     modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(TRANSFER_BANNER_PROGRESS_HEIGHT),
+                    Modifier
+                        .fillMaxWidth()
+                        .height(TRANSFER_BANNER_PROGRESS_HEIGHT),
                     indicatorColor = bannerState.contentColor,
                     containerColor = bannerState.contentColor.copy(alpha = TRANSFER_BANNER_PROGRESS_ALPHA),
                     shape = AppShapes.ExtraSmall,
@@ -90,52 +99,57 @@ fun TransferStateBanner(
 private fun transferBannerState(
     state: ShareTransferState,
     isTechnicalMessage: (String) -> Boolean,
-): TransferBannerState? =
-    when (state) {
-        is ShareTransferState.Sending ->
-            TransferBannerState(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                icon = null,
-                text = stringResource(R.string.share_status_connecting),
-            )
-        is ShareTransferState.WaitingApproval ->
-            TransferBannerState(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                icon = null,
-                text = stringResource(R.string.share_status_waiting_approval, state.deviceName),
-            )
-        is ShareTransferState.WaitingPairing ->
-            TransferBannerState(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                icon = null,
-                text = stringResource(R.string.lan_pairing_waiting, state.deviceName),
-            )
-        is ShareTransferState.Transferring ->
-            TransferBannerState(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                icon = null,
-                text = stringResource(R.string.share_status_transferring),
-            )
-        is ShareTransferState.Success ->
-            TransferBannerState(
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                icon = Icons.Filled.CheckCircle,
-                text = stringResource(R.string.share_status_sent, state.deviceName),
-            )
-        is ShareTransferState.Error ->
-            TransferBannerState(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                icon = Icons.Filled.Error,
-                text = ShareErrorPresenter.message(state.error, isTechnicalMessage),
-            )
-        else -> null
-    }
+): TransferBannerState? = when (state) {
+    is ShareTransferState.Sending ->
+        TransferBannerState(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            icon = null,
+            text = stringResource(R.string.share_status_connecting),
+        )
+
+    is ShareTransferState.WaitingApproval ->
+        TransferBannerState(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            icon = null,
+            text = stringResource(R.string.share_status_waiting_approval, state.deviceName),
+        )
+
+    is ShareTransferState.WaitingPairing ->
+        TransferBannerState(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            icon = null,
+            text = stringResource(R.string.lan_pairing_waiting, state.deviceName),
+        )
+
+    is ShareTransferState.Transferring ->
+        TransferBannerState(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            icon = null,
+            text = stringResource(R.string.share_status_transferring),
+        )
+
+    is ShareTransferState.Success ->
+        TransferBannerState(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            icon = Icons.Filled.CheckCircle,
+            text = stringResource(R.string.share_status_sent, state.deviceName),
+        )
+
+    is ShareTransferState.Error ->
+        TransferBannerState(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            icon = Icons.Filled.Error,
+            text = ShareErrorPresenter.message(state.error, isTechnicalMessage),
+        )
+
+    else -> null
+}
 
 @Composable
 private fun TransferStateBannerHeader(bannerState: TransferBannerState) {

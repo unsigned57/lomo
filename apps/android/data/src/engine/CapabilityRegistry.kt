@@ -16,20 +16,15 @@ import java.util.concurrent.ConcurrentHashMap
  * binding so a later resolve is indistinguishable from an unknown token.
  */
 internal class CapabilityRegistry {
+    private val mediaGrants = ConcurrentHashMap<String, Map<String, RootCapabilityGrant>>()
     private val grants = ConcurrentHashMap<String, RootCapabilityGrant>()
 
-    fun register(
-        treeUri: String,
-        token: String = newCapabilityToken(),
-    ): SafCapabilityGrant {
+    fun register(treeUri: String, token: String = newCapabilityToken()): SafCapabilityGrant {
         val grant = SafCapabilityGrant.bind(token = token, treeUri = treeUri)
         return putGrant(grant) as SafCapabilityGrant
     }
 
-    fun registerDirect(
-        rootPath: File,
-        token: String = newCapabilityToken(),
-    ): DirectCapabilityGrant {
+    fun registerDirect(rootPath: File, token: String = newCapabilityToken()): DirectCapabilityGrant {
         val grant = DirectCapabilityGrant.bind(token = token, rootPath = rootPath)
         return putGrant(grant) as DirectCapabilityGrant
     }
@@ -39,15 +34,30 @@ internal class CapabilityRegistry {
 
     fun revoke(token: String) {
         grants.remove(token)
+        mediaGrants.remove(token)
     }
 
-    fun resolve(token: String): RootCapabilityGrant =
-        grants[token]
-            ?: throw CapabilityRegistryException(
-                category = "permission",
-                code = "unknown_capability_token",
-                diagnostic = "Capability token is unknown or revoked",
-            )
+    fun resolve(token: String): RootCapabilityGrant = grants[token]
+        ?: throw CapabilityRegistryException(
+            category = "permission",
+            code = "unknown_capability_token",
+            diagnostic = "Capability token is unknown or revoked",
+        )
+
+    /** Explicit user-selected attachment trees form part of this session capability. */
+    fun bindMediaRoots(token: String, locations: Map<String, String>) {
+        val workspace = resolve(token)
+        val bindings = locations.mapValues { (_, location) ->
+            if (location.startsWith("content:", ignoreCase = true)) {
+                SafCapabilityGrant.bind("$token-media", location)
+            } else {
+                DirectCapabilityGrant.bind("$token-media", File(location))
+            }
+        }.filterValues { it.stableWorkspaceId != workspace.stableWorkspaceId }
+        check(mediaGrants.putIfAbsent(token, bindings) == null) { "Media roots are immutable within a session" }
+    }
+
+    fun mediaRoots(token: String): Map<String, RootCapabilityGrant> = mediaGrants[token].orEmpty()
 
     private fun putGrant(grant: RootCapabilityGrant): RootCapabilityGrant {
         val existing = grants.putIfAbsent(grant.capabilityToken, grant)
@@ -66,9 +76,7 @@ internal sealed interface RootCapabilityGrant {
 }
 
 @JvmInline
-internal value class StableWorkspaceId(
-    val value: String,
-) {
+internal value class StableWorkspaceId(val value: String) {
     init {
         require(
             value.length == PREFIX.length + SHA256_HEX_LENGTH &&
@@ -90,17 +98,13 @@ internal class SafCapabilityGrant private constructor(
     override val stableWorkspaceId: StableWorkspaceId,
     val treeUri: String,
 ) : RootCapabilityGrant {
-    override fun hasSameBindingAs(other: RootCapabilityGrant): Boolean =
-        other is SafCapabilityGrant &&
-            capabilityToken == other.capabilityToken &&
-            stableWorkspaceId == other.stableWorkspaceId &&
-            treeUri == other.treeUri
+    override fun hasSameBindingAs(other: RootCapabilityGrant): Boolean = other is SafCapabilityGrant &&
+        capabilityToken == other.capabilityToken &&
+        stableWorkspaceId == other.stableWorkspaceId &&
+        treeUri == other.treeUri
 
     companion object {
-        fun bind(
-            token: String,
-            treeUri: String,
-        ): SafCapabilityGrant {
+        fun bind(token: String, treeUri: String): SafCapabilityGrant {
             require(token.isNotBlank()) { "capability token must be non-blank" }
             return SafCapabilityGrant(
                 capabilityToken = token,
@@ -134,7 +138,7 @@ internal object SafWorkspaceIdentity {
         }
         val treeRootSegment =
             if (rawDocumentId.contains("/document/")) {
-                rawDocumentId.substringBefore("/document/")
+                rawDocumentId.substringAfter("/document/")
             } else {
                 rawDocumentId
             }
@@ -161,17 +165,13 @@ internal class DirectCapabilityGrant private constructor(
     override val stableWorkspaceId: StableWorkspaceId,
     val canonicalRoot: File,
 ) : RootCapabilityGrant {
-    override fun hasSameBindingAs(other: RootCapabilityGrant): Boolean =
-        other is DirectCapabilityGrant &&
-            capabilityToken == other.capabilityToken &&
-            stableWorkspaceId == other.stableWorkspaceId &&
-            canonicalRoot == other.canonicalRoot
+    override fun hasSameBindingAs(other: RootCapabilityGrant): Boolean = other is DirectCapabilityGrant &&
+        capabilityToken == other.capabilityToken &&
+        stableWorkspaceId == other.stableWorkspaceId &&
+        canonicalRoot == other.canonicalRoot
 
     companion object {
-        fun bind(
-            token: String,
-            rootPath: File,
-        ): DirectCapabilityGrant {
+        fun bind(token: String, rootPath: File): DirectCapabilityGrant {
             require(token.isNotBlank()) { "capability token must be non-blank" }
             val canonical =
                 try {
@@ -212,16 +212,23 @@ internal object DirectWorkspaceIdentity {
     }
 }
 
+/** Compares physical directory identity without confusing a SAF grant with its selected child. */
+internal fun storageDirectoryIdentity(location: String): StableWorkspaceId =
+    if (location.startsWith("content:", ignoreCase = true)) {
+        SafWorkspaceIdentity.fromTreeUri(location)
+    } else {
+        DirectWorkspaceIdentity.fromCanonicalRoot(File(location).canonicalFile)
+    }
+
 private fun isLowerHex(character: Char): Boolean = character in '0'..'9' || character in 'a'..'f'
 
-private fun ByteArray.toLowerHex(): String =
-    buildString(size * 2) {
-        for (byte in this@toLowerHex) {
-            val value = byte.toInt() and BYTE_MASK
-            append(HEX[value ushr NIBBLE_BITS])
-            append(HEX[value and NIBBLE_MASK])
-        }
+private fun ByteArray.toLowerHex(): String = buildString(size * 2) {
+    for (byte in this@toLowerHex) {
+        val value = byte.toInt() and BYTE_MASK
+        append(HEX[value ushr NIBBLE_BITS])
+        append(HEX[value and NIBBLE_MASK])
     }
+}
 
 private const val HEX = "0123456789abcdef"
 private const val BYTE_MASK = 0xff

@@ -3,15 +3,14 @@ package com.lomo.ui.component.input
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Image
-import androidx.compose.ui.text.input.TextFieldValue
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
-import java.io.File
-import com.lomo.domain.model.markdown.MarkdownRenderDocument
-import com.lomo.ui.component.markdown.MarkdownRenderState
 import kotlinx.collections.immutable.persistentListOf
+import java.io.File
 
 /*
  * Behavior Contract:
@@ -37,7 +36,7 @@ import kotlinx.collections.immutable.persistentListOf
  *
  * Excludes:
  * - Compose rendering, focus timing, lifecycle effects, Android permission result behavior.
- 
+
  * Test Change Justification:
  * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
  * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
@@ -48,6 +47,15 @@ import kotlinx.collections.immutable.persistentListOf
  *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
  * - Why this is not fitting the test to the implementation: assertions still check public behavior and
  *   fail-closed boundaries, not private parser implementation details.
+ *
+ * Test Change Justification:
+ * Reason category: interface consolidation in the same change as the expansion owner.
+ * Old behavior/assertion being replaced: the callbacks fixture supplied onToggleExpanded, onCollapse and
+ *   onConsumeBackPress.
+ * Why old assertion is no longer correct: one onExpandedChange(Boolean) commits the long-form target; back
+ *   handling reads the committed target directly, so the duplicate back-press query was deleted.
+ * Coverage preserved by: the typed command sink scenario is unchanged and still asserts the dispatched commands.
+ * Why this is not fitting the test to the implementation: only the fixture's construction changed.
  */
 class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
     private val uiSourceRoot = resolveModuleRoot("ui-components").resolve("src")
@@ -57,14 +65,16 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
             val state =
                 InputSheetState(
                     surface =
-                        InputEditorSurfaceState(
-                            inputValue = TextFieldValue("hello"),
-                            previewState = MarkdownRenderState.Ready(emptyPreviewDocument()),
-                            availableTags = persistentListOf("work"),
-                            hints = persistentListOf("hint"),
-                            toolbarOrder = persistentListOf(InputToolbarActionId("primary")),
-                            capabilities = InputEditorCapabilities(toolbarTools = persistentListOf(contractTool("primary"))),
+                    InputEditorSurfaceState(
+                        inputState = androidx.compose.foundation.text.input.TextFieldState("hello"),
+                        previewState = MarkdownRenderState.Ready(emptyPreviewDocument()),
+                        availableTags = persistentListOf("work"),
+                        hints = persistentListOf("hint"),
+                        toolbarOrder = persistentListOf(InputToolbarActionId("primary")),
+                        capabilities = InputEditorCapabilities(
+                            toolbarTools = persistentListOf(contractTool("primary")),
                         ),
+                    ),
                     ownerSubmission = InputSheetOwnerSubmission.Pending,
                 )
 
@@ -81,10 +91,8 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
                 InputSheetCallbacks(
                     onInputValueChange = {},
                     onDismiss = {},
-                    onToggleExpanded = {},
-                    onCollapse = {},
+                    onExpandedChange = {},
                     onDisplayModeChange = {},
-                    onConsumeBackPress = { false },
                     commands = InputEditorCommandHandler { command -> commands += command },
                     onSubmit = { true },
                     onToolbarOrderChanged = {},
@@ -100,7 +108,9 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
                 )
         }
 
-        test("given input component sources when inspected then flattened callbacks and string toolbar ids are deleted") {
+        test(
+            "given input component sources when inspected then flattened callbacks and string toolbar ids are deleted",
+        ) {
             val sheetSource = uiSource("component/input/InputSheet.kt").readText()
             val toolbarSource = uiSource("component/input/InputEditorToolbarComponents.kt").readText()
 
@@ -140,21 +150,19 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
         }
     }
 
-    private fun contractTool(id: String): InputToolbarTool =
-        InputToolbarTool(
-            id = InputToolbarActionId(id),
-            icon = Icons.Rounded.Image,
-            contentDescriptionRes = android.R.string.ok,
-            command = InputEditorCommand.Action(InputToolbarActionId(id)),
-            enabled = true,
-        )
+    private fun contractTool(id: String): InputToolbarTool = InputToolbarTool(
+        id = InputToolbarActionId(id),
+        icon = Icons.Rounded.Image,
+        contentDescriptionRes = android.R.string.ok,
+        command = InputEditorCommand.Action(InputToolbarActionId(id)),
+        enabled = true,
+    )
 
-    private fun uiSource(relativePath: String): File =
-        uiSourceRoot.resolve(relativePath).also { file ->
-            withClue("Expected ui source file exists: ${file.path}") {
-                file.isFile shouldBe true
-            }
+    private fun uiSource(relativePath: String): File = uiSourceRoot.resolve(relativePath).also { file ->
+        withClue("Expected ui source file exists: ${file.path}") {
+            file.isFile shouldBe true
         }
+    }
 
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."
@@ -174,11 +182,10 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
     }
 }
 
-private fun emptyPreviewDocument() =
-    MarkdownRenderDocument(
-        sourceByteLength = 0uL,
-        plainText = "preview",
-        tagNames = emptyList(),
-        attachments = emptyList(),
-        blocks = emptyList(),
-    )
+private fun emptyPreviewDocument() = MarkdownRenderDocument(
+    sourceByteLength = 0uL,
+    plainText = "preview",
+    tagNames = emptyList(),
+    attachments = emptyList(),
+    blocks = emptyList(),
+)

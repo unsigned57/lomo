@@ -7,19 +7,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import java.io.File
 
-internal data class StorageRootConfig(
-    val configuredUri: String?,
-    val configuredPath: String?,
-) {
+internal data class StorageRootConfig(val configuredUri: String?, val configuredPath: String?) {
     fun preferredLocation(): String? = configuredUri ?: configuredPath
 
-    fun toWorkspaceVfs(): WorkspaceVfs? =
-        when {
-            configuredUri != null -> WorkspaceVfs.Saf(configuredUri.toUri())
-            configuredPath != null -> WorkspaceVfs.Direct(File(configuredPath))
-            else -> null
-        }
+    fun toWorkspaceVfs(): WorkspaceVfs? = preferredLocation()?.let(::storageVfs)
 }
+
+internal fun storageVfs(location: String): WorkspaceVfs =
+    if (isContentStorageUri(location)) WorkspaceVfs.Saf(location.toUri()) else WorkspaceVfs.Direct(File(location))
 
 internal fun LomoDataStore.storageRootConfigFlow(type: StorageRootType): Flow<StorageRootConfig> {
     val access = storageRootAccess(type)
@@ -29,10 +24,7 @@ internal fun LomoDataStore.storageRootConfigFlow(type: StorageRootType): Flow<St
 internal suspend fun LomoDataStore.readStorageRootConfig(type: StorageRootType): StorageRootConfig =
     storageRootConfigFlow(type).first()
 
-internal suspend fun LomoDataStore.updateStorageRoot(
-    type: StorageRootType,
-    pathOrUri: String,
-) {
+internal suspend fun LomoDataStore.updateStorageRoot(type: StorageRootType, pathOrUri: String) {
     val access = storageRootAccess(type)
     if (isContentStorageUri(pathOrUri)) {
         access.updateUri(pathOrUri)
@@ -53,37 +45,36 @@ private data class StorageRootAccess(
     val updatePath: suspend (String?) -> Unit,
 )
 
-private fun LomoDataStore.storageRootAccess(type: StorageRootType): StorageRootAccess =
-    when (type) {
-        StorageRootType.MAIN ->
-            StorageRootAccess(
-                uriFlow = rootUri,
-                pathFlow = rootDirectory,
-                updateUri = ::updateRootUri,
-                updatePath = ::updateRootDirectory,
-            )
+private fun LomoDataStore.storageRootAccess(type: StorageRootType): StorageRootAccess = when (type) {
+    StorageRootType.MAIN ->
+        StorageRootAccess(
+            uriFlow = rootUri,
+            pathFlow = rootDirectory,
+            updateUri = ::updateRootUri,
+            updatePath = ::updateRootDirectory,
+        )
 
-        StorageRootType.IMAGE ->
-            StorageRootAccess(
-                uriFlow = imageUri,
-                pathFlow = imageDirectory,
-                updateUri = ::updateImageUri,
-                updatePath = ::updateImageDirectory,
-            )
+    StorageRootType.IMAGE ->
+        StorageRootAccess(
+            uriFlow = imageUri,
+            pathFlow = imageDirectory,
+            updateUri = ::updateImageUri,
+            updatePath = ::updateImageDirectory,
+        )
 
-        StorageRootType.VOICE ->
-            StorageRootAccess(
-                uriFlow = voiceUri,
-                pathFlow = voiceDirectory,
-                updateUri = ::updateVoiceUri,
-                updatePath = ::updateVoiceDirectory,
-            )
+    StorageRootType.VOICE ->
+        StorageRootAccess(
+            uriFlow = voiceUri,
+            pathFlow = voiceDirectory,
+            updateUri = ::updateVoiceUri,
+            updatePath = ::updateVoiceDirectory,
+        )
 
-        StorageRootType.SYNC_INBOX ->
-            StorageRootAccess(
-                uriFlow = syncInboxUri,
-                pathFlow = syncInboxDirectory,
-                updateUri = ::updateSyncInboxUri,
-                updatePath = ::updateSyncInboxDirectory,
-            )
-    }
+    StorageRootType.SYNC_INBOX ->
+        StorageRootAccess(
+            uriFlow = syncInboxUri,
+            pathFlow = syncInboxDirectory,
+            updateUri = ::updateSyncInboxUri,
+            updatePath = ::updateSyncInboxDirectory,
+        )
+}

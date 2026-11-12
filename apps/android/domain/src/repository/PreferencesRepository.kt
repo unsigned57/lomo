@@ -1,9 +1,12 @@
 package com.lomo.domain.repository
 
-import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CalendarHeatmapThresholds
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.FontPreference
-import com.lomo.domain.model.PreferenceValueCodecs
+import com.lomo.domain.model.QuickBallAction
+import com.lomo.domain.model.QuickBallConfig
+import com.lomo.domain.model.QuickBallGesture
 import com.lomo.domain.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
 
@@ -54,6 +57,12 @@ interface InteractionPreferencesRepository {
 }
 
 interface InteractionBehaviorPreferencesRepository {
+    fun getQuickBallConfig(): Flow<QuickBallConfig>
+
+    suspend fun setQuickBallAction(gesture: QuickBallGesture, action: QuickBallAction)
+
+    suspend fun resetQuickBallConfig()
+
     fun isQuickSaveOnBackEnabled(): Flow<Boolean>
 
     suspend fun setQuickSaveOnBackEnabled(enabled: Boolean)
@@ -65,32 +74,6 @@ interface InteractionBehaviorPreferencesRepository {
     fun isAutoOpenInputOnForegroundEnabled(): Flow<Boolean>
 
     suspend fun setAutoOpenInputOnForegroundEnabled(enabled: Boolean)
-}
-
-interface MemoActionPreferencesRepository {
-    companion object {
-        const val DEFAULT_MEMO_ACTION_ORDER_SCOPE = PreferenceValueCodecs.DEFAULT_MEMO_ACTION_ORDER_SCOPE
-    }
-
-    fun isMemoActionAutoReorderEnabled(): Flow<Boolean>
-
-    suspend fun setMemoActionAutoReorderEnabled(enabled: Boolean)
-
-    fun getMemoActionOrder(): Flow<List<String>> =
-        getMemoActionOrder(DEFAULT_MEMO_ACTION_ORDER_SCOPE)
-
-    fun getMemoActionOrder(scope: String): Flow<List<String>>
-
-    fun getMemoActionOrdersByScope(): Flow<Map<String, List<String>>>
-
-    suspend fun updateMemoActionOrder(actionOrder: List<String>) {
-        updateMemoActionOrder(DEFAULT_MEMO_ACTION_ORDER_SCOPE, actionOrder)
-    }
-
-    suspend fun updateMemoActionOrder(
-        scope: String,
-        actionOrder: List<String>,
-    )
 }
 
 interface InputToolbarPreferencesRepository {
@@ -172,6 +155,14 @@ interface ColorSchemePreferencesRepository {
 
     suspend fun setColorSource(source: ColorSource)
 
+    fun isPureBlackDarkEnabled(): Flow<Boolean>
+
+    suspend fun setPureBlackDarkEnabled(enabled: Boolean)
+
+    fun getContrastLevel(): Flow<ContrastLevel>
+
+    suspend fun setContrastLevel(level: ContrastLevel)
+
     fun getColorHistory(): Flow<List<Int>>
 
     suspend fun addColorToHistory(argb: Int)
@@ -188,7 +179,6 @@ interface PreferencesRepository :
     StoragePreferencesRepository,
     InteractionPreferencesRepository,
     InteractionBehaviorPreferencesRepository,
-    MemoActionPreferencesRepository,
     InputToolbarPreferencesRepository,
     SidebarTagOrderPreferencesRepository,
     SecurityPreferencesRepository,

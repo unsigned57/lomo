@@ -1,7 +1,5 @@
 package com.lomo.app.feature.settings
 
-import androidx.compose.material3.MotionScheme
-
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
@@ -29,9 +27,9 @@ import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Vibration
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -42,17 +40,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.domain.model.StorageArea
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.theme.AppSpacing
@@ -82,9 +82,9 @@ internal fun SettingsScreenScaffold(
         key(languageTag) {
             Scaffold(
                 modifier =
-                    Modifier
-                        .nestedScroll(scrollBehavior.nestedScrollConnection)
-                        .benchmarkAnchorRoot(BenchmarkAnchorContract.SETTINGS_ROOT),
+                Modifier
+                    .nestedScroll(scrollBehavior.nestedScrollConnection)
+                    .benchmarkAnchorRoot(BenchmarkAnchorContract.SETTINGS_ROOT),
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                 topBar = {
                     SettingsTopBar(
@@ -109,37 +109,35 @@ internal fun SettingsScreenScaffold(
     }
 }
 
-private fun settingsLanguageTransitionSpec(motionScheme: MotionScheme):
-    AnimatedContentTransitionScope<String>.() -> ContentTransform = {
+private fun settingsLanguageTransitionSpec(
+    motionScheme: MotionScheme,
+): AnimatedContentTransitionScope<String>.() -> ContentTransform = {
     (
         fadeIn(
             animationSpec =
-                motionScheme.defaultEffectsSpec(),
+            motionScheme.defaultEffectsSpec(),
         ) +
             scaleIn(
                 initialScale = 0.92f,
                 animationSpec =
-                    motionScheme.defaultSpatialSpec(),
+                motionScheme.defaultSpatialSpec(),
             )
-    ).togetherWith(
+        ).togetherWith(
         fadeOut(
             animationSpec =
-                motionScheme.defaultEffectsSpec(),
+            motionScheme.defaultEffectsSpec(),
         ),
     )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsTopBar(
-    onBackClick: () -> Unit,
-    scrollBehavior: TopAppBarScrollBehavior,
-) {
+private fun SettingsTopBar(onBackClick: () -> Unit, scrollBehavior: TopAppBarScrollBehavior) {
     val haptic = LocalAppHapticFeedback.current
     LargeTopAppBar(
         title = { Text(stringResource(R.string.settings_title)) },
         navigationIcon = {
-            IconButton(
+            LomoIconButton(
                 onClick = {
                     haptic.medium()
                     onBackClick()
@@ -153,10 +151,10 @@ private fun SettingsTopBar(
             }
         },
         colors =
-            TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
+        TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
         scrollBehavior = scrollBehavior,
     )
 }
@@ -177,23 +175,23 @@ private fun SettingsBody(
         remember(uiState.git, uiState.webDav, uiState.s3) {
             computeSettingsHomeHeroState(
                 git =
-                    HomeHeroProviderFacts(
-                        enabled = uiState.git.providerSettings.enabled,
-                        lastSync = uiState.git.providerSettings.lastSyncTime,
-                        syncState = uiState.git.providerSettings.syncState,
-                    ),
+                HomeHeroProviderFacts(
+                    enabled = uiState.git.providerSettings.enabled,
+                    lastSync = uiState.git.providerSettings.lastSyncTime,
+                    syncState = uiState.git.providerSettings.syncState,
+                ),
                 webDav =
-                    HomeHeroProviderFacts(
-                        enabled = uiState.webDav.providerSettings.enabled,
-                        lastSync = uiState.webDav.providerSettings.lastSyncTime,
-                        syncState = uiState.webDav.providerSettings.syncState,
-                    ),
+                HomeHeroProviderFacts(
+                    enabled = uiState.webDav.providerSettings.enabled,
+                    lastSync = uiState.webDav.providerSettings.lastSyncTime,
+                    syncState = uiState.webDav.providerSettings.syncState,
+                ),
                 s3 =
-                    HomeHeroProviderFacts(
-                        enabled = uiState.s3.providerSettings.enabled,
-                        lastSync = uiState.s3.providerSettings.lastSyncTime,
-                        syncState = uiState.s3.providerSettings.syncState,
-                    ),
+                HomeHeroProviderFacts(
+                    enabled = uiState.s3.providerSettings.enabled,
+                    lastSync = uiState.s3.providerSettings.lastSyncTime,
+                    syncState = uiState.s3.providerSettings.syncState,
+                ),
             )
         }
     val notSetLabel = stringResource(R.string.settings_not_set)
@@ -201,21 +199,26 @@ private fun SettingsBody(
         resources.dialogOptions.languageLabels[resources.currentLanguageTag]
             ?: resources.currentLanguageTag
     val themeLabel =
-        resources.dialogOptions.themeModeLabels[uiState.display.themeMode]
-            ?: uiState.display.themeMode.value
+        resolveThemeModeSummaryLabel(
+            themeMode = uiState.display.themeMode,
+            pureBlackDark = uiState.display.pureBlackDark,
+            themeModeLabels = resources.dialogOptions.themeModeLabels,
+            pureBlackSystemLabel = stringResource(R.string.settings_theme_system_pure_black),
+            pureBlackDarkLabel = stringResource(R.string.settings_theme_dark_pure_black),
+        )
     val colorPaletteLabel = colorSourceSummaryLabel(uiState.display.colorSource)
     val fontLabel = fontPreferenceSummaryLabel(uiState.display)
 
     Column(
         modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(
-                    horizontal = AppSpacing.ScreenHorizontalPadding,
-                    vertical = AppSpacing.MediumSmall,
-                ),
+        Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .verticalScroll(rememberScrollState())
+            .padding(
+                horizontal = AppSpacing.ScreenHorizontalPadding,
+                vertical = AppSpacing.MediumSmall,
+            ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
     ) {
         SettingsHomeHero(
@@ -223,25 +226,11 @@ private fun SettingsBody(
             onSyncNow = { triggerEnabledProviderSyncs(features, uiState) },
         )
 
-        val rootOperationState by features.storage.rootOperationState.collectAsStateWithLifecycle()
-        val memoDirectoryLabel =
-            when (rootOperationState) {
-                WorkspaceRootOperationState.Idle -> uiState.storage.rootDirectory.subtitle(notSetLabel)
-                WorkspaceRootOperationState.Switching ->
-                    stringResource(R.string.settings_storage_switching_workspace)
-                WorkspaceRootOperationState.Indexing ->
-                    stringResource(R.string.settings_storage_scanning_workspace)
-                is WorkspaceRootOperationState.Failed ->
-                    stringResource(R.string.settings_storage_index_failed)
-            }
-
-        SettingsStorageQuickGroup(
-            memoDirectoryLabel = memoDirectoryLabel,
-            imageDirectoryLabel = uiState.storage.imageDirectory.subtitle(notSetLabel),
-            voiceDirectoryLabel = uiState.storage.voiceDirectory.subtitle(notSetLabel),
-            onMemoDirectoryClick = storagePickers.openRoot,
-            onImageDirectoryClick = storagePickers.openImage,
-            onVoiceDirectoryClick = storagePickers.openVoice,
+        SettingsStorageSection(
+            storage = features.storage,
+            directories = uiState.storage,
+            storagePickers = storagePickers,
+            notSetLabel = notSetLabel,
         )
 
         SettingsPreferencesQuickGroup(
@@ -249,15 +238,11 @@ private fun SettingsBody(
             languageLabel = languageLabel,
             colorPaletteLabel = colorPaletteLabel,
             fontLabel = fontLabel,
-            appLockChecked = uiState.interaction.appLockEnabled,
-            hapticChecked = uiState.interaction.hapticEnabled,
             onThemeClick = { dialogState.showThemeDialog = true },
             onLanguageClick = { dialogState.showLanguageDialog = true },
             onTypographyClick = { dialogState.activeSubPage = SettingsSubPage.TYPOGRAPHY },
             onColorPaletteClick = { dialogState.activeSubPage = SettingsSubPage.COLOR_PALETTE },
             onFontClick = { dialogState.activeSubPage = SettingsSubPage.FONT },
-            onAppLockChange = features.interaction::updateAppLockEnabled,
-            onHapticChange = features.interaction::updateHapticFeedback,
         )
 
         SettingsCategoryEntriesGroup(dialogState = dialogState)
@@ -280,33 +265,40 @@ private fun SettingsBody(
 @Composable
 private fun SettingsCategoryEntriesGroup(dialogState: SettingsDialogState) {
     SettingsGroup(title = stringResource(R.string.settings_home_more_section_title)) {
-        PreferenceItem(
-            title = stringResource(R.string.settings_category_sync_backup),
-            subtitle = stringResource(R.string.settings_category_sync_backup_subtitle),
-            icon = Icons.Outlined.Sync,
-            onClick = { dialogState.activeSubPage = SettingsSubPage.SYNC_BACKUP },
-        )
-        SettingsDivider()
-        PreferenceItem(
-            title = stringResource(R.string.settings_category_storage_formats),
-            subtitle = stringResource(R.string.settings_category_storage_formats_subtitle),
-            icon = Icons.Outlined.FolderOpen,
-            onClick = { dialogState.activeSubPage = SettingsSubPage.STORAGE_FORMATS },
-        )
-        SettingsDivider()
-        PreferenceItem(
-            title = stringResource(R.string.settings_category_interaction_security),
-            subtitle = stringResource(R.string.settings_category_interaction_security_subtitle),
-            icon = Icons.Outlined.Vibration,
-            onClick = { dialogState.activeSubPage = SettingsSubPage.INTERACTION_SECURITY },
-        )
-        SettingsDivider()
-        PreferenceItem(
-            title = stringResource(R.string.settings_category_about),
-            subtitle = stringResource(R.string.settings_category_about_subtitle),
-            icon = Icons.Outlined.Info,
-            onClick = { dialogState.activeSubPage = SettingsSubPage.ABOUT },
-        )
+        item {
+            PreferenceItem(
+                title = stringResource(R.string.settings_category_sync_backup),
+                subtitle = stringResource(R.string.settings_category_sync_backup_subtitle),
+                modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_SYNC_BACKUP),
+                icon = Icons.Outlined.Sync,
+                onClick = { dialogState.activeSubPage = SettingsSubPage.SYNC_BACKUP },
+            )
+        }
+        item {
+            PreferenceItem(
+                title = stringResource(R.string.settings_category_storage_formats),
+                subtitle = stringResource(R.string.settings_category_storage_formats_subtitle),
+                icon = Icons.Outlined.FolderOpen,
+                onClick = { dialogState.activeSubPage = SettingsSubPage.STORAGE_FORMATS },
+            )
+        }
+        item {
+            PreferenceItem(
+                title = stringResource(R.string.settings_category_interaction_security),
+                subtitle = stringResource(R.string.settings_category_interaction_security_subtitle),
+                modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_INTERACTION_SECURITY),
+                icon = Icons.Outlined.Vibration,
+                onClick = { dialogState.activeSubPage = SettingsSubPage.INTERACTION_SECURITY },
+            )
+        }
+        item {
+            PreferenceItem(
+                title = stringResource(R.string.settings_category_about),
+                subtitle = stringResource(R.string.settings_category_about_subtitle),
+                icon = Icons.Outlined.Info,
+                onClick = { dialogState.activeSubPage = SettingsSubPage.ABOUT },
+            )
+        }
     }
 }
 
@@ -326,16 +318,16 @@ private fun SettingsHomeFooter(
     val checking = manualUpdateState is SettingsManualUpdateState.Checking
     Row(
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable(enabled = !checking) {
-                    haptic.medium()
-                    onCheckUpdates()
-                }
-                .padding(
-                    horizontal = AppSpacing.ScreenHorizontalPadding,
-                    vertical = AppSpacing.Medium,
-                ),
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !checking) {
+                haptic.medium()
+                onCheckUpdates()
+            }
+            .padding(
+                horizontal = AppSpacing.ScreenHorizontalPadding,
+                vertical = AppSpacing.Medium,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
@@ -361,11 +353,52 @@ private fun SettingsHomeFooter(
     }
 }
 
-private fun triggerEnabledProviderSyncs(
-    features: SettingsFeatures,
-    uiState: SettingsScreenUiState,
-) {
+private fun triggerEnabledProviderSyncs(features: SettingsFeatures, uiState: SettingsScreenUiState) {
     if (uiState.git.providerSettings.enabled) features.git.provider.triggerSyncNow()
     if (uiState.webDav.providerSettings.enabled) features.webDav.provider.triggerSyncNow()
     if (uiState.s3.providerSettings.enabled) features.s3.provider.triggerSyncNow()
+}
+
+@Composable
+private fun SettingsStorageSection(
+    storage: SettingsStorageFeatureViewModel,
+    directories: StorageSectionState,
+    storagePickers: StoragePickerActions,
+    notSetLabel: String,
+) {
+    val rootOperationState by storage.rootOperationState.collectAsStateWithLifecycle()
+    val memoDirectoryLabel =
+        when (rootOperationState) {
+            WorkspaceRootOperationState.Idle -> directories.rootDirectory.subtitle(notSetLabel)
+
+            WorkspaceRootOperationState.Switching ->
+                stringResource(R.string.settings_storage_switching_workspace)
+
+            WorkspaceRootOperationState.Indexing ->
+                stringResource(R.string.settings_storage_scanning_workspace)
+
+            is WorkspaceRootOperationState.Failed ->
+                stringResource(R.string.settings_storage_index_failed)
+        }
+    val pendingMediaAreas by storage.pendingMediaAreas.collectAsStateWithLifecycle()
+    val applyingDirectoryLabel = stringResource(R.string.settings_storage_applying_directory)
+
+    SettingsStorageQuickGroup(
+        memoDirectoryLabel = memoDirectoryLabel,
+        imageDirectoryLabel =
+        if (StorageArea.IMAGE in pendingMediaAreas) {
+            applyingDirectoryLabel
+        } else {
+            directories.imageDirectory.subtitle(notSetLabel)
+        },
+        voiceDirectoryLabel =
+        if (StorageArea.VOICE in pendingMediaAreas) {
+            applyingDirectoryLabel
+        } else {
+            directories.voiceDirectory.subtitle(notSetLabel)
+        },
+        onMemoDirectoryClick = storagePickers.openRoot,
+        onImageDirectoryClick = storagePickers.openImage,
+        onVoiceDirectoryClick = storagePickers.openVoice,
+    )
 }

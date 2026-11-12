@@ -2,7 +2,6 @@ package com.lomo.app.feature.main
 
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -11,11 +10,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
+import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.util.LocalAppHapticFeedback
 
-enum class DirectorySetupType(
-    val subfolder: String,
-) {
+enum class DirectorySetupType(val subfolder: String) {
     Image("images"),
     Voice("voice"),
     SyncInbox("sync-inbox"),
@@ -31,9 +29,7 @@ enum class DirectorySetupType(
 }
 
 @Stable
-class MainDirectoryGuideController(
-    initialType: DirectorySetupType? = null,
-) {
+class MainDirectoryGuideController(initialType: DirectorySetupType? = null) {
     var setupType: DirectorySetupType? by mutableStateOf(initialType)
         private set
 
@@ -60,10 +56,7 @@ data class MainDirectoryGuideActions(
 )
 
 @Composable
-fun MainDirectoryGuideHost(
-    controller: MainDirectoryGuideController,
-    actions: MainDirectoryGuideActions,
-) {
+fun MainDirectoryGuideHost(controller: MainDirectoryGuideController, actions: MainDirectoryGuideActions) {
     DirectorySetupDialog(
         type = controller.setupType,
         onDismiss = controller::clear,
@@ -93,7 +86,7 @@ private fun DirectorySetupDialog(
         title = { Text(stringResource(R.string.setup_directory_title, typeLabel)) },
         text = { Text(stringResource(R.string.setup_directory_message, typeLabel, currentType.subfolder)) },
         confirmButton = {
-            TextButton(
+            LomoTextButton(
                 onClick = { onConfirmCreate(currentType) },
             ) {
                 Text(stringResource(R.string.action_auto_create))
@@ -101,7 +94,7 @@ private fun DirectorySetupDialog(
         },
         dismissButton = {
             val haptic = LocalAppHapticFeedback.current
-            TextButton(onClick = {
+            LomoTextButton(onClick = {
                 haptic.medium()
                 onGoToSettings()
             }) {

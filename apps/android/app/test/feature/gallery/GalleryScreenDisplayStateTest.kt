@@ -13,8 +13,7 @@ import kotlinx.collections.immutable.persistentMapOf
  * - Unit under test: resolveGalleryScreenDisplayState (GalleryScreen display-state reducer)
  * - Owning layer: app
  * - Priority tier: P2
- * - Capability: decide gallery loading vs empty vs grid so the mosaic only renders once tile aspect ratios
- *   and first-screen image loads are final.
+ * - Capability: display the mosaic once entry dimensions are known without waiting for bitmaps.
  *
  * Scenarios:
  * - Given the gallery is still loading memos, when reduced, then the state is Loading (not a true empty gallery).
@@ -22,8 +21,7 @@ import kotlinx.collections.immutable.persistentMapOf
  * - Given loaded memos with no aspect map yet, when reduced, then the state stays Loading.
  * - Given loaded memos whose aspect ratios are not all resolved, when reduced, then the state stays Loading so the
  *   mosaic does not render-then-reflow.
- * - Given loaded memos whose first-screen images are not loaded yet, when reduced, then the state stays Loading so
- *   cells do not appear blank after the loading indicator leaves.
+ * - Given resolved entry dimensions and pending bitmaps, when reduced, then the grid displays.
  * - Given loaded memos with all dimensions and first-screen images ready, when reduced, then the state is Grid.
  *
  * Observable outcomes:
@@ -38,7 +36,14 @@ import kotlinx.collections.immutable.persistentMapOf
  * Excludes:
  * - Compose rendering, image decoding, ContentResolver I/O, and navigation wiring.
  *
+ * TDD proof (entry latency): reported-bugs/gallery-red.log fails with Loading instead of Grid;
+ * gallery-green.log verifies progressive image display once entry dimensions are ready.
  * Test Change Justification:
+ * Reason category: requested gallery latency fix.
+ * Old behavior/assertion being replaced: pending first-screen bitmaps hold the entire grid Loading.
+ * Why old assertion is no longer correct: serial full-size decoding delays all visible cells.
+ * Coverage preserved by: loading, empty and dimension-readiness cases remain; pending bitmaps show Grid.
+ * Why this is not fitting the test to the implementation: one slow image must not block all tiles.
  * - Reason category: production contract change (added aspectsReady gate).
  * - Old behavior/assertion being replaced: "loaded memos with dimensions resolve to grid" treated a present
  *   (possibly defaulted) aspect map as grid-ready.
@@ -55,7 +60,7 @@ class GalleryScreenDisplayStateTest : AppFunSpec() {
                 galleryState = GalleryUiMemosState.Loading,
                 aspectByMemoId = null,
                 aspectsReady = false,
-                initialImagesReady = false,
+
             ) shouldBe GalleryScreenDisplayState.Loading
         }
 
@@ -64,7 +69,7 @@ class GalleryScreenDisplayStateTest : AppFunSpec() {
                 galleryState = GalleryUiMemosState.Loaded(emptyList()),
                 aspectByMemoId = null,
                 aspectsReady = false,
-                initialImagesReady = false,
+
             ) shouldBe GalleryScreenDisplayState.Empty
         }
 
@@ -75,7 +80,7 @@ class GalleryScreenDisplayStateTest : AppFunSpec() {
                 galleryState = GalleryUiMemosState.Loaded(memos),
                 aspectByMemoId = null,
                 aspectsReady = false,
-                initialImagesReady = false,
+
             ) shouldBe GalleryScreenDisplayState.Loading
         }
 
@@ -88,11 +93,11 @@ class GalleryScreenDisplayStateTest : AppFunSpec() {
                 galleryState = GalleryUiMemosState.Loaded(memos),
                 aspectByMemoId = aspectByMemoId,
                 aspectsReady = false,
-                initialImagesReady = true,
+
             ) shouldBe GalleryScreenDisplayState.Loading
         }
 
-        test("loaded memos stay loading until first-screen images are loaded") {
+        test("given resolved dimensions when bitmaps are pending then grid displays without waiting for decoding") {
             val memos = persistentListOf(galleryMemo("memo-with-image", "images/photo.jpg"))
             val aspectByMemoId = persistentMapOf("memo-with-image" to 1.2f)
 
@@ -100,8 +105,8 @@ class GalleryScreenDisplayStateTest : AppFunSpec() {
                 galleryState = GalleryUiMemosState.Loaded(memos),
                 aspectByMemoId = aspectByMemoId,
                 aspectsReady = true,
-                initialImagesReady = false,
-            ) shouldBe GalleryScreenDisplayState.Loading
+
+            ) shouldBe GalleryScreenDisplayState.Grid(memos, aspectByMemoId)
         }
 
         test("loaded memos with all dimensions resolved resolve to grid") {
@@ -112,7 +117,7 @@ class GalleryScreenDisplayStateTest : AppFunSpec() {
                 galleryState = GalleryUiMemosState.Loaded(memos),
                 aspectByMemoId = aspectByMemoId,
                 aspectsReady = true,
-                initialImagesReady = true,
+
             ) shouldBe GalleryScreenDisplayState.Grid(
                 memos = memos,
                 aspectByMemoId = aspectByMemoId,
@@ -120,23 +125,19 @@ class GalleryScreenDisplayStateTest : AppFunSpec() {
         }
     }
 
-    private fun galleryMemo(
-        id: String,
-        imageUrl: String,
-    ): MemoUiModel =
-        MemoUiModel(
-            memo =
-                Memo(
-                    id = id,
-                    timestamp = 1L,
-                    content = "![image]($imageUrl)",
-                    rawContent = "![image]($imageUrl)",
-                    dateKey = "2026_05_13",
-                    imageUrls = listOf(imageUrl),
-                ),
-            processedContent = id,
-            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
-            tags = persistentListOf(),
-            imageUrls = persistentListOf(imageUrl),
-        )
+    private fun galleryMemo(id: String, imageUrl: String): MemoUiModel = MemoUiModel(
+        memo =
+        Memo(
+            id = id,
+            timestamp = 1L,
+            content = "![image]($imageUrl)",
+            rawContent = "![image]($imageUrl)",
+            dateKey = "2026_05_13",
+            imageUrls = listOf(imageUrl),
+        ),
+        processedContent = id,
+        renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
+        tags = persistentListOf(),
+        imageUrls = persistentListOf(imageUrl),
+    )
 }

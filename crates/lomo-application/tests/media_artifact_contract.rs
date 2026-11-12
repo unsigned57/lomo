@@ -11,6 +11,15 @@
 //! `stale_transaction_baseline` conflict.
 //! TDD proof: `PlannedFile::Write` froze whole media bytes into `intent-payloads`; the
 //! artifact-reference plan variant and its streaming executor path did not exist.
+//! Additional scenario: Given a selected namespace with a different same-named file,
+//! when acquiring the draft lease, then the capability probe resolves a new suffix before submit.
+//! TDD proof: `reports/manual/four-bugs/stage-collision-red.log` returns `images/photo.png`; GREEN resolves `images/photo_1.png`.
+//! Test Change Justification:
+//! Reason category: resolve destination evidence through the active session capability.
+//! Old behavior/assertion being replaced: none; existing transaction and shared-lease assertions stay intact.
+//! Why old assertion is no longer correct: old assertions remain correct; independent directory collision evidence was missing.
+//! Coverage preserved by: byte-exact existing-file preservation, resolved suffix and all recovery scenarios.
+//! Why this is not fitting the test to the implementation: the selected destination must not overwrite pre-existing different bytes.
 //! Excludes: SAF transport parity (platform contract suite) and inbox commit routing.
 
 #[cfg(test)]
@@ -202,9 +211,12 @@ mod tests {
             let staged = stage_png(&ctx, "big", media_len);
             let final_rel = suggest_human_relative_path("big", staged.mime).expect("path");
             let operation = format!("media-op-{media_len}");
+            ctx.session
+                .create_memo(create_request(&operation, "big", &staged, &final_rel))
+                .expect("intent commits");
             let error = ctx
                 .session
-                .create_memo(create_request(&operation, "big", &staged, &final_rel))
+                .settle_workspace()
                 .expect_err("injected durable failure");
             assert_eq!(error.code(), "injected_internal_write_failure");
 
@@ -238,6 +250,9 @@ mod tests {
         let staging_path = staged.staging_path.clone();
         ctx.session
             .create_memo(create_request("media-retry", "retry", &staged, &final_rel))
+            .expect("intent commits");
+        ctx.session
+            .settle_workspace()
             .expect_err("injected durable failure");
         assert!(
             staging_path.is_file(),
@@ -259,6 +274,12 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("recovery command");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
 
         let dest = ctx.workspace_path.join(final_rel.as_str());
         let (dest_digest, dest_len) =
@@ -274,6 +295,12 @@ mod tests {
             .session
             .create_memo(create_request("media-retry", "retry", &staged, &final_rel))
             .expect("identical retry");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             replayed.commit_result.idempotent_replay,
             "a committed operation answers an identical retry from its durable receipt"
@@ -298,6 +325,9 @@ mod tests {
                 &staged,
                 &final_rel,
             ))
+            .expect("intent commits");
+        ctx.session
+            .settle_workspace()
             .expect_err("injected durable failure");
         let dest = ctx.workspace_path.join(final_rel.as_str());
         assert!(dest.is_file(), "the media target is already published");
@@ -320,6 +350,31 @@ mod tests {
         fs::write(&dest, &source_bytes).expect("restore declared bytes");
         ctx.session.rebuild_projection().expect("satisfied replay");
         assert!(ctx.workspace_path.join("2026_09_10.md").is_file());
+    }
+
+    #[test]
+    fn stage_destination_checks_the_mounted_namespace_before_freezing_the_memo() {
+        let ctx = open_ctx();
+        let mut staged = stage_png(&ctx, "collision", 8192);
+        staged.suggested_final_relative_path = "images/photo.png".to_owned();
+        fs::create_dir_all(ctx.workspace_path.join("images")).expect("images");
+        let existing = ctx.workspace_path.join("images/photo.png");
+        fs::write(&existing, b"unrelated existing image").expect("existing file");
+        let lease = StageLease::new(
+            ArtifactId::of_digest(&staged.digest),
+            StageOwnerKind::Draft,
+            "draft-collision",
+        )
+        .expect("lease");
+        let record = ctx
+            .session
+            .record_media_stage_lease(&staged, lease)
+            .expect("lease destination");
+        assert_eq!(record.suggested_final_relative_path, "images/photo_1.png");
+        assert_eq!(
+            fs::read(existing).expect("existing bytes"),
+            b"unrelated existing image"
+        );
     }
 
     /// Given one staged artifact leased by a second draft, when the first draft's operation
@@ -350,10 +405,22 @@ mod tests {
         ctx.session
             .create_memo(create_request("media-a", "shared", &staged, &first_rel))
             .expect("first commit");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             staged.staging_path.is_file(),
             "a sibling lease must keep the staged source alive"
         );
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert_eq!(
             fs::read(ctx.workspace_path.join(first_rel.as_str())).expect("first bytes"),
             fs::read(&staged.staging_path).expect("staged bytes"),
@@ -363,6 +430,15 @@ mod tests {
         ctx.session
             .create_memo(create_request("media-b", "shared", &staged, &second_rel))
             .expect("second commit from the retained source");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert_eq!(
             fs::read(ctx.workspace_path.join(second_rel.as_str())).expect("second bytes"),
             fs::read(&staged.staging_path).expect("staged bytes"),

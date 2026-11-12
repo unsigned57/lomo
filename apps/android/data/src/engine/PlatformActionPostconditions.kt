@@ -32,6 +32,7 @@ internal object PlatformActionPostconditions {
                 } else {
                     null
                 }
+
             is ExpectedFingerprint.Match -> {
                 if (existing.toEvidence() != expected.evidence) return null
                 if (!matchesArtifact) return null
@@ -42,10 +43,7 @@ internal object PlatformActionPostconditions {
         }
     }
 
-    fun assertWritePostcondition(
-        action: PlatformAction.WriteFromExchange,
-        existing: PlatformDocumentSnapshot?,
-    ) {
+    fun assertWritePostcondition(action: PlatformAction.WriteFromExchange, existing: PlatformDocumentSnapshot?) {
         val reason =
             when (val expected = action.expectedTarget) {
                 is ExpectedFingerprint.Absent ->
@@ -54,11 +52,14 @@ internal object PlatformActionPostconditions {
                     } else {
                         null
                     }
+
                 is ExpectedFingerprint.Match ->
                     when {
                         existing == null -> "Expected target fingerprint but document is absent"
+
                         existing.toEvidence() != expected.evidence ->
                             "Target fingerprint does not match the expected postcondition"
+
                         else -> null
                     }
             }
@@ -93,12 +94,15 @@ internal object PlatformActionPostconditions {
                     } else {
                         null
                     }
+
                 is ExpectedFingerprint.Match ->
                     when {
                         existing == null ->
                             "Expected artifact target baseline but the document is absent"
+
                         existing.toEvidence() != expected.evidence ->
                             "Artifact target fingerprint does not match the expected baseline"
+
                         else -> null
                     }
             }
@@ -119,6 +123,7 @@ internal object PlatformActionPostconditions {
                 ActionOutcome.AlreadySatisfied(
                     PlatformActionOutput.MoveComplete(metadata = target.toMetadata()),
                 )
+
             is ExpectedFingerprint.Match ->
                 if (target.toEvidence() == expected.evidence) {
                     ActionOutcome.AlreadySatisfied(
@@ -138,15 +143,19 @@ internal object PlatformActionPostconditions {
         val reason =
             when {
                 source == null -> "Move source is absent without a satisfied target"
+
                 action.expectedSource is ExpectedFingerprint.Match &&
                     source.toEvidence() != (action.expectedSource as ExpectedFingerprint.Match).evidence ->
                     "Move source fingerprint mismatch"
+
                 action.expectedTarget is ExpectedFingerprint.Absent && target != null ->
                     "Move target already exists"
+
                 action.expectedTarget is ExpectedFingerprint.Match &&
                     target != null &&
                     target.toEvidence() != (action.expectedTarget as ExpectedFingerprint.Match).evidence ->
                     "Move target fingerprint mismatch"
+
                 else -> null
             }
         if (reason != null) {

@@ -16,59 +16,63 @@ import io.kotest.matchers.shouldBe
 class CalendarHeatmapMonthLabelPlacementTest : UiComponentsFunSpec() {
     init {
         test("later month labels shift right to avoid overlapping a wide first label") {
-        val placements =
-            resolveMonthLabelPlacements(
-                labels =
+            val placements =
+                resolveMonthLabelPlacements(
+                    labels =
                     listOf(
                         MonthLabel(week = 0, text = "2025 May", year = 2025),
                         MonthLabel(week = 4, text = "Jun", year = 2025),
                         MonthLabel(week = 8, text = "Jul", year = 2025),
                     ),
-                weekWidth = 13f,
-                totalWidth = 180f,
-                minimumSpacingPx = 6f,
-                textWidth = { text ->
-                    when (text) {
-                        "2025 May" -> 60f
-                        "Jun" -> 18f
-                        "Jul" -> 18f
-                        else -> 0f
-                    }
-                },
-            )
+                    weekWidth = 13f,
+                    totalWidth = 180f,
+                    minimumSpacingPx = 6f,
+                    textWidth = { text ->
+                        when (text) {
+                            "2025 May" -> 60f
+                            "Jun" -> 18f
+                            "Jul" -> 18f
+                            else -> 0f
+                        }
+                    },
+                )
 
-        (placements) shouldBe (listOf(
-                ResolvedMonthLabelPlacement(text = "2025 May", drawX = 0f, widthPx = 60f),
-                ResolvedMonthLabelPlacement(text = "Jun", drawX = 66f, widthPx = 18f),
-                ResolvedMonthLabelPlacement(text = "Jul", drawX = 104f, widthPx = 18f),
-            ))
+            (placements) shouldBe (
+                listOf(
+                    ResolvedMonthLabelPlacement(text = "2025 May", drawX = 0f, widthPx = 60f),
+                    ResolvedMonthLabelPlacement(text = "Jun", drawX = 66f, widthPx = 18f),
+                    ResolvedMonthLabelPlacement(text = "Jul", drawX = 104f, widthPx = 18f),
+                )
+                )
         }
     }
 
     init {
         test("labels that no longer fit after shifting are skipped") {
-        val placements =
-            resolveMonthLabelPlacements(
-                labels =
+            val placements =
+                resolveMonthLabelPlacements(
+                    labels =
                     listOf(
                         MonthLabel(week = 0, text = "2025 May", year = 2025),
                         MonthLabel(week = 4, text = "Jun", year = 2025),
                     ),
-                weekWidth = 13f,
-                totalWidth = 80f,
-                minimumSpacingPx = 6f,
-                textWidth = { text ->
-                    when (text) {
-                        "2025 May" -> 60f
-                        "Jun" -> 18f
-                        else -> 0f
-                    }
-                },
-            )
+                    weekWidth = 13f,
+                    totalWidth = 80f,
+                    minimumSpacingPx = 6f,
+                    textWidth = { text ->
+                        when (text) {
+                            "2025 May" -> 60f
+                            "Jun" -> 18f
+                            else -> 0f
+                        }
+                    },
+                )
 
-        (placements) shouldBe (listOf(
-                ResolvedMonthLabelPlacement(text = "2025 May", drawX = 0f, widthPx = 60f),
-            ))
+            (placements) shouldBe (
+                listOf(
+                    ResolvedMonthLabelPlacement(text = "2025 May", drawX = 0f, widthPx = 60f),
+                )
+                )
         }
     }
 }

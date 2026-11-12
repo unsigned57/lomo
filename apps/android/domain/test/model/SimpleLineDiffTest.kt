@@ -39,7 +39,7 @@
  * Excludes:
  * - UI rendering, syntax-aware diffing, moved-line detection, binary content,
  *   and automatic merge decisions.
-  * Test Change Justification:
+ * Test Change Justification:
  * - Reason category: production parameter rename — maxMatrixCells renamed to maxComparedCells
  *   after the LCS matrix implementation was replaced.
  * - Old behavior/assertion being replaced: TooLarge assertions naming maxMatrixCells and
@@ -56,8 +56,8 @@ package com.lomo.domain.model
 
 import com.lomo.domain.model.SimpleLineDiff.DiffOp
 import com.lomo.domain.testing.DomainFunSpec
-import io.kotest.matchers.types.shouldBeInstanceOf
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 
 class SimpleLineDiffTest : DomainFunSpec() {
     init {
@@ -116,7 +116,9 @@ class SimpleLineDiffTest : DomainFunSpec() {
             hunks.size shouldBe 2
         }
 
-        test("given line pair product exceeds the compared-cell budget when result requested then too large result is returned") {
+        test(
+            "given line pair product exceeds the compared-cell budget when result requested then too large result is returned",
+        ) {
             val oldText = (1..4).joinToString("\n") { line -> "old-$line" }
             val newText = (1..5).joinToString("\n") { line -> "new-$line" }
 
@@ -192,11 +194,13 @@ class SimpleLineDiffTest : DomainFunSpec() {
                         line.text shouldBe
                             oldLines[(line.oldLineNumber ?: error("DELETE lacks old number")) - 1]
                     }
+
                     DiffOp.INSERT -> {
                         line.oldLineNumber shouldBe null
                         line.text shouldBe
                             newLines[(line.newLineNumber ?: error("INSERT lacks new number")) - 1]
                     }
+
                     DiffOp.EQUAL -> {
                         val oldIndex =
                             (line.oldLineNumber ?: error("EQUAL lacks old number")) - 1
@@ -209,7 +213,9 @@ class SimpleLineDiffTest : DomainFunSpec() {
             }
         }
 
-        test("given one side exceeds the line budget when the compared-cell product is within budget then too large fallback is returned") {
+        test(
+            "given one side exceeds the line budget when the compared-cell product is within budget then too large fallback is returned",
+        ) {
             val oldText = (1..50_001).joinToString("\n") { line -> "old-$line" }
             val newText = ""
 

@@ -52,7 +52,6 @@ import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 
@@ -145,9 +144,9 @@ class SyncCenterStateReducerTest : AppFunSpec() {
             val readyLoad =
                 (readyState().load as SyncCenterLoadState.Ready).copy(
                     markdownDetailByPath =
-                        kotlinx.collections.immutable.persistentMapOf("memo/a.md" to loaded),
+                    kotlinx.collections.immutable.persistentMapOf("memo/a.md" to loaded),
                     mergedDrafts =
-                        kotlinx.collections.immutable.persistentMapOf("memo/a.md" to "draft-x"),
+                    kotlinx.collections.immutable.persistentMapOf("memo/a.md" to "draft-x"),
                 )
             val facts = markdownFactsFromState(readyLoad, md)
             facts.baseBody shouldBe "BASE"
@@ -182,7 +181,7 @@ class SyncCenterStateReducerTest : AppFunSpec() {
             val readyLoad =
                 (readyState().load as SyncCenterLoadState.Ready).copy(
                     binaryDetailByPath =
-                        kotlinx.collections.immutable.persistentMapOf("media/x.bin" to loaded),
+                    kotlinx.collections.immutable.persistentMapOf("media/x.bin" to loaded),
                 )
             val facts = binaryFactsFromState(readyLoad, binary)
             facts.mimeType shouldBe "image/png"
@@ -239,12 +238,12 @@ class SyncCenterStateReducerTest : AppFunSpec() {
                     val load = state.load as SyncCenterLoadState.Ready
                     state.copy(
                         load =
-                            load.copy(
-                                perPathResolutionKind =
-                                    kotlinx.collections.immutable.persistentMapOf(
-                                        "memo/a.md" to RemoteSyncConflictResolution.KIND_KEEP_LOCAL,
-                                    ),
+                        load.copy(
+                            perPathResolutionKind =
+                            kotlinx.collections.immutable.persistentMapOf(
+                                "memo/a.md" to RemoteSyncConflictResolution.KIND_KEEP_LOCAL,
                             ),
+                        ),
                     )
                 }
             val result = reduceSyncCenter(ready, SyncCenterIntent.ApplyResolutions)
@@ -281,12 +280,12 @@ class SyncCenterStateReducerTest : AppFunSpec() {
                     val load = state.load as SyncCenterLoadState.Ready
                     state.copy(
                         load =
-                            load.copy(
-                                perPathResolutionKind =
-                                    kotlinx.collections.immutable.persistentMapOf(
-                                        "memo/a.md" to RemoteSyncConflictResolution.KIND_MERGED_BODY,
-                                    ),
+                        load.copy(
+                            perPathResolutionKind =
+                            kotlinx.collections.immutable.persistentMapOf(
+                                "memo/a.md" to RemoteSyncConflictResolution.KIND_MERGED_BODY,
                             ),
+                        ),
                     )
                 }
             val result = reduceSyncCenter(ready, SyncCenterIntent.ApplyResolutions)
@@ -299,19 +298,19 @@ class SyncCenterStateReducerTest : AppFunSpec() {
             val next =
                 samplePage(nextCursor = null).copy(
                     items =
-                        listOf(
-                            RemoteSyncConflictPath(
-                                path = "memo/b.md",
-                                kind = "markdown",
-                                localDigest = null,
-                                remoteDigest = null,
-                                baselineDigest = null,
-                                remoteTokenPresent = false,
-                                localArtifactRef = null,
-                                remoteArtifactRef = null,
-                                status = RemoteSyncConflictPathStatus.Open,
-                            ),
+                    listOf(
+                        RemoteSyncConflictPath(
+                            path = "memo/b.md",
+                            kind = "markdown",
+                            localDigest = null,
+                            remoteDigest = null,
+                            baselineDigest = null,
+                            remoteTokenPresent = false,
+                            localArtifactRef = null,
+                            remoteArtifactRef = null,
+                            status = RemoteSyncConflictPathStatus.Open,
                         ),
+                    ),
                 )
             val applied = applySyncCenterPageAppend(base, next)
             val load = applied.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
@@ -324,13 +323,13 @@ class SyncCenterStateReducerTest : AppFunSpec() {
                     val load = state.load as SyncCenterLoadState.Ready
                     state.copy(
                         load =
-                            load.copy(
-                                selectedPath = "memo/a.md",
-                                perPathResolutionKind =
-                                    kotlinx.collections.immutable.persistentMapOf(
-                                        "memo/a.md" to RemoteSyncConflictResolution.KIND_KEEP_LOCAL,
-                                    ),
+                        load.copy(
+                            selectedPath = "memo/a.md",
+                            perPathResolutionKind =
+                            kotlinx.collections.immutable.persistentMapOf(
+                                "memo/a.md" to RemoteSyncConflictResolution.KIND_KEEP_LOCAL,
                             ),
+                        ),
                     )
                 }
             val applied =
@@ -353,53 +352,53 @@ class SyncCenterStateReducerTest : AppFunSpec() {
                 applySyncCenterLoadSuccess(
                     state = initialSyncCenterState(workspaceRoot = "/ws"),
                     config =
-                        RemoteSyncConfigSummary(
-                            backend = RemoteSyncBackendLabel.Git,
-                            attentionCount = 0,
-                            lastVerifiedAtEpochMillis = null,
-                            schedulePolicyLabel = null,
-                        ),
+                    RemoteSyncConfigSummary(
+                        backend = RemoteSyncBackendLabel.Git,
+                        attentionCount = 0,
+                        lastVerifiedAtEpochMillis = null,
+                        schedulePolicyLabel = null,
+                    ),
                     session =
-                        RemoteSyncSessionProgress(
-                            phase = RemoteSyncSessionPhase.Idle,
-                            completedActions = 0,
-                            totalActions = null,
-                            canCancel = false,
-                        ),
+                    RemoteSyncSessionProgress(
+                        phase = RemoteSyncSessionPhase.Idle,
+                        completedActions = 0,
+                        totalActions = null,
+                        canCancel = false,
+                    ),
                     page =
-                        RemoteSyncConflictPage(
-                            session = RemoteSyncConflictSessionState.Absent,
-                            sessionId = "",
-                            conflictRevision = 0L,
-                            items = emptyList(),
-                            nextCursor = null,
-                        ),
+                    RemoteSyncConflictPage(
+                        session = RemoteSyncConflictSessionState.Absent,
+                        sessionId = "",
+                        conflictRevision = 0L,
+                        items = emptyList(),
+                        nextCursor = null,
+                    ),
                 )
             val presentEmpty =
                 applySyncCenterLoadSuccess(
                     state = initialSyncCenterState(workspaceRoot = "/ws"),
                     config =
-                        RemoteSyncConfigSummary(
-                            backend = RemoteSyncBackendLabel.Git,
-                            attentionCount = 0,
-                            lastVerifiedAtEpochMillis = null,
-                            schedulePolicyLabel = null,
-                        ),
+                    RemoteSyncConfigSummary(
+                        backend = RemoteSyncBackendLabel.Git,
+                        attentionCount = 0,
+                        lastVerifiedAtEpochMillis = null,
+                        schedulePolicyLabel = null,
+                    ),
                     session =
-                        RemoteSyncSessionProgress(
-                            phase = RemoteSyncSessionPhase.Idle,
-                            completedActions = 0,
-                            totalActions = null,
-                            canCancel = false,
-                        ),
+                    RemoteSyncSessionProgress(
+                        phase = RemoteSyncSessionPhase.Idle,
+                        completedActions = 0,
+                        totalActions = null,
+                        canCancel = false,
+                    ),
                     page =
-                        RemoteSyncConflictPage(
-                            session = RemoteSyncConflictSessionState.Present,
-                            sessionId = "empty-present",
-                            conflictRevision = 4L,
-                            items = emptyList(),
-                            nextCursor = null,
-                        ),
+                    RemoteSyncConflictPage(
+                        session = RemoteSyncConflictSessionState.Present,
+                        sessionId = "empty-present",
+                        conflictRevision = 4L,
+                        items = emptyList(),
+                        nextCursor = null,
+                    ),
                 )
             val absentLoad = absent.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
             val presentLoad = presentEmpty.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
@@ -412,63 +411,61 @@ class SyncCenterStateReducerTest : AppFunSpec() {
         }
     }
 
-    private fun samplePage(nextCursor: Int?): RemoteSyncConflictPage =
-        RemoteSyncConflictPage(
-            session = RemoteSyncConflictSessionState.Present,
-            sessionId = "session-1",
-            conflictRevision = 7L,
-            items =
-                listOf(
-                    RemoteSyncConflictPath(
-                        path = "memo/a.md",
-                        kind = "markdown",
-                        localDigest = "l1",
-                        remoteDigest = "r1",
-                        baselineDigest = "b1",
-                        remoteTokenPresent = true,
-                        localArtifactRef = null,
-                        remoteArtifactRef = null,
-                        status = RemoteSyncConflictPathStatus.Open,
-                    ),
-                    RemoteSyncConflictPath(
-                        path = "media/x.bin",
-                        kind = "binary",
-                        localDigest = "lb",
-                        remoteDigest = "rb",
-                        baselineDigest = "bb",
-                        remoteTokenPresent = false,
-                        localArtifactRef = "a1",
-                        remoteArtifactRef = "a2",
-                        status = RemoteSyncConflictPathStatus.Open,
-                    ),
-                ),
-            nextCursor = nextCursor,
-        )
+    private fun samplePage(nextCursor: Int?): RemoteSyncConflictPage = RemoteSyncConflictPage(
+        session = RemoteSyncConflictSessionState.Present,
+        sessionId = "session-1",
+        conflictRevision = 7L,
+        items =
+        listOf(
+            RemoteSyncConflictPath(
+                path = "memo/a.md",
+                kind = "markdown",
+                localDigest = "l1",
+                remoteDigest = "r1",
+                baselineDigest = "b1",
+                remoteTokenPresent = true,
+                localArtifactRef = null,
+                remoteArtifactRef = null,
+                status = RemoteSyncConflictPathStatus.Open,
+            ),
+            RemoteSyncConflictPath(
+                path = "media/x.bin",
+                kind = "binary",
+                localDigest = "lb",
+                remoteDigest = "rb",
+                baselineDigest = "bb",
+                remoteTokenPresent = false,
+                localArtifactRef = "a1",
+                remoteArtifactRef = "a2",
+                status = RemoteSyncConflictPathStatus.Open,
+            ),
+        ),
+        nextCursor = nextCursor,
+    )
 
     private fun readyState(
         isListDetail: Boolean = false,
         page: RemoteSyncConflictPage = samplePage(nextCursor = null),
-    ): SyncCenterUiState =
-        applySyncCenterLoadSuccess(
-            state =
-                initialSyncCenterState(workspaceRoot = "/ws", isListDetail = isListDetail).copy(
-                    pane = SyncCenterPane.Conflicts,
-                    layout = SyncCenterLayoutMode(isListDetail = isListDetail),
-                ),
-            config =
-                RemoteSyncConfigSummary(
-                    backend = RemoteSyncBackendLabel.S3,
-                    attentionCount = page.items.size,
-                    lastVerifiedAtEpochMillis = 1_700_000_000_000L,
-                    schedulePolicyLabel = "wifi_unmetered",
-                ),
-            session =
-                RemoteSyncSessionProgress(
-                    phase = RemoteSyncSessionPhase.ConflictOpen,
-                    completedActions = 3,
-                    totalActions = 10,
-                    canCancel = true,
-                ),
-            page = page,
-        )
+    ): SyncCenterUiState = applySyncCenterLoadSuccess(
+        state =
+        initialSyncCenterState(workspaceRoot = "/ws", isListDetail = isListDetail).copy(
+            pane = SyncCenterPane.Conflicts,
+            layout = SyncCenterLayoutMode(isListDetail = isListDetail),
+        ),
+        config =
+        RemoteSyncConfigSummary(
+            backend = RemoteSyncBackendLabel.S3,
+            attentionCount = page.items.size,
+            lastVerifiedAtEpochMillis = 1_700_000_000_000L,
+            schedulePolicyLabel = "wifi_unmetered",
+        ),
+        session =
+        RemoteSyncSessionProgress(
+            phase = RemoteSyncSessionPhase.ConflictOpen,
+            completedActions = 3,
+            totalActions = 10,
+            canCancel = true,
+        ),
+        page = page,
+    )
 }

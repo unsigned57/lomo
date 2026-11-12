@@ -10,15 +10,14 @@ import java.util.Locale
  * (`MarkdownRenderDocument.plainText`). It must not re-parse Markdown semantics.
  */
 class ShareCardDisplayFormatter {
-    fun formatTagsForDisplay(tags: List<String>): List<String> =
-        tags
-            .asSequence()
-            .map { it.trim().trimStart('#') }
-            .filter { it.isNotBlank() }
-            .map { it.take(MAX_TAG_LENGTH) }
-            .distinct()
-            .take(MAX_TAG_COUNT)
-            .toList()
+    fun formatTagsForDisplay(tags: List<String>): List<String> = tags
+        .asSequence()
+        .map { it.trim().trimStart('#') }
+        .filter { it.isNotBlank() }
+        .map { it.take(MAX_TAG_LENGTH) }
+        .distinct()
+        .take(MAX_TAG_COUNT)
+        .toList()
 
     fun formatBodyText(
         plainBodyText: String,
@@ -51,15 +50,11 @@ class ShareCardDisplayFormatter {
         return MarkdownCleanupFormatter.collapseSpacing(str)
     }
 
-    private fun formatImageNamedPlaceholder(
-        pattern: String,
-        name: String,
-    ): String =
-        runCatching {
-            pattern.format(Locale.US, name)
-        }.getOrElse {
-            "$pattern $name"
-        }
+    private fun formatImageNamedPlaceholder(pattern: String, name: String): String = runCatching {
+        pattern.format(Locale.US, name)
+    }.getOrElse {
+        "$pattern $name"
+    }
 
     private companion object {
         const val MAX_TAG_LENGTH = 18

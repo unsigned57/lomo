@@ -7,12 +7,11 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,19 +20,20 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
-import androidx.window.core.layout.WindowSizeClass
+import com.lomo.app.R
 import com.lomo.app.feature.conflict.RemoteSyncConflictPollHost
 import com.lomo.app.feature.conflict.ReviewSyncProviders
 import com.lomo.app.feature.conflict.SyncConflictDialogController
 import com.lomo.app.feature.conflict.SyncConflictStateHost
 import com.lomo.app.feature.conflict.autoResolveSafeConflicts
 import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
-import com.lomo.app.feature.memo.MemoMenuSelection
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -69,9 +69,7 @@ private val MainMemoListStateSaver =
     )
 
 @Composable
-internal fun collectMainScreenUiSnapshot(
-    dependencies: MainScreenDependencies,
-): MainScreenUiSnapshot {
+internal fun collectMainScreenUiSnapshot(dependencies: MainScreenDependencies): MainScreenUiSnapshot {
     val searchQuery by dependencies.sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
     val memoListFilter by dependencies.mainViewModel.memoListFilter.collectAsStateWithLifecycle()
     val sidebarUiState by dependencies.sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
@@ -91,12 +89,11 @@ internal fun collectMainScreenUiSnapshot(
         showInputHints = appPreferences.showInputHints,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
-        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
         autoOpenInputOnForeground = appPreferences.autoOpenInputOnForeground,
-        memoActionOrder = appPreferences.memoActionOrder,
         inputToolbarToolOrder = appPreferences.inputToolbarToolOrder,
         quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled,
         scrollbarEnabled = appPreferences.scrollbarEnabled,
+        quickBallConfig = appPreferences.quickBallConfig,
         shareCardShowTime = appPreferences.shareCardShowTime,
         shareCardShowSignature = appPreferences.shareCardShowBrand,
         shareCardSignatureText = appPreferences.shareCardSignatureText,
@@ -109,7 +106,13 @@ internal fun collectMainScreenUiSnapshot(
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun rememberMainScreenHostState(): MainScreenHostState {
+    val placement = resolveMainSidebarPlacement(currentWindowAdaptiveInfoV2().windowSizeClass)
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val dockedPaneShown = rememberSaveable { mutableStateOf(true) }
+    val sidebar =
+        remember(placement, drawerState, dockedPaneShown) {
+            MainSidebarState(placement = placement, drawerState = drawerState, dockedPaneShown = dockedPaneShown)
+        }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
@@ -120,17 +123,14 @@ internal fun rememberMainScreenHostState(): MainScreenHostState {
             )
         }
     val editorController = rememberMemoEditorController()
-    val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
-    val isExpanded = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)
 
     return MainScreenHostState(
-        drawerState = drawerState,
+        sidebar = sidebar,
         scope = scope,
         snackbarHostState = snackbarHostState,
         scrollBehavior = scrollBehavior,
         listState = listState,
         editorController = editorController,
-        isExpanded = isExpanded,
         directoryGuideController = rememberMainDirectoryGuideController(),
     )
 }
@@ -157,9 +157,7 @@ internal fun MainScreenDraftAutosaveEffect(
 }
 
 @Composable
-internal fun MainScreenConflictHost(
-    dependencies: MainScreenDependencies,
-) {
+internal fun MainScreenConflictHost(dependencies: MainScreenDependencies) {
     val syncStates by dependencies.conflictStateViewModel.syncStates.collectAsStateWithLifecycle()
     val workspaceRoot by dependencies.conflictStateViewModel.workspaceRoot.collectAsStateWithLifecycle()
     val conflictController =
@@ -209,7 +207,6 @@ internal fun MainScreenContentHost(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
-    onNavigateToTasks: () -> Unit,
     onNavigateToStatistics: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit,
     lanShareEnabled: Boolean,
@@ -219,7 +216,7 @@ internal fun MainScreenContentHost(
             screenState.sidebarUiState.tags.map { it.name }.sorted().toImmutableList()
         }
 
-        MainScreenInteractionBindings(
+    MainScreenInteractionBindings(
         dependencies = dependencies,
         editorController = hostState.editorController,
         directoryGuideController = hostState.directoryGuideController,
@@ -233,8 +230,6 @@ internal fun MainScreenContentHost(
         dateFormat = screenState.dateFormat,
         timeFormat = screenState.timeFormat,
         quickSaveOnBackEnabled = screenState.quickSaveOnBackEnabled,
-        memoActionAutoReorderEnabled = screenState.memoActionAutoReorderEnabled,
-        memoActionOrder = screenState.memoActionOrder,
         inputToolbarToolOrder = screenState.inputToolbarToolOrder,
         availableTags = allTags,
         showInputHints = screenState.showInputHints,
@@ -254,7 +249,6 @@ internal fun MainScreenContentHost(
             onNavigateToImage = onNavigateToImage,
             onNavigateToDailyReview = onNavigateToDailyReview,
             onNavigateToGallery = onNavigateToGallery,
-            onNavigateToTasks = onNavigateToTasks,
             onNavigateToStatistics = onNavigateToStatistics,
             onShowMemoMenu = showMenu,
             onOpenEditor = openEditor,
@@ -264,16 +258,16 @@ internal fun MainScreenContentHost(
     MainDirectoryGuideHost(
         controller = hostState.directoryGuideController,
         actions =
-            MainDirectoryGuideActions(
-                onConfirmCreate = { type ->
-                    dependencies.mainViewModel.createDefaultDirectories(
-                        type == DirectorySetupType.Image,
-                        type == DirectorySetupType.Voice,
-                    )
-                },
-                onBeforeGoToSettings = hostState.editorController::close,
-                onGoToSettings = onNavigateToSettings,
-            ),
+        MainDirectoryGuideActions(
+            onConfirmCreate = { type ->
+                dependencies.mainViewModel.createDefaultDirectories(
+                    type == DirectorySetupType.Image,
+                    type == DirectorySetupType.Voice,
+                )
+            },
+            onBeforeGoToSettings = hostState.editorController::close,
+            onGoToSettings = onNavigateToSettings,
+        ),
     )
 }
 
@@ -292,24 +286,19 @@ private fun MainScreenNavigationContent(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
-    onNavigateToTasks: () -> Unit,
     onNavigateToStatistics: () -> Unit,
     onShowMemoMenu: (MemoMenuSelection) -> Unit,
     onOpenEditor: (Memo) -> Unit,
 ) {
     var isMemoFilterSheetVisible by rememberSaveable { mutableStateOf(false) }
+    val busyMessage = stringResource(R.string.quick_ball_busy)
+    val recordingFailureMessage = stringResource(R.string.quick_ball_record_failed)
     val clearMainFilters = rememberClearMainFiltersAction(dependencies)
     val onHeatmapDateLongPress = rememberMainScreenHeatmapLongPressAction(dependencies, hostState)
     val onScrollToTop = rememberMainScreenScrollToTopAction(hostState)
-    val sessionSnapshot =
-        rememberSaveable(stateSaver = mainListSessionSnapshotSaver) {
-            mutableStateOf(MainListSessionSnapshot.Empty)
-        }
-
     MainScreenSessionRestoreEffect(
         dependencies = dependencies,
         listState = hostState.listState,
-        sessionSnapshot = sessionSnapshot,
     )
 
     MainScreenFilterScrollEffect(
@@ -320,14 +309,15 @@ private fun MainScreenNavigationContent(
 
     MainScreenNavigationActionHost(
         scope = hostState.scope,
-        drawerState = hostState.drawerState,
-        isExpanded = hostState.isExpanded,
+        sidebar = hostState.sidebar,
         canCreateMemo =
-            screenState.uiState is MainViewModel.MainScreenState.Ready &&
-                screenState.pendingNewMemoCreationEvent == null,
+        screenState.uiState is MainViewModel.MainScreenState.Ready &&
+            screenState.pendingNewMemoCreationEvent == null,
         onCreateMemoUnavailable = {
             if (screenState.uiState !is MainViewModel.MainScreenState.Ready) {
                 onNavigateToSettings()
+            } else {
+                hostState.scope.launch { hostState.snackbarHostState.showSnackbar(busyMessage) }
             }
         },
         onNavigateToSettings = onNavigateToSettings,
@@ -337,13 +327,21 @@ private fun MainScreenNavigationContent(
         onNavigateToImage = onNavigateToImage,
         onNavigateToDailyReview = onNavigateToDailyReview,
         onNavigateToGallery = onNavigateToGallery,
-        onNavigateToTasks = onNavigateToTasks,
         onNavigateToStatistics = onNavigateToStatistics,
         onClearMainFilters = clearMainFilters,
         onOpenMemoFilterPanel = { isMemoFilterSheetVisible = true },
         onOpenCreateMemo = {
-            if (screenState.pendingNewMemoCreationEvent == null) {
-                hostState.editorController.openForCreate(dependencies.editorViewModel.draftText.value)
+            hostState.editorController.openForCreate(dependencies.editorViewModel.draftText.value)
+        },
+        onOpenLongText = {
+            hostState.editorController.openForCreate(dependencies.editorViewModel.draftText.value)
+            hostState.editorController.setExpanded(true)
+        },
+        onStartRecording = {
+            if (dependencies.recordingViewModel.isRecording.value) {
+                hostState.editorController.ensureVisible()
+            } else {
+                dependencies.mainViewModel.requestQuickBallRecording(recordingFailureMessage)
             }
         },
         onRefreshMemos = dependencies.mainViewModel.refresh,
@@ -358,7 +356,16 @@ private fun MainScreenNavigationContent(
             isMemoFilterSheetVisible = isMemoFilterSheetVisible,
             onDismissMemoFilterSheet = { isMemoFilterSheetVisible = false },
             onHeatmapDateLongPress = onHeatmapDateLongPress,
-            onScrollToTop = onScrollToTop,
+            fab = {
+                val ballVisible = !hostState.editorController.isVisible &&
+                    !isMemoFilterSheetVisible && !hostState.sidebar.coversFeed
+                MainQuickBall(
+                    visible = ballVisible,
+                    config = screenState.quickBallConfig,
+                    actions = actions,
+                    onScrollToTop = onScrollToTop,
+                )
+            },
             onShowMemoMenu = onShowMemoMenu,
             onReminderClick = dependencies.mainViewModel.markReminderDone,
             onOpenEditor = onOpenEditor,
@@ -376,11 +383,12 @@ private fun MainScreenNavigationContent(
  * A snapshot bound to a different workspace resets instead of showing the stale page.
  */
 @Composable
-internal fun MainScreenSessionRestoreEffect(
-    dependencies: MainScreenDependencies,
-    listState: LazyListState,
-    sessionSnapshot: MutableState<MainListSessionSnapshot>,
-) {
+internal fun MainScreenSessionRestoreEffect(dependencies: MainScreenDependencies, listState: LazyListState) {
+    // This effect is the only reader and writer of the durable snapshot, so it owns the state.
+    val sessionSnapshot =
+        rememberSaveable(stateSaver = mainListSessionSnapshotSaver) {
+            mutableStateOf(MainListSessionSnapshot.Empty)
+        }
     val mount by dependencies.mainViewModel.mount.collectAsStateWithLifecycle()
     val workspacePath = mount.location?.raw
     val searchQuery by dependencies.mainViewModel.searchQuery.collectAsStateWithLifecycle()
@@ -402,11 +410,13 @@ internal fun MainScreenSessionRestoreEffect(
                     )
                 }
             }
+
             MainListSessionRestoreAction.Reset -> {
                 listState.scrollToItem(0)
                 sessionSnapshot.value =
                     MainListSessionSnapshot.Empty.copy(workspacePath = path)
             }
+
             MainListSessionRestoreAction.Wait -> Unit
         }
         restoreSettled = true
@@ -466,9 +476,7 @@ private fun MainScreenFilterScrollEffect(
 }
 
 @Composable
-private fun rememberClearMainFiltersAction(
-    dependencies: MainScreenDependencies,
-): () -> Unit =
+private fun rememberClearMainFiltersAction(dependencies: MainScreenDependencies): () -> Unit =
     remember(dependencies.mainViewModel) {
         {
             dependencies.mainViewModel.clearMemoFilter()
@@ -479,27 +487,21 @@ private fun rememberClearMainFiltersAction(
 private fun rememberMainScreenHeatmapLongPressAction(
     dependencies: MainScreenDependencies,
     hostState: MainScreenHostState,
-): (LocalDate) -> Unit =
-    remember(dependencies.mainViewModel, hostState) {
-        { date ->
-            dependencies.mainViewModel.filterMemosByDate(date)
-            if (!hostState.isExpanded) {
-                hostState.scope.launch { hostState.drawerState.close() }
-            }
-        }
+): (LocalDate) -> Unit = remember(dependencies.mainViewModel, hostState) {
+    { date ->
+        dependencies.mainViewModel.filterMemosByDate(date)
+        hostState.scope.launch { hostState.sidebar.closeOverlay() }
     }
+}
 
 @Composable
-private fun rememberMainScreenScrollToTopAction(
-    hostState: MainScreenHostState,
-): () -> Unit =
-    remember(hostState) {
-        {
-            hostState.scope.launch {
-                if (hostState.listState.firstVisibleItemIndex > MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX) {
-                    hostState.listState.scrollToItem(MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX)
-                }
-                hostState.listState.animateScrollToItem(0)
+private fun rememberMainScreenScrollToTopAction(hostState: MainScreenHostState): () -> Unit = remember(hostState) {
+    {
+        hostState.scope.launch {
+            if (hostState.listState.firstVisibleItemIndex > MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX) {
+                hostState.listState.scrollToItem(MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX)
             }
+            hostState.listState.animateScrollToItem(0)
         }
     }
+}

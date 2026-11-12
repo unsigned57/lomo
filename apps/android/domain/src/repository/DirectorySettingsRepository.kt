@@ -27,11 +27,13 @@ interface RootDirectorySettingsRepository :
 
     fun observeRootDisplayName(): Flow<String?> = observeDisplayName(StorageArea.ROOT)
 
-    suspend fun applyRootLocation(
-        location: StorageLocation,
-    ) = applyLocation(StorageAreaUpdate(StorageArea.ROOT, location))
+    suspend fun applyRootLocation(location: StorageLocation) =
+        applyLocation(StorageAreaUpdate(StorageArea.ROOT, location))
 
-    suspend fun prepareRootTransition(candidate: StorageLocation): WorkspaceRootTransition
+    suspend fun prepareRootTransition(
+        candidate: StorageLocation,
+        mediaChange: com.lomo.domain.model.MediaDirectoryChange?,
+    ): WorkspaceRootTransition
 
     suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition
 

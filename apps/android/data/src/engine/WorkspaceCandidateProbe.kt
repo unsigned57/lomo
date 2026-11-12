@@ -8,21 +8,25 @@ import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.source.isContentStorageUri
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.WorkspaceCandidateValidator
+import com.lomo.domain.usecase.DispatcherProvider
+import com.lomo.nativebridge.WorkspaceTarget
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
 /**
  * Production candidate probe used before freeze + durable root persistence.
  *
- * Direct roots must exist as writable directories. SAF roots must resolve via DocumentFile,
- * report canWrite, and hold a matching persisted read+write tree grant. Blank-only validation is
+ * Direct roots must exist as writable directories. SAF roots must hold a persisted read/write
+ * grant, resolve the selected document and provide a complete directory observation. Blank-only validation is
  * intentionally insufficient here.
  */
 class WorkspaceCandidateProbe(
     private val context: Context,
+    private val dispatcherProvider: DispatcherProvider,
     private val isContentUri: (String) -> Boolean = ::isContentStorageUri,
 ) : WorkspaceCandidateValidator {
-    override suspend fun validate(location: StorageLocation) {
+    override suspend fun validate(location: StorageLocation) = withContext(dispatcherProvider.io) {
         val raw = location.raw.trim()
         require(raw.isNotEmpty()) { "Candidate workspace location must be non-blank" }
         if (isContentUri(raw)) {
@@ -45,15 +49,6 @@ class WorkspaceCandidateProbe(
 
     private fun validateSaf(uriString: String) {
         val uri = uriString.toUri()
-        val root = DocumentFile.fromTreeUri(context, uri)
-        val failureCode = when {
-            root == null -> "saf_root_unavailable"
-            !root.exists() || !root.isDirectory -> "workspace_content_unavailable"
-            !root.canWrite() -> "saf_root_unwritable"
-            else -> null
-        }
-        failureCode?.let { throw WorkspaceCandidateValidationException(it, uriString) }
-        checkNotNull(root)
         val granted =
             context.contentResolver.persistedUriPermissions.any { permission ->
                 permission.isReadPermission &&
@@ -61,22 +56,41 @@ class WorkspaceCandidateProbe(
                     uriTreesMatch(permission.uri, uri.toString())
             }
         if (!granted) throw WorkspaceCandidateValidationException("saf_grant_revoked", uriString)
+        val documentId = selectedSafDocumentId(uriString, uri)
+        val documentUri = DocumentsContract.buildDocumentUriUsingTree(uri, documentId)
+        val root = DocumentFile.fromSingleUri(context, documentUri)
+        val failureCode = when {
+            root == null -> "saf_root_unavailable"
+            !root.exists() || !root.isDirectory -> "workspace_content_unavailable"
+            !root.canRead() -> "saf_root_unreadable"
+            !root.canWrite() -> "saf_root_unwritable"
+            else -> null
+        }
+        failureCode?.let { throw WorkspaceCandidateValidationException(it, uriString) }
+        validateSafEnumeration(uriString)
+    }
+
+    private fun validateSafEnumeration(uriString: String) {
+        val documents = ContentResolverPlatformDocumentsGateway(context.contentResolver)
+        var cursor: String? = null
+        do {
+            val page = documents.listChildren(uriString, WorkspaceTarget.Root, cursor, 256u)
+            if (page.incomplete) {
+                throw WorkspaceCandidateValidationException("metadata_enumeration_incomplete", uriString)
+            }
+            cursor = page.nextCursor
+        } while (cursor != null)
     }
 }
 
-class WorkspaceCandidateValidationException(
-    val code: String,
-    location: String,
-) : IllegalStateException("$code: workspace candidate rejected ($location)")
+class WorkspaceCandidateValidationException(val code: String, location: String) :
+    IllegalStateException("$code: workspace candidate rejected ($location)")
 
 /**
  * Grant matching for tree URIs: exact string equality is too brittle across encoding/normalization,
  * so compare normalized tree document ids when both are tree URIs.
  */
-internal fun uriTreesMatch(
-    granted: Uri,
-    candidate: String,
-): Boolean {
+internal fun uriTreesMatch(granted: Uri, candidate: String): Boolean {
     val grantedRaw = granted.toString()
     if (grantedRaw == candidate) return true
     val grantedTree = grantedRaw.treeDocumentIdOrNull() ?: return false

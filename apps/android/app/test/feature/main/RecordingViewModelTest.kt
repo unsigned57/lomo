@@ -31,11 +31,10 @@ package com.lomo.app.feature.main
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.collectWhileSubscribed
-import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.model.RecordingSessionState
+import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.usecase.RecordingSessionUseCase
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,7 +60,7 @@ class RecordingViewModelTest : AppFunSpec() {
             runTest(testDispatcher) {
                 val viewModel = createViewModel()
 
-                viewModel.startRecording()
+                viewModel.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
 
                 viewModel.isRecording.value shouldBe true
@@ -74,7 +73,7 @@ class RecordingViewModelTest : AppFunSpec() {
                 val viewModel = createViewModel()
                 var resultMarkdown: String? = null
 
-                viewModel.startRecording()
+                viewModel.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
                 viewModel.stopRecording { resultMarkdown = it }
                 advanceUntilIdle()
@@ -91,7 +90,7 @@ class RecordingViewModelTest : AppFunSpec() {
                 fakeSession.startException = IllegalStateException("mic unavailable")
                 val viewModel = createViewModel()
 
-                viewModel.startRecording()
+                viewModel.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
 
                 viewModel.isRecording.value shouldBe false
@@ -103,7 +102,7 @@ class RecordingViewModelTest : AppFunSpec() {
             runTest(testDispatcher) {
                 val viewModel = createViewModel()
 
-                viewModel.startRecording()
+                viewModel.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
                 viewModel.cancelRecording()
                 advanceUntilIdle()
@@ -119,7 +118,7 @@ class RecordingViewModelTest : AppFunSpec() {
                 fakeSession.startException = IllegalStateException("mic unavailable")
                 val viewModel = createViewModel()
 
-                viewModel.startRecording()
+                viewModel.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
                 viewModel.errorMessage.value shouldBe "Failed to start recording: mic unavailable"
 
@@ -160,7 +159,7 @@ private class FakeRecordingSession : RecordingSession {
         startException = null
     }
 
-    override suspend fun startRecording() {
+    override suspend fun startRecording(draftId: com.lomo.domain.model.DraftId) {
         startException?.let {
             _errorMessage.value = "Failed to start recording: ${it.message}"
             return
@@ -169,7 +168,8 @@ private class FakeRecordingSession : RecordingSession {
             RecordingSessionState.Recording(
                 filename = "voice_20260324_100000.m4a",
                 startedAtMillis = System.currentTimeMillis(),
-                draftId = com.lomo.domain.model.DraftId("recording-test"),
+                captureId = com.lomo.domain.model.RecordingCaptureId("recording-test"),
+                draftId = draftId,
             )
         _durationMillis.value = 0
         _amplitude.value = 0

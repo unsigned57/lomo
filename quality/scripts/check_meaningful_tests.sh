@@ -152,8 +152,10 @@ has_architecture_boundary_marker() {
 is_source_string_assertion_test() {
   local file="$1"
 
-  grep -Eq 'import[[:space:]]+java\.io\.File' "$file" &&
-    grep -Eq '\.readText\(\)' "$file" &&
+  # Source paths/extension filters identify Kotlin policy input; JSON/file-byte contracts are legal.
+  grep -Eq '"[^"[:cntrl:]]*\.kts?"|"kts?"' "$file" &&
+    grep -Eq 'import[[:space:]]+java\.io\.File|File\(' "$file" &&
+    grep -Eq '\.(readText|readLines)\(\)' "$file" &&
     (
       grep -Eq 'assertTrue\(.*contains\(' "$file" ||
         grep -Eq '\bshouldContain\b' "$file" ||
@@ -188,40 +190,55 @@ vintage_dependency_enabled() {
     grep -Eq 'junit-vintage-engine|libs\.junit\.vintage\.engine' "${existing[@]}"
 }
 
-collect_diff() {
-  local -a diff_args=("$@")
+fail_range() {
+  echo "meaningful-test-check: $1" >&2
+  exit 1
+}
 
-  if [ -n "${MEANINGFUL_TEST_DIFF_BASE:-}" ]; then
-    git diff "${diff_args[@]}" "${MEANINGFUL_TEST_DIFF_BASE}"...HEAD --
+# The diff range is resolved once. An unresolvable range fails the check: selecting no files
+# because Git could not compute a diff would be a vacuous pass.
+resolve_diff_range() {
+  local base="${MEANINGFUL_TEST_DIFF_BASE:-}"
+  if [ -z "$base" ] && [ "$mode" != staged ] && [ "$mode" != working-tree ] &&
+    { [ "${CI:-}" = "true" ] || [ "$mode" = "ci" ]; }; then
+    if [ -n "${GITHUB_BASE_REF:-}" ]; then
+      base="origin/${GITHUB_BASE_REF}"
+    else
+      base="0000000000000000000000000000000000000000"
+    fi
+  fi
+  if [ -n "$base" ]; then
+    if [[ "$base" =~ ^0+$ ]]; then
+      # A ref-creating push (or a manual run) has no previous tip: compare with the default
+      # branch it forks from instead of guessing a single parent commit.
+      local default_branch="${MEANINGFUL_TEST_DEFAULT_BRANCH:-}"
+      [ -n "$default_branch" ] ||
+        fail_range "no previous tip; set MEANINGFUL_TEST_DEFAULT_BRANCH to resolve the diff base"
+      base="$(git merge-base HEAD "origin/$default_branch")" ||
+        fail_range "cannot resolve merge-base of HEAD and origin/$default_branch"
+    fi
+    git rev-parse --verify -q "${base}^{commit}" >/dev/null ||
+      fail_range "diff base $base is not a commit in this clone"
+    diff_range=("${base}...HEAD")
+    range_label="${base}...HEAD"
     return
   fi
-
   case "$mode" in
-    staged)
-      git diff "${diff_args[@]}" --cached --
-      return
-      ;;
     working-tree)
-      git diff "${diff_args[@]}" HEAD --
-      return
+      diff_range=(HEAD)
+      range_label="working tree vs HEAD"
+      ;;
+    *)
+      diff_range=(--cached)
+      range_label="staged changes"
       ;;
   esac
+}
 
-  if [ "${CI:-}" = "true" ] || [ "$mode" = "ci" ]; then
-    if [ -n "${GITHUB_BASE_REF:-}" ] && git rev-parse --verify -q "origin/${GITHUB_BASE_REF}" >/dev/null; then
-      git diff "${diff_args[@]}" "origin/${GITHUB_BASE_REF}"...HEAD --
-      return
-    fi
-
-    if git rev-parse --verify -q HEAD~1 >/dev/null; then
-      git diff "${diff_args[@]}" HEAD~1...HEAD --
-      return
-    fi
-
-    return
-  fi
-
-  git diff "${diff_args[@]}" --cached --
+collect_diff() {
+  local output
+  output="$(git diff "$@" "${diff_range[@]}" --)" || fail_range "git diff failed for $range_label"
+  [ -z "$output" ] || printf '%s\n' "$output"
 }
 
 collect_changed_files() {
@@ -260,9 +277,15 @@ if [ "$all_mode" = true ] || [ "${MEANINGFUL_TEST_CHECK_ALL:-}" = "true" ]; then
     changed_file_statuses["$file"]="M"
   done
 else
-  # Default to changed files mode
-  mapfile -t changed_files < <(collect_changed_files | sort -u)
-  mapfile -t changed_statuses < <(collect_changed_statuses)
+  # Default to changed files mode. Collection runs in this shell (not a process substitution)
+  # so a failed diff aborts the check instead of yielding an empty selection.
+  declare -a diff_range=()
+  range_label=""
+  resolve_diff_range
+  changed_files_text="$(collect_changed_files)"
+  changed_statuses_text="$(collect_changed_statuses)"
+  mapfile -t changed_files < <(printf '%s' "$changed_files_text" | sed '/^$/d' | sort -u)
+  mapfile -t changed_statuses < <(printf '%s' "$changed_statuses_text" | sed '/^$/d')
 
   for entry in "${changed_statuses[@]}"; do
     IFS=$'\t' read -r raw_status old_path new_path <<<"$entry"
@@ -318,7 +341,7 @@ if vintage_dependency_enabled; then
 fi
 
 if [ "${#test_files[@]}" -eq 0 ]; then
-  echo "meaningful-test-check: no changed test files to validate"
+  echo "meaningful-test-check: no changed test files to validate (${range_label:-all test files})"
   exit 0
 fi
 mapfile -t test_files < <(printf '%s\n' "${test_files[@]}" | sort -u)

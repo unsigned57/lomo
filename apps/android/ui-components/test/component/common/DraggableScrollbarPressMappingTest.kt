@@ -31,66 +31,66 @@ import io.kotest.matchers.shouldBe
 class DraggableScrollbarPressMappingTest : UiComponentsFunSpec() {
     init {
         test("press on thumb starts drag from current thumb offset") {
-        val offset =
-            resolveThumbDragStartOffsetFromPress(
-                pressY = 55f,
-                currentThumbOffsetPx = 40f,
-                thumbExtentPx = 60f,
-                trackHeightPx = 400f,
-            )
-        (offset ?: error("Expected thumb press to start drag")) shouldBe ((40f) plusOrMinus (0.001f))
+            val offset =
+                resolveThumbDragStartOffsetFromPress(
+                    pressY = 55f,
+                    currentThumbOffsetPx = 40f,
+                    thumbExtentPx = 60f,
+                    trackHeightPx = 400f,
+                )
+            (offset ?: error("Expected thumb press to start drag")) shouldBe ((40f) plusOrMinus (0.001f))
         }
     }
 
     init {
         test("press on thumb bottom boundary starts drag") {
-        val offset =
-            resolveThumbDragStartOffsetFromPress(
-                pressY = 100f,
-                currentThumbOffsetPx = 40f,
-                thumbExtentPx = 60f,
-                trackHeightPx = 400f,
-            )
-        (offset ?: error("Expected thumb boundary press to start drag")) shouldBe ((40f) plusOrMinus (0.001f))
+            val offset =
+                resolveThumbDragStartOffsetFromPress(
+                    pressY = 100f,
+                    currentThumbOffsetPx = 40f,
+                    thumbExtentPx = 60f,
+                    trackHeightPx = 400f,
+                )
+            (offset ?: error("Expected thumb boundary press to start drag")) shouldBe ((40f) plusOrMinus (0.001f))
         }
     }
 
     init {
         test("press above thumb ignores track jump") {
-        val offset =
-            resolveThumbDragStartOffsetFromPress(
-                pressY = 20f,
-                currentThumbOffsetPx = 200f,
-                thumbExtentPx = 60f,
-                trackHeightPx = 400f,
-            )
-        (offset) shouldBe null
+            val offset =
+                resolveThumbDragStartOffsetFromPress(
+                    pressY = 20f,
+                    currentThumbOffsetPx = 200f,
+                    thumbExtentPx = 60f,
+                    trackHeightPx = 400f,
+                )
+            (offset) shouldBe null
         }
     }
 
     init {
         test("press below thumb ignores track jump") {
-        val offset =
-            resolveThumbDragStartOffsetFromPress(
-                pressY = 200f,
-                currentThumbOffsetPx = 40f,
-                thumbExtentPx = 60f,
-                trackHeightPx = 400f,
-            )
-        (offset) shouldBe null
+            val offset =
+                resolveThumbDragStartOffsetFromPress(
+                    pressY = 200f,
+                    currentThumbOffsetPx = 40f,
+                    thumbExtentPx = 60f,
+                    trackHeightPx = 400f,
+                )
+            (offset) shouldBe null
         }
     }
 
     init {
         test("press with zero track height starts no drag") {
-        val offset =
-            resolveThumbDragStartOffsetFromPress(
-                pressY = 50f,
-                currentThumbOffsetPx = 0f,
-                thumbExtentPx = 60f,
-                trackHeightPx = 0f,
-            )
-        (offset) shouldBe null
+            val offset =
+                resolveThumbDragStartOffsetFromPress(
+                    pressY = 50f,
+                    currentThumbOffsetPx = 0f,
+                    thumbExtentPx = 60f,
+                    trackHeightPx = 0f,
+                )
+            (offset) shouldBe null
         }
     }
 }

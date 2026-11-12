@@ -12,9 +12,7 @@ import com.lomo.domain.repository.MainListQueryRepository
  * A memo that no longer exists, or whose snapshot fails the completeness gate, yields null so the
  * caller can surface "cannot edit" instead of binding a forged baseline.
  */
-open class LoadEditableMemoUseCase(
-    private val mainListQueryRepository: MainListQueryRepository,
-) {
+open class LoadEditableMemoUseCase(private val mainListQueryRepository: MainListQueryRepository) {
     open suspend operator fun invoke(memoId: String): EditableMemoSnapshot? {
         val snapshot = mainListQueryRepository.getMemoById(memoId) ?: return null
         // A stale projection row can claim Full while failing the completeness gate; editing it

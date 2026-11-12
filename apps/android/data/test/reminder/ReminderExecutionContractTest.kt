@@ -40,24 +40,31 @@ package com.lomo.data.reminder
  * - Each arm fails RED against the pre-fix ledger/API/manifest/preview behavior recorded in the
  *   adversarial note above; GREEN under the repaired execution path.
  *
+ * Test Change Justification:
+ * Reason category: packaging input correction.
+ * Old behavior/assertion being replaced: inspect the data source manifest for boot declarations.
+ * Why old assertion is no longer correct: the toolchain discards library source manifests;
+ *   app now owns OS component registrations in the actual packaging manifest.
+ * Coverage preserved by: the same unreachable LOCKED_BOOT_COMPLETED rejection on the app manifest.
+ * Why this is not fitting the test to the implementation: the assertion now inspects the input
+ *   that actually reaches the installed APK rather than an ignored file.
+ *
  * Excludes:
  * - Exact alarm user prompts, Doze policy and widget rendering internals.
  */
 
 import android.app.PendingIntent
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.domain.usecase.SingleDispatcherProvider
 import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 import kotlin.io.path.createTempDirectory
-import kotlinx.coroutines.Dispatchers
-import com.lomo.domain.usecase.SingleDispatcherProvider
 
-private class AuditRecordingPort(
-    private val canExact: Boolean,
-) : AlarmSchedulePort {
+private class AuditRecordingPort(private val canExact: Boolean) : AlarmSchedulePort {
     val schedules = mutableListOf<AlarmScheduleRequest>()
     val cancels = mutableListOf<String>()
 
@@ -68,44 +75,25 @@ private class AuditRecordingPort(
         AlarmScheduleResult(mode = AlarmTriggerMode.AlarmClock, triggerAtUtcMillis = request.triggerAtUtcMillis)
             .also { schedules += request }
 
-    override fun cancel(
-        occurrenceId: String,
-        memoId: String,
-        reminderId: String,
-    ) {
+    override fun cancel(occurrenceId: String, memoId: String, reminderId: String) {
         cancels += occurrenceId
     }
 }
 
-private class AuditGateway(
-    private val canExact: Boolean,
-) : AlarmPlatformGateway {
+private class AuditGateway(private val canExact: Boolean) : AlarmPlatformGateway {
     val allowWhileIdleCalls = mutableListOf<Long>()
 
     override fun canScheduleExactAlarms(): Boolean = canExact
 
-    override fun pendingIntent(
-        occurrenceId: String,
-        memoId: String,
-        reminderId: String,
-    ): PendingIntent = mockk(relaxed = true)
+    override fun pendingIntent(occurrenceId: String, memoId: String, reminderId: String): PendingIntent = mockk()
 
-    override fun setAlarmClock(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    ) = Unit
+    override fun setAlarmClock(triggerAtUtcMillis: Long, operation: PendingIntent) = Unit
 
-    override fun setAndAllowWhileIdle(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    ) {
+    override fun setAndAllowWhileIdle(triggerAtUtcMillis: Long, operation: PendingIntent) {
         allowWhileIdleCalls += triggerAtUtcMillis
     }
 
-    override fun setInexact(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    ) = Unit
+    override fun setInexact(triggerAtUtcMillis: Long, operation: PendingIntent) = Unit
 
     override fun cancel(operation: PendingIntent) = Unit
 }
@@ -157,7 +145,7 @@ class ReminderExecutionContractTest : DataFunSpec() {
 
         test("unreachable LOCKED_BOOT_COMPLETED declaration is removed from manifest and action set") {
             val manifest =
-                resolveModuleRoot("data")
+                resolveModuleRoot("app")
                     .resolve("src/AndroidManifest.xml")
                     .readText()
             withClue(

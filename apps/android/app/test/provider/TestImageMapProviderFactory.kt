@@ -1,6 +1,7 @@
 package com.lomo.app.provider
 
 import com.lomo.domain.model.DraftMediaReconciliation
+import com.lomo.domain.model.ImageLocationSnapshot
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
@@ -42,13 +43,10 @@ private data class FakeMediaRepository(
         draftId: com.lomo.domain.model.DraftId,
     ): StorageLocation = source
 
-    override suspend fun removeImage(
-        entryId: MediaEntryId,
-        draftId: com.lomo.domain.model.DraftId,
-    ) = Unit
+    override suspend fun removeImage(entryId: MediaEntryId, draftId: com.lomo.domain.model.DraftId) = Unit
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
-        descriptorLocations
+    override fun observeImageLocations(): Flow<ImageLocationSnapshot> =
+        descriptorLocations.map { ImageLocationSnapshot.Ready(it) }
 
     override suspend fun refreshImageLocations() = Unit
 
@@ -69,9 +67,8 @@ private data class FakeMediaRepository(
         draftId: com.lomo.domain.model.DraftId,
     ) = Unit
 
-    override suspend fun reconcileDraftMedia(
-        draftId: com.lomo.domain.model.DraftId,
-    ): DraftMediaReconciliation = DraftMediaReconciliation(draftId = draftId, records = emptyList())
+    override suspend fun reconcileDraftMedia(draftId: com.lomo.domain.model.DraftId): DraftMediaReconciliation =
+        DraftMediaReconciliation(draftId = draftId, records = emptyList())
 
     override suspend fun releaseDraftLeases(draftId: com.lomo.domain.model.DraftId) = Unit
 

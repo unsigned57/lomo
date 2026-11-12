@@ -35,12 +35,12 @@ class GalleryGridLayoutTest : AppFunSpec() {
                 planGalleryMosaicLayout(
                     memos = memos,
                     aspectByMemoId =
-                        mapOf(
-                            "portrait" to 0.69f,
-                            "square-low" to 0.7f,
-                            "square-high" to 1.4f,
-                            "landscape" to 1.41f,
-                        ),
+                    mapOf(
+                        "portrait" to 0.69f,
+                        "square-low" to 0.7f,
+                        "square-high" to 1.4f,
+                        "landscape" to 1.41f,
+                    ),
                 )
             val tileById = layout.tiles().associateBy { tile -> tile.memoId }
 
@@ -66,11 +66,11 @@ class GalleryGridLayoutTest : AppFunSpec() {
                 planGalleryMosaicLayout(
                     memos = memos,
                     aspectByMemoId =
-                        mapOf(
-                            "portrait" to 0.55f,
-                            "landscape" to 1.9f,
-                            "square" to 1f,
-                        ),
+                    mapOf(
+                        "portrait" to 0.55f,
+                        "landscape" to 1.9f,
+                        "square" to 1f,
+                    ),
                 )
             val tileById = layout.tiles().associateBy { tile -> tile.memoId }
 
@@ -96,15 +96,15 @@ class GalleryGridLayoutTest : AppFunSpec() {
                 planGalleryMosaicLayout(
                     memos = memos,
                     aspectByMemoId =
-                        mapOf(
-                            "landscape-a" to 1.8f,
-                            "portrait-a" to 0.55f,
-                            "square-a" to 1f,
-                            "portrait-b" to 0.6f,
-                            "landscape-b" to 1.7f,
-                            "square-b" to 1f,
-                        ),
-            )
+                    mapOf(
+                        "landscape-a" to 1.8f,
+                        "portrait-a" to 0.55f,
+                        "square-a" to 1f,
+                        "portrait-b" to 0.6f,
+                        "landscape-b" to 1.7f,
+                        "square-b" to 1f,
+                    ),
+                )
 
             (layout.size) shouldBe (1)
             ((layout.single().hasEmptySealedGridCells())) shouldBe false
@@ -131,17 +131,17 @@ class GalleryGridLayoutTest : AppFunSpec() {
                 planGalleryMosaicLayout(
                     memos = memos,
                     aspectByMemoId =
-                        mapOf(
-                            "wide-a" to 2.1f,
-                            "square-a" to 1f,
-                            "tall-a" to 0.52f,
-                            "wide-b" to 1.7f,
-                            "tall-b" to 0.58f,
-                            "square-b" to 1f,
-                            "square-c" to 1f,
-                            "wide-c" to 1.9f,
-                            "tall-c" to 0.62f,
-                        ),
+                    mapOf(
+                        "wide-a" to 2.1f,
+                        "square-a" to 1f,
+                        "tall-a" to 0.52f,
+                        "wide-b" to 1.7f,
+                        "tall-b" to 0.58f,
+                        "square-b" to 1f,
+                        "square-c" to 1f,
+                        "wide-c" to 1.9f,
+                        "tall-c" to 0.62f,
+                    ),
                 ).single()
 
             ((layout.usesOnlyFixedFullWidthRows())) shouldBe false
@@ -171,20 +171,20 @@ class GalleryGridLayoutTest : AppFunSpec() {
                 planGalleryMosaicLayout(
                     memos = memos,
                     aspectByMemoId =
-                        mapOf(
-                            "square-a" to 1f,
-                            "portrait-a" to 0.56f,
-                            "landscape-a" to 1.95f,
-                            "portrait-b" to 0.62f,
-                            "square-b" to 1f,
-                            "landscape-b" to 1.75f,
-                            "portrait-c" to 0.5f,
-                            "square-c" to 1f,
-                            "landscape-c" to 2.05f,
-                            "portrait-d" to 0.58f,
-                            "square-d" to 1f,
-                            "landscape-d" to 1.65f,
-                        ),
+                    mapOf(
+                        "square-a" to 1f,
+                        "portrait-a" to 0.56f,
+                        "landscape-a" to 1.95f,
+                        "portrait-b" to 0.62f,
+                        "square-b" to 1f,
+                        "landscape-b" to 1.75f,
+                        "portrait-c" to 0.5f,
+                        "square-c" to 1f,
+                        "landscape-c" to 2.05f,
+                        "portrait-d" to 0.58f,
+                        "square-d" to 1f,
+                        "landscape-d" to 1.65f,
+                    ),
                 ).single()
 
             ((layout.hasTilesStartingBelowFirstWidthGap())) shouldBe false
@@ -227,10 +227,14 @@ class GalleryGridLayoutTest : AppFunSpec() {
                 ).single()
 
             ((layout.tiles.all { tile -> tile.columnSpan >= GALLERY_MIN_READABLE_COLUMN_SPAN })) shouldBe true
-            ((layout.tiles.all { tile ->
-                    val sourceAspect = aspectByMemoId.getValue(tile.memoId)
-                    abs(tile.layoutAspectRatio - sourceAspect.coerceIn(0.45f, 2.35f)) <= GALLERY_MAX_ASPECT_DELTA
-                })) shouldBe true
+            (
+                (
+                    layout.tiles.all { tile ->
+                        val sourceAspect = aspectByMemoId.getValue(tile.memoId)
+                        abs(tile.layoutAspectRatio - sourceAspect.coerceIn(0.45f, 2.35f)) <= GALLERY_MAX_ASPECT_DELTA
+                    }
+                    )
+                ) shouldBe true
             ((layout.hasTilesStartingBelowFirstWidthGap())) shouldBe false
         }
     }
@@ -269,10 +273,14 @@ class GalleryGridLayoutTest : AppFunSpec() {
             ((panorama.rowSpan >= GALLERY_EXTREME_LANDSCAPE_MIN_ROW_SPAN)) shouldBe true
             ((receipt.columnSpan >= GALLERY_EXTREME_PORTRAIT_MIN_COLUMN_SPAN)) shouldBe true
             ((receipt.rowSpan >= GALLERY_EXTREME_PORTRAIT_MIN_ROW_SPAN)) shouldBe true
-            ((listOf(panorama, receipt).all { tile ->
-                    val sourceAspect = aspectByMemoId.getValue(tile.memoId)
-                    abs(tile.layoutAspectRatio - sourceAspect) <= GALLERY_EXTREME_MAX_ASPECT_DELTA
-                })) shouldBe true
+            (
+                (
+                    listOf(panorama, receipt).all { tile ->
+                        val sourceAspect = aspectByMemoId.getValue(tile.memoId)
+                        abs(tile.layoutAspectRatio - sourceAspect) <= GALLERY_EXTREME_MAX_ASPECT_DELTA
+                    }
+                    )
+                ) shouldBe true
             ((layout.hasTilesStartingBelowFirstWidthGap())) shouldBe false
         }
     }
@@ -289,10 +297,10 @@ class GalleryGridLayoutTest : AppFunSpec() {
                 planGalleryMosaicLayout(
                     memos = memos,
                     aspectByMemoId =
-                        mapOf(
-                            "wide" to 2.2f,
-                            "tail" to 1f,
-                        ),
+                    mapOf(
+                        "wide" to 2.2f,
+                        "tail" to 1f,
+                    ),
                 )
             val tiles = layout.tiles()
 
@@ -340,15 +348,15 @@ class GalleryGridLayoutTest : AppFunSpec() {
                 planGalleryMosaicLayout(
                     memos = memos,
                     aspectByMemoId =
-                        mapOf(
-                            "wide-a" to 2.1f,
-                            "tall-a" to 0.52f,
-                            "tall-b" to 0.58f,
-                            "square-a" to 1f,
-                            "wide-b" to 1.8f,
-                            "square-b" to 1f,
-                            "tall-c" to 0.6f,
-                        ),
+                    mapOf(
+                        "wide-a" to 2.1f,
+                        "tall-a" to 0.52f,
+                        "tall-b" to 0.58f,
+                        "square-a" to 1f,
+                        "wide-b" to 1.8f,
+                        "square-b" to 1f,
+                        "tall-c" to 0.6f,
+                    ),
                 )
             val plannedIds = layout.tiles().map { tile -> tile.memoId }
 
@@ -383,10 +391,10 @@ class GalleryGridLayoutTest : AppFunSpec() {
                 planGalleryMosaicLayout(
                     memos = memos,
                     aspectByMemoId =
-                        memos.associate { input ->
-                            val index = input.memoId.removePrefix("memo-").toInt()
-                            input.memoId to aspectCycle[index % aspectCycle.size]
-                        },
+                    memos.associate { input ->
+                        val index = input.memoId.removePrefix("memo-").toInt()
+                        input.memoId to aspectCycle[index % aspectCycle.size]
+                    },
                 )
             val plannedIds = layout.tiles().map { tile -> tile.memoId }
 
@@ -400,15 +408,20 @@ class GalleryGridLayoutTest : AppFunSpec() {
             val layout =
                 planGalleryMosaicLayout(
                     memos =
-                        listOf(
-                            galleryLayoutInput("unresolved", "/images/unresolved.jpg"),
-                            galleryLayoutInput("invalid", "/images/invalid.jpg"),
-                        ),
+                    listOf(
+                        galleryLayoutInput("unresolved", "/images/unresolved.jpg"),
+                        galleryLayoutInput("invalid", "/images/invalid.jpg"),
+                    ),
                     aspectByMemoId = mapOf("invalid" to Float.NaN),
                 )
             val tiles = layout.tiles()
 
-            (tiles.map { tile -> tile.aspectKind }) shouldBe (listOf(GalleryAspectKind.Square, GalleryAspectKind.Square))
+            (tiles.map { tile -> tile.aspectKind }) shouldBe (
+                listOf(
+                    GalleryAspectKind.Square,
+                    GalleryAspectKind.Square,
+                )
+                )
             (tiles.map { tile -> tile.aspectRatio }) shouldBe (listOf(1f, 1f))
             ((tiles.all { tile -> tile.columnSpan == tile.rowSpan })) shouldBe true
         }
@@ -422,31 +435,37 @@ class GalleryGridLayoutTest : AppFunSpec() {
                     galleryLayoutInput("invalid", "/images/invalid.jpg"),
                 )
 
-            (resolveGalleryAspectByMemoIdOrNull(
+            (
+                resolveGalleryAspectByMemoIdOrNull(
                     layoutInputs = inputs,
                     aspectByImageUrl = mapOf("/images/wide.jpg" to 2.1f),
-                )) shouldBe (mapOf(
+                )
+                ) shouldBe (
+                mapOf(
                     "wide" to 2.1f,
                     "invalid" to GALLERY_DEFAULT_ASPECT_RATIO,
-                ))
-            (resolveGalleryAspectByMemoIdOrNull(
+                )
+                )
+            (
+                resolveGalleryAspectByMemoIdOrNull(
                     layoutInputs = inputs,
                     aspectByImageUrl =
-                        mapOf(
-                            "/images/wide.jpg" to 2.1f,
-                            "/images/invalid.jpg" to Float.NaN,
-                        ),
-                )) shouldBe (mapOf(
+                    mapOf(
+                        "/images/wide.jpg" to 2.1f,
+                        "/images/invalid.jpg" to Float.NaN,
+                    ),
+                )
+                ) shouldBe (
+                mapOf(
                     "wide" to 2.1f,
                     "invalid" to GALLERY_DEFAULT_ASPECT_RATIO,
-                ))
+                )
+                )
         }
     }
-
 }
 
-private fun List<GalleryMosaicLayout>.tiles(): List<GalleryMosaicTile> =
-    flatMap { layout -> layout.tiles }
+private fun List<GalleryMosaicLayout>.tiles(): List<GalleryMosaicTile> = flatMap { layout -> layout.tiles }
 
 private const val GALLERY_THREE_COLUMN_SPAN = GALLERY_MOSAIC_COLUMN_COUNT / 3
 private const val GALLERY_MIN_READABLE_COLUMN_SPAN = 4

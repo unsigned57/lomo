@@ -3,18 +3,16 @@ package com.lomo.detektrules
 import dev.detekt.api.Config
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
-import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 
-internal class NoEventInStateFlowRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "One-shot UI events may only flow through the acknowledged queue pattern (PendingUiEvent<T> + consume by id " +
-        "via an event-queue coordinator); parking Event/Effect/Request payloads in a ViewModel StateFlow replays " +
-        "them on recomposition. See quality/udf-contract.md.",
-) {
+internal class NoEventInStateFlowRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "One-shot UI events may only flow through the acknowledged queue pattern (PendingUiEvent<T> + consume by id " +
+            "via an event-queue coordinator); parking Event/Effect/Request payloads in a ViewModel StateFlow replays " +
+            "them on recomposition. See quality/udf-contract.md.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*state-event-ok""")
     private val eventPayloadPattern =
         Regex("""[A-Za-z_][A-Za-z0-9_]*(?:Event|Effect|Request)\??(?=[>,)\s]|$)""")
@@ -42,7 +40,8 @@ internal class NoEventInStateFlowRule(
         reportElement(
             property,
             "One-shot event surface '${property.name}' ($typeText) in ${containingClass.name}: StateFlow retains its " +
-                "last value, so Event/Effect/Request payloads replay on recomposition. Route one-shot UI events through " +
+                "last value, so Event/Effect/Request payloads replay on recomposition. Route one-shot UI events " +
+                "through " +
                 "the acknowledged queue (PendingUiEvent<T> + consume by id via an event-queue coordinator). " +
                 "See quality/udf-contract.md, or mark with '// behavior-contract: state-event-ok: <reason>'.",
         )
@@ -64,10 +63,7 @@ internal class NoEventInStateFlowRule(
         return delegatesToEventQueueCoordinatorMember(initText, property)
     }
 
-    private fun KtClassOrObject.delegatesToEventQueueCoordinatorMember(
-        initText: String,
-        self: KtProperty,
-    ): Boolean {
+    private fun KtClassOrObject.delegatesToEventQueueCoordinatorMember(initText: String, self: KtProperty): Boolean {
         val members =
             (this as? KtClass)?.let { klass ->
                 klass.body?.declarations
@@ -85,13 +81,13 @@ internal class NoEventInStateFlowRule(
     }
 }
 
-internal class NoMultipleEffectChannelsRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "The acknowledged event queue (PendingUiEvent<T> + consume by id) is the only legal one-shot UI event surface; " +
-        "any parallel Channel or MutableSharedFlow effect surface in a ViewModel is forbidden. See quality/udf-contract.md.",
-) {
+internal class NoMultipleEffectChannelsRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "The acknowledged event queue (PendingUiEvent<T> + consume by id) is the only legal one-shot UI event " +
+            "surface; " +
+            "any parallel Channel or MutableSharedFlow effect surface in a ViewModel is forbidden. See quality/udf-contract.md.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*multiple-channels-ok""")
     private val channelTypePattern = Regex("""(^|[^A-Za-z])Channel<""")
     private val channelCtorPattern = Regex("""(^|[^A-Za-z])Channel\(""")
@@ -120,13 +116,13 @@ internal class NoMultipleEffectChannelsRule(
         reportElement(
             property,
             "Forbidden one-shot surface '${property.name}' in ${containingClass.name}: parallel Channel/" +
-                "MutableSharedFlow effect channels lose events (no acknowledge, no replay guarantee). The acknowledged " +
+                "MutableSharedFlow effect channels lose events (no acknowledge, no replay guarantee). The " +
+                "acknowledged " +
                 "queue (PendingUiEvent<T> + consume by id via an event-queue coordinator) is the only legal one-shot " +
                 "surface. See quality/udf-contract.md, or mark with '// behavior-contract: multiple-channels-ok: <reason>'.",
         )
     }
 }
 
-private fun KtClassOrObject.isViewModelLike(): Boolean =
-    name?.endsWith("ViewModel") == true ||
-        (this as? KtClass)?.superTypeListEntries?.any { it.text.contains("ViewModel") } == true
+private fun KtClassOrObject.isViewModelLike(): Boolean = name?.endsWith("ViewModel") == true ||
+    (this as? KtClass)?.superTypeListEntries?.any { it.text.contains("ViewModel") } == true

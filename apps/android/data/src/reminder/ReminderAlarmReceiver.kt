@@ -15,17 +15,16 @@ import timber.log.Timber
 
 private const val TAG = "ReminderAlarmReceiver"
 
-class ReminderAlarmReceiver : BroadcastReceiver(), KoinComponent {
+class ReminderAlarmReceiver :
+    BroadcastReceiver(),
+    KoinComponent {
     private val asyncRunner: ReminderAsyncRunner by inject()
     private val reminderCoordinator: ReminderCoordinator by inject()
     private val reminderNotifier: ReminderNotifier by inject()
     private val storePort: StorePort by inject()
     private val engineReadiness: EngineReadinessRepository by inject()
 
-    override fun onReceive(
-        context: Context,
-        intent: Intent,
-    ) {
+    override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ReminderIntents.ACTION_FIRE) return
         val memoId = intent.getStringExtra(ReminderIntents.EXTRA_MEMO_ID) ?: return
         val reminderId = intent.getStringExtra(ReminderIntents.EXTRA_REMINDER_ID) ?: return
@@ -67,6 +66,7 @@ class ReminderAlarmReceiver : BroadcastReceiver(), KoinComponent {
                     // recordFired consumes the occurrence only after a real delivery; a
                     // non-delivery leaves it pending so the next plan can re-offer it.
                     reminderCoordinator.recordFired(memoId, reminderId)
+
                 is ReminderDelivery.NotDelivered ->
                     Timber.tag(TAG).w(
                         "Reminder notification not delivered (memo=%s, cause=%s); occurrence stays pending",

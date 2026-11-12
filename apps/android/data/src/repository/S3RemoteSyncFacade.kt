@@ -52,9 +52,9 @@ class S3RemoteSyncFacade(
             remoteFileCount = status?.remoteListedCount ?: 0,
             localFileCount = status?.localEntryCount ?: 0,
             pendingChanges =
-                (status?.ensurePresentCount ?: 0) +
-                    (status?.ensureAbsentCount ?: 0) +
-                    (status?.pullPresentCount ?: 0),
+            (status?.ensurePresentCount ?: 0) +
+                (status?.ensureAbsentCount ?: 0) +
+                (status?.pullPresentCount ?: 0),
             lastSyncTime = status?.lastSuccessfulAtMs,
         )
     }
@@ -105,36 +105,36 @@ class S3RemoteSyncFacade(
         }
     }
 
-    private suspend fun enqueueRustCycle(message: String): S3SyncResult =
-        when (
-            val outcome =
-                rustSyncScheduler.enqueueOneShot(
-                    secretFieldKey = CredentialField.S3_SECRET_ACCESS_KEY.name,
-                )
-        ) {
-            is RustSyncEnqueueOutcome.Accepted -> S3SyncResult.Accepted(message)
-            is RustSyncEnqueueOutcome.Rejected ->
-                when (outcome.reason) {
-                    RustSyncEnqueueRejection.NO_DIRECT_ROOT ->
-                        S3SyncResult.Error(
-                            code = S3SyncErrorCode.UNKNOWN,
-                            message = "S3 sync requires a direct local directory path",
-                        )
-                    RustSyncEnqueueRejection.NO_ACTIVE_BACKEND,
-                    RustSyncEnqueueRejection.INCOMPLETE_CONFIG,
-                    -> S3SyncResult.NotConfigured
-                }
-        }
+    private suspend fun enqueueRustCycle(message: String): S3SyncResult = when (
+        val outcome =
+            rustSyncScheduler.enqueueOneShot(
+                secretFieldKey = CredentialField.S3_SECRET_ACCESS_KEY.name,
+            )
+    ) {
+        is RustSyncEnqueueOutcome.Accepted -> S3SyncResult.Accepted(message)
+
+        is RustSyncEnqueueOutcome.Rejected ->
+            when (outcome.reason) {
+                RustSyncEnqueueRejection.NO_DIRECT_ROOT ->
+                    S3SyncResult.Error(
+                        code = S3SyncErrorCode.UNKNOWN,
+                        message = "S3 sync requires a direct local directory path",
+                    )
+
+                RustSyncEnqueueRejection.NO_ACTIVE_BACKEND,
+                RustSyncEnqueueRejection.INCOMPLETE_CONFIG,
+                -> S3SyncResult.NotConfigured
+            }
+    }
 
     private fun revokeLeaseQuietly(leaseId: String) {
         runCatching { secretSupplier.revokeLease(leaseId) }
         // behavior-contract: silent-result-ok: revoke best-effort; process death drops leases
     }
 
-    private fun RemoteSyncBoundaryFailure.toS3Result(): S3SyncResult =
-        S3SyncResult.Error(
-            code = S3SyncErrorCode.UNKNOWN,
-            message = diagnostic.ifBlank { code },
-            exception = this,
-        )
+    private fun RemoteSyncBoundaryFailure.toS3Result(): S3SyncResult = S3SyncResult.Error(
+        code = S3SyncErrorCode.UNKNOWN,
+        message = diagnostic.ifBlank { code },
+        exception = this,
+    )
 }

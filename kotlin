@@ -7,6 +7,54 @@ if [ ! -d "$android_root" ]; then
   exit 1
 fi
 cd "$android_root"
+
+# JAVA_HOME self-heal: `settings.jvm.jdk.selectionMode: javaHome` makes Amper compile with
+# the JDK JAVA_HOME points at. Rolling distros (Arch /usr/lib/jvm/java-<n>-openjdk) leave
+# stale JAVA_HOME exports behind — when the configured JAVA_HOME is missing or does not
+# match the committed jvm.jdk.version, resolve a matching JDK from standard locations.
+jdk_major="$(
+  awk '
+    /^[[:space:]]+jdk:[[:space:]]*$/ { in_jdk = 1; next }
+    in_jdk && /^[[:space:]]+version:[[:space:]]*[0-9]+/ { gsub(/[^0-9]/, "", $2); print $2; exit }
+    in_jdk && !/^[[:space:]]/ { in_jdk = 0 }
+  ' "$android_root/app/module.yaml"
+)"
+jdk_home_usable() {
+  [ -n "$1" ] && [ -x "$1/bin/java" ] &&
+    "$1/bin/java" -version 2>&1 | grep -q "\"$jdk_major[\".]"
+}
+if [ -n "$jdk_major" ]; then
+  if [ -n "${JAVA_HOME:-}" ] && ! jdk_home_usable "$JAVA_HOME"; then
+    echo "kotlin: ignoring JAVA_HOME=$JAVA_HOME (not a JDK $jdk_major home)" >&2
+    unset JAVA_HOME
+  fi
+  if [ -z "${JAVA_HOME:-}" ]; then
+    for candidate in \
+      /usr/lib/jvm/java-"$jdk_major"-* \
+      /usr/lib/jvm/default \
+      /usr/lib/jvm/default-runtime \
+      /usr/lib/jvm/*-"$jdk_major"-* \
+      /opt/java/openjdk; do
+      [ -e "$candidate" ] || continue
+      if jdk_home_usable "$candidate"; then
+        JAVA_HOME="$candidate"
+        export JAVA_HOME
+        break
+      fi
+    done
+  fi
+  if [ -z "${JAVA_HOME:-}" ] && command -v javac >/dev/null 2>&1; then
+    javac_home="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
+    if jdk_home_usable "$javac_home"; then
+      JAVA_HOME="$javac_home"
+      export JAVA_HOME
+    fi
+  fi
+  if [ -z "${JAVA_HOME:-}" ]; then
+    echo "kotlin: WARNING no JDK $jdk_major home found; toolchain resolution left to Amper" >&2
+  fi
+fi
+
 has_build_dir=false
 for argument in "$@"; do
   case "$argument" in
@@ -14,6 +62,6 @@ for argument in "$@"; do
   esac
 done
 if [ "$has_build_dir" = false ]; then
-  set -- "$@" --build-dir "${LOMO_KOTLIN_BUILD_DIR:-$script_dir/.kotlin/toolchain-build/shared}"
+  set -- "$@" --build-dir "${LOMO_KOTLIN_BUILD_DIR:-${LOMO_GENERATED_ROOT:-$script_dir/target/lomo}/build/kotlin}"
 fi
 exec ./kotlin "$@"

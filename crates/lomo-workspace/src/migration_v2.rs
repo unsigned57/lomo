@@ -342,7 +342,7 @@ fn validate_staged_history(
         ));
     }
     // Digest retained for future multi-device audit logs; computed to fail closed on empty hashers.
-    let _closure_digest: String = format!("{:x}", digest.finalize());
+    let _closure_digest: String = lomo_core::hex_encode(&digest.finalize());
     Ok(())
 }
 

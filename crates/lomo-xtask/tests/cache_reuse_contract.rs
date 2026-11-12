@@ -20,10 +20,10 @@
  * Excludes:
  * - Cache deletion, compilation performance, and external tool internals.
  * Test Change Justification:
- * Reason category: requested CLI protocol change.
- * Old behavior/assertion being replaced: key=value lines on stderr.
- * Why old assertion is no longer correct: cache discovery now returns named JSON path values.
- * Coverage preserved by: all existing environment/path expectations remain identical.
+ * Reason category: requested CLI protocol and directory layout change.
+ * Old behavior/assertion being replaced: key=value lines on stderr and generated outputs inside Cargo caches.
+ * Why old assertion is no longer correct: discovery returns JSON and gives Lomo outputs an independent root.
+ * Coverage preserved by: standard cache overrides remain asserted; LOMO_GENERATED_ROOT is independently asserted.
  * Why this is not fitting the test to the implementation: agent-readable output is the new contract.
  */
 
@@ -47,6 +47,7 @@ mod tests {
             .env("KOTLIN_CLI_BOOTSTRAP_CACHE_DIR", fixture.join("kotlin-cli"))
             .env("GRADLE_USER_HOME", fixture.join("gradle"))
             .env("CARGO_TARGET_DIR", fixture.join("cargo-target"))
+            .env("LOMO_GENERATED_ROOT", fixture.join("generated"))
             .env("LOMO_KOTLIN_BUILD_DIR", fixture.join("kotlin-build"));
 
         let output = command.output().context("run lomo-xtask cache paths")?;
@@ -68,7 +69,7 @@ mod tests {
             "kotlin_cli_cache=/tmp/lomo-cache-reuse-contract/kotlin-cli",
             "gradle_user_home=/tmp/lomo-cache-reuse-contract/gradle",
             "cargo_target=/tmp/lomo-cache-reuse-contract/cargo-target",
-            "lomo_output=/tmp/lomo-cache-reuse-contract/cargo-target/lomo",
+            "lomo_output=/tmp/lomo-cache-reuse-contract/generated",
             "kotlin_build=/tmp/lomo-cache-reuse-contract/kotlin-build",
         ] {
             let (name, path) = expected.split_once('=').context("path expectation")?;

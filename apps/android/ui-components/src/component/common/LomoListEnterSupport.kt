@@ -1,92 +1,70 @@
 package com.lomo.ui.component.common
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableSet
 
-/**
- * Anchor object matching the file name to satisfy Detekt MatchingDeclarationName rule.
- */
 object LomoListEnterSupport
 
-/**
- * Composable state holder that drives list-level two-phase enter detection — the symmetric
- * counterpart of [rememberLomoListExitState].
- */
 class LomoListEnterState(
     val enteringIds: ImmutableSet<String>,
+    val heldIds: ImmutableSet<String>,
+    val structuralMotionActive: Boolean,
     val onEnterSettled: (String) -> Unit,
 )
 
-data class LomoListEnterDetection(
-    val enteringIds: ImmutableSet<String>,
-    val resolvedPendingHeadEnters: Map<EnterRequestId, String>,
-)
+data class LomoListEnterDetection(val enteringIds: ImmutableSet<String>, val heldIds: ImmutableSet<String>)
 
 fun <T> resolveEnteringIds(
     enterState: EnterAnimationState,
     allItems: List<T>,
     itemKey: (T) -> String,
+    isProvisional: (T) -> Boolean,
 ): LomoListEnterDetection {
-    if (enterState.activeEnters.isEmpty() && enterState.pendingHeadEnters.isEmpty()) {
-        return LomoListEnterDetection(
-            enteringIds = emptySet<String>().toImmutableSet(),
-            resolvedPendingHeadEnters = emptyMap(),
-        )
-    }
-    val currentKeys = allItems.map(itemKey).toSet()
-    val activeEnteringIds = enterState.activeEnters.filter { it in currentKeys }
-    val headId = allItems.firstOrNull()?.let(itemKey)
-    val resolvedPendingHeadEnters =
-        headId
-            ?.let { loadedHeadId ->
-                enterState.pendingHeadEnters
-                    .filter { pendingEnter -> pendingEnter.baseline.isResolvedBy(loadedHeadId) }
-                    .associate { pendingEnter -> pendingEnter.requestId to loadedHeadId }
-            }
-            .orEmpty()
+    val keys = allItems.map(itemKey).toSet()
+    val heldIds =
+        when (val pending = enterState.pendingEnter) {
+            // While the identity is unknown, the only row that may be the one under creation is a
+            // row the engine has published as an uncommitted create. Holding every row absent from
+            // the pre-submit window instead blanked whole pages that paging merely loaded: after a
+            // return-to-top the entire fresh top page stayed zero-height for the durable write.
+            is PendingEnter.Creating ->
+                allItems
+                    .filter { item -> itemKey(item) !in pending.baselineKeys && isProvisional(item) }
+                    .mapTo(mutableSetOf(), itemKey)
+
+            is PendingEnter.AwaitingViewport -> keys.intersect(setOf(pending.itemId))
+
+            null -> emptySet()
+        }
     return LomoListEnterDetection(
-        enteringIds = (activeEnteringIds + resolvedPendingHeadEnters.values).toImmutableSet(),
-        resolvedPendingHeadEnters = resolvedPendingHeadEnters,
+        enteringIds = (enterState.activeEnters.intersect(keys) - heldIds).toImmutableSet(),
+        heldIds = heldIds.toImmutableSet(),
     )
 }
-
-private fun HeadEnterBaseline.isResolvedBy(headId: String): Boolean =
-    when (this) {
-        HeadEnterBaseline.EmptyList -> true
-        is HeadEnterBaseline.ExistingHead -> id != headId
-    }
 
 @Composable
 fun <T> rememberLomoListEnterState(
     registry: EnterAnimationRegistry,
     allItems: List<T>,
     itemKey: (T) -> String,
+    isProvisional: (T) -> Boolean,
 ): LomoListEnterState {
-    val enterState by registry.enterState.collectAsStateWithLifecycle()
-
-    val detection = remember(allItems, enterState) {
-        resolveEnteringIds(enterState, allItems, itemKey)
+    val state by registry.enterState.collectAsStateWithLifecycle()
+    val currentIsProvisional by rememberUpdatedState(isProvisional)
+    val detection = remember(allItems, state) {
+        resolveEnteringIds(state, allItems, itemKey, currentIsProvisional)
     }
-
-    SideEffect {
-        detection.resolvedPendingHeadEnters.forEach { (requestId, headId) ->
-            registry.resolvePendingHeadEnter(
-                requestId = requestId,
-                headId = headId,
-            )
-        }
-    }
-
-    return remember(detection.enteringIds) {
+    return remember(detection, state) {
         LomoListEnterState(
             enteringIds = detection.enteringIds,
-            onEnterSettled = { id -> registry.settleEnter(id) },
+            heldIds = detection.heldIds,
+            structuralMotionActive = state.pendingEnter != null || state.activeEnters.isNotEmpty(),
+            onEnterSettled = registry::settleEnter,
         )
     }
 }

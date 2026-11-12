@@ -1,3 +1,17 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
+// Image presentation regression: Given Markdown order z/remote/a and an audio attachment,
+// when page summaries are read, then image URLs retain z/remote/a and omit audio.
+// TDD proof: RED query_cursor_contract returned [images/a.png, images/z.png];
+// GREEN cargo test -p lomo-store --test query_cursor_contract --locked.
+//
 //! Behavior Contract (P3-03)
 //!
 //! Capability: `query_memos` applies tag/date/todo/attachment/url/pin/trash filters, stable sort
@@ -38,6 +52,33 @@ mod tests {
         PageCursor, SortDirection, TagSelectionMode,
     };
     use tempfile::tempdir;
+
+    #[test]
+    fn memo_images_keep_markdown_order_and_remote_urls() {
+        let dir = tempdir().expect("tempdir");
+        seed_memo(
+            dir.path(),
+            "images",
+            "![z](images/z.png)\n![remote](https://example.com/photo)\n![a](images/a.png)\n![voice](voice/a.m4a)\n![again](images/z.png)",
+            &[],
+        );
+        let store = indexed_store(dir.path());
+        let page = store
+            .query_memos(
+                &MemoQuery {
+                    search_text: None,
+                    filters: MemoFilters::default(),
+                    sort: MemoSort::default(),
+                },
+                None,
+                PageSize::new(10).expect("page"),
+            )
+            .expect("images page");
+        assert_eq!(
+            page.items.first().expect("image memo").image_urls,
+            vec!["images/z.png", "https://example.com/photo", "images/a.png",]
+        );
+    }
 
     #[test]
     fn filters_and_stats_and_stale_cursor() {
@@ -224,7 +265,7 @@ mod tests {
 
         let plan = lomo_store::query_plan("hello world").expect("plan");
         let fp = lomo_store::fingerprint_plan(&plan, "filters");
-        assert!(!fp.is_empty());
+        assert_ne!(fp, "");
         assert_ne!(fp, cursor.query_fingerprint);
     }
 
@@ -423,7 +464,11 @@ mod tests {
                     &MemoQuery {
                         search_text: None,
                         filters: MemoFilters::default(),
-                        sort: MemoSort { field, direction },
+                        sort: MemoSort {
+                            field,
+                            direction,
+                            ..MemoSort::default()
+                        },
                     },
                     None,
                     PageSize::new(1).expect("page"),
@@ -440,7 +485,11 @@ mod tests {
                     &MemoQuery {
                         search_text: None,
                         filters: MemoFilters::default(),
-                        sort: MemoSort { field, direction },
+                        sort: MemoSort {
+                            field,
+                            direction,
+                            ..MemoSort::default()
+                        },
                     },
                     Some(&cursor),
                     PageSize::new(1).expect("page"),
@@ -461,8 +510,10 @@ mod tests {
                         search_text: None,
                         filters: MemoFilters::default(),
                         sort: MemoSort {
+                            seed: 0,
                             field,
                             direction: opposite,
+                            ..MemoSort::default()
                         },
                     },
                     Some(&cursor),

@@ -3,26 +3,24 @@ package com.lomo.data.repository
 import androidx.paging.PagingSource
 import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.data.engine.engineCommandFailure
-import com.lomo.data.engine.withEngineFailureConversion
-import com.lomo.data.engine.media.PendingMediaStageRegistry
+import com.lomo.data.engine.store.SessionSearchPagingSource
 import com.lomo.data.engine.store.StoreInvalidationScope
 import com.lomo.data.engine.store.StoreMemoCommand
 import com.lomo.data.engine.store.StoreMemoCommandKind
+import com.lomo.data.engine.store.StoreMemoCommandPublication
 import com.lomo.data.engine.store.StoreMemoDeleteTarget
 import com.lomo.data.engine.store.StoreMemoFilters
 import com.lomo.data.engine.store.StoreMemoQuery
-import com.lomo.data.engine.store.StoreMemoQueryBoundary
 import com.lomo.data.engine.store.StoreMemoSort
 import com.lomo.data.engine.store.StoreMemoSortField
-import com.lomo.data.engine.store.SessionSearchPagingSource
 import com.lomo.data.engine.store.StorePagingSource
 import com.lomo.data.engine.store.StorePort
 import com.lomo.data.engine.store.StoreSortDirection
 import com.lomo.data.engine.store.toDomainMemo
+import com.lomo.data.engine.withEngineFailureConversion
 import com.lomo.data.reminder.MemoMutationReminderScheduler
-import com.lomo.domain.model.DailyReviewCandidateBoundary
-import com.lomo.domain.model.DailyReviewCandidateCursor
 import com.lomo.domain.model.DailyReviewCandidatePage
+import com.lomo.domain.model.DailyReviewCollectionSource
 import com.lomo.domain.model.EngineCommandFailure
 import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineDiagnosticEvent
@@ -31,45 +29,37 @@ import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoContentKind
-import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoFilterCriterion
-import com.lomo.domain.model.MemoQuerySpec
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoQuerySpec
+import com.lomo.domain.model.MemoRevision
+import com.lomo.domain.model.MemoRevisionCursor
+import com.lomo.domain.model.MemoRevisionLifecycleState
+import com.lomo.domain.model.MemoRevisionOrigin
+import com.lomo.domain.model.MemoRevisionPage
 import com.lomo.domain.model.MemoSearchMode
-import com.lomo.domain.model.MemoStatistics
-import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoSidebarStatistics
+import com.lomo.domain.model.MemoSortOption
+import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.model.TagSelection
 import com.lomo.domain.model.TagSelectionMode
-import com.lomo.domain.repository.MainListQueryRepository
 import com.lomo.domain.repository.EngineReadinessRepository
-import com.lomo.domain.repository.MemoListQueryRepository
+import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.domain.repository.MemoQueryRepository
 import com.lomo.domain.repository.MemoSearchRepository
 import com.lomo.domain.repository.MemoStatisticsRepository
 import com.lomo.domain.repository.MemoTrashRepository
 import com.lomo.domain.repository.MemoVersionRepository
-import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
-import com.lomo.domain.model.MemoRevisionCursor
-import com.lomo.domain.model.MemoRevisionPage
-import com.lomo.domain.model.MemoRevisionOrigin
-import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.nativebridge.SessionCivilDate
 import com.lomo.nativebridge.SessionCivilTime
 import com.lomo.nativebridge.SessionStatistics
 import com.lomo.nativebridge.SessionStatisticsSnapshot
-import java.time.DayOfWeek
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZoneId
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -82,6 +72,13 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.withContext
+import timber.log.Timber
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
@@ -100,153 +97,86 @@ class StoreMemoQueryRepository(
     private val pendingMainListFocusIdentity = AtomicReference<String?>(null)
     private val liveMainListSource = AtomicReference<PagingSource<String, Memo>?>(null)
 
-    override fun getGalleryMemosPagingSource(): PagingSource<String, Memo> =
-        StorePagingSource(
-            port = port,
-            query = StoreMemoQuery(filters = StoreMemoFilters(hasAttachment = true)),
-            dispatcherProvider = dispatcherProvider,
-            registerInvalidation = { source ->
-                invalidation.register(source)
-            },
-        )
+    override fun getGalleryMemosPagingSource(): PagingSource<String, Memo> = StorePagingSource(
+        port = port,
+        query = StoreMemoQuery(filters = StoreMemoFilters(hasAttachment = true)),
+        dispatcherProvider = dispatcherProvider,
+        registerInvalidation = { source ->
+            invalidation.register(source)
+        },
+    )
 
-    override suspend fun getRecentMemos(limit: Int): List<Memo> =
-        withContext(dispatcherProvider.io) {
-            port
-                .queryMemos(StoreMemoQuery(), cursor = null, pageSize = limit.coerceAtLeast(1))
-                .items
-                .map { summary ->
-                    summary.toDomainMemo(
-                        body = summary.bodyPreview,
-                        contentKind = MemoContentKind.Preview,
-                    )
-                }
-        }
+    override suspend fun getRecentMemos(limit: Int): List<Memo> = withContext(dispatcherProvider.io) {
+        port
+            .queryMemos(StoreMemoQuery(), cursor = null, pageSize = limit.coerceAtLeast(1))
+            .items
+            .map { summary ->
+                summary.toDomainMemo(
+                    body = summary.bodyPreview,
+                    contentKind = MemoContentKind.Preview,
+                )
+            }
+    }
 
     override fun observeListProjection(): Flow<com.lomo.domain.model.MemoProjectionPublication> =
         invalidation.publications.map { publication ->
             com.lomo.domain.model.MemoProjectionPublication(coreRevision = publication.coreRevision)
         }
 
-    override suspend fun getMemoCount(): Int =
-        withContext(dispatcherProvider.io) {
-            if (!readiness.mount.value.admitsProjectionReads) 0
-            else {
-                val count = port.queryCount(StoreMemoQuery())
-                require(count in 0..Int.MAX_VALUE.toLong()) { "memo_count is outside the Kotlin count range" }
-                count.toInt()
-            }
+    override suspend fun getMemoCount(): Int = withContext(dispatcherProvider.io) {
+        if (!readiness.mount.value.admitsProjectionReads) {
+            0
+        } else {
+            val count = port.queryCount(StoreMemoQuery())
+            require(count in 0..Int.MAX_VALUE.toLong()) { "memo_count is outside the Kotlin count range" }
+            count.toInt()
         }
-
-    override suspend fun getDailyReviewCandidateBoundary(): DailyReviewCandidateBoundary? =
-        withContext(dispatcherProvider.io) {
-            val first =
-                port.queryMemos(StoreMemoQuery(), null, 1).items.firstOrNull()
-                    ?: return@withContext null
-            DailyReviewCandidateBoundary(
-                isPinned = first.isPinned,
-                timestamp = first.createdAtMs,
-                id = first.memoId,
-                token = first.fileFingerprint,
-                observedCount = getMemoCount(),
-            )
-        }
-
-    override suspend fun getDailyReviewCandidatePage(
-        boundary: DailyReviewCandidateBoundary,
-        cursor: DailyReviewCandidateCursor?,
-        limit: Int,
-    ): DailyReviewCandidatePage =
-        withContext(dispatcherProvider.io) {
-            queryDailyReviewPage(boundary, cursor, limit)
-        }
-
-    override suspend fun getDailyReviewVisibleUnseenPage(
-        cursor: DailyReviewCandidateCursor?,
-        limit: Int,
-    ): DailyReviewCandidatePage =
-        withContext(dispatcherProvider.io) {
-            // The visible-unseen pass is a fresh bounded query. Its separate cursor prevents a
-            // frozen candidate cursor (whose fingerprint includes the boundary) from being reused
-            // against the current collection.
-            require(limit > 0) { "Daily Review page limit must be positive" }
-            val page =
-                port.queryMemos(
-                    StoreMemoQuery(),
-                    cursor?.run { com.lomo.data.engine.store.StorePageCursor(token) },
-                    limit,
-                )
-            val last = page.items.lastOrNull()
-            DailyReviewCandidatePage(
-                ids = page.items.map { it.memoId },
-                nextCursor =
-                    page.nextCursor?.let { next ->
-                        checkNotNull(last) { "Store returned a cursor without a page item" }
-                        DailyReviewCandidateCursor(
-                            isPinned = last.isPinned,
-                            timestamp = last.createdAtMs,
-                            id = last.memoId,
-                            token = next.encoded,
-                            position = (cursor?.position ?: 0) + page.items.size,
-                        )
-                    },
-            )
-        }
-
-    private fun queryDailyReviewPage(
-        boundary: DailyReviewCandidateBoundary,
-        cursor: DailyReviewCandidateCursor?,
-        limit: Int,
-    ): DailyReviewCandidatePage {
-        require(limit > 0) { "Daily Review page limit must be positive" }
-        val storeBoundary =
-            StoreMemoQueryBoundary(
-                isPinned = boundary.isPinned,
-                primarySortMs = boundary.timestamp,
-                createdAtMs = boundary.timestamp,
-                memoId = boundary.id,
-            )
-        val page =
-            port.queryMemos(
-                StoreMemoQuery(boundary = storeBoundary),
-                cursor?.let { com.lomo.data.engine.store.StorePageCursor(it.token) },
-                limit,
-            )
-        val last = page.items.lastOrNull()
-        return DailyReviewCandidatePage(
-            ids = page.items.map { it.memoId },
-            nextCursor =
-                page.nextCursor?.let { next ->
-                    checkNotNull(last) { "Store returned a cursor without a page item" }
-                    DailyReviewCandidateCursor(
-                        isPinned = last.isPinned,
-                        timestamp = last.createdAtMs,
-                        id = last.memoId,
-                        token = next.encoded,
-                    )
-                },
-        )
     }
 
-    override fun getMainListPagingSource(spec: MemoQuerySpec): PagingSource<String, Memo> =
-        StorePagingSource(
-            port = port,
-            query = spec.toStoreQuery(),
-            consumeRefreshIdentity = { pendingMainListFocusIdentity.getAndSet(null) },
-            dispatcherProvider = dispatcherProvider,
-            registerInvalidation = { source ->
-                invalidation.register(source)
-                liveMainListSource.set(source)
-            },
+    override suspend fun getDailyReviewPage(
+        options: com.lomo.domain.model.DailyReviewOptions,
+        seed: Long,
+        cursor: String?,
+        limit: Int,
+    ): DailyReviewCandidatePage = withContext(dispatcherProvider.io) {
+        require(limit in 1..DailyReviewCollectionSource.MAX_PAGE_SIZE) { "Review page size must be between 1 and 200" }
+        val sort = options.sort
+        val query = com.lomo.domain.model.MemoQuerySpec.fromFilter(filter = options.filter).toStoreQuery().copy(
+            sort = StoreMemoSort(
+                field = if (sort == com.lomo.domain.model.DailyReviewSort.RANDOM) {
+                    StoreMemoSortField.ReviewRandom
+                } else {
+                    StoreMemoSortField.ReviewMonth
+                },
+                direction = if (sort == com.lomo.domain.model.DailyReviewSort.RECENT) {
+                    StoreSortDirection.Descending
+                } else {
+                    StoreSortDirection.Ascending
+                },
+                seed = seed,
+                timeZone = ZoneId.systemDefault().normalized().let { zone ->
+                    if (zone == java.time.ZoneOffset.UTC) "UTC" else zone.id
+                },
+            ),
         )
+        val page = port.queryMemos(query, cursor?.let { com.lomo.data.engine.store.StorePageCursor(it) }, limit)
+        DailyReviewCandidatePage(page.items.map { it.memoId }, page.nextCursor?.encoded)
+    }
 
-    override suspend fun rankInDefaultMainList(id: String): Int? =
-        rankInMainListQuery(MemoQuerySpec(), id)
+    override fun getMainListPagingSource(spec: MemoQuerySpec): PagingSource<String, Memo> = StorePagingSource(
+        port = port,
+        query = spec.toStoreQuery(),
+        consumeRefreshIdentity = { pendingMainListFocusIdentity.getAndSet(null) },
+        dispatcherProvider = dispatcherProvider,
+        registerInvalidation = { source ->
+            invalidation.register(source)
+            liveMainListSource.set(source)
+        },
+    )
 
-    override suspend fun rankInMainListQuery(
-        spec: MemoQuerySpec,
-        id: String,
-    ): Int? =
+    override suspend fun rankInDefaultMainList(id: String): Int? = rankInMainListQuery(MemoQuerySpec(), id)
+
+    override suspend fun rankInMainListQuery(spec: MemoQuerySpec, id: String): Int? =
         withContext(dispatcherProvider.io) {
             val page =
                 port.queryMemos(
@@ -270,26 +200,23 @@ class StoreMemoQueryRepository(
         liveMainListSource.get()?.invalidate()
     }
 
-    override suspend fun getMemoById(id: String): Memo? =
-        withContext(dispatcherProvider.io) {
-            port.getMemo(id)?.toDomainMemo()
-        }
+    override suspend fun getMemoById(id: String): Memo? = withContext(dispatcherProvider.io) {
+        port.getMemo(id)?.toDomainMemo()
+    }
 
     override fun isSyncing(): Flow<Boolean> = invalidation.syncing
-
 }
 
-
 class StoreMemoMutationRepository
-    internal constructor(
-        private val port: StorePort,
-        private val reminderScheduler: MemoMutationReminderScheduler,
-        private val writeLease: WorkspaceMutationLease,
-        private val invalidation: StoreInvalidationBus,
-        private val diagnostics: EngineDiagnosticsRecorder,
-        private val mediaCommit: MemoMediaCommitPipeline,
-        private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-    ) : MemoMutationRepository {
+internal constructor(
+    private val port: StorePort,
+    private val reminderScheduler: MemoMutationReminderScheduler,
+    private val writeLease: WorkspaceMutationLease,
+    private val invalidation: StoreInvalidationBus,
+    private val diagnostics: EngineDiagnosticsRecorder,
+    private val mediaCommit: MemoMediaCommitPipeline,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+) : MemoMutationRepository {
     override suspend fun refreshMemos() {
         withContext(dispatcherProvider.io) {
             val started = TimeSource.Monotonic.markNow()
@@ -315,19 +242,7 @@ class StoreMemoMutationRepository
         }
     }
 
-    override suspend fun commitDocumentMutation(
-        mutation: com.lomo.domain.model.MemoDocumentMutation,
-    ) {
-        mutate("memo.document_projection") {
-            port.commitDocumentMutation(mutation)
-            reminderScheduler.syncForMemo(mutation.facts.memoId)
-        }
-    }
-
-    private fun recordRefreshFailure(
-        started: TimeMark,
-        failure: Exception,
-    ) {
+    private fun recordRefreshFailure(started: TimeMark, failure: Exception) {
         if (failure is CancellationException) throw failure
         val commandFailure =
             if (failure is EngineCommandFailureException) {
@@ -353,36 +268,37 @@ class StoreMemoMutationRepository
 
     override suspend fun saveMemo(
         attempt: com.lomo.domain.model.MemoCreateAttempt,
-    ): Memo {
-        return mutate("memo.create") {
-            val opId = attempt.operationId.value
-            // Transfer this draft's stage leases to the frozen operation and build the promote plans.
-            val promotes = mediaCommit.plansForOperation(opId, attempt.draftId)
-            val commit =
-                port.applyMemoCommand(
-                    StoreMemoCommand(
-                        operationId = opId,
-                        kind = StoreMemoCommandKind.Create,
-                        memoId = "",
-                        expectedRevision = 0L,
-                        chronologyEpochMs = attempt.timestampMillis,
-                        content = attempt.content,
-                        pendingPromotes = promotes,
-                    ),
-                    onPublication = {},
-                )
-            val memo =
-                port.getMemo(commit.memoId)?.toDomainMemo()
-                    ?: error("create commit succeeded but get_memo returned null for ${commit.memoId}")
-            mediaCommit.publishCommittedMedia(promotes)
-            reminderScheduler.syncForMemo(memo.id)
-            memo
-        }
+        onAccepted: (memoId: String) -> Unit,
+    ): Memo = mutate("memo.create") {
+        val opId = attempt.operationId.value
+        // Transfer this draft's stage leases to the frozen operation and build the promote plans.
+        val promotes = mediaCommit.plansForOperation(opId, attempt.draftId)
+        val commit =
+            port.applyMemoCommand(
+                StoreMemoCommand(
+                    operationId = opId,
+                    kind = StoreMemoCommandKind.Create,
+                    memoId = "",
+                    expectedRevision = 0L,
+                    chronologyEpochMs = attempt.timestampMillis,
+                    content = attempt.content,
+                    pendingPromotes = promotes,
+                ),
+                onPublication = { publication ->
+                    if (publication is StoreMemoCommandPublication.Accepted) {
+                        onAccepted(publication.commit.memoId)
+                    }
+                },
+            )
+        val memo =
+            port.getMemo(commit.memoId)?.toDomainMemo()
+                ?: error("create commit succeeded but get_memo returned null for ${commit.memoId}")
+        mediaCommit.publishCommittedMedia(promotes)
+        if (memo.reminders.isNotEmpty()) reminderScheduler.syncForMemo(memo.id)
+        memo
     }
 
-    override suspend fun updateMemo(
-        attempt: com.lomo.domain.model.MemoUpdateAttempt,
-    ) {
+    override suspend fun updateMemo(attempt: com.lomo.domain.model.MemoUpdateAttempt) {
         mutate("memo.update") {
             val baseline = attempt.snapshot.baseline
             val opId = attempt.operationId.value
@@ -404,10 +320,7 @@ class StoreMemoMutationRepository
         }
     }
 
-    override suspend fun deleteMemo(
-        memo: Memo,
-        operationId: com.lomo.domain.model.MemoOperationId,
-    ) {
+    override suspend fun deleteMemo(memo: Memo, operationId: com.lomo.domain.model.MemoOperationId) {
         mutate("memo.delete") {
             val (expectedRevision, expectedFingerprint) = memo.requireSessionCasBaseline()
             val reminderIds = memo.reminders.map { it.reference.opaqueId }.toSet()
@@ -502,18 +415,14 @@ class StoreMemoMutationRepository
      *
      * Admission is registered, not merely checked, so a switch cannot begin between this call and
      * the command reaching the engine.
-     */
-    /**
+     *
      * Runs one labelled mutation with the write admission *inside* the diagnostics boundary.
      *
      * A refused admission is the failure mode that used to be structurally unobservable: it is
      * raised before the mutation body runs, so a boundary that only wrapped the body reported
      * nothing at all. [entered] discriminates the two without inspecting failure messages.
      */
-    private suspend fun <T> mutate(
-        label: String,
-        block: suspend () -> T,
-    ): T {
+    private suspend fun <T> mutate(label: String, block: suspend () -> T): T {
         val started = TimeSource.Monotonic.markNow()
         var entered = false
         try {
@@ -566,48 +475,47 @@ internal class StoreMemoSearchRepository(
 ) : MemoSearchRepository {
     private val searchEpoch = AtomicLong(0)
 
-    override fun getMemosByTagPagingSource(selection: TagSelection): PagingSource<String, Memo> =
-        StorePagingSource(
-            port = port,
-            query = StoreMemoQuery(
-                filters =
-                    StoreMemoFilters(
-                        tag = selection.path.value,
-                        tagSubtree = selection.mode == TagSelectionMode.Subtree,
-                    ),
+    override fun getMemosByTagPagingSource(selection: TagSelection): PagingSource<String, Memo> = StorePagingSource(
+        port = port,
+        query = StoreMemoQuery(
+            filters =
+            StoreMemoFilters(
+                tag = selection.path.value,
+                tagSubtree = selection.mode == TagSelectionMode.Subtree,
             ),
-            registerInvalidation = { source ->
-                invalidation.register(source)
-            },
-        )
+        ),
+        registerInvalidation = { source ->
+            invalidation.register(source)
+        },
+    )
 
     override fun searchPagingSource(
         query: String,
         mode: MemoSearchMode,
         filter: MemoListFilter,
-    ): PagingSource<String, Memo> =
-        when (mode) {
-            MemoSearchMode.Fulltext ->
-                StorePagingSource(
-                    port = port,
-                    query = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery(),
-                    dispatcherProvider = dispatcherProvider,
-                    registerInvalidation = { source ->
-                        invalidation.register(source)
-                    },
-                )
-            MemoSearchMode.Fuzzy ->
-                SessionSearchPagingSource(
-                    session = session,
-                    filters = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery().filters,
-                    queryEpoch = searchEpoch.incrementAndGet().toULong(),
-                    text = query,
-                    dispatcherProvider = dispatcherProvider,
-                    registerInvalidation = { source ->
-                        invalidation.register(source)
-                    },
-                )
-        }
+    ): PagingSource<String, Memo> = when (mode) {
+        MemoSearchMode.Fulltext ->
+            StorePagingSource(
+                port = port,
+                query = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery(),
+                dispatcherProvider = dispatcherProvider,
+                registerInvalidation = { source ->
+                    invalidation.register(source)
+                },
+            )
+
+        MemoSearchMode.Fuzzy ->
+            SessionSearchPagingSource(
+                session = session,
+                filters = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery().filters,
+                queryEpoch = searchEpoch.incrementAndGet().toULong(),
+                text = query,
+                dispatcherProvider = dispatcherProvider,
+                registerInvalidation = { source ->
+                    invalidation.register(source)
+                },
+            )
+    }
 }
 
 internal class StoreMemoStatisticsRepository(
@@ -643,18 +551,12 @@ internal class StoreMemoStatisticsRepository(
             replay = 1,
         )
 
-    override suspend fun getMemoStatistics(
-        zone: ZoneId,
-        today: LocalDate,
-    ): MemoStatistics =
+    override suspend fun getMemoStatistics(zone: ZoneId, today: LocalDate): MemoStatistics =
         withContext(dispatcherProvider.io) {
             loadMemoStatistics(zone = zone, today = today, admitsReads = readiness.mount.value.admitsProjectionReads)
         }
 
-    override fun observeMemoStatistics(
-        zone: ZoneId,
-        today: LocalDate,
-    ): Flow<MemoStatistics> =
+    override fun observeMemoStatistics(zone: ZoneId, today: LocalDate): Flow<MemoStatistics> =
         combine(invalidation.publications, readiness.mount) { _, mount ->
             loadMemoStatistics(zone = zone, today = today, admitsReads = mount.admitsProjectionReads)
         }.flowOn(dispatcherProvider.io)
@@ -662,40 +564,32 @@ internal class StoreMemoStatisticsRepository(
     override fun getMemoCountFlow(): Flow<Int> =
         activeSidebarProjection().map { it.memoCount }.flowOn(dispatcherProvider.io)
 
-    override fun getSidebarStatisticsFlow(): Flow<MemoSidebarStatistics> =
-        activeSidebarProjection()
-            .map { projection ->
-                MemoSidebarStatistics(
-                    memoCount = projection.memoCount,
-                    memoCountByDate =
-                        projection.dateCounts.associate { bucket ->
-                            LocalDate.parse(bucket.date) to bucket.count
-                        },
-                    tagCounts = projection.tagCounts.map { MemoTagCount(it.name, it.count) },
-                )
-            }.flowOn(dispatcherProvider.io)
+    override fun getSidebarStatisticsFlow(): Flow<MemoSidebarStatistics> = activeSidebarProjection()
+        .map { projection ->
+            MemoSidebarStatistics(
+                memoCount = projection.memoCount,
+                memoCountByDate =
+                projection.dateCounts.associate { bucket ->
+                    LocalDate.parse(bucket.date) to bucket.count
+                },
+                tagCounts = projection.tagCounts.map { MemoTagCount(it.name, it.count) },
+            )
+        }.flowOn(dispatcherProvider.io)
 
-    override fun getMemoCountByDateFlow(): Flow<Map<String, Int>> =
-        activeSidebarProjection()
-            .map { projection -> projection.dateCounts.associate { it.date to it.count } }
-            .flowOn(dispatcherProvider.io)
+    override fun getMemoCountByDateFlow(): Flow<Map<String, Int>> = activeSidebarProjection()
+        .map { projection -> projection.dateCounts.associate { it.date to it.count } }
+        .flowOn(dispatcherProvider.io)
 
-    override fun getTagCountsFlow(): Flow<List<MemoTagCount>> =
-        activeSidebarProjection()
-            .map { projection -> projection.tagCounts.map { MemoTagCount(it.name, it.count) } }
-            .flowOn(dispatcherProvider.io)
+    override fun getTagCountsFlow(): Flow<List<MemoTagCount>> = activeSidebarProjection()
+        .map { projection -> projection.tagCounts.map { MemoTagCount(it.name, it.count) } }
+        .flowOn(dispatcherProvider.io)
 
-    override fun getActiveDayCount(): Flow<Int> =
-        getMemoCountByDateFlow().map { it.size }
+    override fun getActiveDayCount(): Flow<Int> = getMemoCountByDateFlow().map { it.size }
 
     private fun activeSidebarProjection(): Flow<com.lomo.data.engine.store.StoreSidebarProjection> =
         sharedSidebarProjection
 
-    private fun loadMemoStatistics(
-        zone: ZoneId,
-        today: LocalDate,
-        admitsReads: Boolean,
-    ): MemoStatistics {
+    private fun loadMemoStatistics(zone: ZoneId, today: LocalDate, admitsReads: Boolean): MemoStatistics {
         if (!admitsReads) {
             return MemoStatistics.empty(today)
         }
@@ -722,20 +616,16 @@ class StoreMemoTrashRepository(
     private val mediaRepository: MediaRepository,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MemoTrashRepository {
-    override fun getDeletedMemosPagingSource(): PagingSource<String, Memo> =
-        StorePagingSource(
-            port = port,
-            query = StoreMemoQuery(filters = StoreMemoFilters(trashOnly = true, includeTrash = true)),
-            dispatcherProvider = dispatcherProvider,
-            registerInvalidation = { source ->
-                invalidation.register(source)
-            },
-        )
+    override fun getDeletedMemosPagingSource(): PagingSource<String, Memo> = StorePagingSource(
+        port = port,
+        query = StoreMemoQuery(filters = StoreMemoFilters(trashOnly = true, includeTrash = true)),
+        dispatcherProvider = dispatcherProvider,
+        registerInvalidation = { source ->
+            invalidation.register(source)
+        },
+    )
 
-    override suspend fun restoreMemo(
-        memo: Memo,
-        operationId: com.lomo.domain.model.MemoOperationId,
-    ) {
+    override suspend fun restoreMemo(memo: Memo, operationId: com.lomo.domain.model.MemoOperationId) {
         mutate {
             val (expectedRevision, expectedFingerprint) = memo.requireSessionCasBaseline()
             port.applyMemoCommand(
@@ -752,10 +642,7 @@ class StoreMemoTrashRepository(
         }
     }
 
-    override suspend fun deletePermanently(
-        memo: Memo,
-        operationId: com.lomo.domain.model.MemoOperationId,
-    ) {
+    override suspend fun deletePermanently(memo: Memo, operationId: com.lomo.domain.model.MemoOperationId) {
         // Rust verifies the active Markdown source and matching durable trash record, removes the
         // source bytes first, then removes the record and publishes the rebuilt projection commit.
         mutate {
@@ -772,7 +659,7 @@ class StoreMemoTrashRepository(
                 onPublication = {},
             )
             reminderScheduler.cancelForMemo(memo.id, reminderIds)
-            mediaRepository.runOrphanSweepAtOperationBoundary()
+            sweepOrphansPostCommit(mediaRepository)
         }
     }
 
@@ -797,18 +684,33 @@ class StoreMemoTrashRepository(
             commit.deleted.forEach { deleted ->
                 reminderScheduler.cancelForMemo(deleted.memoId, deleted.reminderIds.toSet())
             }
+            sweepOrphansPostCommit(mediaRepository)
+        }
+    }
+
+    /**
+     * The orphan sweep is post-commit maintenance: the memo bytes are already durably gone and
+     * published, so a sweep failure only defers media reclaim to the next boundary — it must
+     * never propagate as the delete's failure. The structured engine failure stays in logcat as
+     * the diagnostics channel.
+     */
+    private suspend fun sweepOrphansPostCommit(mediaRepository: MediaRepository) {
+        try {
             mediaRepository.runOrphanSweepAtOperationBoundary()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Timber.w(error, "Post-commit media orphan sweep deferred after failure")
         }
     }
 
     /** Trash mutations are admitted by the same workspace lease as memo mutations. */
-    private suspend fun <T> mutate(block: suspend () -> T): T =
-        writeLease.withWrite {
-            withContext(dispatcherProvider.io) {
-                readiness.requireProjectionReadable()
-                block()
-            }
+    private suspend fun <T> mutate(block: suspend () -> T): T = writeLease.withWrite {
+        withContext(dispatcherProvider.io) {
+            readiness.requireProjectionReadable()
+            block()
         }
+    }
 }
 
 private fun EngineReadinessRepository.requireProjectionReadable() {
@@ -826,15 +728,9 @@ private fun EngineReadinessRepository.requireProjectionReadable() {
  * Version history is durable under `.lomo/history` (Rust). Kotlin journal/Room is deleted.
  * History listing is supplied by the application session; restore uses session restore revision.
  */
-internal class StoreMemoVersionRepository(
-    private val port: StorePort,
-    private val session: SessionNativeBridge,
-) : MemoVersionRepository {
-    override suspend fun listMemoRevisions(
-        memo: Memo,
-        cursor: MemoRevisionCursor?,
-        limit: Int,
-    ): MemoRevisionPage {
+internal class StoreMemoVersionRepository(private val port: StorePort, private val session: SessionNativeBridge) :
+    MemoVersionRepository {
+    override suspend fun listMemoRevisions(memo: Memo, cursor: MemoRevisionCursor?, limit: Int): MemoRevisionPage {
         val cursorRevision = cursor?.run { revisionId.substringAfterLast(':').takeIf { it.all(Char::isDigit) } }
         val page =
             withEngineFailureConversion {
@@ -858,8 +754,11 @@ internal class StoreMemoVersionRepository(
                 origin = MemoRevisionOrigin.LOCAL_EDIT,
                 summary = item.content.lineSequence().firstOrNull().orEmpty(),
                 lifecycleState =
-                    if (memo.isDeleted) MemoRevisionLifecycleState.TRASHED
-                    else MemoRevisionLifecycleState.ACTIVE,
+                if (memo.isDeleted) {
+                    MemoRevisionLifecycleState.TRASHED
+                } else {
+                    MemoRevisionLifecycleState.ACTIVE
+                },
                 memoContent = item.content,
                 isCurrent = revision == currentRevision,
             )
@@ -871,7 +770,6 @@ internal class StoreMemoVersionRepository(
             },
         )
     }
-
 }
 
 class StoreWorkspaceStateResolver(
@@ -967,22 +865,6 @@ class StoreInvalidationBus(
         publishBatch(listOf(commit))
     }
 
-    /**
-     * Accepts a later commit for a projection that already published mid-flight. Advances the
-     * publication clock so observers reread, without invalidating paging sources again.
-     */
-    fun confirm(commit: com.lomo.data.engine.store.StoreMemoCommit) {
-        synchronized(publicationLock) {
-            val decision = acceptCommit(commit) ?: return
-            _publications.value =
-                StoreProjectionPublication(
-                    coreRevision = lastCoreRevision,
-                    eventSequence = lastEventSequence,
-                    scopes = decision,
-                )
-        }
-    }
-
     /** Publishes one logical batch mutation without fabricating a per-memo commit. */
     fun publishBatchCommit(commit: com.lomo.data.engine.store.StoreMemoBatchCommit) {
         require(commit.deleted.isNotEmpty()) { "Store batch commit must delete at least one memo" }
@@ -1074,9 +956,7 @@ class StoreInvalidationBus(
         _syncing.value = value
     }
 
-    private fun acceptCommit(
-        commit: com.lomo.data.engine.store.StoreMemoCommit,
-    ): Set<StoreInvalidationScope>? =
+    private fun acceptCommit(commit: com.lomo.data.engine.store.StoreMemoCommit): Set<StoreInvalidationScope>? =
         acceptPublication(
             coreRevision = commit.coreRevision,
             eventSequence = commit.eventSequence,
@@ -1099,8 +979,8 @@ class StoreInvalidationBus(
                 code = PROTOCOL_FAILURE_CODE,
                 retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                 diagnostic =
-                    "store commit receipt violated the publication protocol " +
-                        "(coreRevision=$coreRevision, eventSequence=$eventSequence)",
+                "store commit receipt violated the publication protocol " +
+                    "(coreRevision=$coreRevision, eventSequence=$eventSequence)",
             )
         }
         if (coreRevision < lastCoreRevision) return null
@@ -1163,10 +1043,7 @@ class StoreInvalidationBus(
     }
 }
 
-internal fun transcribedEventSequenceRequiresFullInvalidate(
-    lastSeen: Long,
-    incoming: Long,
-): Boolean {
+internal fun transcribedEventSequenceRequiresFullInvalidate(lastSeen: Long, incoming: Long): Boolean {
     if (incoming == lastSeen) return false
     if (lastSeen == Long.MAX_VALUE) return true
     return incoming != lastSeen + 1L
@@ -1195,22 +1072,21 @@ private fun Memo.requireSessionCasBaseline(): Pair<Long, String> {
 private fun walkStorePages(
     port: StorePort,
     query: StoreMemoQuery,
-): Sequence<com.lomo.data.engine.store.StoreMemoSummary> =
-    sequence {
-        var cursor: com.lomo.data.engine.store.StorePageCursor? = null
-        val seenCursors = mutableSetOf<String>()
-        while (true) {
-            // behavior-contract: loop-io-ok: no bulk queryMemos API; each iteration is one bounded page
-            val page = port.queryMemos(query, cursor, pageSize = STORE_PAGE_SIZE)
-            if (page.items.isEmpty()) {
-                return@sequence
-            }
-            yieldAll(page.items)
-            val next = page.nextCursor ?: return@sequence
-            check(seenCursors.add(next.encoded)) { "Store page cursor repeated before traversal completed" }
-            cursor = next
+): Sequence<com.lomo.data.engine.store.StoreMemoSummary> = sequence {
+    var cursor: com.lomo.data.engine.store.StorePageCursor? = null
+    val seenCursors = mutableSetOf<String>()
+    while (true) {
+        // behavior-contract: loop-io-ok: no bulk queryMemos API; each iteration is one bounded page
+        val page = port.queryMemos(query, cursor, pageSize = STORE_PAGE_SIZE)
+        if (page.items.isEmpty()) {
+            return@sequence
         }
+        yieldAll(page.items)
+        val next = page.nextCursor ?: return@sequence
+        check(seenCursors.add(next.encoded)) { "Store page cursor repeated before traversal completed" }
+        cursor = next
     }
+}
 
 /**
  * Maps a domain list query onto a store query. Continuity is a string cursor owned by Rust.
@@ -1237,27 +1113,27 @@ private fun MemoQuerySpec.toStoreQuery(): StoreMemoQuery {
     return StoreMemoQuery(
         searchText = normalizedQueryText.ifBlank { null },
         filters =
-            StoreMemoFilters(
-                dateFromInclusiveMs = dateRange.startDate?.toStartOfDayEpochMillis(),
-                dateUntilExclusiveMs = dateRange.endDate?.toExclusiveEndOfDayEpochMillis(),
-                hasTodo = hasTodo,
-                hasAttachment = hasAttachment,
-                hasUrl = hasUrl,
-            ),
+        StoreMemoFilters(
+            dateFromInclusiveMs = dateRange.startDate?.toStartOfDayEpochMillis(),
+            dateUntilExclusiveMs = dateRange.endDate?.toExclusiveEndOfDayEpochMillis(),
+            hasTodo = hasTodo,
+            hasAttachment = hasAttachment,
+            hasUrl = hasUrl,
+        ),
         sort =
-            StoreMemoSort(
-                field =
-                    when (sort.option) {
-                        MemoSortOption.CREATED_TIME -> StoreMemoSortField.CreatedAt
-                        MemoSortOption.UPDATED_TIME -> StoreMemoSortField.UpdatedAt
-                    },
-                direction =
-                    if (sort.ascending) {
-                        StoreSortDirection.Ascending
-                    } else {
-                        StoreSortDirection.Descending
-                    },
-            ),
+        StoreMemoSort(
+            field =
+            when (sort.option) {
+                MemoSortOption.CREATED_TIME -> StoreMemoSortField.CreatedAt
+                MemoSortOption.UPDATED_TIME -> StoreMemoSortField.UpdatedAt
+            },
+            direction =
+            if (sort.ascending) {
+                StoreSortDirection.Ascending
+            } else {
+                StoreSortDirection.Descending
+            },
+        ),
     )
 }
 
@@ -1269,22 +1145,19 @@ private fun historyRevisionNumber(revision: MemoRevision): Long {
     return revision.revisionId.removePrefix(prefix).toLong()
 }
 
-private fun LocalDate.toStartOfDayEpochMillis(): Long =
-    atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+private fun LocalDate.toStartOfDayEpochMillis(): Long = atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
-private fun LocalDate.toExclusiveEndOfDayEpochMillis(): Long? =
-    takeUnless { it == LocalDate.MAX }
-        ?.plusDays(1)
-        ?.atStartOfDay(ZoneId.systemDefault())
-        ?.toInstant()
-        ?.toEpochMilli()
+private fun LocalDate.toExclusiveEndOfDayEpochMillis(): Long? = takeUnless { it == LocalDate.MAX }
+    ?.plusDays(1)
+    ?.atStartOfDay(ZoneId.systemDefault())
+    ?.toInstant()
+    ?.toEpochMilli()
 
-private fun LocalDate.toSessionCivilDate(): SessionCivilDate =
-    SessionCivilDate(
-        year = year,
-        month = monthValue.toUByte(),
-        day = dayOfMonth.toUByte(),
-    )
+private fun LocalDate.toSessionCivilDate(): SessionCivilDate = SessionCivilDate(
+    year = year,
+    month = monthValue.toUShort(),
+    day = dayOfMonth.toUShort(),
+)
 
 private fun SessionStatistics.toDomainMemoStatistics(): MemoStatistics {
     val weekly = mutableMapOf<DayOfWeek, MutableMap<Int, Int>>()
@@ -1304,14 +1177,14 @@ private fun SessionStatistics.toDomainMemoStatistics(): MemoStatistics {
         currentStreak = currentStreak.toBoundedInt("current_streak"),
         longestStreak = longestStreak.toBoundedInt("longest_streak"),
         memoCountByDate =
-            memoCountByDate.associate { bucket ->
-                LocalDate.of(bucket.year, bucket.month.toInt(), bucket.day.toInt()) to
-                    bucket.count.toBoundedInt("date_count")
-            },
+        memoCountByDate.associate { bucket ->
+            LocalDate.of(bucket.year, bucket.month.toInt(), bucket.day.toInt()) to
+                bucket.count.toBoundedInt("date_count")
+        },
         hourlyDistribution =
-            hourlyDistribution.associate { bucket ->
-                bucket.hour.toInt() to bucket.count.toBoundedInt("hour_count")
-            },
+        hourlyDistribution.associate { bucket ->
+            bucket.hour.toInt() to bucket.count.toBoundedInt("hour_count")
+        },
         weeklyHourDistribution = weekly.mapValues { (_, hours) -> hours.toMap() },
         earliestDailyMemoTime = earliestDailyMemoTime?.toLocalTime(),
         latestDailyMemoTime = latestDailyMemoTime?.toLocalTime(),
@@ -1322,14 +1195,13 @@ private fun SessionStatistics.toDomainMemoStatistics(): MemoStatistics {
         thisYearCount = thisYearCount.toBoundedInt("this_year_count"),
         lastYearCount = lastYearCount.toBoundedInt("last_year_count"),
         tagCounts =
-            tagCounts.map { tag ->
-                MemoTagCount(name = tag.name, count = tag.count.toBoundedInt("tag_count"))
-            },
+        tagCounts.map { tag ->
+            MemoTagCount(name = tag.name, count = tag.count.toBoundedInt("tag_count"))
+        },
     )
 }
 
-private fun SessionCivilTime.toLocalTime(): LocalTime =
-    LocalTime.of(hour.toInt(), minute.toInt(), second.toInt())
+private fun SessionCivilTime.toLocalTime(): LocalTime = LocalTime.of(hour.toInt(), minute.toInt(), second.toInt())
 
 private fun ULong.toBoundedInt(field: String): Int {
     require(this <= Int.MAX_VALUE.toULong()) { "$field is outside the Kotlin count range" }

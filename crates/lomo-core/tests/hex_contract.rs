@@ -1,9 +1,17 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract (P-05 hex convergence, W-03)
 //!
 //! Capability: `lomo_core::hex_encode` is the single lowercase-hex authority for raw
-//! byte slices — record checksums, CSPRNG tokens, and MAC outputs that are not
-//! `LowerHex` digest types. Digest values continue to render through
-//! `format!("{digest:x}")`; no other encoder may exist beside these two forms.
+//! byte slices, including SHA-256 outputs, record checksums, CSPRNG tokens and MACs.
+//! The output remains two lowercase hexadecimal digits per byte.
 //!
 //! Scenarios:
 //! - Given an empty slice, when encoded, then the output is empty (no padding).
@@ -14,8 +22,8 @@
 //! - Given every byte value, when encoded, then the output equals the std
 //!   `format!("{b:02x}")` oracle byte-for-byte.
 //!
-//! Observable outcomes: returned strings. Excludes: percent-encoding (`%XX`), digest
-//! values (covered by `LowerHex` usage), and uppercase surfaces (`SigV4` `UriEncode`).
+//! Observable outcomes: returned strings. Excludes: percent-encoding (`%XX`) and
+//! uppercase surfaces (`SigV4` `UriEncode`).
 
 #[cfg(test)]
 mod tests {

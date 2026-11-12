@@ -29,7 +29,6 @@ import androidx.compose.ui.text.font.FontSynthesis
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 
-
 @Composable
 internal fun MemoComposeParagraphText(
     text: AnnotatedString,
@@ -48,6 +47,8 @@ internal fun MemoComposeParagraphText(
     onLongClick: (() -> Unit)? = null,
 ) {
     val uriHandler = LocalUriHandler.current
+    val pressHost = LocalMemoTextPressFeedback.current
+    val pressTarget = remember { MemoTextPressTarget() }
     val scope = selectionRegistrar
     val resolvedBlockKey = remember(blockKey) { blockKey ?: Any() }
     val customTypeface = rememberResolvedPlatformTypeface(style)
@@ -87,33 +88,45 @@ internal fun MemoComposeParagraphText(
                 paragraphLayout = paragraphLayout,
                 text = text.text,
             )
+        // The gesture detector below must survive recompositions: a press already publishes
+        // tap-feedback and press-state changes, so fresh callback identities here would restart
+        // pointerInput mid-gesture and silently drop the tap.
+        val currentCallbacks =
+            rememberUpdatedState(
+                MemoParagraphCallbacks(
+                    onSelectionChange = bindings.onSelectionChange,
+                    clearScopeSelection = { scope?.clear() },
+                    onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
+                    onPress = { position ->
+                        pressHost?.let { host -> pressTarget.press(this, host, position) }
+                    },
+                    onTapFeedback = onTapFeedback,
+                    onBodyClick = onBodyClick,
+                    onDoubleClick =
+                    onDoubleClick?.let { doubleClick ->
+                        { _: Offset ->
+                            doubleClick()
+                        }
+                    },
+                    onLongClick = onLongClick,
+                ),
+            )
         Box(
             modifier =
-                Modifier
-                    .height(heightDp)
-                    .semantics { this.text = AnnotatedString(text.text) }
-                    .onGloballyPositioned(bindings.onCoordinatesChanged)
-                    .memoParagraphPointerInput(
-                        selectable = selectable,
-                        selectionState = bindings.selectionState,
-                        paragraphLayout = paragraphLayout,
-                        scopeHasSelection = scopeHasSelection,
-                        callbacks =
-                            MemoParagraphCallbacks(
-                                onSelectionChange = bindings.onSelectionChange,
-                                clearScopeSelection = { scope?.clear() },
-                                onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
-                                onTapFeedback = onTapFeedback,
-                                onBodyClick = onBodyClick,
-                                onDoubleClick =
-                                    onDoubleClick?.let { doubleClick ->
-                                        { _: Offset ->
-                                            doubleClick()
-                                        }
-                                    },
-                                onLongClick = onLongClick,
-                            ),
-                    ),
+            Modifier
+                .height(heightDp)
+                .semantics { this.text = AnnotatedString(text.text) }
+                .onGloballyPositioned { coordinates ->
+                    pressTarget.coordinates = coordinates
+                    bindings.onCoordinatesChanged(coordinates)
+                }
+                .memoParagraphPointerInput(
+                    selectable = selectable,
+                    selectionState = bindings.selectionState,
+                    paragraphLayout = paragraphLayout,
+                    scopeHasSelection = scopeHasSelection,
+                    callbacks = currentCallbacks,
+                ),
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawMemoTextLayout(
@@ -232,14 +245,15 @@ private fun rememberMemoComposeParagraphLayout(
         MemoTextLayoutInput(
             text = text.text,
             maxWidthPx = widthPx,
+            fontSizePx = style.resolveFontSizePx(density),
             baseLetterSpacingPx = baseLetterSpacingPx,
             maxLines = effectiveMaxLines,
             lineHeightPx = lineMetrics.lineHeightPx,
             baselinePx = lineMetrics.baselinePx,
             protectedRanges = linkRanges.map { MemoTextProtectedRange(it.start, it.end) },
             ellipsizeLastVisibleLine =
-                overflow == TextOverflow.Ellipsis ||
-                    effectiveMaxLines < maxLines,
+            overflow == TextOverflow.Ellipsis ||
+                effectiveMaxLines < maxLines,
         )
     val layoutCacheKey = layoutInput.toMemoTextLayoutCacheKey()
     val layout =
@@ -270,6 +284,7 @@ private fun rememberResolvedPlatformTypeface(style: TextStyle): android.graphics
 
 /** Interaction handlers for one memo paragraph's pointer input. */
 private data class MemoParagraphCallbacks(
+    val onPress: suspend androidx.compose.foundation.gestures.PressGestureScope.(Offset) -> Unit,
     val onSelectionChange: (MemoTextSelectionState) -> Unit,
     val clearScopeSelection: () -> Unit,
     val onOpenUrl: (String) -> Unit,
@@ -284,88 +299,93 @@ private fun Modifier.memoParagraphPointerInput(
     selectionState: MemoTextSelectionState,
     paragraphLayout: MemoComposeParagraphLayout,
     scopeHasSelection: Boolean,
-    callbacks: MemoParagraphCallbacks,
-): Modifier =
-    pointerInput(
-        paragraphLayout,
-        selectable,
-        selectionState,
-        scopeHasSelection,
-        callbacks,
-    ) {
-        detectTapGestures(
-            onPress = {
-                if (!selectionState.hasSelection && !scopeHasSelection) {
-                    callbacks.onTapFeedback?.invoke()
+    callbacks: androidx.compose.runtime.State<MemoParagraphCallbacks>,
+): Modifier = pointerInput(
+    paragraphLayout,
+    selectable,
+    selectionState,
+    scopeHasSelection,
+    callbacks.value.onDoubleClick != null,
+) {
+    detectTapGestures(
+        onPress = { position ->
+            if (!selectionState.hasSelection && !scopeHasSelection) {
+                callbacks.value.onTapFeedback?.invoke()
+                callbacks.value.onPress(this, position)
+            }
+        },
+        onTap = { position ->
+            val offset = paragraphLayout.offsetForPosition(position)
+            val link = paragraphLayout.linkRanges.firstOrNull { range -> range.contains(offset) }
+            val outcome =
+                resolveMemoParagraphTapOutcome(
+                    link = link,
+                    paragraphHasSelection = selectionState.hasSelection,
+                    scopeHasSelection = scopeHasSelection,
+                )
+            val activeCallbacks = callbacks.value
+            when (outcome) {
+                is MemoParagraphTapOutcome.OpenLink -> activeCallbacks.onOpenUrl(outcome.url)
+
+                MemoParagraphTapOutcome.ClearSelection -> {
+                    // When the current paragraph owns the selection we clear via the binding so
+                    // its own selectionState reflects the change; otherwise we go straight to
+                    // the scope-level clear so cross-paragraph selections collapse from a tap
+                    // on any block in the memo body.
+                    if (selectionState.hasSelection) {
+                        activeCallbacks.onSelectionChange(selectionState.clear())
+                    } else {
+                        activeCallbacks.clearScopeSelection()
+                    }
                 }
-            },
-            onTap = { position ->
-                val offset = paragraphLayout.offsetForPosition(position)
-                val link = paragraphLayout.linkRanges.firstOrNull { range -> range.contains(offset) }
+
+                MemoParagraphTapOutcome.InvokeBodyClick -> activeCallbacks.onBodyClick?.invoke()
+
+                MemoParagraphTapOutcome.Ignore -> Unit
+            }
+        },
+        onDoubleTap =
+        callbacks.value.onDoubleClick?.let {
+            { position ->
                 val outcome =
-                    resolveMemoParagraphTapOutcome(
-                        link = link,
+                    resolveMemoParagraphDoubleTapOutcome(
+                        hasDoubleClickHandler = true,
                         paragraphHasSelection = selectionState.hasSelection,
                         scopeHasSelection = scopeHasSelection,
                     )
                 when (outcome) {
-                    is MemoParagraphTapOutcome.OpenLink -> callbacks.onOpenUrl(outcome.url)
-                    MemoParagraphTapOutcome.ClearSelection -> {
-                        // When the current paragraph owns the selection we clear via the binding so
-                        // its own selectionState reflects the change; otherwise we go straight to
-                        // the scope-level clear so cross-paragraph selections collapse from a tap
-                        // on any block in the memo body.
-                        if (selectionState.hasSelection) {
-                            callbacks.onSelectionChange(selectionState.clear())
-                        } else {
-                            callbacks.clearScopeSelection()
-                        }
-                    }
-
-                    MemoParagraphTapOutcome.InvokeBodyClick -> callbacks.onBodyClick?.invoke()
-                    MemoParagraphTapOutcome.Ignore -> Unit
-                }
-            },
-            onDoubleTap = callbacks.onDoubleClick?.let { doubleClick ->
-                { position ->
-                    val outcome =
-                        resolveMemoParagraphDoubleTapOutcome(
-                            hasDoubleClickHandler = true,
-                            paragraphHasSelection = selectionState.hasSelection,
-                            scopeHasSelection = scopeHasSelection,
-                        )
-                    when (outcome) {
-                        is MemoParagraphDoubleTapOutcome.OpenEditor -> {
-                            if (outcome.clearSelectionFirst) {
-                                if (selectionState.hasSelection) {
-                                    callbacks.onSelectionChange(selectionState.clear())
-                                } else {
-                                    callbacks.clearScopeSelection()
-                                }
+                    is MemoParagraphDoubleTapOutcome.OpenEditor -> {
+                        val activeCallbacks = callbacks.value
+                        if (outcome.clearSelectionFirst) {
+                            if (selectionState.hasSelection) {
+                                activeCallbacks.onSelectionChange(selectionState.clear())
+                            } else {
+                                activeCallbacks.clearScopeSelection()
                             }
-                            doubleClick(position)
                         }
-
-                        MemoParagraphDoubleTapOutcome.Ignore -> Unit
+                        activeCallbacks.onDoubleClick?.invoke(position)
                     }
+
+                    MemoParagraphDoubleTapOutcome.Ignore -> Unit
                 }
-            },
-            onLongPress = { position ->
-                if (selectable) {
-                    val offset = paragraphLayout.offsetForPosition(position)
-                    val range = paragraphLayout.layout.selectionRangeAtOffset(offset)
-                    callbacks.onSelectionChange(
-                        MemoTextSelectionState(
-                            anchorOffset = range.first,
-                            focusOffset = range.last + 1,
-                        ),
-                    )
-                } else {
-                    callbacks.onLongClick?.invoke()
-                }
-            },
-        )
-    }
+            }
+        },
+        onLongPress = { position ->
+            if (selectable) {
+                val offset = paragraphLayout.offsetForPosition(position)
+                val range = paragraphLayout.layout.selectionRangeAtOffset(offset)
+                callbacks.value.onSelectionChange(
+                    MemoTextSelectionState(
+                        anchorOffset = range.first,
+                        focusOffset = range.last + 1,
+                    ),
+                )
+            } else {
+                callbacks.value.onLongClick?.invoke()
+            }
+        },
+    )
+}
 
 internal data class MemoComposeParagraphLayout(
     val layout: MemoTextLayout,
@@ -374,9 +394,7 @@ internal data class MemoComposeParagraphLayout(
     val baseLetterSpacingPx: Float,
     val linkRanges: List<MemoTextLinkRange>,
 ) {
-    fun offsetForPosition(position: Offset): Int =
-        layout.offsetForPosition(position, measurer, baseLetterSpacingPx)
+    fun offsetForPosition(position: Offset): Int = layout.offsetForPosition(position, measurer, baseLetterSpacingPx)
 
-    fun positionForOffset(offset: Int): Offset =
-        layout.positionForOffset(offset, measurer, baseLetterSpacingPx)
+    fun positionForOffset(offset: Int): Offset = layout.positionForOffset(offset, measurer, baseLetterSpacingPx)
 }

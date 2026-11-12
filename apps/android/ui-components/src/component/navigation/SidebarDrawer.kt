@@ -1,55 +1,39 @@
 package com.lomo.ui.component.navigation
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.Analytics
-import androidx.compose.material.icons.outlined.CheckBox
 import androidx.compose.material.icons.outlined.DateRange
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Tag
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.Text
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
@@ -57,10 +41,12 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.stats.CalendarHeatmap
@@ -69,32 +55,19 @@ import com.lomo.ui.generated.resources.sidebar_daily_review
 import com.lomo.ui.generated.resources.sidebar_gallery
 import com.lomo.ui.generated.resources.sidebar_settings
 import com.lomo.ui.generated.resources.sidebar_statistics
-import com.lomo.ui.generated.resources.sidebar_tasks
 import com.lomo.ui.generated.resources.sidebar_trash
 import com.lomo.ui.generated.resources.stat_day
 import com.lomo.ui.generated.resources.stat_memo
 import com.lomo.ui.generated.resources.stat_tag
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.LomoTheme
-import kotlinx.collections.immutable.persistentSetOf
-import kotlinx.collections.immutable.toPersistentList
-import java.time.LocalDate
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toImmutableMap
+import java.time.LocalDate
 
-data class SidebarStats(
-    val memoCount: Int = 0,
-    val tagCount: Int = 0,
-    val dayCount: Int = 0,
-)
+data class SidebarStats(val memoCount: Int = 0, val tagCount: Int = 0, val dayCount: Int = 0)
 
-data class SidebarTag(
-    val name: String,
-    val count: Int = 0,
-)
+data class SidebarTag(val name: String, val count: Int = 0)
 
 sealed interface SidebarDestination {
     data object Memo : SidebarDestination
@@ -105,13 +78,9 @@ sealed interface SidebarDestination {
 
     data object Gallery : SidebarDestination
 
-    data object Tasks : SidebarDestination
-
     data object Statistics : SidebarDestination
 
-    data class Tag(
-        val fullPath: String,
-    ) : SidebarDestination
+    data class Tag(val fullPath: String) : SidebarDestination
 }
 
 @Composable
@@ -121,13 +90,13 @@ fun SidebarDrawer(
     today: LocalDate,
     tags: ImmutableList<SidebarTag>,
     calendarHeatmapThresholds: CalendarHeatmapThresholds,
+    containerColor: Color,
     modifier: Modifier = Modifier,
     rootTagOrder: ImmutableList<String> = kotlinx.collections.immutable.persistentListOf(),
     currentDestination: SidebarDestination = SidebarDestination.Memo,
     onTrashClick: () -> Unit = {},
     onDailyReviewClick: () -> Unit = {},
     onGalleryClick: () -> Unit = {},
-    onTasksClick: () -> Unit = {},
     onStatisticsClick: () -> Unit = {},
     onTagClick: (String) -> Unit = {},
     onTagReorder: (List<String>) -> Unit = {},
@@ -135,6 +104,9 @@ fun SidebarDrawer(
     onSettingsClick: () -> Unit = {},
     settingsAnchorTag: String? = null,
     trashAnchorTag: String? = null,
+    dailyReviewAnchorTag: String? = null,
+    galleryAnchorTag: String? = null,
+    statisticsAnchorTag: String? = null,
     tagAnchorForPath: (String) -> String? = { null },
 ) {
     val tagTree = remember(tags, rootTagOrder) { buildTagTree(tags, rootTagOrder) }
@@ -143,10 +115,6 @@ fun SidebarDrawer(
     val expandedNodes = remember { mutableStateMapOf<String, Boolean>() }
     val selectedTagPath = (currentDestination as? SidebarDestination.Tag)?.fullPath
     val isTrashSelected = currentDestination == SidebarDestination.Trash
-    val isDailyReviewSelected = currentDestination == SidebarDestination.DailyReview
-    val isGallerySelected = currentDestination == SidebarDestination.Gallery
-    val isTasksSelected = currentDestination == SidebarDestination.Tasks
-    val isStatisticsSelected = currentDestination == SidebarDestination.Statistics
     val listState = rememberLazyListState()
     val reorderableLazyListState =
         sh.calvin.reorderable.rememberReorderableLazyListState(listState) { from, to ->
@@ -159,14 +127,13 @@ fun SidebarDrawer(
     val expandedNodePaths = expandedNodes.filterValues { it }.keys
     val visibleTagRows = visibleTagRows(reorderableTree, expandedNodePaths)
 
-
     Column(
-        modifier = modifier.fillMaxHeight()
+        modifier = modifier.fillMaxHeight(),
     ) {
         Box(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth()
+                .fillMaxWidth(),
         ) {
             LazyColumn(
                 state = listState,
@@ -177,7 +144,7 @@ fun SidebarDrawer(
                     start = AppSpacing.Medium,
                     end = AppSpacing.Medium,
                     top = AppSpacing.Medium,
-                    bottom = AppSpacing.ExtraLarge
+                    bottom = AppSpacing.ExtraLarge,
                 ),
                 verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
             ) {
@@ -189,14 +156,13 @@ fun SidebarDrawer(
                     onDateLongPress = onHeatmapDateLongPress,
                 )
                 sidebarDestinations(
-                    isDailyReviewSelected = isDailyReviewSelected,
-                    isGallerySelected = isGallerySelected,
-                    isTasksSelected = isTasksSelected,
-                    isStatisticsSelected = isStatisticsSelected,
+                    currentDestination = currentDestination,
                     onDailyReviewClick = onDailyReviewClick,
                     onGalleryClick = onGalleryClick,
-                    onTasksClick = onTasksClick,
                     onStatisticsClick = onStatisticsClick,
+                    dailyReviewAnchorTag = dailyReviewAnchorTag,
+                    galleryAnchorTag = galleryAnchorTag,
+                    statisticsAnchorTag = statisticsAnchorTag,
                 )
                 sidebarTags(
                     SidebarTagsInput(
@@ -222,11 +188,10 @@ fun SidebarDrawer(
                         brush = Brush.verticalGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                SidebarDrawerTokens.Footer
-                                    .cardContainerColor(MaterialTheme.colorScheme)
-                            )
-                        )
-                    )
+                                containerColor,
+                            ),
+                        ),
+                    ),
             )
         }
 
@@ -235,7 +200,7 @@ fun SidebarDrawer(
             onTrashClick = onTrashClick,
             onSettingsClick = onSettingsClick,
             trashAnchorTag = trashAnchorTag,
-            settingsAnchorTag = settingsAnchorTag
+            settingsAnchorTag = settingsAnchorTag,
         )
     }
 }
@@ -256,21 +221,21 @@ private fun SidebarFooter(
                 start = AppSpacing.Medium,
                 end = AppSpacing.Medium,
                 bottom = AppSpacing.Medium,
-                top = AppSpacing.Small
+                top = AppSpacing.Small,
             ),
         shape = SidebarDrawerTokens.Footer.CardShape,
         color = SidebarDrawerTokens.Footer.cardContainerColor(MaterialTheme.colorScheme),
         border = BorderStroke(
             width = 1.dp,
-            color = SidebarDrawerTokens.Footer.cardBorderColor(MaterialTheme.colorScheme)
-        )
+            color = SidebarDrawerTokens.Footer.cardBorderColor(MaterialTheme.colorScheme),
+        ),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(all = AppSpacing.Small),
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             UtilityButton(
                 icon = if (isTrashSelected) Icons.Filled.Delete else Icons.Outlined.Delete,
@@ -286,7 +251,7 @@ private fun SidebarFooter(
                     .trashUnselectedContainerColor(MaterialTheme.colorScheme),
                 unselectedContentColor = SidebarDrawerTokens
                     .trashUnselectedContentColor(MaterialTheme.colorScheme),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
             UtilityButton(
                 icon = Icons.Rounded.Settings,
@@ -294,13 +259,11 @@ private fun SidebarFooter(
                 isSelected = false,
                 anchorTag = settingsAnchorTag,
                 onClick = onSettingsClick,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
         }
     }
 }
-
-
 
 @Composable
 private fun UtilityButton(
@@ -335,25 +298,25 @@ private fun UtilityButton(
         } else {
             unselectedContentColor
         },
-        modifier = modifier.height(38.dp).benchmarkAnchor(anchorTag)
+        modifier = modifier.height(38.dp).benchmarkAnchor(anchorTag),
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = AppSpacing.Small),
             horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 icon,
                 contentDescription = null,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(AppSpacing.Small))
             Text(
                 text = label,
                 color = androidx.compose.material3.LocalContentColor.current,
                 style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                )
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                ),
             )
         }
     }
@@ -374,7 +337,7 @@ private fun NavigationItem(
             .fillMaxWidth()
             .height(SidebarDrawerTokens.RowHeight)
             .benchmarkAnchor(anchorTag),
-        contentAlignment = Alignment.CenterStart
+        contentAlignment = Alignment.CenterStart,
     ) {
         NavigationDrawerItem(
             label = {
@@ -384,7 +347,7 @@ private fun NavigationItem(
                         MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                     } else {
                         MaterialTheme.typography.bodyMedium
-                    }
+                    },
                 )
             },
             icon = { Icon(icon, null, modifier = Modifier.size(SidebarDrawerTokens.NavigationIconSize)) },
@@ -395,43 +358,37 @@ private fun NavigationItem(
                 onClick()
             },
             colors =
-                NavigationDrawerItemDefaults.colors(
-                    selectedContainerColor =
-                        SidebarDrawerTokens.selectedContainerColor(
-                            MaterialTheme.colorScheme
-                        ),
-                    unselectedContainerColor = Color.Transparent,
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            NavigationDrawerItemDefaults.colors(
+                selectedContainerColor =
+                SidebarDrawerTokens.selectedContainerColor(
+                    MaterialTheme.colorScheme,
                 ),
+                unselectedContainerColor = Color.Transparent,
+                selectedIconColor = MaterialTheme.colorScheme.primary,
+                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ),
             shape = SidebarDrawerTokens.NavigationItemShape,
             modifier = Modifier.fillMaxSize(),
         )
-
     }
 }
 
-
 @Composable
-private fun StatIndicator(
-    value: String,
-    label: String,
-    modifier: Modifier = Modifier,
-) {
+private fun StatIndicator(value: String, label: String, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier.padding(vertical = AppSpacing.Small, horizontal = AppSpacing.ExtraSmall),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall)
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
     ) {
         Text(
             text = value,
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = SidebarDrawerTokens.statCardLabelColor(MaterialTheme.colorScheme)
+            color = SidebarDrawerTokens.statCardLabelColor(MaterialTheme.colorScheme),
         )
     }
 }
@@ -453,7 +410,7 @@ private fun LazyListScope.sidebarStatusHub(
         ) {
             Column(
                 modifier = Modifier.padding(AppSpacing.Medium),
-                verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium)
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
             ) {
                 CalendarHeatmap(
                     memoCountByDate = memoCountByDate,
@@ -467,34 +424,34 @@ private fun LazyListScope.sidebarStatusHub(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = AppShapes.Large,
-                    color = SidebarDrawerTokens.statRowContainerColor(MaterialTheme.colorScheme)
+                    color = SidebarDrawerTokens.statRowContainerColor(MaterialTheme.colorScheme),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = AppSpacing.Small),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         StatIndicator(
                             value = stats.memoCount.toString(),
                             label = org.jetbrains.compose.resources.stringResource(Res.string.stat_memo),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
                         )
                         VerticalDivider(
                             color = SidebarDrawerTokens.dividerColor(MaterialTheme.colorScheme),
-                            modifier = Modifier.height(24.dp).width(1.dp)
+                            modifier = Modifier.height(24.dp).width(1.dp),
                         )
                         StatIndicator(
                             value = stats.tagCount.toString(),
                             label = org.jetbrains.compose.resources.stringResource(Res.string.stat_tag),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
                         )
                         VerticalDivider(
                             color = SidebarDrawerTokens.dividerColor(MaterialTheme.colorScheme),
-                            modifier = Modifier.height(24.dp).width(1.dp)
+                            modifier = Modifier.height(24.dp).width(1.dp),
                         )
                         StatIndicator(
                             value = stats.dayCount.toString(),
                             label = org.jetbrains.compose.resources.stringResource(Res.string.stat_day),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
@@ -505,48 +462,48 @@ private fun LazyListScope.sidebarStatusHub(
 }
 
 private fun LazyListScope.sidebarDestinations(
-    isDailyReviewSelected: Boolean,
-    isGallerySelected: Boolean,
-    isTasksSelected: Boolean,
-    isStatisticsSelected: Boolean,
+    currentDestination: SidebarDestination,
     onDailyReviewClick: () -> Unit,
     onGalleryClick: () -> Unit,
-    onTasksClick: () -> Unit,
     onStatisticsClick: () -> Unit,
+    dailyReviewAnchorTag: String?,
+    galleryAnchorTag: String?,
+    statisticsAnchorTag: String?,
 ) {
     item {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = AppShapes.Large,
-            color = SidebarDrawerTokens.cardContainerColor(MaterialTheme.colorScheme)
+            color = SidebarDrawerTokens.cardContainerColor(MaterialTheme.colorScheme),
         ) {
             Column(
                 modifier = Modifier.padding(AppSpacing.Small),
-                verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall)
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
             ) {
                 NavigationItem(
-                    icon = if (isDailyReviewSelected) Icons.Filled.DateRange else Icons.Outlined.DateRange,
+                    icon = if (currentDestination == SidebarDestination.DailyReview) {
+                        Icons.Filled.DateRange
+                    } else {
+                        Icons.Outlined.DateRange
+                    },
                     label = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_daily_review),
-                    isSelected = isDailyReviewSelected,
+                    isSelected = currentDestination == SidebarDestination.DailyReview,
                     onClick = onDailyReviewClick,
+                    anchorTag = dailyReviewAnchorTag,
                 )
                 NavigationItem(
                     icon = Icons.Outlined.PhotoLibrary,
                     label = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_gallery),
-                    isSelected = isGallerySelected,
+                    isSelected = currentDestination == SidebarDestination.Gallery,
                     onClick = onGalleryClick,
-                )
-                NavigationItem(
-                    icon = Icons.Outlined.CheckBox,
-                    label = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_tasks),
-                    isSelected = isTasksSelected,
-                    onClick = onTasksClick,
+                    anchorTag = galleryAnchorTag,
                 )
                 NavigationItem(
                     icon = Icons.Outlined.Analytics,
                     label = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_statistics),
-                    isSelected = isStatisticsSelected,
+                    isSelected = currentDestination == SidebarDestination.Statistics,
                     onClick = onStatisticsClick,
+                    anchorTag = statisticsAnchorTag,
                 )
             }
         }
@@ -563,4 +520,3 @@ internal fun rememberLightHapticClick(onClick: () -> Unit): () -> Unit {
         }
     }
 }
-

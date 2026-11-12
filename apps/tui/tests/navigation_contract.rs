@@ -47,6 +47,11 @@ mod tests {
         );
         command(&fixture.runtime, &mut model, Command::ToggleTask)
             .expect("fixture and operation must succeed");
+        fixture
+            .runtime
+            .session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             std::fs::read_to_string(fixture.runtime.workspace.join("2026_09_11.md"))
                 .expect("fixture and operation must succeed")

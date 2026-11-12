@@ -54,3 +54,21 @@
 
 # Keep Lomo list motion, exit scopes, and states to avoid aggressive optimization/dead code elimination by R8 in full mode
 -keep class com.lomo.ui.component.common.** { *; }
+
+# The //data module is a runtime-only dependency: LomoApplication resolves its DI root
+# exclusively through Class.forName("com.lomo.data.di.DataModulesKt"), so R8 sees no static
+# reference and strips the file facade. Keep the entry-point class and its accessors; the
+# module list inside getDataModules stays reachable through the kept method body.
+-keep class com.lomo.data.di.DataModulesKt { *; }
+
+# BoltFFI resolves generated JVM upcalls by class name and static method descriptor
+# in JNI_OnLoad. These callbacks have no ordinary Kotlin caller for R8 to discover.
+# Preserve this ABI surface while leaving generated wire models optimizable.
+-keep,includedescriptorclasses class com.lomo.nativebridge.*Callbacks {
+    public static <methods>;
+}
+
+# Native error propagation constructs this JVM exception through ([B)V.
+-keep class com.lomo.nativebridge.BoltFfiErrorBufferException {
+    public <init>(byte[]);
+}

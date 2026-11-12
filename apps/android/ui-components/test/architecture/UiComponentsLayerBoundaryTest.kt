@@ -18,14 +18,14 @@
 
 package com.lomo.ui.architecture
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -33,7 +33,6 @@ package com.lomo.ui.architecture
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.assertions.withClue
@@ -47,34 +46,41 @@ class UiComponentsLayerBoundaryTest : UiComponentsFunSpec() {
 
     init {
         test("ui-components source does not reference data layer package") {
-        val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        withClue("No Kotlin sources found under ui-components/src") { (kotlinFiles.isNotEmpty()) shouldBe true }
+            val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+            withClue("No Kotlin sources found under ui-components/src") { (kotlinFiles.isNotEmpty()) shouldBe true }
 
-        val offenders = kotlinFiles.filter(::containsDataLayerReference)
-        withClue("ui-components module must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()) shouldBe true }
+            val offenders = kotlinFiles.filter(::containsDataLayerReference)
+            withClue(
+                "ui-components module must not reference data layer package. Offenders: ${offenders.joinToString {
+                    it.path
+                }}",
+            ) { (offenders.isEmpty()) shouldBe true }
         }
     }
 
     init {
         test("ui-components module does not apply hilt or ksp plugins") {
-        val text = moduleFile.readText()
+            val text = moduleFile.readText()
 
-        (text.contains("libs.plugins.hilt")) shouldBe false
-        (text.contains("libs.plugins.ksp")) shouldBe false
-        (text.contains("hilt.android")) shouldBe false
-        (text.contains("hilt.compiler")) shouldBe false
+            (text.contains("libs.plugins.hilt")) shouldBe false
+            (text.contains("libs.plugins.ksp")) shouldBe false
+            (text.contains("hilt.android")) shouldBe false
+            (text.contains("hilt.compiler")) shouldBe false
         }
     }
 
     init {
         test("ui-components does not keep app ui state shims") {
-        val offenders =
-            listOf(
-                moduleRoot.resolve("src/util/UiState.kt"),
-                moduleRoot.resolve("src/util/ViewModelExtensions.kt"),
-            ).filter(File::exists)
+            val offenders =
+                listOf(
+                    moduleRoot.resolve("src/util/UiState.kt"),
+                    moduleRoot.resolve("src/util/ViewModelExtensions.kt"),
+                ).filter(File::exists)
 
-        withClue("ui-components must not keep ViewModel/UI-state compatibility shims. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()) shouldBe true }
+            withClue(
+                "ui-components must not keep ViewModel/UI-state compatibility shims. Offenders: " +
+                    offenders.joinToString { it.path },
+            ) { (offenders.isEmpty()) shouldBe true }
         }
     }
 
@@ -85,11 +91,10 @@ class UiComponentsLayerBoundaryTest : UiComponentsFunSpec() {
         return DATA_FQCN_PATTERN.containsMatchIn(nonImportOrPackageContent)
     }
 
-    private fun stripImportAndPackageLines(content: String): String =
-        content
-            .lineSequence()
-            .filterNot { IMPORT_OR_PACKAGE_LINE_PATTERN.containsMatchIn(it) }
-            .joinToString(separator = "\n")
+    private fun stripImportAndPackageLines(content: String): String = content
+        .lineSequence()
+        .filterNot { IMPORT_OR_PACKAGE_LINE_PATTERN.containsMatchIn(it) }
+        .joinToString(separator = "\n")
 
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."

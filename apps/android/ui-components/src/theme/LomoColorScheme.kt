@@ -6,6 +6,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 
 /**
  * Canonical [ColorSource] -> [ColorScheme] resolution. This is the single mapping the whole app uses
@@ -20,17 +21,21 @@ fun resolveLomoColorScheme(
     context: Context,
     colorSource: ColorSource,
     isDark: Boolean,
-): ColorScheme =
-    when (colorSource) {
-        is ColorSource.DynamicWallpaper ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            } else {
-                colorSchemeFromSeed(colorSource.resolvePresetSeedArgb(), isDark)
-            }
-        is ColorSource.Preset -> colorSchemeFromSeed(colorSource.id.seedArgb, isDark)
-        is ColorSource.CustomSeed -> colorSchemeFromSeed(colorSource.argb, isDark)
-    }
+    contrastLevel: ContrastLevel = ContrastLevel.default(),
+): ColorScheme = when (colorSource) {
+    is ColorSource.DynamicWallpaper ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // The platform wallpaper palette is produced by the system tonal engine; the user
+            // contrast tier only applies to seed-derived palettes below.
+            if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        } else {
+            colorSchemeFromSeed(colorSource.resolvePresetSeedArgb(), isDark, contrastLevel)
+        }
+
+    is ColorSource.Preset -> colorSchemeFromSeed(colorSource.id.seedArgb, isDark, contrastLevel)
+
+    is ColorSource.CustomSeed -> colorSchemeFromSeed(colorSource.argb, isDark, contrastLevel)
+}
 
 /**
  * [resolveLomoColorScheme] for callers that only know the configured [com.lomo.domain.model.ThemeMode]
@@ -42,14 +47,15 @@ fun resolveLomoColorScheme(
     context: Context,
     colorSource: ColorSource,
     themeMode: com.lomo.domain.model.ThemeMode,
-): ColorScheme =
-    resolveLomoColorScheme(
-        context = context,
-        colorSource = colorSource,
-        isDark =
-            resolveDarkTheme(
-                themeMode = ThemeMode.fromStorageValue(themeMode.value),
-                currentUiMode = context.resources.configuration.uiMode,
-                systemDarkTheme = false,
-            ),
-    )
+    contrastLevel: ContrastLevel = ContrastLevel.default(),
+): ColorScheme = resolveLomoColorScheme(
+    context = context,
+    colorSource = colorSource,
+    isDark =
+    resolveDarkTheme(
+        themeMode = ThemeMode.fromStorageValue(themeMode.value),
+        currentUiMode = context.resources.configuration.uiMode,
+        systemDarkTheme = false,
+    ),
+    contrastLevel = contrastLevel,
+)

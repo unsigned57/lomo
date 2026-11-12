@@ -5,12 +5,11 @@ import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtFile
 
-internal class NoDispatchersSetMainInTestsRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Test source must use MainDispatcherExtension instead of calling Dispatchers.setMain / resetMain directly.",
-) {
+internal class NoDispatchersSetMainInTestsRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Test source must use MainDispatcherExtension instead of calling Dispatchers.setMain / resetMain directly.",
+    ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
         val file = expression.containingKtFile

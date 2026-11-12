@@ -9,14 +9,13 @@ import timber.log.Timber
 
 private const val TAG = "ReminderBootReceiver"
 
-class ReminderBootReceiver : BroadcastReceiver(), KoinComponent {
+class ReminderBootReceiver :
+    BroadcastReceiver(),
+    KoinComponent {
     private val asyncRunner: ReminderAsyncRunner by inject()
     private val rebuildDemand: ReminderRebuildDemand by inject()
 
-    override fun onReceive(
-        context: Context,
-        intent: Intent,
-    ) {
+    override fun onReceive(context: Context, intent: Intent) {
         if (!ReminderRescheduleBroadcast.accepts(intent.action)) {
             return
         }

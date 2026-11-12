@@ -25,7 +25,7 @@ enabled = false
 [targets.android]
 enabled = true
 min_sdk = 26
-ndk_version = "29.0.14206865"
+ndk_version = "30.0.16248370"
 architectures = ["arm64", "armv7", "x86", "x86_64"]
 
 [targets.android.kotlin]

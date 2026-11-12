@@ -65,7 +65,7 @@ class TrustedLaunchIntentsTest : AppFunSpec() {
                 ExtractionIntent(
                     actionValue = MainActivity.ACTION_EXTERNAL_APP_COMMAND,
                     strings =
-                        fixture.strings + (TrustedLaunchIntents.EXTRA_COMMAND_PAYLOAD to "recording-other"),
+                    fixture.strings + (TrustedLaunchIntents.EXTRA_COMMAND_PAYLOAD to "recording-other"),
                     longs = fixture.longs,
                 )
 
@@ -118,30 +118,30 @@ private fun signedWidgetCommand(): SignedWidgetCommandFixture {
         ExtractionIntent(
             actionValue = MainActivity.ACTION_EXTERNAL_APP_COMMAND,
             strings =
-                mapOf(
-                    TrustedLaunchIntents.EXTRA_COMMAND_ID to payload.commandId,
-                    TrustedLaunchIntents.EXTRA_COMMAND_ACTION to payload.action.name,
-                    TrustedLaunchIntents.EXTRA_COMMAND_SOURCE to payload.source.name,
-                    TrustedLaunchIntents.EXTRA_SIGNATURE_NONCE to signature.nonce,
-                    TrustedLaunchIntents.EXTRA_SIGNATURE_VALUE to signature.value,
-                ),
+            mapOf(
+                TrustedLaunchIntents.EXTRA_COMMAND_ID to payload.commandId,
+                TrustedLaunchIntents.EXTRA_COMMAND_ACTION to payload.action.name,
+                TrustedLaunchIntents.EXTRA_COMMAND_SOURCE to payload.source.name,
+                TrustedLaunchIntents.EXTRA_SIGNATURE_NONCE to signature.nonce,
+                TrustedLaunchIntents.EXTRA_SIGNATURE_VALUE to signature.value,
+            ),
             longs =
-                mapOf(
-                    TrustedLaunchIntents.EXTRA_CREATED_AT_MILLIS to payload.createdAtMillis,
-                    TrustedLaunchIntents.EXTRA_EXPIRES_AT_MILLIS to payload.expiresAtMillis,
-                ),
+            mapOf(
+                TrustedLaunchIntents.EXTRA_CREATED_AT_MILLIS to payload.createdAtMillis,
+                TrustedLaunchIntents.EXTRA_EXPIRES_AT_MILLIS to payload.expiresAtMillis,
+            ),
         )
     val failingIntents =
         TrustedLaunchIntents(
             context = context,
             secretStore =
-                TrustedLaunchSecretStore(
-                    TrustedLaunchTrustRoot(
-                        plaintext = MemoryInstallSecret("cd".repeat(INSTALL_SECRET_RANDOM_BYTES)),
-                        hmacKey = FailingImportHmacKeyEntry(),
-                        processLock = ImmediateLock,
-                    ),
+            TrustedLaunchSecretStore(
+                TrustedLaunchTrustRoot(
+                    plaintext = MemoryInstallSecret("cd".repeat(INSTALL_SECRET_RANDOM_BYTES)),
+                    hmacKey = FailingImportHmacKeyEntry(),
+                    processLock = ImmediateLock,
                 ),
+            ),
         )
     return SignedWidgetCommandFixture(
         payload = payload,
@@ -191,11 +191,11 @@ private fun signedStopCommand(captureId: String): SignedStopCommandFixture {
     return SignedStopCommandFixture(
         nowMillis = nowMillis,
         intent =
-            ExtractionIntent(
-                actionValue = MainActivity.ACTION_EXTERNAL_APP_COMMAND,
-                strings = strings,
-                longs = longs,
-            ),
+        ExtractionIntent(
+            actionValue = MainActivity.ACTION_EXTERNAL_APP_COMMAND,
+            strings = strings,
+            longs = longs,
+        ),
         strings = strings,
         longs = longs,
         workingIntents = TrustedLaunchIntents(context = context, secretStore = store),
@@ -227,19 +227,14 @@ private class ExtractionIntent(
 
     override fun getStringExtra(name: String): String? = strings[name]
 
-    override fun getLongExtra(
-        name: String,
-        defaultValue: Long,
-    ): Long = longs[name] ?: defaultValue
+    override fun getLongExtra(name: String, defaultValue: Long): Long = longs[name] ?: defaultValue
 }
 
 private object ImmediateLock : TrustedLaunchProcessLock {
     override fun <T> withLock(block: () -> T): T = block()
 }
 
-private class MemoryInstallSecret(
-    initial: String?,
-) : TrustedLaunchPlaintextInstallSecret {
+private class MemoryInstallSecret(initial: String?) : TrustedLaunchPlaintextInstallSecret {
     private var value: String? = initial
 
     override fun read(): String? = value

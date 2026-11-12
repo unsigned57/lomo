@@ -105,10 +105,7 @@ internal fun safResolveRelativeDocument(
  * Resolves one markdown document inside the trash directory without enumerating it twice.
  * The trash directory itself stays behind [SafDocumentAccess.trashDir]'s cached grant check.
  */
-internal fun safResolveTrashDocument(
-    documentAccess: SafDocumentAccess,
-    filename: String,
-): SafResolvedDocument? {
+internal fun safResolveTrashDocument(documentAccess: SafDocumentAccess, filename: String): SafResolvedDocument? {
     val trashDocId =
         documentAccess.trashDir()?.let { DocumentsContract.getDocumentId(it.uri) }
             ?: return null
@@ -118,24 +115,21 @@ internal fun safResolveTrashDocument(
 /**
  * Lists every markdown child of the trash directory in one provider query.
  */
-internal fun safQueryTrashChildren(
-    documentAccess: SafDocumentAccess,
-): List<SafResolvedDocument> {
+internal fun safQueryTrashChildren(documentAccess: SafDocumentAccess): List<SafResolvedDocument> {
     val trashDocId =
         documentAccess.trashDir()?.let { DocumentsContract.getDocumentId(it.uri) }
             ?: return emptyList()
     return safQueryChildDocuments(documentAccess, trashDocId)
 }
 
-private fun MetadataRow.toResolvedDocument(rootUri: Uri): SafResolvedDocument =
-    SafResolvedDocument(
-        documentId = docId,
-        uri = DocumentsContract.buildDocumentUriUsingTree(rootUri, docId),
-        name = name,
-        isDirectory = isDirectory,
-        lastModified = lastModified,
-        size = size,
-    )
+private fun MetadataRow.toResolvedDocument(rootUri: Uri): SafResolvedDocument = SafResolvedDocument(
+    documentId = docId,
+    uri = DocumentsContract.buildDocumentUriUsingTree(rootUri, docId),
+    name = name,
+    isDirectory = isDirectory,
+    lastModified = lastModified,
+    size = size,
+)
 
 internal val METADATA_PROJECTION =
     arrayOf(
@@ -146,22 +140,15 @@ internal val METADATA_PROJECTION =
         DocumentsContract.Document.COLUMN_SIZE,
     )
 
-internal data class MetadataColumnIndexes(
-    val docId: Int,
-    val name: Int,
-    val mime: Int,
-    val time: Int,
-    val size: Int,
-) {
+internal data class MetadataColumnIndexes(val docId: Int, val name: Int, val mime: Int, val time: Int, val size: Int) {
     companion object {
-        fun from(cursor: Cursor): MetadataColumnIndexes =
-            MetadataColumnIndexes(
-                docId = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
-                name = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-                mime = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE),
-                time = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
-                size = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE),
-            )
+        fun from(cursor: Cursor): MetadataColumnIndexes = MetadataColumnIndexes(
+            docId = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+            name = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            mime = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE),
+            time = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
+            size = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE),
+        )
     }
 }
 

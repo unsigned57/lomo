@@ -18,14 +18,14 @@
 
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -33,7 +33,6 @@ package com.lomo.domain.usecase
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.testing.DomainFunSpec
@@ -54,23 +53,23 @@ class BackupSyncConflictFilesUseCaseTest : DomainFunSpec() {
     init {
         test("invoke forwards files and local reader to repository") {
             runTest {
-                        val files =
-                            listOf(
-                                SyncConflictFile(
-                                    relativePath = "memos/2026_03_24.md",
-                                    localContent = "local",
-                                    remoteContent = "remote",
-                                    isBinary = false,
-                                ),
-                        )
-                        val reader: suspend (String) -> ByteArray? = { "payload:$it".encodeToByteArray() }
+                val files =
+                    listOf(
+                        SyncConflictFile(
+                            relativePath = "memos/2026_03_24.md",
+                            localContent = "local",
+                            remoteContent = "remote",
+                            isBinary = false,
+                        ),
+                    )
+                val reader: suspend (String) -> ByteArray? = { "payload:$it".encodeToByteArray() }
 
-                        useCase(files, reader)
+                useCase(files, reader)
 
-                        repository.backupRequests.single().files shouldBe files
-                        repository.backupRequests.single().readResults["memos/2026_03_24.md"]?.decodeToString() shouldBe
-                            "payload:memos/2026_03_24.md"
-                    }
+                repository.backupRequests.single().files shouldBe files
+                repository.backupRequests.single().readResults["memos/2026_03_24.md"]?.decodeToString() shouldBe
+                    "payload:memos/2026_03_24.md"
+            }
         }
     }
 }

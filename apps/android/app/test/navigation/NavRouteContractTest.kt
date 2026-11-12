@@ -21,6 +21,12 @@ import io.kotest.matchers.shouldBe
  * - RED: before stable serial names were declared, NavRoute.Main serialized as the fully qualified
  *   Kotlin class name, while release runtime class names could be minified and no longer match.
  *
+ * Test Change Justification:
+ * Reason category: user-requested feature removal.
+ * Old behavior/assertion being replaced: Tasks serialized as a reachable tasks route.
+ * Why old assertion is no longer correct: the Android task page and its route are removed.
+ * Coverage preserved by: stable serialization assertions for every remaining route.
+ * Why this is not fitting the test to the implementation: the user explicitly removed this page.
  * Excludes:
  * - Navigation Compose runtime, back-stack persistence, and screen rendering.
  */
@@ -30,12 +36,10 @@ class NavRouteContractTest : AppFunSpec() {
             NavRoute.Main.serializer().descriptor.serialName shouldBe "main"
             NavRoute.Settings.serializer().descriptor.serialName shouldBe "settings"
             NavRoute.Trash.serializer().descriptor.serialName shouldBe "trash"
-            NavRoute.Search.serializer().descriptor.serialName shouldBe "search"
             NavRoute.Tag.serializer().descriptor.serialName shouldBe "tag"
             NavRoute.ImageViewer.serializer().descriptor.serialName shouldBe "imageViewer"
             NavRoute.DailyReview.serializer().descriptor.serialName shouldBe "dailyReview"
             NavRoute.Gallery.serializer().descriptor.serialName shouldBe "gallery"
-            NavRoute.Tasks.serializer().descriptor.serialName shouldBe "tasks"
             NavRoute.GalleryReel.serializer().descriptor.serialName shouldBe "galleryReel"
             NavRoute.Statistics.serializer().descriptor.serialName shouldBe "statistics"
             NavRoute.Share.serializer().descriptor.serialName shouldBe "share"

@@ -104,7 +104,7 @@ mod tests {
         )
         .expect("composed cycle");
 
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let record = read_cycle_state(&paths)
             .expect("read cycle state")
             .expect("record present");
@@ -132,7 +132,7 @@ mod tests {
         let (_temporary, workspace) = composed_workspace();
         let config = SyncBackendConfig::hermetic_fake("ds-seq");
         run_composed_sync_cycle(&workspace, &config, None, true).expect("first cycle");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let first = read_cycle_state(&paths).expect("read").expect("record");
         let first_success = first.last_successful_at_ms;
 
@@ -156,7 +156,7 @@ mod tests {
             false,
         )
         .expect("cycle");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let record = read_cycle_state(&paths).expect("read").expect("record");
         assert_eq!(record.phase, SyncCyclePhase::Completed);
         assert!(record.last_successful_at_ms.is_none());
@@ -167,7 +167,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "sess-stale").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -194,7 +194,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let err = request_sync_cycle_cancel(&paths).expect_err("no record");
         assert_eq!(err.code(), "sync_cycle_not_running");
 
@@ -235,7 +235,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "sess-cancel").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -325,7 +325,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "sess-midcancel").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -363,7 +363,7 @@ mod tests {
             .expect_err("missing secret fails");
         assert_eq!(err.code(), "webdav_secret_required");
 
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let record = read_cycle_state(&paths).expect("read").expect("record");
         assert_eq!(record.phase, SyncCyclePhase::Failed);
         assert_eq!(record.stage, "failed");
@@ -404,7 +404,7 @@ mod tests {
             false,
         )
         .expect("cycle");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let record = read_cycle_state(&paths).expect("read").expect("record");
         assert_eq!(record.remote_listed_count, 1);
         assert_eq!(record.phase, SyncCyclePhase::Completed);
@@ -417,7 +417,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "sess-late").expect("session");
         write_session(&paths, &session).expect("write session");

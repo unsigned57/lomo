@@ -52,9 +52,9 @@ class WebDavRemoteSyncFacade(
             remoteFileCount = status?.remoteListedCount ?: 0,
             localFileCount = status?.localEntryCount ?: 0,
             pendingChanges =
-                (status?.ensurePresentCount ?: 0) +
-                    (status?.ensureAbsentCount ?: 0) +
-                    (status?.pullPresentCount ?: 0),
+            (status?.ensurePresentCount ?: 0) +
+                (status?.ensureAbsentCount ?: 0) +
+                (status?.pullPresentCount ?: 0),
             lastSyncTime = status?.lastSuccessfulAtMs,
         )
     }
@@ -103,36 +103,36 @@ class WebDavRemoteSyncFacade(
         }
     }
 
-    private suspend fun enqueueRustCycle(message: String): WebDavSyncResult =
-        when (
-            val outcome =
-                rustSyncScheduler.enqueueOneShot(
-                    secretFieldKey = CredentialField.WEBDAV_PASSWORD.name,
-                )
-        ) {
-            is RustSyncEnqueueOutcome.Accepted -> WebDavSyncResult.Accepted(message)
-            is RustSyncEnqueueOutcome.Rejected ->
-                when (outcome.reason) {
-                    RustSyncEnqueueRejection.NO_DIRECT_ROOT ->
-                        WebDavSyncResult.Error(
-                            code = WebDavSyncErrorCode.UNKNOWN,
-                            message = "WebDAV sync requires a direct local directory path",
-                        )
-                    RustSyncEnqueueRejection.NO_ACTIVE_BACKEND,
-                    RustSyncEnqueueRejection.INCOMPLETE_CONFIG,
-                    -> WebDavSyncResult.NotConfigured
-                }
-        }
+    private suspend fun enqueueRustCycle(message: String): WebDavSyncResult = when (
+        val outcome =
+            rustSyncScheduler.enqueueOneShot(
+                secretFieldKey = CredentialField.WEBDAV_PASSWORD.name,
+            )
+    ) {
+        is RustSyncEnqueueOutcome.Accepted -> WebDavSyncResult.Accepted(message)
+
+        is RustSyncEnqueueOutcome.Rejected ->
+            when (outcome.reason) {
+                RustSyncEnqueueRejection.NO_DIRECT_ROOT ->
+                    WebDavSyncResult.Error(
+                        code = WebDavSyncErrorCode.UNKNOWN,
+                        message = "WebDAV sync requires a direct local directory path",
+                    )
+
+                RustSyncEnqueueRejection.NO_ACTIVE_BACKEND,
+                RustSyncEnqueueRejection.INCOMPLETE_CONFIG,
+                -> WebDavSyncResult.NotConfigured
+            }
+    }
 
     private fun revokeLeaseQuietly(leaseId: String) {
         runCatching { secretSupplier.revokeLease(leaseId) }
         // behavior-contract: silent-result-ok: revoke best-effort; process death drops leases
     }
 
-    private fun RemoteSyncBoundaryFailure.toWebDavResult(): WebDavSyncResult =
-        WebDavSyncResult.Error(
-            code = WebDavSyncErrorCode.UNKNOWN,
-            message = diagnostic.ifBlank { code },
-            exception = this,
-        )
+    private fun RemoteSyncBoundaryFailure.toWebDavResult(): WebDavSyncResult = WebDavSyncResult.Error(
+        code = WebDavSyncErrorCode.UNKNOWN,
+        message = diagnostic.ifBlank { code },
+        exception = this,
+    )
 }

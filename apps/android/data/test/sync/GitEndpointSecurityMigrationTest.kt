@@ -60,150 +60,149 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 
-class GitEndpointSecurityMigrationTest : FunSpec({
-    test("user+password userinfo moves into credential store and url is sanitized") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-            fixture.dataStore.updateGitRemoteUrl("https://alice:s3cret@example.com/repo.git")
+class GitEndpointSecurityMigrationTest :
+    FunSpec({
+        test("user+password userinfo moves into credential store and url is sanitized") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
+                fixture.dataStore.updateGitRemoteUrl("https://alice:s3cret@example.com/repo.git")
 
-            fixture.migration.migrateIfNeeded()
+                fixture.migration.migrateIfNeeded()
 
-            fixture.dataStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
-            fixture.credentials.writes shouldBe
-                listOf(
-                    CredentialField.GIT_TOKEN to "s3cret",
-                    CredentialField.GIT_USERNAME to "alice",
+                fixture.dataStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
+                fixture.credentials.writes shouldBe
+                    listOf(
+                        CredentialField.GIT_TOKEN to "s3cret",
+                        CredentialField.GIT_USERNAME to "alice",
+                    )
+                fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+            }
+        }
+
+        test("username-only userinfo writes only the username and preserves the token") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
+                fixture.dataStore.updateGitRemoteUrl("https://alice@example.com/repo.git")
+
+                fixture.migration.migrateIfNeeded()
+
+                fixture.dataStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
+                fixture.credentials.writes shouldBe listOf(CredentialField.GIT_USERNAME to "alice")
+            }
+        }
+
+        test("percent-encoded userinfo is decoded before storing") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
+                fixture.dataStore.updateGitRemoteUrl(
+                    "https://user%40corp.com:p%3Ass%E4%B8%AD@example.com/repo.git",
                 )
-            fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+
+                fixture.migration.migrateIfNeeded()
+
+                fixture.dataStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
+                fixture.credentials.writes shouldBe
+                    listOf(
+                        CredentialField.GIT_TOKEN to "p:ss中",
+                        CredentialField.GIT_USERNAME to "user@corp.com",
+                    )
+            }
         }
-    }
 
-    test("username-only userinfo writes only the username and preserves the token") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-            fixture.dataStore.updateGitRemoteUrl("https://alice@example.com/repo.git")
+        test("scp-like endpoint fails closed by dropping the remote") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
+                fixture.dataStore.updateGitRemoteUrl("git@example.com:alice/repo.git")
 
-            fixture.migration.migrateIfNeeded()
+                fixture.migration.migrateIfNeeded()
 
-            fixture.dataStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
-            fixture.credentials.writes shouldBe listOf(CredentialField.GIT_USERNAME to "alice")
+                fixture.dataStore.gitRemoteUrl.first() shouldBe null
+                fixture.credentials.writes.shouldBeEmpty()
+                fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+            }
         }
-    }
 
-    test("percent-encoded userinfo is decoded before storing") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-            fixture.dataStore.updateGitRemoteUrl(
-                "https://user%40corp.com:p%3Ass%E4%B8%AD@example.com/repo.git",
-            )
+        test("host:path scp-like endpoint without userinfo is dropped") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
+                fixture.dataStore.updateGitRemoteUrl("example.com:alice/repo.git")
 
-            fixture.migration.migrateIfNeeded()
+                fixture.migration.migrateIfNeeded()
 
-            fixture.dataStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
-            fixture.credentials.writes shouldBe
-                listOf(
-                    CredentialField.GIT_TOKEN to "p:ss中",
-                    CredentialField.GIT_USERNAME to "user@corp.com",
-                )
+                fixture.dataStore.gitRemoteUrl.first() shouldBe null
+                fixture.credentials.writes.shouldBeEmpty()
+                fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+            }
         }
-    }
 
-    test("scp-like endpoint fails closed by dropping the remote") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-            fixture.dataStore.updateGitRemoteUrl("git@example.com:alice/repo.git")
+        test("host:port scp-like endpoint is dropped") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
+                fixture.dataStore.updateGitRemoteUrl("example.com:2222/alice/repo.git")
 
-            fixture.migration.migrateIfNeeded()
+                fixture.migration.migrateIfNeeded()
 
-            fixture.dataStore.gitRemoteUrl.first() shouldBe null
-            fixture.credentials.writes.shouldBeEmpty()
-            fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+                fixture.dataStore.gitRemoteUrl.first() shouldBe null
+                fixture.credentials.writes.shouldBeEmpty()
+                fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+            }
         }
-    }
 
-    test("host:path scp-like endpoint without userinfo is dropped") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-            fixture.dataStore.updateGitRemoteUrl("example.com:alice/repo.git")
+        test("path prefix before a colon is not scp-like and stays untouched") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
+                // A `dir/name:rest` shape has no scheme and a `/` before the colon — not SSH.
+                fixture.dataStore.updateGitRemoteUrl("relative/dir:repo.git")
 
-            fixture.migration.migrateIfNeeded()
+                fixture.migration.migrateIfNeeded()
 
-            fixture.dataStore.gitRemoteUrl.first() shouldBe null
-            fixture.credentials.writes.shouldBeEmpty()
-            fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+                fixture.dataStore.gitRemoteUrl.first() shouldBe "relative/dir:repo.git"
+                fixture.credentials.writes.shouldBeEmpty()
+                fixture.events.shouldBeEmpty()
+            }
         }
-    }
 
-    test("host:port scp-like endpoint is dropped") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-            fixture.dataStore.updateGitRemoteUrl("example.com:2222/alice/repo.git")
+        test("clean https remote is a no-op") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
+                fixture.dataStore.updateGitRemoteUrl("https://example.com/repo.git")
 
-            fixture.migration.migrateIfNeeded()
+                fixture.migration.migrateIfNeeded()
 
-            fixture.dataStore.gitRemoteUrl.first() shouldBe null
-            fixture.credentials.writes.shouldBeEmpty()
-            fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+                fixture.dataStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
+                fixture.credentials.writes.shouldBeEmpty()
+                fixture.events.shouldBeEmpty()
+            }
         }
-    }
 
-    test("path prefix before a colon is not scp-like and stays untouched") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-            // A `dir/name:rest` shape has no scheme and a `/` before the colon — not SSH.
-            fixture.dataStore.updateGitRemoteUrl("relative/dir:repo.git")
+        test("second run after migration stays a no-op") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
+                fixture.dataStore.updateGitRemoteUrl("https://alice:s3cret@example.com/repo.git")
 
-            fixture.migration.migrateIfNeeded()
+                fixture.migration.migrateIfNeeded()
+                val writesAfterFirst = fixture.credentials.writes.toList()
+                val eventsAfterFirst = fixture.events.toList()
+                fixture.migration.migrateIfNeeded()
 
-            fixture.dataStore.gitRemoteUrl.first() shouldBe "relative/dir:repo.git"
-            fixture.credentials.writes.shouldBeEmpty()
-            fixture.events.shouldBeEmpty()
+                fixture.credentials.writes shouldBe writesAfterFirst
+                fixture.events shouldBe eventsAfterFirst
+            }
         }
-    }
 
-    test("clean https remote is a no-op") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-            fixture.dataStore.updateGitRemoteUrl("https://example.com/repo.git")
+        test("empty remote is a no-op") {
+            runTest {
+                val fixture = MigrationFixture(backgroundScope)
 
-            fixture.migration.migrateIfNeeded()
+                fixture.migration.migrateIfNeeded()
 
-            fixture.dataStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
-            fixture.credentials.writes.shouldBeEmpty()
-            fixture.events.shouldBeEmpty()
+                fixture.credentials.writes.shouldBeEmpty()
+                fixture.events.shouldBeEmpty()
+            }
         }
-    }
+    })
 
-    test("second run after migration stays a no-op") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-            fixture.dataStore.updateGitRemoteUrl("https://alice:s3cret@example.com/repo.git")
-
-            fixture.migration.migrateIfNeeded()
-            val writesAfterFirst = fixture.credentials.writes.toList()
-            val eventsAfterFirst = fixture.events.toList()
-            fixture.migration.migrateIfNeeded()
-
-            fixture.credentials.writes shouldBe writesAfterFirst
-            fixture.events shouldBe eventsAfterFirst
-        }
-    }
-
-    test("empty remote is a no-op") {
-        runTest {
-            val fixture = MigrationFixture(backgroundScope)
-
-            fixture.migration.migrateIfNeeded()
-
-            fixture.credentials.writes.shouldBeEmpty()
-            fixture.events.shouldBeEmpty()
-        }
-    }
-})
-
-private class MigrationFixture(
-    scope: CoroutineScope,
-) {
+private class MigrationFixture(scope: CoroutineScope) {
     val events = mutableListOf<String>()
     val dataStore: LomoDataStore = createMigrationDataStore(scope)
     val credentials = TestCredentialRepository(mutableMapOf())

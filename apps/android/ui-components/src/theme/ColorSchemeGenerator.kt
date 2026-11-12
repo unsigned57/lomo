@@ -4,20 +4,25 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 import com.lomo.domain.model.ColorPresetId
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.hct.Hct
-import com.materialkolor.scheme.SchemeTonalSpot
+import com.materialkolor.scheme.SchemeFidelity
 
 /**
- * The canonical seed palette uses Material Color Utilities HCT, Tonal Spot and the 2025 spec.
+ * The canonical seed palette uses Material Color Utilities HCT, Fidelity and the 2025 spec.
  * All roles, including fixed accents, belong to the selected seed. Wallpaper colors are resolved
  * separately by the platform in resolveLomoColorScheme; no Android or Compose runtime is needed here.
  */
-fun colorSchemeFromSeed(seedArgb: Int, isDark: Boolean): ColorScheme {
-    val scheme = SchemeTonalSpot(
+fun colorSchemeFromSeed(
+    seedArgb: Int,
+    isDark: Boolean,
+    contrastLevel: ContrastLevel = ContrastLevel.default(),
+): ColorScheme {
+    val scheme = SchemeFidelity(
         sourceColorHct = Hct.fromInt(seedArgb),
         isDark = isDark,
-        contrastLevel = 0.0,
+        contrastLevel = contrastLevel.contrastValue,
         specVersion = ColorSpec.SpecVersion.SPEC_2025,
     )
     return ColorScheme(
@@ -73,9 +78,8 @@ fun colorSchemeFromSeed(seedArgb: Int, isDark: Boolean): ColorScheme {
 }
 
 /** Android versions without wallpaper extraction use the domain's Indigo default seed. */
-internal fun ColorSource.resolvePresetSeedArgb(): Int =
-    when (this) {
-        is ColorSource.Preset -> id.seedArgb
-        is ColorSource.CustomSeed -> argb
-        is ColorSource.DynamicWallpaper -> ColorPresetId.INDIGO.seedArgb
-    }
+internal fun ColorSource.resolvePresetSeedArgb(): Int = when (this) {
+    is ColorSource.Preset -> id.seedArgb
+    is ColorSource.CustomSeed -> argb
+    is ColorSource.DynamicWallpaper -> ColorPresetId.INDIGO.seedArgb
+}

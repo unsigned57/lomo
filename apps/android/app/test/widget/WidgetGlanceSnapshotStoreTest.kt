@@ -30,12 +30,9 @@ package com.lomo.app.widget
  * - Why this is not fitting the test to the implementation: typed availability is the required snapshot contract.
  */
 
-// architectural-boundary-check: pins the persisted snapshot file format — the assertions on
-// file bytes verify the durable contract, not Kotlin source text.
-
 import com.lomo.app.testing.AppFunSpec
-import io.kotest.matchers.shouldBe
 import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.matchers.shouldBe
 import kotlin.io.path.createTempDirectory
 
 class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
@@ -133,13 +130,13 @@ class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
                     projectionStamp = 9L,
                     availability = WidgetSnapshotAvailability.REDACTED,
                     items =
-                        listOf(
-                            WidgetGlanceSnapshotItem(
-                                id = "memo-1",
-                                timestampMillis = 1_000L,
-                                previewText = "",
-                            ),
+                    listOf(
+                        WidgetGlanceSnapshotItem(
+                            id = "memo-1",
+                            timestampMillis = 1_000L,
+                            previewText = "",
                         ),
+                    ),
                 )
 
                 val read = store.read() as WidgetGlanceSnapshot.Ready

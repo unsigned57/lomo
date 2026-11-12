@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! adversarial re-audit: the repaired rendering clipping contract (I6) and
 //! picker highlight ↔ Enter execution consistency (C-02, under I2).
 //!
@@ -707,7 +716,7 @@ mod tests {
     /// placement filter must clip protocol cells to `page.area`.
     #[test]
     fn ready_image_cells_stay_inside_the_reader_area() {
-        let mut picker = ratatui_image::picker::Picker::from_fontsize((8, 16));
+        let mut picker = crate::support::picker_with_font_size((8, 16));
         picker.set_protocol_type(ratatui_image::picker::ProtocolType::Halfblocks);
         let mut png = Vec::new();
         image::DynamicImage::new_rgba8(8, 8)

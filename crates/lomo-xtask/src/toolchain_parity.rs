@@ -16,6 +16,7 @@ use serde::Serialize;
 use yaml_rust2::Yaml;
 
 use crate::{
+    android::CompileSdk,
     util::load_yaml_document,
     workspace::{ANDROID_API, NDK_VERSION},
 };
@@ -66,7 +67,7 @@ pub struct ToolchainParity {
 #[derive(Clone, Debug)]
 struct Canonical {
     min_sdk: String,
-    compile_sdk: String,
+    compile_sdk: CompileSdk,
     target_sdk: String,
     jvm_release: String,
     jdk_version: String,
@@ -74,13 +75,15 @@ struct Canonical {
     junit: String,
     warnings_as_errors: String,
     serialization: String,
+    kotlin_version: String,
+    compose_version: String,
 }
 
 impl Canonical {
     fn pinned_facts(&self) -> BTreeMap<String, String> {
         BTreeMap::from([
             ("minSdk".to_owned(), self.min_sdk.clone()),
-            ("compileSdk".to_owned(), self.compile_sdk.clone()),
+            ("compileSdk".to_owned(), self.compile_sdk.to_string()),
             ("targetSdk".to_owned(), self.target_sdk.clone()),
             ("jvm.release".to_owned(), self.jvm_release.clone()),
             ("jdk.version".to_owned(), self.jdk_version.clone()),
@@ -89,6 +92,8 @@ impl Canonical {
                 self.jdk_selection_mode.clone(),
             ),
             ("junit".to_owned(), self.junit.clone()),
+            ("kotlin.version".to_owned(), self.kotlin_version.clone()),
+            ("compose.version".to_owned(), self.compose_version.clone()),
             (
                 "kotlin.allWarningsAsErrors".to_owned(),
                 self.warnings_as_errors.clone(),
@@ -181,8 +186,13 @@ fn load_canonical(root: &Path) -> Result<Canonical> {
             .with_context(|| format!("{APP_MANIFEST} must declare settings.{pin}"))
     };
     Ok(Canonical {
+        kotlin_version: required("kotlin.version", &["settings", "kotlin", "version"])?,
+        compose_version: required("compose.version", &["settings", "compose", "version"])?,
         min_sdk: required("android.minSdk", &["settings", "android", "minSdk"])?,
-        compile_sdk: required("android.compileSdk", &["settings", "android", "compileSdk"])?,
+        compile_sdk: CompileSdk::from_yaml(
+            nested(&manifest, &["settings", "android", "compileSdk"])
+                .context("canonical compileSdk is missing")?,
+        )?,
         target_sdk: required("android.targetSdk", &["settings", "android", "targetSdk"])?,
         jvm_release: required("jvm.release", &["settings", "jvm", "release"])?,
         jdk_version: required("jvm.jdk.version", &["settings", "jvm", "jdk", "version"])?,
@@ -227,6 +237,11 @@ fn module_pins_violations(
     // Uniform pins: every registered Amper module must restate them identically.
     for (pin, path, expected) in [
         (
+            "kotlin.version",
+            &["settings", "kotlin", "version"][..],
+            canonical.kotlin_version.as_str(),
+        ),
+        (
             "jvm.release",
             &["settings", "jvm", "release"][..],
             canonical.jvm_release.as_str(),
@@ -249,6 +264,17 @@ fn module_pins_violations(
     ] {
         compare_pin(manifest, location, pin, path, expected, true, violations);
     }
+    if nested(manifest, &["settings", "compose"]).is_some() {
+        compare_pin(
+            manifest,
+            location,
+            "compose.version",
+            &["settings", "compose", "version"],
+            canonical.compose_version.as_str(),
+            true,
+            violations,
+        );
+    }
     // `junit` is declared only by test-bearing modules; where declared it is the same pin.
     compare_pin(
         manifest,
@@ -261,21 +287,29 @@ fn module_pins_violations(
     );
     // Android SDK levels are pinned facts wherever a module declares an Android surface.
     if nested(manifest, &["settings", "android"]).is_some() {
-        for key in ["minSdk", "compileSdk"] {
-            let expected = if key == "minSdk" {
-                canonical.min_sdk.as_str()
-            } else {
-                canonical.compile_sdk.as_str()
-            };
-            compare_pin(
-                manifest,
-                location,
-                key,
-                &["settings", "android", key],
+        compare_pin(
+            manifest,
+            location,
+            "minSdk",
+            &["settings", "android", "minSdk"],
+            canonical.min_sdk.as_str(),
+            true,
+            violations,
+        );
+        let found = match nested(manifest, &["settings", "android", "compileSdk"]) {
+            Some(value) => CompileSdk::from_yaml(value)
+                .with_context(|| format!("{location} has invalid compileSdk"))?
+                .to_string(),
+            None => MISSING.to_owned(),
+        };
+        let expected = canonical.compile_sdk.to_string();
+        if found != expected {
+            violations.push(PinViolation {
+                location: location.to_owned(),
+                pin: "compileSdk".to_owned(),
+                found,
                 expected,
-                true,
-                violations,
-            );
+            });
         }
     }
     compare_pin(

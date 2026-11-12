@@ -61,9 +61,8 @@ internal data class LanShareInterfaceProbe(
     val isPointToPoint: Boolean,
 )
 
-internal fun resolveLanShareBindHost(connectivityManager: ConnectivityManager?): String? {
-    return resolveLanShareActiveNetworkSnapshot(connectivityManager)?.bindHost
-}
+internal fun resolveLanShareBindHost(connectivityManager: ConnectivityManager?): String? =
+    resolveLanShareActiveNetworkSnapshot(connectivityManager)?.bindHost
 
 internal fun resolveLanShareActiveNetworkSnapshot(
     connectivityManager: ConnectivityManager?,
@@ -71,9 +70,8 @@ internal fun resolveLanShareActiveNetworkSnapshot(
 ): LanShareActiveNetworkSnapshot? =
     resolveLanShareEligibleNetworkSnapshots(connectivityManager, candidateNetworks).firstOrNull()
 
-internal fun selectLanShareActiveNetworkSnapshot(
-    probes: List<LanShareNetworkProbe>,
-): LanShareActiveNetworkSnapshot? = selectLanShareEligibleNetworkSnapshots(probes).firstOrNull()
+internal fun selectLanShareActiveNetworkSnapshot(probes: List<LanShareNetworkProbe>): LanShareActiveNetworkSnapshot? =
+    selectLanShareEligibleNetworkSnapshots(probes).firstOrNull()
 
 internal fun selectLanShareInterfaceFallbackSnapshot(
     probes: List<LanShareInterfaceProbe>,

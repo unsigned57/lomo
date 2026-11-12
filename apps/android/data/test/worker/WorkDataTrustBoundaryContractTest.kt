@@ -29,10 +29,10 @@ package com.lomo.data.worker
  * - WorkManager scheduling internals and credential store encryption mechanics.
  */
 
+import android.content.Context
 import androidx.work.Data
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
-import android.content.Context
 import com.lomo.data.engine.sync.RemoteSyncRetryDisposition
 import com.lomo.data.engine.sync.RemoteSyncRetryHint
 import com.lomo.data.engine.sync.RemoteSyncSecretLease
@@ -168,10 +168,7 @@ class WorkDataTrustBoundaryContractTest : DataFunSpec() {
     ) : RustSyncSecretSupplier {
         val issuedFields = mutableListOf<String>()
 
-        override fun issueLease(
-            fieldKey: String,
-            ttlMillis: Long,
-        ): RemoteSyncSecretLease? {
+        override fun issueLease(fieldKey: String, ttlMillis: Long): RemoteSyncSecretLease? {
             issuedFields += fieldKey
             return leases[fieldKey]?.let { RemoteSyncSecretLease(leaseId = it) }
         }

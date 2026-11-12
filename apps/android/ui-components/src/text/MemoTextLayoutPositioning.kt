@@ -80,10 +80,12 @@ internal fun MemoTextLayout.selectionRangeAtOffset(offset: Int): IntRange {
         line.runs.firstOrNull { run -> offset in run.start until run.end }?.let { run ->
             return when (run.kind) {
                 MemoTextRunKind.Latin -> run.start until run.end
+
                 MemoTextRunKind.Whitespace -> {
                     val start = (offset - 1).coerceAtLeast(0)
                     start until offset.coerceAtLeast(start + 1)
                 }
+
                 else -> selectSingleCodePoint(offset)
             }
         }

@@ -1,11 +1,10 @@
 package com.lomo.ui.text
 
-import android.text.Layout
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.Hyphens
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 
 fun CharSequence.isCjkDominant(): Boolean {
@@ -26,8 +25,7 @@ fun CharSequence.isCjkDominant(): Boolean {
     return hasCjk && (cjkOnly || cjkCount >= alphaNumericCount)
 }
 
-fun CharSequence.scriptAwareTextAlign(): TextAlign =
-    if (shouldUseCjkJustify()) TextAlign.Justify else TextAlign.Start
+fun CharSequence.scriptAwareTextAlign(): TextAlign = if (shouldUseCjkJustify()) TextAlign.Justify else TextAlign.Start
 
 fun CharSequence.shouldUsePlatformCjkJustification(): Boolean = shouldUseCjkJustify()
 
@@ -39,14 +37,14 @@ fun TextStyle.scriptAwareFor(text: CharSequence): TextStyle {
         // Keep Compose text metrics closer to the platform CJK TextView path used by pure-Chinese paragraphs.
         platformStyle = if (cjkAware) PlatformTextStyle(includeFontPadding = false) else platformStyle,
         lineHeightStyle =
-            if (cjkAware) {
-                LineHeightStyle(
-                    alignment = LineHeightStyle.Alignment.Proportional,
-                    trim = LineHeightStyle.Trim.None,
-                )
-            } else {
-                lineHeightStyle
-            },
+        if (cjkAware) {
+            LineHeightStyle(
+                alignment = LineHeightStyle.Alignment.Proportional,
+                trim = LineHeightStyle.Trim.None,
+            )
+        } else {
+            lineHeightStyle
+        },
         // Compose's custom CJK line-break presets interact poorly with punctuation such as quotes and colons.
         // Keep justification eligibility separate from line-break tuning and stay on the default paragraph path.
         lineBreak = LineBreak.Paragraph,

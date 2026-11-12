@@ -1,13 +1,22 @@
 package com.lomo.app.feature.main
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuOpen
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -15,49 +24,70 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.theme.LocalLomoMotion
+import com.lomo.ui.util.LocalAppHapticFeedback
 
 /**
- * Extracted TopBar from MainScreen.kt
+ * Main screen app bar: the compact M3 Expressive bar keeps the Lomo brand mark on the same row as
+ * the drawer, search and filter affordances, so the feed starts directly under one 64 dp row
+ * instead of under a separate brand headline row.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun MainTopBar(
     title: String,
     scrollBehavior: TopAppBarScrollBehavior,
+    menuToggle: MainSidebarToggle,
     onMenu: () -> Unit,
     onSearch: () -> Unit,
     onFilter: () -> Unit,
     onClearFilter: () -> Unit,
     isFilterActive: Boolean,
-    showNavigationIcon: Boolean = true,
 ) {
-    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    val haptic = LocalAppHapticFeedback.current
+    val componentMotion = LocalLomoMotion.current.component
     TopAppBar(
-        title = { Text(title) },
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLargeEmphasized,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
         navigationIcon = {
-            if (showNavigationIcon) {
-                MainTopBarIconButton(
-                    icon = Icons.Rounded.Menu,
-                    contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_menu),
-                    modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_DRAWER_BUTTON),
-                    onClick = {
-                        haptic.medium()
-                        onMenu()
-                    },
-                )
-            }
+            MainTopBarIconButton(
+                icon = menuToggle.icon(),
+                contentDescription = stringResource(menuToggle.contentDescriptionRes()),
+                modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_DRAWER_BUTTON),
+                onClick = {
+                    haptic.medium()
+                    onMenu()
+                },
+            )
         },
         actions = {
-            androidx.compose.animation.AnimatedVisibility(
+            AnimatedVisibility(
                 visible = isFilterActive,
-                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandHorizontally(),
-                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkHorizontally(),
+                enter =
+                fadeIn(componentMotion.fastEffectsSpec()) +
+                    scaleIn(initialScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()) +
+                    expandHorizontally(animationSpec = componentMotion.fastSpatialSpec()),
+                exit =
+                fadeOut(componentMotion.fastEffectsSpec()) +
+                    scaleOut(targetScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()) +
+                    shrinkHorizontally(animationSpec = componentMotion.fastSpatialSpec()),
             ) {
                 MainTopBarIconButton(
                     icon = Icons.Rounded.Close,
-                    contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_clear_filter),
+                    contentDescription = stringResource(R.string.cd_clear_filter),
                     onClick = {
                         haptic.medium()
                         onClearFilter()
@@ -66,7 +96,7 @@ internal fun MainTopBar(
             }
             MainTopBarIconButton(
                 icon = Icons.Rounded.Search,
-                contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_search),
+                contentDescription = stringResource(R.string.cd_search),
                 modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_SEARCH_BUTTON),
                 onClick = {
                     haptic.medium()
@@ -75,7 +105,8 @@ internal fun MainTopBar(
             )
             MainTopBarIconButton(
                 icon = Icons.Rounded.FilterList,
-                contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_filter),
+                contentDescription = stringResource(R.string.cd_filter),
+                isHighlighted = isFilterActive,
                 modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_FILTER_BUTTON),
                 onClick = {
                     haptic.medium()
@@ -84,23 +115,34 @@ internal fun MainTopBar(
             )
         },
         colors =
-            TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
+        TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
         scrollBehavior = scrollBehavior,
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MainTopBarIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     contentDescription: String,
     modifier: Modifier = Modifier,
+    isHighlighted: Boolean = false,
     onClick: () -> Unit,
 ) {
-    IconButton(
+    LomoIconButton(
         onClick = onClick,
+        colors =
+        if (isHighlighted) {
+            IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        } else {
+            IconButtonDefaults.iconButtonColors()
+        },
         modifier = modifier,
     ) {
         Icon(
@@ -108,4 +150,16 @@ private fun MainTopBarIconButton(
             contentDescription = contentDescription,
         )
     }
+}
+
+/** The navigation button names what a press does: open the drawer, or collapse / expand the docked pane. */
+private fun MainSidebarToggle.contentDescriptionRes(): Int = when (this) {
+    MainSidebarToggle.OpenDrawer -> R.string.cd_menu
+    MainSidebarToggle.CollapsePane -> R.string.cd_collapse_sidebar
+    MainSidebarToggle.ExpandPane -> R.string.cd_expand_sidebar
+}
+
+private fun MainSidebarToggle.icon(): ImageVector = when (this) {
+    MainSidebarToggle.CollapsePane -> Icons.AutoMirrored.Rounded.MenuOpen
+    MainSidebarToggle.OpenDrawer, MainSidebarToggle.ExpandPane -> Icons.Rounded.Menu
 }

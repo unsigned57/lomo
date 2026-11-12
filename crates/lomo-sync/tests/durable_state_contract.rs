@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract (P5-03 durable session/baseline/tombstone)
 //!
 //! Capability: durable `.lomo/sync/v1` records use schema/checksum/size limits; corrupt bytes
@@ -45,7 +54,7 @@ mod tests {
     #[test]
     fn session_round_trips_on_disk() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session =
             SyncSession::new(fence(), SessionKind::FirstTakeover, "session-1").expect("session");
         write_session(&paths, &session).expect("write");
@@ -59,10 +68,10 @@ mod tests {
     #[test]
     fn baseline_empty_when_missing_and_round_trips_when_present() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let empty = read_baseline(&paths).expect("missing is empty");
         assert!(!empty.is_established());
-        assert!(empty.entries.is_empty());
+        assert_eq!(empty.entries, Vec::<lomo_sync::BaselineEntry>::new());
 
         let mut head = BaselineHead::empty();
         head.fence = Some(fence());
@@ -75,7 +84,7 @@ mod tests {
     #[test]
     fn corrupt_magic_is_corrupt_state_not_clean_slate() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
         let corrupt = b"BAD!\x01\x00\x00\x00";
         fs::write(&paths.session, corrupt).expect("seed corrupt");
@@ -138,7 +147,7 @@ mod tests {
     #[test]
     fn cycle_lock_path_is_exclusive_without_sleep() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
         assert!(
             paths.cycle_lock.starts_with(&paths.root),

@@ -129,14 +129,14 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 resolvePendingLaunchCommandEntryFlowState(
                     command = command,
                     readiness =
-                        EntryFlowReadiness(
-                            appLock = EntryAppLockState.Resolving,
-                            configuredCapabilities =
-                                setOf(
-                                    EntryCapability.RootWorkspace,
-                                    EntryCapability.ImageWorkspace,
-                                ),
+                    EntryFlowReadiness(
+                        appLock = EntryAppLockState.Resolving,
+                        configuredCapabilities =
+                        setOf(
+                            EntryCapability.RootWorkspace,
+                            EntryCapability.ImageWorkspace,
                         ),
+                    ),
                 )
 
             state shouldBe EntryFlowState.WaitingForAppLockResolution(
@@ -154,14 +154,14 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 resolvePendingLaunchCommandEntryFlowState(
                     command = command,
                     readiness =
-                        EntryFlowReadiness(
-                            appLock = EntryAppLockState.Locked,
-                            configuredCapabilities =
-                                setOf(
-                                    EntryCapability.RootWorkspace,
-                                    EntryCapability.ImageWorkspace,
-                                ),
+                    EntryFlowReadiness(
+                        appLock = EntryAppLockState.Locked,
+                        configuredCapabilities =
+                        setOf(
+                            EntryCapability.RootWorkspace,
+                            EntryCapability.ImageWorkspace,
                         ),
+                    ),
                 )
 
             state shouldBe EntryFlowState.BlockedByAppLock(
@@ -181,10 +181,10 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 resolveEntryFlowState(
                     request = EntryFlowRequest.DefaultLaunch,
                     readiness =
-                        EntryFlowReadiness(
-                            appLock = EntryAppLockState.Locked,
-                            configuredCapabilities = setOf(EntryCapability.RootWorkspace),
-                        ),
+                    EntryFlowReadiness(
+                        appLock = EntryAppLockState.Locked,
+                        configuredCapabilities = setOf(EntryCapability.RootWorkspace),
+                    ),
                 )
 
             state shouldBe EntryFlowState.BlockedByAppLock(request = EntryFlowRequest.DefaultLaunch)
@@ -198,14 +198,14 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 resolveEntryFlowState(
                     request = EntryFlowRequest.PendingCommand(command),
                     readiness =
-                        EntryFlowReadiness(
-                            appLock = EntryAppLockState.Locked,
-                            configuredCapabilities =
-                                setOf(
-                                    EntryCapability.RootWorkspace,
-                                    EntryCapability.ImageWorkspace,
-                                ),
+                    EntryFlowReadiness(
+                        appLock = EntryAppLockState.Locked,
+                        configuredCapabilities =
+                        setOf(
+                            EntryCapability.RootWorkspace,
+                            EntryCapability.ImageWorkspace,
                         ),
+                    ),
                 )
 
             state shouldBe EntryFlowState.BlockedByAppLock(
@@ -223,11 +223,11 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 resolvePendingLaunchCommandEntryFlowState(
                     command = command,
                     readiness =
-                        EntryFlowReadiness(
-                            appLock = EntryAppLockState.Unlocked,
-                            workspace = EntryWorkspaceState.Preparing,
-                            configuredCapabilities = setOf(EntryCapability.RootWorkspace),
-                        ),
+                    EntryFlowReadiness(
+                        appLock = EntryAppLockState.Unlocked,
+                        workspace = EntryWorkspaceState.Preparing,
+                        configuredCapabilities = setOf(EntryCapability.RootWorkspace),
+                    ),
                 )
 
             state shouldBe EntryFlowState.WaitingForWorkspaceReadiness(
@@ -245,10 +245,10 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 resolvePendingLaunchCommandEntryFlowState(
                     command = command,
                     readiness =
-                        EntryFlowReadiness(
-                            appLock = EntryAppLockState.Unlocked,
-                            configuredCapabilities = emptySet(),
-                        ),
+                    EntryFlowReadiness(
+                        appLock = EntryAppLockState.Unlocked,
+                        configuredCapabilities = emptySet(),
+                    ),
                 )
 
             state shouldBe
@@ -268,10 +268,10 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 resolvePendingLaunchCommandEntryFlowState(
                     command = command,
                     readiness =
-                        EntryFlowReadiness(
-                            appLock = EntryAppLockState.Unlocked,
-                            configuredCapabilities = setOf(EntryCapability.RootWorkspace),
-                        ),
+                    EntryFlowReadiness(
+                        appLock = EntryAppLockState.Unlocked,
+                        configuredCapabilities = setOf(EntryCapability.RootWorkspace),
+                    ),
                 )
 
             state shouldBe
@@ -294,10 +294,10 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 EntryFlowReadiness(
                     appLock = EntryAppLockState.Unlocked,
                     configuredCapabilities =
-                        setOf(
-                            EntryCapability.RootWorkspace,
-                            EntryCapability.ImageWorkspace,
-                        ),
+                    setOf(
+                        EntryCapability.RootWorkspace,
+                        EntryCapability.ImageWorkspace,
+                    ),
                 )
 
             resolvePendingLaunchCommandEntryFlowState(
@@ -316,10 +316,10 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 resolveEntryFlowState(
                     request = EntryFlowRequest.DefaultLaunch,
                     readiness =
-                        EntryFlowReadiness(
-                            appLock = EntryAppLockState.Unlocked,
-                            configuredCapabilities = setOf(EntryCapability.RootWorkspace),
-                        ),
+                    EntryFlowReadiness(
+                        appLock = EntryAppLockState.Unlocked,
+                        configuredCapabilities = setOf(EntryCapability.RootWorkspace),
+                    ),
                 )
 
             state shouldBe EntryFlowState.ReadyForDefaultLaunch
@@ -349,13 +349,13 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 resolvePendingLaunchCommandEntryFlowState(
                     command = command,
                     readiness =
-                        EntryFlowReadiness(
-                            appLock = EntryAppLockState.Unlocked,
-                            workspace = EntryWorkspaceState.ReadOnlyRecovery,
-                            configuredCapabilities = setOf(EntryCapability.RootWorkspace),
-                            recoveryCode = "journal_corrupt",
-                            recoveryDiagnostic = "checksum mismatch",
-                        ),
+                    EntryFlowReadiness(
+                        appLock = EntryAppLockState.Unlocked,
+                        workspace = EntryWorkspaceState.ReadOnlyRecovery,
+                        configuredCapabilities = setOf(EntryCapability.RootWorkspace),
+                        recoveryCode = "journal_corrupt",
+                        recoveryDiagnostic = "checksum mismatch",
+                    ),
                 )
 
             state shouldBe
@@ -388,11 +388,11 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                     readiness = com.lomo.domain.model.EngineReadiness.Ready,
                     location = com.lomo.domain.model.StorageLocation("/workspace"),
                     authority =
-                        com.lomo.domain.model.WorkspaceAuthority(
-                            workspaceId = "w",
-                            generation = 1,
-                            projectionRevision = 1uL,
-                        ),
+                    com.lomo.domain.model.WorkspaceAuthority(
+                        workspaceId = "w",
+                        generation = 1,
+                        projectionRevision = 1uL,
+                    ),
                     freshness = com.lomo.domain.model.ProjectionFreshness.Verified(1uL),
                 ),
             ).first shouldBe EntryWorkspaceState.Ready
@@ -400,12 +400,12 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 entryWorkspaceStateFor(
                     com.lomo.domain.model.WorkspaceMount(
                         readiness =
-                            com.lomo.domain.model.EngineReadiness.ReadOnlyRecovery(
-                                category = com.lomo.domain.model.EngineFailureCategory.CORRUPTION,
-                                code = "journal_corrupt",
-                                retryDisposition = com.lomo.domain.model.EngineRetryDisposition.NEVER,
-                                diagnostic = "checksum mismatch",
-                            ),
+                        com.lomo.domain.model.EngineReadiness.ReadOnlyRecovery(
+                            category = com.lomo.domain.model.EngineFailureCategory.CORRUPTION,
+                            code = "journal_corrupt",
+                            retryDisposition = com.lomo.domain.model.EngineRetryDisposition.NEVER,
+                            diagnostic = "checksum mismatch",
+                        ),
                         location = null,
                         authority = null,
                         freshness = com.lomo.domain.model.ProjectionFreshness.Unavailable,
@@ -427,11 +427,11 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                     readiness = com.lomo.domain.model.EngineReadiness.Ready,
                     location = com.lomo.domain.model.StorageLocation("/workspace"),
                     authority =
-                        com.lomo.domain.model.WorkspaceAuthority(
-                            workspaceId = "w",
-                            generation = 1,
-                            projectionRevision = 2uL,
-                        ),
+                    com.lomo.domain.model.WorkspaceAuthority(
+                        workspaceId = "w",
+                        generation = 1,
+                        projectionRevision = 2uL,
+                    ),
                     freshness = com.lomo.domain.model.ProjectionFreshness.Unavailable,
                 ),
             ).forEach { mount ->
@@ -499,10 +499,8 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
     }
 }
 
-private class TestIntent(
-    private val actionValue: String,
-    private val stringExtras: Map<String, String> = emptyMap(),
-) : Intent() {
+private class TestIntent(private val actionValue: String, private val stringExtras: Map<String, String> = emptyMap()) :
+    Intent() {
     private val mutableStringExtras = stringExtras.toMutableMap()
     private var mutableFlags: Int = 0
 
@@ -517,10 +515,7 @@ private class TestIntent(
 
     override fun getStringExtra(name: String): String? = mutableStringExtras[name]
 
-    override fun putExtra(
-        name: String,
-        value: String?,
-    ): Intent {
+    override fun putExtra(name: String, value: String?): Intent {
         if (value == null) {
             mutableStringExtras.remove(name)
         } else {

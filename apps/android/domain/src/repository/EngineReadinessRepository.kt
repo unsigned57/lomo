@@ -1,9 +1,9 @@
 package com.lomo.domain.repository
 
-import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.DerivedIndexRebuildSummary
-import com.lomo.domain.model.RecoveryDiagnosticReport
+import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.ProjectionFreshness
+import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.WorkspaceMount
@@ -49,8 +49,11 @@ interface EngineReadinessRepository {
      */
     val projectionFreshness: StateFlow<ProjectionFreshness>
 
-    /** Reloads the authoritative snapshot after foreground resume or suspected notification loss. */
-    fun resnapshot()
+    /**
+     * Reloads the authoritative snapshot after foreground resume or suspected notification loss.
+     * Suspends on the engine lane: it can wait for an in-flight workspace retirement.
+     */
+    suspend fun resnapshot()
 
     /**
      * Explicitly requests that this process open the native engine, then resolves with the first
@@ -87,8 +90,10 @@ interface EngineReadinessRepository {
      * stays Opening/[ProjectionFreshness.Unavailable]. On hard open failure or soft non-Ready open
      * the previous engine (if any) stays active, Verified is restored when that authority remains,
      * and the error is rethrown. Retry after Recovery is a new [activateWorkspace] generation.
+     * [mediaChange] supplies a prepared attachment replacement explicitly; null binds the committed
+     * media selections. An unfinished journal never implicitly changes this activation input.
      */
-    suspend fun activateWorkspace(location: StorageLocation)
+    suspend fun activateWorkspace(location: StorageLocation, mediaChange: com.lomo.domain.model.MediaDirectoryChange?)
 
     /**
      * Releases the active engine and publishes [EngineReadiness.AwaitingWorkspaceSelection].

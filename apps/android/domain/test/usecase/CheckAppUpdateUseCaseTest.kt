@@ -1,11 +1,11 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.AppUpdateAssetCandidate
-import com.lomo.domain.model.AppUpdateCheckOutcome
-import com.lomo.domain.model.AppUpdateInfo
-import com.lomo.domain.model.AppUpdateFetchFailure
 import com.lomo.domain.model.AppUpdateAssetUnsupportedReason
 import com.lomo.domain.model.AppUpdateAssetVerification
+import com.lomo.domain.model.AppUpdateCheckOutcome
+import com.lomo.domain.model.AppUpdateFetchFailure
+import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeAppRuntimeInfoRepository
@@ -57,30 +57,32 @@ import kotlinx.coroutines.test.runTest
  */
 class CheckAppUpdateUseCaseTest : DomainFunSpec() {
     init {
-        test("given newer release with unsupported first apk and verified later apk when checking manually then verified metadata is preserved") {
+        test(
+            "given newer release with unsupported first apk and verified later apk when checking manually then verified metadata is preserved",
+        ) {
             runTest {
                 val release =
                     latestRelease(
                         tagName = "v1.1.0",
                         body = "new release",
                         assetCandidates =
-                            listOf(
-                                AppUpdateAssetCandidate(
-                                    fileName = "other-app-v1.1.0.apk",
-                                    downloadUrl = "https://example.com/assets/other-app-v1.1.0.apk",
-                                    sizeBytes = 4_096L,
-                                    verification =
-                                        AppUpdateAssetVerification.Unsupported(
-                                            AppUpdateAssetUnsupportedReason.WRONG_PACKAGE,
-                                        ),
-                                ),
-                                verifiedCandidate(
-                                    fileName = "lomo-v1.1.0.apk",
-                                    downloadUrl = "https://example.com/assets/lomo-v1.1.0.apk",
-                                    sizeBytes = 4_096L,
-                                    versionName = "1.1.0",
+                        listOf(
+                            AppUpdateAssetCandidate(
+                                fileName = "other-app-v1.1.0.apk",
+                                downloadUrl = "https://example.com/assets/other-app-v1.1.0.apk",
+                                sizeBytes = 4_096L,
+                                verification =
+                                AppUpdateAssetVerification.Unsupported(
+                                    AppUpdateAssetUnsupportedReason.WRONG_PACKAGE,
                                 ),
                             ),
+                            verifiedCandidate(
+                                fileName = "lomo-v1.1.0.apk",
+                                downloadUrl = "https://example.com/assets/lomo-v1.1.0.apk",
+                                sizeBytes = 4_096L,
+                                versionName = "1.1.0",
+                            ),
+                        ),
                     )
                 val appUpdateRepository = FakeAppUpdateRepository(latestRelease = release)
                 val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.0.0-debug")
@@ -104,16 +106,18 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("given newer release without apk candidate when checking manually then no installable update is returned") {
+        test(
+            "given newer release without apk candidate when checking manually then no installable update is returned",
+        ) {
             runTest {
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v1.1.0",
-                                body = "new release without apk",
-                                assetCandidates = emptyList(),
-                            ),
+                        latestRelease(
+                            tagName = "v1.1.0",
+                            body = "new release without apk",
+                            assetCandidates = emptyList(),
+                        ),
                     )
                 val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.0.0")
 
@@ -133,19 +137,19 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v1.1.0",
-                                body = "new release",
-                                assetCandidates =
-                                    listOf(
-                                        verifiedCandidate(
-                                            fileName = "lomo-v1.1.0.apk",
-                                            downloadUrl = "https://example.com/assets/lomo-v1.1.0.apk",
-                                            sizeBytes = 4_096L,
-                                            versionName = "v1.1.0",
-                                        ),
-                                    ),
+                        latestRelease(
+                            tagName = "v1.1.0",
+                            body = "new release",
+                            assetCandidates =
+                            listOf(
+                                verifiedCandidate(
+                                    fileName = "lomo-v1.1.0.apk",
+                                    downloadUrl = "https://example.com/assets/lomo-v1.1.0.apk",
+                                    sizeBytes = 4_096L,
+                                    versionName = "v1.1.0",
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.0.0")
 
@@ -167,20 +171,20 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v1.5.1",
-                                body = "new build",
-                                assetCandidates =
-                                    listOf(
-                                        verifiedCandidate(
-                                            fileName = "lomo-v1.5.1-44.apk",
-                                            downloadUrl = "https://example.com/assets/lomo-v1.5.1-44.apk",
-                                            sizeBytes = 4_096L,
-                                            versionName = "1.5.1",
-                                            versionCode = 44L,
-                                        ),
-                                    ),
+                        latestRelease(
+                            tagName = "v1.5.1",
+                            body = "new build",
+                            assetCandidates =
+                            listOf(
+                                verifiedCandidate(
+                                    fileName = "lomo-v1.5.1-44.apk",
+                                    downloadUrl = "https://example.com/assets/lomo-v1.5.1-44.apk",
+                                    sizeBytes = 4_096L,
+                                    versionName = "1.5.1",
+                                    versionCode = 44L,
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository =
                     FakeAppRuntimeInfoRepository(
@@ -206,25 +210,27 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("given newer display version with non-upgrade apk version code when checking manually then no update is returned") {
+        test(
+            "given newer display version with non-upgrade apk version code when checking manually then no update is returned",
+        ) {
             runTest {
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v1.6.0",
-                                body = "bad build code",
-                                assetCandidates =
-                                    listOf(
-                                        verifiedCandidate(
-                                            fileName = "lomo-v1.6.0-43.apk",
-                                            downloadUrl = "https://example.com/assets/lomo-v1.6.0-43.apk",
-                                            sizeBytes = 4_096L,
-                                            versionName = "1.6.0",
-                                            versionCode = 43L,
-                                        ),
-                                    ),
+                        latestRelease(
+                            tagName = "v1.6.0",
+                            body = "bad build code",
+                            assetCandidates =
+                            listOf(
+                                verifiedCandidate(
+                                    fileName = "lomo-v1.6.0-43.apk",
+                                    downloadUrl = "https://example.com/assets/lomo-v1.6.0-43.apk",
+                                    sizeBytes = 4_096L,
+                                    versionName = "1.6.0",
+                                    versionCode = 43L,
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository =
                     FakeAppRuntimeInfoRepository(
@@ -243,25 +249,27 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("given known installed version code and candidate without version code when checking manually then no update is returned") {
+        test(
+            "given known installed version code and candidate without version code when checking manually then no update is returned",
+        ) {
             runTest {
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v1.6.0",
-                                body = "current artifact naming",
-                                assetCandidates =
-                                    listOf(
-                                        verifiedCandidate(
-                                            fileName = "lomo-v1.6.0.apk",
-                                            downloadUrl = "https://example.com/assets/lomo-v1.6.0.apk",
-                                            sizeBytes = 4_096L,
-                                            versionName = "1.6.0",
-                                            versionCode = null,
-                                        ),
-                                    ),
+                        latestRelease(
+                            tagName = "v1.6.0",
+                            body = "current artifact naming",
+                            assetCandidates =
+                            listOf(
+                                verifiedCandidate(
+                                    fileName = "lomo-v1.6.0.apk",
+                                    downloadUrl = "https://example.com/assets/lomo-v1.6.0.apk",
+                                    sizeBytes = 4_096L,
+                                    versionName = "1.6.0",
+                                    versionCode = null,
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository =
                     FakeAppRuntimeInfoRepository(
@@ -280,25 +288,27 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("given installed version code unavailable and candidate without version code when checking manually then version name fallback returns update") {
+        test(
+            "given installed version code unavailable and candidate without version code when checking manually then version name fallback returns update",
+        ) {
             runTest {
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v1.6.0",
-                                body = "old environment artifact naming",
-                                assetCandidates =
-                                    listOf(
-                                        verifiedCandidate(
-                                            fileName = "lomo-v1.6.0.apk",
-                                            downloadUrl = "https://example.com/assets/lomo-v1.6.0.apk",
-                                            sizeBytes = 4_096L,
-                                            versionName = "1.6.0",
-                                            versionCode = null,
-                                        ),
-                                    ),
+                        latestRelease(
+                            tagName = "v1.6.0",
+                            body = "old environment artifact naming",
+                            assetCandidates =
+                            listOf(
+                                verifiedCandidate(
+                                    fileName = "lomo-v1.6.0.apk",
+                                    downloadUrl = "https://example.com/assets/lomo-v1.6.0.apk",
+                                    sizeBytes = 4_096L,
+                                    versionName = "1.6.0",
+                                    versionCode = null,
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository =
                     FakeAppRuntimeInfoRepository(
@@ -327,19 +337,19 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v1.2.2",
-                                body = "[FORCE_UPDATE]\nolder release",
-                                assetCandidates =
-                                    listOf(
-                                        verifiedCandidate(
-                                            fileName = "lomo-v1.2.2.apk",
-                                            downloadUrl = "https://example.com/assets/lomo-v1.2.2.apk",
-                                            sizeBytes = 8_192L,
-                                            versionName = "1.2.2",
-                                        ),
-                                    ),
+                        latestRelease(
+                            tagName = "v1.2.2",
+                            body = "[FORCE_UPDATE]\nolder release",
+                            assetCandidates =
+                            listOf(
+                                verifiedCandidate(
+                                    fileName = "lomo-v1.2.2.apk",
+                                    downloadUrl = "https://example.com/assets/lomo-v1.2.2.apk",
+                                    sizeBytes = 8_192L,
+                                    versionName = "1.2.2",
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.2.3")
 
@@ -354,27 +364,29 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("given newer release with wrong package apk metadata when checking manually then no installable update is returned") {
+        test(
+            "given newer release with wrong package apk metadata when checking manually then no installable update is returned",
+        ) {
             runTest {
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         latestRelease =
-                            latestRelease(
-                                tagName = "v2.0.0",
-                                body = "wrong package asset",
-                                assetCandidates =
-                                    listOf(
-                                        AppUpdateAssetCandidate(
-                                            fileName = "other-app-v2.0.0.apk",
-                                            downloadUrl = "https://example.com/assets/other-app-v2.0.0.apk",
-                                            sizeBytes = 4_096L,
-                                            verification =
-                                                AppUpdateAssetVerification.Unsupported(
-                                                    AppUpdateAssetUnsupportedReason.WRONG_PACKAGE,
-                                                ),
-                                        ),
+                        latestRelease(
+                            tagName = "v2.0.0",
+                            body = "wrong package asset",
+                            assetCandidates =
+                            listOf(
+                                AppUpdateAssetCandidate(
+                                    fileName = "other-app-v2.0.0.apk",
+                                    downloadUrl = "https://example.com/assets/other-app-v2.0.0.apk",
+                                    sizeBytes = 4_096L,
+                                    verification =
+                                    AppUpdateAssetVerification.Unsupported(
+                                        AppUpdateAssetUnsupportedReason.WRONG_PACKAGE,
                                     ),
+                                ),
                             ),
+                        ),
                     )
                 val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.0.0")
 
@@ -394,7 +406,7 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                 val appUpdateRepository =
                     FakeAppUpdateRepository(
                         fetchFailure =
-                            AppUpdateFetchFailure.Network("airplane mode"),
+                        AppUpdateFetchFailure.Network("airplane mode"),
                     )
                 val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.0.0")
 
@@ -430,20 +442,18 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
     }
 }
 
-private fun AppUpdateCheckOutcome.updateOrNull(): AppUpdateInfo? =
-    (this as? AppUpdateCheckOutcome.Available)?.update
+private fun AppUpdateCheckOutcome.updateOrNull(): AppUpdateInfo? = (this as? AppUpdateCheckOutcome.Available)?.update
 
 private fun latestRelease(
     tagName: String,
     body: String,
     assetCandidates: List<AppUpdateAssetCandidate>,
-): LatestAppRelease =
-    LatestAppRelease(
-        tagName = tagName,
-        htmlUrl = "https://example.com/releases/${tagName.removePrefix("v")}",
-        body = body,
-        assetCandidates = assetCandidates,
-    )
+): LatestAppRelease = LatestAppRelease(
+    tagName = tagName,
+    htmlUrl = "https://example.com/releases/${tagName.removePrefix("v")}",
+    body = body,
+    assetCandidates = assetCandidates,
+)
 
 private fun verifiedCandidate(
     fileName: String,
@@ -451,15 +461,14 @@ private fun verifiedCandidate(
     sizeBytes: Long,
     versionName: String,
     versionCode: Long? = null,
-): AppUpdateAssetCandidate =
-    AppUpdateAssetCandidate(
-        fileName = fileName,
-        downloadUrl = downloadUrl,
-        sizeBytes = sizeBytes,
-        verification =
-            AppUpdateAssetVerification.Verified(
-                packageName = "com.lomo.app",
-                versionName = versionName,
-                versionCode = versionCode,
-            ),
-    )
+): AppUpdateAssetCandidate = AppUpdateAssetCandidate(
+    fileName = fileName,
+    downloadUrl = downloadUrl,
+    sizeBytes = sizeBytes,
+    verification =
+    AppUpdateAssetVerification.Verified(
+        packageName = "com.lomo.app",
+        versionName = versionName,
+        versionCode = versionCode,
+    ),
+)

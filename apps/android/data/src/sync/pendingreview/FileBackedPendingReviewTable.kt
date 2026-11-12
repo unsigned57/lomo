@@ -3,15 +3,15 @@ package com.lomo.data.sync.pendingreview
 import android.content.Context
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
-import java.io.File
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * File-backed [PendingReviewTable]: one JSON document of all records, rewritten atomically on
@@ -33,10 +33,7 @@ class FileBackedPendingReviewTable(
     private val loadMutex = Mutex()
     private val loaded = AtomicBoolean(false)
 
-    override suspend fun getByBackend(
-        backend: String,
-        workspaceGeneration: String,
-    ): PendingSyncReviewRecord? {
+    override suspend fun getByBackend(backend: String, workspaceGeneration: String): PendingSyncReviewRecord? {
         ensureLoaded()
         return pendingReviews[key2(workspaceGeneration, backend)]
     }
@@ -47,10 +44,7 @@ class FileBackedPendingReviewTable(
         persist(pendingReviews.values)
     }
 
-    override suspend fun deleteByBackend(
-        backend: String,
-        workspaceGeneration: String,
-    ) {
+    override suspend fun deleteByBackend(backend: String, workspaceGeneration: String) {
         ensureLoaded()
         pendingReviews.remove(key2(workspaceGeneration, backend))
         persist(pendingReviews.values)
@@ -62,10 +56,7 @@ class FileBackedPendingReviewTable(
         persist(emptyList())
     }
 
-    private fun key2(
-        a: String,
-        b: String,
-    ): String = a + "\u0000" + b
+    private fun key2(a: String, b: String): String = a + "\u0000" + b
 
     private suspend fun ensureLoaded() {
         if (loaded.get()) return
@@ -104,7 +95,5 @@ class FileBackedPendingReviewTable(
     }
 
     @Serializable
-    private data class ListEnvelope<T>(
-        val items: List<T>,
-    )
+    private data class ListEnvelope<T>(val items: List<T>)
 }

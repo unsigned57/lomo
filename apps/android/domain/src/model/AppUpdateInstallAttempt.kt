@@ -34,7 +34,5 @@ data class AppUpdateVerifiedPackageMetadata(
 sealed interface AppUpdateInstallerOutcome {
     data object Installed : AppUpdateInstallerOutcome
 
-    data class Failed(
-        val message: String,
-    ) : AppUpdateInstallerOutcome
+    data class Failed(val message: String) : AppUpdateInstallerOutcome
 }

@@ -4,7 +4,6 @@ import android.content.Context
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
-
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.OutputStream
@@ -13,57 +12,50 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
 
-
 class ShareImageRepositoryImpl(
     private val context: Context,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : ShareImageRepository {
-        override suspend fun storeShareImage(
-            fileNamePrefix: String,
-            writer: suspend (OutputStream) -> Unit,
-        ): String =
-            withContext(dispatcherProvider.io) {
-                val directory = File(context.cacheDir, SHARED_MEMO_CACHE_DIR).apply { mkdirs() }
-                ShareImageCacheCleaner.cleanup(
-                    directory = directory,
-                    maxFiles = SHARED_MEMO_CACHE_MAX_FILES,
-                    maxAgeMs = SHARED_MEMO_CACHE_MAX_AGE_MS,
-                )
+    override suspend fun storeShareImage(fileNamePrefix: String, writer: suspend (OutputStream) -> Unit): String =
+        withContext(dispatcherProvider.io) {
+            val directory = File(context.cacheDir, SHARED_MEMO_CACHE_DIR).apply { mkdirs() }
+            ShareImageCacheCleaner.cleanup(
+                directory = directory,
+                maxFiles = SHARED_MEMO_CACHE_MAX_FILES,
+                maxAgeMs = SHARED_MEMO_CACHE_MAX_AGE_MS,
+            )
 
-                val output = File(directory, "${fileNamePrefix}_${System.currentTimeMillis()}.png")
-                val temp = File(directory, "${output.name}.tmp.${UUID.randomUUID()}")
-                var committed = false
-                try {
-                    temp.outputStream().use { out ->
-                        writer(out)
-                    }
-                    commitShareImageTempFile(temp = temp, target = output)
-                    committed = true
-                } finally {
-                    if (!committed) {
-                        temp.delete()
-                    }
+            val output = File(directory, "${fileNamePrefix}_${System.currentTimeMillis()}.png")
+            val temp = File(directory, "${output.name}.tmp.${UUID.randomUUID()}")
+            var committed = false
+            try {
+                temp.outputStream().use { out ->
+                    writer(out)
                 }
-
-                ShareImageCacheCleaner.cleanup(
-                    directory = directory,
-                    maxFiles = SHARED_MEMO_CACHE_MAX_FILES,
-                    maxAgeMs = SHARED_MEMO_CACHE_MAX_AGE_MS,
-                )
-                output.absolutePath
+                commitShareImageTempFile(temp = temp, target = output)
+                committed = true
+            } finally {
+                if (!committed) {
+                    temp.delete()
+                }
             }
 
-        private companion object {
-            const val SHARED_MEMO_CACHE_DIR = "shared_memos"
-            const val SHARED_MEMO_CACHE_MAX_FILES = 40
-            const val SHARED_MEMO_CACHE_MAX_AGE_MS = 48L * 60 * 60 * 1000
+            ShareImageCacheCleaner.cleanup(
+                directory = directory,
+                maxFiles = SHARED_MEMO_CACHE_MAX_FILES,
+                maxAgeMs = SHARED_MEMO_CACHE_MAX_AGE_MS,
+            )
+            output.absolutePath
         }
-    }
 
-private fun commitShareImageTempFile(
-    temp: File,
-    target: File,
-) {
+    private companion object {
+        const val SHARED_MEMO_CACHE_DIR = "shared_memos"
+        const val SHARED_MEMO_CACHE_MAX_FILES = 40
+        const val SHARED_MEMO_CACHE_MAX_AGE_MS = 48L * 60 * 60 * 1000
+    }
+}
+
+private fun commitShareImageTempFile(temp: File, target: File) {
     try {
         Files.move(
             temp.toPath(),
@@ -81,12 +73,7 @@ private fun commitShareImageTempFile(
 }
 
 internal object ShareImageCacheCleaner {
-    fun cleanup(
-        directory: File,
-        maxFiles: Int,
-        maxAgeMs: Long,
-        nowMs: Long = System.currentTimeMillis(),
-    ) {
+    fun cleanup(directory: File, maxFiles: Int, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()) {
         val files = directory.listFiles()?.filter { it.isFile }.orEmpty()
         if (files.isEmpty()) return
 

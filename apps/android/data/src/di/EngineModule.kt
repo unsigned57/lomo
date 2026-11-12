@@ -17,21 +17,21 @@ import com.lomo.data.engine.currentProcessName
 import com.lomo.data.repository.StoreInvalidationBus
 import com.lomo.data.source.isContentStorageUri
 import com.lomo.domain.model.WorkspaceProcessDuty
-import com.lomo.nativebridge.eventSequenceRequiresFullInvalidate
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
-import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.repository.MarkdownReminderRepository
+import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.WorkspaceCandidateValidator
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import com.lomo.nativebridge.eventSequenceRequiresFullInvalidate
 import kotlinx.coroutines.flow.first
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.onClose
 import org.koin.core.module.dsl.withOptions
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * Wires the sole production Rust engine readiness session, SAF platform-action edge, and candidate
@@ -86,7 +86,7 @@ val engineModule =
             )
         }
         single<WorkspaceCandidateValidator> {
-            WorkspaceCandidateProbe(androidContext())
+            WorkspaceCandidateProbe(androidContext(), get())
         }
         single {
             WorkspaceProcessDuty.forProcess(
@@ -101,23 +101,23 @@ val engineModule =
             val invalidation = get<StoreInvalidationBus>()
             ManagedEngineSession(
                 candidateOpen =
-                    CandidateOpenContext(
-                        filesDir = filesDir,
-                        openAdapter = { request ->
-                            BoltFfiNativeEngineFactory.openAdapter(
-                                request,
-                                executor,
-                                invalidation,
-                            )
-                        },
-                        isContentUri = ::isContentStorageUri,
-                        // Storage filename token is read verbatim at each candidate open; Rust
-                        // `DateFormat::from_token` is the single authority that validates it.
-                        sessionDateFormat =
-                            com.lomo.data.engine.SessionDateFormatSource {
-                                get<PreferencesRepository>().getStorageFilenameFormat().first()
-                            },
-                    ),
+                CandidateOpenContext(
+                    filesDir = filesDir,
+                    openAdapter = { request ->
+                        BoltFfiNativeEngineFactory.openAdapter(
+                            request,
+                            executor,
+                            invalidation,
+                        )
+                    },
+                    isContentUri = ::isContentStorageUri,
+                    // Storage filename token is read verbatim at each candidate open; Rust
+                    // `DateFormat::from_token` is the single authority that validates it.
+                    sessionDateFormat =
+                    com.lomo.data.engine.SessionDateFormatSource {
+                        get<PreferencesRepository>().getStorageFilenameFormat().first()
+                    },
+                ),
                 capabilityRegistry = registry,
                 directorySettingsRepository = get<DirectorySettingsRepository>(),
                 appScope = get(named("ApplicationScope")),
@@ -131,9 +131,8 @@ val engineModule =
         }
         single<EngineReadinessRepository> { get<ManagedEngineSession>() }
         single<SessionNativeBridge> { get<ManagedEngineSession>() }
-        // Markdown/reminder mutations are admitted at this owning boundary instead of repeating a
-        // readiness condition in every use case, so foreground toggles and background alarm
-        // rewrites are drained by the same workspace switch barrier.
+        // Task mutations acquire the shared lease in this adapter. Reminder plans are read-only;
+        // the coordinator holds that same lease across planning and the canonical store update.
         single {
             LeasedMarkdownWorkspace(delegate = get<ManagedEngineSession>(), lease = get())
         }

@@ -95,22 +95,18 @@ class MigrationSettingsEncryptionTest : DataFunSpec() {
         saltBase64: String = "AAAAAAAAAAAAAAAAAAAAAA==",
         nonceBase64: String = "AAAAAAAAAAAAAAAA",
         cipherTextBase64: String = "AAAA",
-    ): String =
-        "{" +
-            "\"version\":1," +
-            "\"kdf\":\"PBKDF2WithHmacSHA256\"," +
-            "\"cipher\":\"AES/GCM/NoPadding\"," +
-            "\"iterations\":$iterations," +
-            "\"saltBase64\":\"$saltBase64\"," +
-            "\"nonceBase64\":\"$nonceBase64\"," +
-            "\"cipherTextBase64\":\"$cipherTextBase64\"" +
-            "}"
+    ): String = "{" +
+        "\"version\":1," +
+        "\"kdf\":\"PBKDF2WithHmacSHA256\"," +
+        "\"cipher\":\"AES/GCM/NoPadding\"," +
+        "\"iterations\":$iterations," +
+        "\"saltBase64\":\"$saltBase64\"," +
+        "\"nonceBase64\":\"$nonceBase64\"," +
+        "\"cipherTextBase64\":\"$cipherTextBase64\"" +
+        "}"
 
     /** Produces a byte-faithful version-1 envelope: PBKDF2 120k, GCM tag without AAD. */
-    private fun legacyV1Envelope(
-        password: String,
-        plainText: ByteArray,
-    ): String {
+    private fun legacyV1Envelope(password: String, plainText: ByteArray): String {
         val salt = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
         val nonce = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
         val spec = PBEKeySpec(password.toCharArray(), salt, 120_000, 256)

@@ -1,0 +1,35 @@
+# Part of the opt-in two-device LAN journey; run via just uitest lan_share.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow:
+    when:
+      visible: "Go to Settings|前往设置"
+    commands:
+      - tapOn: "Go to Settings|前往设置"
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible:
+        id: "benchmark_main_drawer_button"
+    commands:
+      - tapOn:
+          id: "benchmark_main_drawer_button"
+      - tapOn:
+          id: "benchmark_drawer_settings"
+- waitForAnimationToEnd
+- tapOn: "Memo Directory|备忘录目录"
+- tapOn:
+    id: "com.android.documentsui:id/breadcrumb_text"
+    index: 0
+- tapOn: "Download|Downloads"
+- tapOn: ${LAN_WORKSPACE}
+- tapOn: "USE THIS FOLDER"
+- tapOn: "Allow"
+- assertVisible:
+    id: "benchmark_settings_root"
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_settings_back_button"
+- assertVisible:
+    id: "benchmark_main_root"

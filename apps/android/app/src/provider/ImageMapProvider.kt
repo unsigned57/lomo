@@ -3,6 +3,7 @@ package com.lomo.app.provider
 import android.net.Uri
 import androidx.core.net.toUri
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.domain.model.ImageLocationSnapshot
 import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
@@ -12,7 +13,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-
 
 /**
  * Shared provider for image URI mapping.
@@ -24,22 +24,36 @@ open class ImageMapProvider(
     repository: MediaRepository,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
-        // behavior-contract: unmanaged-scope-ok: process-lifetime app-scoped image map
-        private val scope = CoroutineScope(SupervisorJob() + dispatcherProvider.default)
+    // behavior-contract: unmanaged-scope-ok: process-lifetime app-scoped image map
+    private val scope = CoroutineScope(SupervisorJob() + dispatcherProvider.default)
 
-        open val imageMap: StateFlow<Map<String, Uri>> =
-            repository
-                .observeImageLocations()
-                .map { locationMap ->
-                    locationMap
+    val state: StateFlow<ImageLocationSnapshot> =
+        repository
+            .observeImageLocations()
+            .stateIn(
+                scope = scope,
+                started = appWhileSubscribed(),
+                initialValue = ImageLocationSnapshot.Loading,
+            )
+
+    open val imageMap: StateFlow<Map<String, Uri>> =
+        state.map { snapshot ->
+            when (snapshot) {
+                // Unobserved directories have no verified display locations. The persistent
+                // failure remains in state for UI reporting; it is never an empty success.
+                ImageLocationSnapshot.Loading, is ImageLocationSnapshot.Unavailable -> emptyMap()
+
+                is ImageLocationSnapshot.Ready ->
+                    snapshot.entries
                         .mapKeys { (entryId, _) -> entryId.raw }
                         .mapValues { (_, descriptor) -> descriptor.toContentKeyedUri() }
-                }.stateIn(
-                    scope = scope,
-                    started = appWhileSubscribed(),
-                    initialValue = emptyMap(),
-                )
-    }
+            }
+        }.stateIn(
+            scope = scope,
+            started = appWhileSubscribed(),
+            initialValue = emptyMap(),
+        )
+}
 
 /**
  * Content-keyed display URI: the fragment carries the Rust-witnessed digest so Coil, dimension

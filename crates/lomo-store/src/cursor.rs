@@ -244,7 +244,7 @@ pub fn fingerprint_query(
     hasher.update(b"|");
     hasher.update(filter_fingerprint.as_bytes());
     let digest = hasher.finalize();
-    format!("{digest:x}")
+    lomo_core::hex_encode(&digest)
 }
 
 /// Fingerprint helper when a full plan is available.

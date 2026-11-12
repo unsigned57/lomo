@@ -2,9 +2,9 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.DraftMediaReconciliation
+import com.lomo.domain.model.ImageLocationSnapshot
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
-import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
 import kotlinx.coroutines.flow.Flow
 
@@ -12,17 +12,12 @@ import kotlinx.coroutines.flow.Flow
  * Repository interface for media asset lifecycle operations.
  */
 interface MediaRepository {
-    suspend fun importImage(
-        source: StorageLocation,
-        draftId: DraftId,
-    ): StorageLocation
+    suspend fun importImage(source: StorageLocation, draftId: DraftId): StorageLocation
 
-    suspend fun removeImage(
-        entryId: MediaEntryId,
-        draftId: DraftId,
-    )
+    suspend fun removeImage(entryId: MediaEntryId, draftId: DraftId)
 
-    fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>>
+    /** Loading failures are values; a later selection or refresh can recover the same subscription. */
+    fun observeImageLocations(): Flow<ImageLocationSnapshot>
 
     suspend fun refreshImageLocations()
 
@@ -42,11 +37,7 @@ interface MediaRepository {
         draftId: DraftId,
     ): StorageLocation
 
-    suspend fun removeVoiceCapture(
-        entryId: MediaEntryId,
-        captureLocation: StorageLocation,
-        draftId: DraftId,
-    )
+    suspend fun removeVoiceCapture(entryId: MediaEntryId, captureLocation: StorageLocation, draftId: DraftId)
 
     /**
      * Deterministic D6 orphan reclaim at an operation/maintenance boundary.

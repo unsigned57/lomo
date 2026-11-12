@@ -1,11 +1,39 @@
+//! Test Change Justification:
+//! Reason category: explicitly requested quality contract change.
+//! Old behavior/assertion being replaced: touched Rust crates require diff-scoped mutants.
+//! Why old assertion is no longer correct: Rust mutation testing is removed from the workflow.
+//! Coverage preserved by: all-mode plans still require package tests and applicable Clippy.
+//! Why this is not fitting the test to the implementation: the user requested removal;
+//! the new planning regression is observed RED before implementation.
+//! TDD proof: `cargo test -p lomo-xtask --test verification_plan_contract --locked
+//! rust_changes_keep_standard_checks_without_mutation_tasks`; RED contains `rust-mutants:lomo-store`.
+//!
+//! Test Change Justification:
+//! Reason category: measured profile packaging replaces static class enumeration.
+//! Old behavior/assertion being replaced: require every runtime method in a regenerated profile.
+//! Why old assertion is no longer correct: device-collected hot paths are intentional subsets;
+//! expanding them changes the workload evidence instead of validating the measured input.
+//! Coverage preserved by: official SDK parsing, collection receipt hash checks, unchanged gate
+//! scheduling/output checks and `measured_profiles_contract` rejection/round-trip tests.
+//! Why this is not fitting the test to the implementation: the existing --write workflow could
+//! never satisfy static byte equality; the new tests reject tampering and parser errors while
+//! accepting legitimate measured subsets from the supported collector.
+//!
 //! Behavior Contract:
 //! Capability: select the affected owner closure and execute a verification DAG honestly;
 //! owning layer: lomo-xtask; priority: P0.
 //! Scenarios:
+//! - Given Rust changes, when any verification mode is planned, then normal tests remain
+//!   and no mutation task or tool is required.
 //! - Given TUI/app/domain/FFI/golden/deleted sources, when planning, then the matching owners run.
 //! - Given a moved Unicode path, when reading the worktree, then both endpoints retain ownership.
 //! - Given failed/cancelled/empty tests or missing outputs, when executing, then no pass is cached.
 //! - Given source changes during a run, when finishing, then earlier evidence is invalidated.
+//! - Given runtime-only, compile-only and test module edges, when resolving profile inputs,
+//!   then runtime-only is included and compile-only/test edges are excluded.
+//! - Given an app resource change, when Android Lint is scheduled, then analysis inputs cover
+//!   every packaged product module lint analyzes (data included), not only the changed owner.
+//!
 //!
 //! Observable outcomes: task sets, dependency ordering, declared outputs and result states.
 //! TDD proof: `verification_cli_contract` RED rejected dev; this matrix additionally observes RED
@@ -16,8 +44,8 @@
 mod tests {
     use anyhow::{Context, Result, ensure};
     use lomo_xtask::verification::{
-        Artifact, ChangeInventory, ChangeSource, CommandRunner, ImpactGraph, PlanMode, Task,
-        TaskAction, TaskOutcome, TaskStatus, VerificationPlan, execute, unified_diff,
+        Artifact, ChangeInventory, ChangeSource, CommandRunner, ImpactGraph, PlanMode,
+        RequiredTool, Task, TaskAction, TaskOutcome, TaskStatus, VerificationPlan, execute,
     };
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -28,6 +56,38 @@ mod tests {
 
     fn graph() -> Result<ImpactGraph> {
         ImpactGraph::load(&lomo_xtask::repository_root()?)
+    }
+
+    #[test]
+    fn runtime_profile_closure_includes_runtime_modules_and_excludes_test_edges() -> Result<()> {
+        let graph = graph()?;
+        let root = tempfile::tempdir()?;
+        for (module, manifest) in [
+            (
+                "app",
+                "dependencies:\n  - //data: runtime-only\n  - //ui-components: compile-only\ntest-dependencies:\n  - //ui-components\n",
+            ),
+            ("data", "dependencies:\n  - //domain\n"),
+            ("domain", "dependencies: []\n"),
+        ] {
+            let owner = graph.owners.get(module).context("module owner")?;
+            let directory = root.path().join(&owner.path);
+            std::fs::create_dir_all(&directory)?;
+            std::fs::write(directory.join("module.yaml"), manifest)?;
+        }
+        ensure!(
+            graph.kotlin_runtime_closure(root.path(), "app")?
+                == ["app", "data", "domain"]
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect()
+        );
+        ensure!(
+            graph
+                .kotlin_runtime_closure(root.path(), "unknown")
+                .is_err()
+        );
+        Ok(())
     }
 
     fn plan(paths: &[&str]) -> Result<VerificationPlan> {
@@ -62,6 +122,31 @@ mod tests {
 
     fn ids(plan: &VerificationPlan) -> BTreeSet<&str> {
         plan.tasks.iter().map(|task| task.id.as_str()).collect()
+    }
+
+    #[test]
+    fn android_lint_plans_analysis_inputs_for_every_packaged_product_module() -> Result<()> {
+        let plan = plan(&["apps/android/app/res/values/strings.xml"])?;
+        ensure!(ids(&plan).contains("android-lint"));
+        let analysis = plan
+            .tasks
+            .iter()
+            .find_map(|task| {
+                if let TaskAction::AnalysisInput { modules } = &task.action {
+                    Some(modules)
+                } else {
+                    None
+                }
+            })
+            .context("analysis input task")?;
+        for module in ["app", "data", "domain", "ui-components"] {
+            ensure!(
+                analysis.contains(module),
+                "lint analysis inputs miss {module}: {analysis:?}"
+            );
+        }
+        ensure!(!analysis.contains("native-bindings") && !analysis.contains("detekt-rules"));
+        Ok(())
     }
 
     #[test]
@@ -109,68 +194,34 @@ mod tests {
     }
 
     #[test]
-    fn dev_mode_schedules_diff_scoped_mutants_only_on_touched_rust_crates() -> Result<()> {
-        let store = plan(&["crates/lomo-store/src/cursor.rs"])?;
-        let mutants: Vec<&Task> = store
-            .tasks
-            .iter()
-            .filter(|task| task.id.starts_with("rust-mutants:"))
-            .collect();
-        ensure!(
-            mutants.len() == 1,
-            "expected exactly one mutants task: {:?}",
-            ids(&store)
-        );
-        let task = mutants.first().context("mutants task")?;
-        ensure!(task.id == "rust-mutants:lomo-store");
-        ensure!(
-            task.dependencies.contains("rust-tests:lomo-store"),
-            "mutation runs only after the package suite is green"
-        );
-        ensure!(
-            task.tools
-                .iter()
-                .any(|tool| format!("{tool:?}") == "Mutants"),
-            "the task must declare the pinned cargo-mutants tool"
-        );
-
-        // An API-shaped change pulls reverse dependencies into the gate, but only the
-        // directly touched crate has diff hunks to mutate.
-        let api = plan(&["crates/lomo-store/Cargo.toml"])?;
-        let mutants: BTreeSet<&str> = api
-            .tasks
-            .iter()
-            .filter(|task| task.id.starts_with("rust-mutants:"))
-            .map(|task| task.id.as_str())
-            .collect();
-        ensure!(
-            mutants == BTreeSet::from(["rust-mutants:lomo-store"]),
-            "{mutants:?}"
-        );
-
-        // Kotlin-only and complete-inventory plans never schedule mutation tasks.
-        let kotlin = plan(&["apps/android/app/src/feature/main/MainViewModel.kt"])?;
-        ensure!(!ids(&kotlin).iter().any(|id| id.starts_with("rust-mutants")));
-        ensure!(
-            !ids(&check_plan(&["crates/lomo-store/src/cursor.rs"])?)
-                .iter()
-                .any(|id| id.starts_with("rust-mutants"))
-        );
-        let complete = VerificationPlan::build(
-            &graph()?,
-            &ChangeInventory {
-                paths: BTreeSet::new(),
-                removed: BTreeSet::new(),
-                complete: true,
-            },
-            None,
-            PlanMode::Dev,
-        )?;
-        ensure!(
-            !ids(&complete)
-                .iter()
-                .any(|id| id.starts_with("rust-mutants"))
-        );
+    fn rust_changes_keep_standard_checks_without_mutation_tasks() -> Result<()> {
+        for mode in [PlanMode::Dev, PlanMode::Tests, PlanMode::Check] {
+            let planned = VerificationPlan::build(
+                &graph()?,
+                &ChangeInventory {
+                    paths: [PathBuf::from("crates/lomo-store/src/cursor.rs")].into(),
+                    removed: BTreeSet::new(),
+                    complete: false,
+                },
+                None,
+                mode,
+            )?;
+            ensure!(ids(&planned).contains("rust-tests:lomo-store"));
+            if mode != PlanMode::Tests {
+                ensure!(ids(&planned).contains("rust-clippy:lomo-store"));
+            }
+            ensure!(
+                !planned.tasks.iter().any(|task| {
+                    task.id.contains("mutants")
+                        || task
+                            .tools
+                            .iter()
+                            .any(|tool| format!("{tool:?}") == "Mutants")
+                }),
+                "standard verification must not require mutation tooling: {:?}",
+                ids(&planned)
+            );
+        }
         Ok(())
     }
 
@@ -241,10 +292,8 @@ mod tests {
     }
 
     #[test]
-    fn the_check_gate_regenerates_the_android_baseline_profile() -> Result<()> {
-        // The committed profile is a release-packaging input. Only the handoff gate regenerates it,
-        // and it must do so from the same shared build the app classes were compiled into, so a
-        // profile that no rule can produce is a failure rather than a satisfied "file exists".
+    fn the_check_gate_validates_measured_android_profiles() -> Result<()> {
+        // The packaging gate validates the measured subset and its receipt after app tests.
         let app = check_plan(&["apps/android/app/src/feature/main/MainViewModel.kt"])?;
         let task = app
             .tasks
@@ -253,17 +302,21 @@ mod tests {
             .context("baseline profile task")?;
         ensure!(
             task.outputs.contains(&Artifact::BaselineProfile),
-            "the regenerated profile must be a declared output"
+            "the measured profile must be a declared output"
         );
         ensure!(
             task.dependencies.contains("kotlin-tests:app"),
-            "regeneration reads the compiled app classes"
+            "profile validation follows the app checks"
         );
         ensure!(
             task.inputs
                 .iter()
                 .any(|path| path == Path::new("apps/android/app")),
-            "the baseline rules and static profile are task inputs"
+            "the measured profiles and receipt are task inputs"
+        );
+        ensure!(
+            task.tools.contains(&RequiredTool::AndroidSdk),
+            "profile grammar is owned by SDK profgen"
         );
         let tui = check_plan(&["apps/tui/src/view.rs"])?;
         ensure!(
@@ -318,61 +371,6 @@ mod tests {
             changes.removed == BTreeSet::from([PathBuf::from(old), PathBuf::from("removed.rs")]),
             "removed must hold exactly the rename source and the deletion: {:?}",
             changes.removed
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn unified_diff_follows_the_same_scope_as_the_inventory() -> Result<()> {
-        let root = tempfile::tempdir()?;
-        let git = |args: &[&str]| -> Result<()> {
-            let output = Command::new("git")
-                .current_dir(root.path())
-                .args(args)
-                .output()?;
-            ensure!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            Ok(())
-        };
-        git(&["init", "-q"])?;
-        std::fs::write(root.path().join("tracked.rs"), "fn old() {}\n")?;
-        git(&["add", "."])?;
-        git(&[
-            "-c",
-            "user.name=fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "commit",
-            "-qm",
-            "fixture",
-        ])?;
-        std::fs::write(root.path().join("tracked.rs"), "fn new() {}\n")?;
-        std::fs::write(root.path().join("untracked.rs"), "fn fresh() {}\n")?;
-
-        let worktree = unified_diff(root.path(), &ChangeSource::Worktree)?
-            .context("a modified tracked file must produce a diff")?;
-        ensure!(
-            worktree.contains("tracked.rs") && worktree.contains("fn new"),
-            "the diff must name the touched file and hunk: {worktree}"
-        );
-        ensure!(
-            unified_diff(root.path(), &ChangeSource::All)?.is_none(),
-            "a complete inventory has no diff scope"
-        );
-        ensure!(
-            unified_diff(
-                root.path(),
-                &ChangeSource::Push {
-                    remote: "missing-remote".to_owned()
-                }
-            )?
-            .is_none(),
-            "a missing remote base means the inventory is complete and no diff exists"
         );
         Ok(())
     }

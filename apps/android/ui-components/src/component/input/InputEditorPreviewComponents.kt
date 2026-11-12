@@ -1,19 +1,8 @@
 package com.lomo.ui.component.input
 
-import com.lomo.ui.generated.resources.input_preview_empty
-import com.lomo.ui.generated.resources.input_preview_failed
-
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -28,8 +17,8 @@ import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.generated.resources.Res
-import com.lomo.ui.theme.AppSpacing
-import kotlinx.collections.immutable.ImmutableList
+import com.lomo.ui.generated.resources.input_preview_empty
+import com.lomo.ui.generated.resources.input_preview_failed
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -47,12 +36,15 @@ internal fun InputEditorPreviewContent(
         when (val presentation = resolveInputEditorPreviewPresentation(inputText, renderState)) {
             InputEditorPreviewPresentation.Blank ->
                 InputEditorPreviewStatus(stringResource(Res.string.input_preview_empty))
+
             InputEditorPreviewPresentation.Pending ->
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     ExpressiveLoadingIndicator()
                 }
+
             InputEditorPreviewPresentation.Failed ->
                 InputEditorPreviewStatus(stringResource(Res.string.input_preview_failed))
+
             is InputEditorPreviewPresentation.Ready ->
                 WithDraggableScrollbar(
                     state = scrollState,
@@ -60,13 +52,13 @@ internal fun InputEditorPreviewContent(
                 ) {
                     Box(
                         modifier =
-                            Modifier
-                                .fillMaxSize()
-                                .verticalScroll(scrollState)
-                                .padding(
-                                    horizontal = InputSheetTokens.EditorContainerPaddingHorizontal,
-                                    vertical = InputSheetTokens.EditorContainerPaddingVertical,
-                                ),
+                        Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollState)
+                            .padding(
+                                horizontal = InputSheetTokens.EditorContainerPaddingHorizontal,
+                                vertical = InputSheetTokens.EditorContainerPaddingVertical,
+                            ),
                     ) {
                         MarkdownRenderer(
                             document = presentation.document,
@@ -83,9 +75,9 @@ internal fun InputEditorPreviewContent(
 private fun InputEditorPreviewStatus(text: String) {
     Box(
         modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = InputSheetTokens.PreviewHorizontalPadding),
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = InputSheetTokens.PreviewHorizontalPadding),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -100,21 +92,19 @@ internal sealed interface InputEditorPreviewPresentation {
     data object Blank : InputEditorPreviewPresentation
     data object Pending : InputEditorPreviewPresentation
     data object Failed : InputEditorPreviewPresentation
-    data class Ready(
-        val document: com.lomo.domain.model.markdown.MarkdownRenderDocument,
-    ) : InputEditorPreviewPresentation
+    data class Ready(val document: com.lomo.domain.model.markdown.MarkdownRenderDocument) :
+        InputEditorPreviewPresentation
 }
 
 internal fun resolveInputEditorPreviewPresentation(
     inputText: String,
     renderState: MarkdownRenderState,
-): InputEditorPreviewPresentation =
-    if (inputText.isBlank()) {
-        InputEditorPreviewPresentation.Blank
-    } else {
-        when (renderState) {
-            MarkdownRenderState.Pending -> InputEditorPreviewPresentation.Pending
-            is MarkdownRenderState.Ready -> InputEditorPreviewPresentation.Ready(renderState.document)
-            is MarkdownRenderState.Failed -> InputEditorPreviewPresentation.Failed
-        }
+): InputEditorPreviewPresentation = if (inputText.isBlank()) {
+    InputEditorPreviewPresentation.Blank
+} else {
+    when (renderState) {
+        MarkdownRenderState.Pending -> InputEditorPreviewPresentation.Pending
+        is MarkdownRenderState.Ready -> InputEditorPreviewPresentation.Ready(renderState.document)
+        is MarkdownRenderState.Failed -> InputEditorPreviewPresentation.Failed
     }
+}

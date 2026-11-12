@@ -9,7 +9,6 @@ import dev.detekt.test.utils.compileForTest
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -57,18 +56,19 @@ import kotlin.io.path.writeText
  * Why this is not fitting the test to the implementation: only the cited directory changed; the rule
  *   detection logic, finding counts, and the "finding must cite the contract" guard are unchanged.
  */
-class SingleEventStreamRulesTest : FunSpec({
-    test("registers NoEventInStateFlow and NoMultipleEffectChannels in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoEventInStateFlow")].shouldNotBeNull()
-        rules[RuleName("NoMultipleEffectChannels")].shouldNotBeNull()
-    }
+class SingleEventStreamRulesTest :
+    FunSpec({
+        test("registers NoEventInStateFlow and NoMultipleEffectChannels in rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoEventInStateFlow")].shouldNotBeNull()
+            rules[RuleName("NoMultipleEffectChannels")].shouldNotBeNull()
+        }
 
-    test("NoEventInStateFlow: flags ViewModel StateFlow with Event payload") {
-        val findings =
-            rule("NoEventInStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoEventInStateFlow: flags ViewModel StateFlow with Event payload") {
+            val findings =
+                rule("NoEventInStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -79,19 +79,19 @@ class SingleEventStreamRulesTest : FunSpec({
                     private val _noticeEvent = MutableStateFlow<UserNoticeEvent?>(null)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "'_noticeEvent'"
-        findings.single().message shouldContain "quality/udf-contract.md"
-        findings.single().message shouldContain "PendingUiEvent"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "'_noticeEvent'"
+            findings.single().message shouldContain "quality/udf-contract.md"
+            findings.single().message shouldContain "PendingUiEvent"
+        }
 
-    test("NoEventInStateFlow: flags ViewModel StateFlow with Request payload") {
-        val findings =
-            rule("NoEventInStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoEventInStateFlow: flags ViewModel StateFlow with Request payload") {
+            val findings =
+                rule("NoEventInStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -102,17 +102,17 @@ class SingleEventStreamRulesTest : FunSpec({
                     private val _req = MutableStateFlow<CreationRequest?>(null)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "quality/udf-contract.md"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "quality/udf-contract.md"
+        }
 
-    test("NoEventInStateFlow: allows StateFlow with normal state payload") {
-        val findings =
-            rule("NoEventInStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoEventInStateFlow: allows StateFlow with normal state payload") {
+            val findings =
+                rule("NoEventInStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -123,16 +123,16 @@ class SingleEventStreamRulesTest : FunSpec({
                     private val _uiState = MutableStateFlow(SampleUiState("title"))
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoEventInStateFlow: allows acknowledged queue shape StateFlow<List<PendingUiEvent<...>>>") {
-        val findings =
-            rule("NoEventInStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoEventInStateFlow: allows acknowledged queue shape StateFlow<List<PendingUiEvent<...>>>") {
+            val findings =
+                rule("NoEventInStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -146,16 +146,16 @@ class SingleEventStreamRulesTest : FunSpec({
                         MutableStateFlow(emptyList())
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoEventInStateFlow: allows delegation to an event-queue coordinator member") {
-        val findings =
-            rule("NoEventInStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoEventInStateFlow: allows delegation to an event-queue coordinator member") {
+            val findings =
+                rule("NoEventInStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -172,16 +172,16 @@ class SingleEventStreamRulesTest : FunSpec({
                     val pendingRequest: StateFlow<SampleRequest?> = requestQueue.pending
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoEventInStateFlow: allows state-event-ok opt-out") {
-        val findings =
-            rule("NoEventInStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoEventInStateFlow: allows state-event-ok opt-out") {
+            val findings =
+                rule("NoEventInStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -193,16 +193,16 @@ class SingleEventStreamRulesTest : FunSpec({
                     private val _noticeEvent = MutableStateFlow<UserNoticeEvent?>(null)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoEventInStateFlow: ignores non-ViewModel classes") {
-        val findings =
-            rule("NoEventInStateFlow").findingsForSource(
-                "app/src/feature/SampleStore.kt",
-                """
+        test("NoEventInStateFlow: ignores non-ViewModel classes") {
+            val findings =
+                rule("NoEventInStateFlow").findingsForSource(
+                    "app/src/feature/SampleStore.kt",
+                    """
                 package com.lomo.app.feature
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -213,16 +213,16 @@ class SingleEventStreamRulesTest : FunSpec({
                     private val _event = MutableStateFlow<UserEvent?>(null)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoMultipleEffectChannels: flags a single Channel property in a ViewModel") {
-        val findings =
-            rule("NoMultipleEffectChannels").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoMultipleEffectChannels: flags a single Channel property in a ViewModel") {
+            val findings =
+                rule("NoMultipleEffectChannels").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -234,19 +234,19 @@ class SingleEventStreamRulesTest : FunSpec({
                     private val _effects = Channel<SampleEffect>(Channel.BUFFERED)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "'_effects'"
-        findings.single().message shouldContain "quality/udf-contract.md"
-        findings.single().message shouldContain "multiple-channels-ok"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "'_effects'"
+            findings.single().message shouldContain "quality/udf-contract.md"
+            findings.single().message shouldContain "multiple-channels-ok"
+        }
 
-    test("NoMultipleEffectChannels: flags MutableSharedFlow property in a ViewModel") {
-        val findings =
-            rule("NoMultipleEffectChannels").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoMultipleEffectChannels: flags MutableSharedFlow property in a ViewModel") {
+            val findings =
+                rule("NoMultipleEffectChannels").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -259,19 +259,19 @@ class SingleEventStreamRulesTest : FunSpec({
                         MutableSharedFlow<RecoveryDiagnosticReport>(extraBufferCapacity = 1)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "'_diagnosticExports'"
-        findings.single().message shouldContain "MutableSharedFlow"
-        findings.single().message shouldContain "quality/udf-contract.md"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "'_diagnosticExports'"
+            findings.single().message shouldContain "MutableSharedFlow"
+            findings.single().message shouldContain "quality/udf-contract.md"
+        }
 
-    test("NoMultipleEffectChannels: flags each parallel effect surface separately") {
-        val findings =
-            rule("NoMultipleEffectChannels").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoMultipleEffectChannels: flags each parallel effect surface separately") {
+            val findings =
+                rule("NoMultipleEffectChannels").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -287,16 +287,16 @@ class SingleEventStreamRulesTest : FunSpec({
                     private val _signals = MutableSharedFlow<SampleSignal>(extraBufferCapacity = 1)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(3)
-    }
+            findings.shouldHaveSize(3)
+        }
 
-    test("NoMultipleEffectChannels: allows ViewModel without parallel effect surfaces") {
-        val findings =
-            rule("NoMultipleEffectChannels").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoMultipleEffectChannels: allows ViewModel without parallel effect surfaces") {
+            val findings =
+                rule("NoMultipleEffectChannels").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -306,16 +306,16 @@ class SingleEventStreamRulesTest : FunSpec({
                     private val _state = MutableStateFlow("init")
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoMultipleEffectChannels: allows multiple-channels-ok opt-out") {
-        val findings =
-            rule("NoMultipleEffectChannels").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoMultipleEffectChannels: allows multiple-channels-ok opt-out") {
+            val findings =
+                rule("NoMultipleEffectChannels").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -328,23 +328,19 @@ class SingleEventStreamRulesTest : FunSpec({
                     private val _effects = Channel<SampleEffect>(Channel.BUFFERED)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
-})
+            findings.shouldHaveSize(0)
+        }
+    })
 
-private fun rule(name: String): Rule =
-    LomoArchitectureRuleSetProvider()
-        .instance()
-        .rules[RuleName(name)]
-        ?.invoke(Config.empty)
-        ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
+private fun rule(name: String): Rule = LomoArchitectureRuleSetProvider()
+    .instance()
+    .rules[RuleName(name)]
+    ?.invoke(Config.empty)
+    ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("detekt-test")
     val file = tempDir.resolve(relativePath)
     file.parent?.createDirectories()

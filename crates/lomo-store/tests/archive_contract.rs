@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract
 //!
 //! Capability: archive v2 export/inspect/import/activate with fail-closed malicious zip matrix.
@@ -63,7 +71,7 @@ mod tests {
     fn hex_sha256(bytes: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(bytes);
-        format!("{:x}", hasher.finalize())
+        lomo_core::hex_encode(&hasher.finalize())
     }
 
     fn write_manifest_zip(archive: &Path, entries: &[(&str, &[u8])], manifest: &ArchiveManifestV2) {

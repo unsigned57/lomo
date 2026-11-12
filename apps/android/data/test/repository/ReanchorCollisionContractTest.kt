@@ -55,66 +55,69 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 
-class ReanchorCollisionContractTest : FunSpec({
-    test("archive import then next workspace activation reanchor does not collide; stale generation still rejected") {
-        val bus = StoreInvalidationBus()
+class ReanchorCollisionContractTest :
+    FunSpec({
+        test(
+            "archive import then next workspace activation reanchor does not collide; stale generation still rejected",
+        ) {
+            val bus = StoreInvalidationBus()
 
-        // First activation: session mints generation 1.
-        bus.reanchor(generation = 1, highWaterRevision = 5)
-        bus.publications.value.coreRevision shouldBe 5
+            // First activation: session mints generation 1.
+            bus.reanchor(generation = 1, highWaterRevision = 5)
+            bus.publications.value.coreRevision shouldBe 5
 
-        // Archive import replaces the projection without an activation — it must not consume
-        // a generation the session counter will still issue.
-        bus.reanchorProjection(highWaterRevision = 2)
+            // Archive import replaces the projection without an activation — it must not consume
+            // a generation the session counter will still issue.
+            bus.reanchorProjection(highWaterRevision = 2)
 
-        // Second activation: session mints generation 2 — a new generation, not an equality
-        // collision against the projection re-anchor.
-        bus.reanchor(generation = 2, highWaterRevision = 9)
-        bus.publications.value.coreRevision shouldBe 9
-
-        // A replayed or regressed generation is still a protocol violation.
-        shouldThrow<IllegalArgumentException> {
-            bus.reanchor(generation = 2, highWaterRevision = 10)
-        }
-        shouldThrow<IllegalArgumentException> {
-            bus.reanchor(generation = 1, highWaterRevision = 11)
-        }
-    }
-
-    test("expected contract: a post-import activation is a new generation, not a stale one") {
-        val bus = StoreInvalidationBus()
-        bus.reanchor(generation = 1, highWaterRevision = 5)
-        bus.reanchorProjection(highWaterRevision = 2)
-
-        shouldNotThrowAny {
-            // The session-owned counter produces 2 here; the projection incarnation bump must
-            // not consume a generation the session will legitimately issue.
+            // Second activation: session mints generation 2 — a new generation, not an equality
+            // collision against the projection re-anchor.
             bus.reanchor(generation = 2, highWaterRevision = 9)
-        }
-        bus.publications.value.coreRevision shouldBe 9
-    }
+            bus.publications.value.coreRevision shouldBe 9
 
-    test("non-positive commit receipt still surfaces structured ProtocolFailure") {
-        val bus = StoreInvalidationBus()
-        bus.reanchor(generation = 1, highWaterRevision = 5)
-        bus.reanchorProjection(highWaterRevision = 2)
-
-        // Even if activation gen bookkeeping were fixed, receipts must stay classified.
-        val failure =
-            shouldThrow<com.lomo.domain.model.EngineCommandFailureException> {
-                bus.publish(
-                    com.lomo.data.engine.store.StoreMemoCommit(
-                        operationId = "op-0",
-                        memoId = "memo-1",
-                        coreRevision = 0,
-                        eventSequence = 0,
-                        contentRevision = 0,
-                        fileFingerprint = "fp",
-                        scopes = emptyList(),
-                        idempotentReplay = false,
-                    ),
-                )
+            // A replayed or regressed generation is still a protocol violation.
+            shouldThrow<IllegalArgumentException> {
+                bus.reanchor(generation = 2, highWaterRevision = 10)
             }
-        failure.failure.code shouldBe StoreInvalidationBus.PROTOCOL_FAILURE_CODE
-    }
-})
+            shouldThrow<IllegalArgumentException> {
+                bus.reanchor(generation = 1, highWaterRevision = 11)
+            }
+        }
+
+        test("expected contract: a post-import activation is a new generation, not a stale one") {
+            val bus = StoreInvalidationBus()
+            bus.reanchor(generation = 1, highWaterRevision = 5)
+            bus.reanchorProjection(highWaterRevision = 2)
+
+            shouldNotThrowAny {
+                // The session-owned counter produces 2 here; the projection incarnation bump must
+                // not consume a generation the session will legitimately issue.
+                bus.reanchor(generation = 2, highWaterRevision = 9)
+            }
+            bus.publications.value.coreRevision shouldBe 9
+        }
+
+        test("non-positive commit receipt still surfaces structured ProtocolFailure") {
+            val bus = StoreInvalidationBus()
+            bus.reanchor(generation = 1, highWaterRevision = 5)
+            bus.reanchorProjection(highWaterRevision = 2)
+
+            // Even if activation gen bookkeeping were fixed, receipts must stay classified.
+            val failure =
+                shouldThrow<com.lomo.domain.model.EngineCommandFailureException> {
+                    bus.publish(
+                        com.lomo.data.engine.store.StoreMemoCommit(
+                            operationId = "op-0",
+                            memoId = "memo-1",
+                            coreRevision = 0,
+                            eventSequence = 0,
+                            contentRevision = 0,
+                            fileFingerprint = "fp",
+                            scopes = emptyList(),
+                            idempotentReplay = false,
+                        ),
+                    )
+                }
+            failure.failure.code shouldBe StoreInvalidationBus.PROTOCOL_FAILURE_CODE
+        }
+    })

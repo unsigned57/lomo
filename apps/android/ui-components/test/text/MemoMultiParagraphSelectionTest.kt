@@ -1,13 +1,13 @@
 package com.lomo.ui.text
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,10 +16,9 @@ package com.lomo.ui.text
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
+import androidx.compose.ui.geometry.Offset
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
-import androidx.compose.ui.geometry.Offset
 
 /*
  * Behavior Contract:
@@ -53,7 +52,13 @@ class MemoMultiParagraphSelectionTest : UiComponentsFunSpec() {
             val order = listOf<Any>("a")
 
             (selection.hasSelection(order)) shouldBe true
-            (selection.selectedRangeForBlock(blockKey = "a", blockTextLength = 12, blockOrder = order)) shouldBe (0 until 5)
+            (
+                selection.selectedRangeForBlock(
+                    blockKey = "a",
+                    blockTextLength = 12,
+                    blockOrder = order,
+                )
+                ) shouldBe (0 until 5)
             (selection.selectedText(blocksInOrder = listOf("a" to "Hello world!"))) shouldBe ("Hello")
         }
 
@@ -130,8 +135,20 @@ class MemoTextSelectionHitTesterTest : UiComponentsFunSpec() {
     private val blocks =
         listOf(
             MemoTextSelectionBlockBounds(blockKey = "top", topPx = 0f, bottomPx = 40f, leftPx = 0f, rightPx = 200f),
-            MemoTextSelectionBlockBounds(blockKey = "middle", topPx = 60f, bottomPx = 120f, leftPx = 0f, rightPx = 200f),
-            MemoTextSelectionBlockBounds(blockKey = "bottom", topPx = 140f, bottomPx = 200f, leftPx = 0f, rightPx = 200f),
+            MemoTextSelectionBlockBounds(
+                blockKey = "middle",
+                topPx = 60f,
+                bottomPx = 120f,
+                leftPx = 0f,
+                rightPx = 200f,
+            ),
+            MemoTextSelectionBlockBounds(
+                blockKey = "bottom",
+                topPx = 140f,
+                bottomPx = 200f,
+                leftPx = 0f,
+                rightPx = 200f,
+            ),
         )
 
     init {

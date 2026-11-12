@@ -21,6 +21,7 @@ import com.lomo.data.worker.RustSyncScheduler
 import com.lomo.domain.model.AppPreferenceSnapshotField
 import com.lomo.domain.model.ColorPresetId
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialFieldState
 import com.lomo.domain.model.CredentialProvider
@@ -48,6 +49,14 @@ import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 
 /*
+
+ * Test Change Justification:
+ * Reason category: Preference schema expansion.
+ * Old behavior/assertion being replaced: the exhaustive catalog sample omitted quick-ball bindings.
+ * Why old assertion is no longer correct: the catalog now includes this persisted preference.
+ * Coverage preserved by: all existing snapshot/restore assertions remain, with a non-default gesture mapping.
+ * Why this is not fitting the test to the implementation: the fixture extends exhaustive field coverage;
+ * malformed values, atomicity and prior field expectations remain enforced.
  * Behavior Contract:
  * - Unit under test: DataStoreMigrationSettingsStore + RestoreSyncIdentityPreflight
  * - Owning layer: data/repository
@@ -76,6 +85,16 @@ import java.nio.file.Files
  *   payload's omitted field so the identity move is missed.
  * Excludes: archive file parsing, ordinary DataStore transaction atomicity (covered by the
  * existing suite), UI import flow.
+ *
+ * Test Change Justification:
+ * - Reason category: product feature removal (usage-based memo menu auto-reorder).
+ * - Old behavior/assertion being replaced: the sample restore payload included the three memo action settings.
+ * - Why old assertion is no longer correct: the memo_action_auto_reorder_enabled, memo_action_order
+ *   and memo_action_orders_by_scope settings were deleted from the settings catalog, DataStore and
+ *   snapshot; the redesigned memo menu has a fixed layout.
+ * - Coverage preserved by: the cancellation atomicity scenarios over every remaining catalog field.
+ * - Why this is not fitting the test to the implementation: only sample values and assertions for
+ *   deleted settings were removed; the scenario and every remaining setting are unchanged.
  */
 class SettingsRestoreCancelAtomicityContractTest : DataFunSpec() {
     init {
@@ -92,10 +111,10 @@ class SettingsRestoreCancelAtomicityContractTest : DataFunSpec() {
                         MigrationSettingsSnapshot(
                             preferences = fullValidPreferencePayload(),
                             sensitive =
-                                mapOf(
-                                    SettingsKey.GIT_TOKEN to "new-git-token",
-                                    SettingsKey.GIT_USERNAME to "new-git-user",
-                                ),
+                            mapOf(
+                                SettingsKey.GIT_TOKEN to "new-git-token",
+                                SettingsKey.GIT_USERNAME to "new-git-user",
+                            ),
                         ),
                     )
                 }
@@ -132,7 +151,9 @@ class SettingsRestoreCancelAtomicityContractTest : DataFunSpec() {
             }
         }
 
-        test("given an unreadable stored credential when the restore payload omits it then the identity move is still reported") {
+        test(
+            "given an unreadable stored credential when the restore payload omits it then the identity move is still reported",
+        ) {
             runTest {
                 val fixture = setUpPreflightFixture()
                 fixture.dataStore.setRemoteSyncBackendType("webdav")
@@ -144,16 +165,18 @@ class SettingsRestoreCancelAtomicityContractTest : DataFunSpec() {
                 // identity is unchanged.
                 fixture.moves(
                     preferences =
-                        mapOf(
-                            SettingsKey.SYNC_BACKEND_TYPE to "webdav",
-                            SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
-                        ),
+                    mapOf(
+                        SettingsKey.SYNC_BACKEND_TYPE to "webdav",
+                        SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
+                    ),
                     sensitive = emptyMap(),
                 ) shouldBe true
             }
         }
 
-        test("given a denied stored credential when the restore payload omits it then the identity move is still reported") {
+        test(
+            "given a denied stored credential when the restore payload omits it then the identity move is still reported",
+        ) {
             runTest {
                 val fixture = setUpPreflightFixture(policy = LockedCredentialReadSessionPolicy)
                 fixture.dataStore.setRemoteSyncBackendType("webdav")
@@ -165,16 +188,18 @@ class SettingsRestoreCancelAtomicityContractTest : DataFunSpec() {
 
                 fixture.moves(
                     preferences =
-                        mapOf(
-                            SettingsKey.SYNC_BACKEND_TYPE to "webdav",
-                            SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
-                        ),
+                    mapOf(
+                        SettingsKey.SYNC_BACKEND_TYPE to "webdav",
+                        SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
+                    ),
                     sensitive = emptyMap(),
                 ) shouldBe true
             }
         }
 
-        test("given a readable stored credential when the restore payload omits it then the clear still moves the identity") {
+        test(
+            "given a readable stored credential when the restore payload omits it then the clear still moves the identity",
+        ) {
             runTest {
                 val fixture = setUpPreflightFixture()
                 fixture.dataStore.setRemoteSyncBackendType("webdav")
@@ -186,10 +211,10 @@ class SettingsRestoreCancelAtomicityContractTest : DataFunSpec() {
 
                 fixture.moves(
                     preferences =
-                        mapOf(
-                            SettingsKey.SYNC_BACKEND_TYPE to "webdav",
-                            SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
-                        ),
+                    mapOf(
+                        SettingsKey.SYNC_BACKEND_TYPE to "webdav",
+                        SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
+                    ),
                     sensitive = emptyMap(),
                 ) shouldBe true
             }
@@ -206,10 +231,10 @@ class SettingsRestoreCancelAtomicityContractTest : DataFunSpec() {
                 // axis — disposal stays skipped.
                 fixture.moves(
                     preferences =
-                        mapOf(
-                            SettingsKey.SYNC_BACKEND_TYPE to "webdav",
-                            SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
-                        ),
+                    mapOf(
+                        SettingsKey.SYNC_BACKEND_TYPE to "webdav",
+                        SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
+                    ),
                     sensitive = emptyMap(),
                 ) shouldBe false
             }
@@ -226,28 +251,28 @@ class SettingsRestoreCancelAtomicityContractTest : DataFunSpec() {
                 credentialRepository = credentials,
                 securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
                 identityReset =
-                    SyncIdentityResetPolicy(
-                        scheduler =
-                            mockk<RustSyncScheduler>().also {
-                                every { it.cancel() } answers { identityResetEvents += "cancel" }
-                            },
-                        deferredLockStore =
-                            object : DeferredLockWorkStore {
-                                override fun save(input: Data) = error("not used")
+                SyncIdentityResetPolicy(
+                    scheduler =
+                    mockk<RustSyncScheduler>().also {
+                        every { it.cancel() } answers { identityResetEvents += "cancel" }
+                    },
+                    deferredLockStore =
+                    object : DeferredLockWorkStore {
+                        override fun save(input: Data) = error("not used")
 
-                                override fun take(): Data? = null
+                        override fun take(): Data? = null
 
-                                override fun clear() {
-                                    identityResetEvents += "deferred-clear"
-                                }
-                            },
-                        syncStateReset =
-                            object : SyncStateResetRepository {
-                                override suspend fun resetWorkspaceScopedSyncState() {
-                                    identityResetEvents += "reset"
-                                }
-                            },
-                    ),
+                        override fun clear() {
+                            identityResetEvents += "deferred-clear"
+                        }
+                    },
+                    syncStateReset =
+                    object : SyncStateResetRepository {
+                        override suspend fun resetWorkspaceScopedSyncState() {
+                            identityResetEvents += "reset"
+                        }
+                    },
+                ),
             )
         return RestoreFixture(dataStore = dataStore, credentials = credentials, store = store)
     }
@@ -293,57 +318,51 @@ class SettingsRestoreCancelAtomicityContractTest : DataFunSpec() {
         val credentials: TestCredentialRepository,
         private val preflight: RestoreSyncIdentityPreflight,
     ) {
-        suspend fun moves(
-            preferences: Map<String, String>,
-            sensitive: Map<String, String>,
-        ): Boolean =
+        suspend fun moves(preferences: Map<String, String>, sensitive: Map<String, String>): Boolean =
             preflight.movesSyncIdentity(
                 snapshot = MigrationSettingsSnapshot(preferences = preferences, sensitive = sensitive),
                 sensitiveSettings = sensitive,
                 ordinaryPlan =
-                    OrdinarySettingsRestorePlan.Restore(
-                        LomoOrdinarySettingsRestoreTransaction(
-                            catalogValues = emptyMap(),
-                            stringValues = emptyMap(),
-                            nullableStringValues = emptyMap(),
-                            booleanValues = emptyMap(),
-                            intValues = emptyMap(),
-                        ),
+                OrdinarySettingsRestorePlan.Restore(
+                    LomoOrdinarySettingsRestoreTransaction(
+                        catalogValues = emptyMap(),
+                        stringValues = emptyMap(),
+                        nullableStringValues = emptyMap(),
+                        booleanValues = emptyMap(),
+                        intValues = emptyMap(),
                     ),
+                ),
             )
     }
 
-    private fun com.lomo.domain.model.SettingDescriptor.restoreValue(): String =
-        when (snapshotField) {
-            AppPreferenceSnapshotField.DATE_FORMAT -> "yyyy/MM/dd"
-            AppPreferenceSnapshotField.TIME_FORMAT -> "HH:mm"
-            AppPreferenceSnapshotField.THEME_MODE -> ThemeMode.DARK.value
-            AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> "2,5,9"
-            AppPreferenceSnapshotField.COLOR_SOURCE -> ColorSource.Preset(ColorPresetId.OCEAN).storageValue
-            AppPreferenceSnapshotField.FONT_PREFERENCE -> FontPreference.UserImported("serif.ttf").storageValue
-            AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.SHOW_INPUT_HINTS -> false.toString()
-            AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> true.toString()
-            AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED -> true.toString()
-            AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> true.toString()
-            AppPreferenceSnapshotField.MEMO_ACTION_ORDER -> "copy,edit,delete"
-            AppPreferenceSnapshotField.MEMO_ACTION_ORDERS_BY_SCOPE -> "main=edit,copy"
-            AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> "text,image,voice"
-            AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.SCROLLBAR_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.SHARE_CARD_SHOW_TIME -> false.toString()
-            AppPreferenceSnapshotField.SHARE_CARD_SHOW_BRAND -> false.toString()
-            AppPreferenceSnapshotField.SHARE_CARD_SIGNATURE_TEXT -> "Imported"
-            AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE -> "1.25"
-            AppPreferenceSnapshotField.TYPOGRAPHY_LINE_HEIGHT_SCALE -> "1.35"
-            AppPreferenceSnapshotField.TYPOGRAPHY_LETTER_SPACING_SCALE -> "0.95"
-            AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE -> "1.45"
-        }
+    private fun com.lomo.domain.model.SettingDescriptor.restoreValue(): String = when (snapshotField) {
+        AppPreferenceSnapshotField.DATE_FORMAT -> "yyyy/MM/dd"
+        AppPreferenceSnapshotField.TIME_FORMAT -> "HH:mm"
+        AppPreferenceSnapshotField.THEME_MODE -> ThemeMode.DARK.value
+        AppPreferenceSnapshotField.PURE_BLACK_DARK -> true.toString()
+        AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> "2,5,9"
+        AppPreferenceSnapshotField.COLOR_SOURCE -> ColorSource.Preset(ColorPresetId.OCEAN).storageValue
+        AppPreferenceSnapshotField.CONTRAST_LEVEL -> ContrastLevel.HIGH.value
+        AppPreferenceSnapshotField.FONT_PREFERENCE -> FontPreference.UserImported("serif.ttf").storageValue
+        AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.SHOW_INPUT_HINTS -> false.toString()
+        AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> true.toString()
+        AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> true.toString()
+        AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> "text,image,voice"
+        AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.SCROLLBAR_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.QUICK_BALL_CONFIG -> "v1|SEARCH|FILTER|LONG_TEXT|NONE|RECORD"
+        AppPreferenceSnapshotField.SHARE_CARD_SHOW_TIME -> false.toString()
+        AppPreferenceSnapshotField.SHARE_CARD_SHOW_BRAND -> false.toString()
+        AppPreferenceSnapshotField.SHARE_CARD_SIGNATURE_TEXT -> "Imported"
+        AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE -> "1.25"
+        AppPreferenceSnapshotField.TYPOGRAPHY_LINE_HEIGHT_SCALE -> "1.35"
+        AppPreferenceSnapshotField.TYPOGRAPHY_LETTER_SPACING_SCALE -> "0.95"
+        AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE -> "1.45"
+    }
 
-    private fun fullValidPreferencePayload(
-        overrides: Map<String, String> = emptyMap(),
-    ): Map<String, String> {
+    private fun fullValidPreferencePayload(overrides: Map<String, String> = emptyMap()): Map<String, String> {
         val catalogPreferences =
             SettingsCatalog
                 .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
@@ -414,22 +433,21 @@ private class AtomicCredentialRepository : CredentialRepository {
             values[CredentialField.S3_ACCESS_KEY_ID] = value
         }
 
-    override fun observeCredentialState(provider: CredentialProvider): Flow<CredentialState> =
-        flowOf(
-            CredentialState(
-                provider,
-                fieldsForProvider(provider).map { field ->
-                    CredentialFieldState(
-                        field,
-                        if (values[field].isNullOrBlank()) {
-                            StoredCredentialStatus.Missing
-                        } else {
-                            StoredCredentialStatus.Present
-                        },
-                    )
-                },
-            ),
-        )
+    override fun observeCredentialState(provider: CredentialProvider): Flow<CredentialState> = flowOf(
+        CredentialState(
+            provider,
+            fieldsForProvider(provider).map { field ->
+                CredentialFieldState(
+                    field,
+                    if (values[field].isNullOrBlank()) {
+                        StoredCredentialStatus.Missing
+                    } else {
+                        StoredCredentialStatus.Present
+                    },
+                )
+            },
+        ),
+    )
 
     override suspend fun credentialState(provider: CredentialProvider): CredentialState =
         CredentialState(provider, emptyList())
@@ -437,15 +455,14 @@ private class AtomicCredentialRepository : CredentialRepository {
     override suspend fun readSecret(
         field: CredentialField,
         authorization: CredentialReadAuthorization,
-    ): CredentialSecretReadResult =
-        if (authorization is CredentialReadAuthorization.Denied) {
-            CredentialSecretReadResult.Unauthorized(CredentialReadDenialReason.SecuritySessionLocked)
-        } else {
-            values[field]
-                ?.takeIf(String::isNotBlank)
-                ?.let(CredentialSecretReadResult::Present)
-                ?: CredentialSecretReadResult.Missing
-        }
+    ): CredentialSecretReadResult = if (authorization is CredentialReadAuthorization.Denied) {
+        CredentialSecretReadResult.Unauthorized(CredentialReadDenialReason.SecuritySessionLocked)
+    } else {
+        values[field]
+            ?.takeIf(String::isNotBlank)
+            ?.let(CredentialSecretReadResult::Present)
+            ?: CredentialSecretReadResult.Missing
+    }
 
     override suspend fun writeSecrets(values: Map<CredentialField, String?>) {
         mutatingCalls++
@@ -460,17 +477,18 @@ private class AtomicCredentialRepository : CredentialRepository {
         }
     }
 
-    private fun fieldsForProvider(provider: CredentialProvider): List<CredentialField> =
-        when (provider) {
-            CredentialProvider.GIT -> listOf(CredentialField.GIT_TOKEN, CredentialField.GIT_USERNAME)
-            CredentialProvider.WEBDAV -> listOf(CredentialField.WEBDAV_USERNAME, CredentialField.WEBDAV_PASSWORD)
-            CredentialProvider.S3 ->
-                listOf(
-                    CredentialField.S3_ACCESS_KEY_ID,
-                    CredentialField.S3_SECRET_ACCESS_KEY,
-                    CredentialField.S3_SESSION_TOKEN,
-                    CredentialField.S3_ENCRYPTION_PASSWORD,
-                    CredentialField.S3_ENCRYPTION_PASSWORD2,
-                )
-        }
+    private fun fieldsForProvider(provider: CredentialProvider): List<CredentialField> = when (provider) {
+        CredentialProvider.GIT -> listOf(CredentialField.GIT_TOKEN, CredentialField.GIT_USERNAME)
+
+        CredentialProvider.WEBDAV -> listOf(CredentialField.WEBDAV_USERNAME, CredentialField.WEBDAV_PASSWORD)
+
+        CredentialProvider.S3 ->
+            listOf(
+                CredentialField.S3_ACCESS_KEY_ID,
+                CredentialField.S3_SECRET_ACCESS_KEY,
+                CredentialField.S3_SESSION_TOKEN,
+                CredentialField.S3_ENCRYPTION_PASSWORD,
+                CredentialField.S3_ENCRYPTION_PASSWORD2,
+            )
+    }
 }

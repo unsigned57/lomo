@@ -35,6 +35,19 @@ import io.kotest.matchers.shouldNotBe
  * Excludes:
  * - Canvas pixel output, Compose semantics tree inspection, Android TextView measurement, and
  *   markdown block traversal.
+ *
+ * Test Change Justification:
+ * - Reason category: production cache-contract extension.
+ * - Old behavior/assertion being replaced: MemoTextLayoutInput constructed without fontSizePx and
+ *   the cache-field assertion omitted FontSizePx, although font size changes line breaking and
+ *   justification so layouts must not be shared across font sizes.
+ * - Why old assertion is no longer correct: the layout input gained fontSizePx as a required
+ *   field, and the production cache-key builder now folds font size into the key; asserting the
+ *   old field set would silently allow cross-font-size cache reuse.
+ * - Coverage preserved by: the FontSizePx assertion in the cache-field set plus a cache-key
+ *   inequality case for fontSizePx = 20f against the 16f baseline.
+ * - Why this is not fitting the test to the implementation: the stronger assertion is derived
+ *   from the layout invariant (font size changes line breaking), not from the implementation.
  */
 class MemoTextRenderingPolicyTest : UiComponentsFunSpec() {
     init {
@@ -82,6 +95,7 @@ class MemoTextRenderingPolicyTest : UiComponentsFunSpec() {
                     MemoTextLayoutCacheField.LineHeightPx,
                     MemoTextLayoutCacheField.BaselinePx,
                     MemoTextLayoutCacheField.BaseLetterSpacingPx,
+                    MemoTextLayoutCacheField.FontSizePx,
                     MemoTextLayoutCacheField.ProtectedRanges,
                 )
         }
@@ -110,6 +124,7 @@ class MemoTextRenderingPolicyTest : UiComponentsFunSpec() {
                     lineHeightPx = 24f,
                     baselinePx = 18f,
                     baseLetterSpacingPx = 0.5f,
+                    fontSizePx = 16f,
                 )
 
             selectableDecision.renderer shouldBe MemoTextRenderer.CustomCanvasText
@@ -128,6 +143,7 @@ class MemoTextRenderingPolicyTest : UiComponentsFunSpec() {
                     lineHeightPx = 20f,
                     baselinePx = 15f,
                     baseLetterSpacingPx = 0f,
+                    fontSizePx = 16f,
                     protectedRanges = listOf(MemoTextProtectedRange(start = 0, end = 6)),
                 )
             val baseKey = baseInput.toMemoTextLayoutCacheKey()
@@ -149,6 +165,7 @@ class MemoTextRenderingPolicyTest : UiComponentsFunSpec() {
             baseKey shouldNotBe baseInput.copy(lineHeightPx = 24f).toMemoTextLayoutCacheKey()
             baseKey shouldNotBe baseInput.copy(baselinePx = 18f).toMemoTextLayoutCacheKey()
             baseKey shouldNotBe baseInput.copy(baseLetterSpacingPx = 0.5f).toMemoTextLayoutCacheKey()
+            baseKey shouldNotBe baseInput.copy(fontSizePx = 20f).toMemoTextLayoutCacheKey()
             baseKey shouldNotBe withDifferentRange.toMemoTextLayoutCacheKey()
         }
     }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
     ActionId, BatchId, CapabilityToken, ExchangeToken, JobId, LomoError, PageSize,
-    RelativeWorkspacePath,
+    RelativeWorkspacePath, types::MAX_METADATA_PAGE_SIZE,
 };
 
 const PLATFORM_SCHEMA: u32 = 1;
@@ -269,7 +269,7 @@ impl StagedArtifactSource {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum WorkspaceTarget {
     Root,
     Relative(RelativeWorkspacePath),
@@ -387,12 +387,12 @@ impl MetadataPage {
     ///
     /// # Errors
     ///
-    /// Returns a resource-limit or validation error for more than 256 entries or an invalid cursor.
+    /// Returns a resource-limit or validation error for more than 512 entries or an invalid cursor.
     pub fn new(items: Vec<DocumentMetadata>, next_cursor: Option<&str>) -> Result<Self, LomoError> {
-        if items.len() > 256 {
+        if items.len() > MAX_METADATA_PAGE_SIZE as usize {
             return Err(LomoError::resource_limit(
                 "metadata_page_limit_exceeded",
-                "metadata page contains more than 256 entries",
+                "metadata page contains more than 512 entries",
             ));
         }
         Ok(Self {
@@ -512,9 +512,29 @@ pub enum PlatformAction {
         path: RelativeWorkspacePath,
         expected_target: ExpectedFingerprint,
     },
+    /// Observes metadata without reading file content. Its change token is comparable to
+    /// directory-listing evidence; a content CAS must continue to use `Stat` or `Read`.
+    Inspect {
+        action_id: ActionId,
+        capability: CapabilityToken,
+        target: WorkspaceTarget,
+    },
 }
 
 impl PlatformAction {
+    #[must_use]
+    pub const fn inspect(
+        action_id: ActionId,
+        capability: CapabilityToken,
+        target: WorkspaceTarget,
+    ) -> Self {
+        Self::Inspect {
+            action_id,
+            capability,
+            target,
+        }
+    }
+
     #[must_use]
     pub const fn stat(
         action_id: ActionId,
@@ -718,6 +738,7 @@ impl PlatformAction {
     pub const fn id(&self) -> &ActionId {
         match self {
             Self::Stat { action_id, .. }
+            | Self::Inspect { action_id, .. }
             | Self::ListChildren { action_id, .. }
             | Self::EnsureDirectory { action_id, .. }
             | Self::ReadToExchange { action_id, .. }
@@ -922,6 +943,12 @@ impl ActionResult {
     pub const fn outcome(&self) -> &ActionOutcome {
         &self.outcome
     }
+
+    /// Transfers the payload to its consumer without copying source bytes.
+    #[must_use]
+    pub fn into_outcome(self) -> ActionOutcome {
+        self.outcome
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1024,6 +1051,12 @@ impl PlatformBatchResult {
     pub fn action_results(&self) -> &[ActionResult] {
         &self.action_results
     }
+
+    /// Transfers the ordered results after the caller has checked their batch evidence.
+    #[must_use]
+    pub fn into_action_results(self) -> Vec<ActionResult> {
+        self.action_results
+    }
 }
 
 /// Shared trait for executing platform action batches.
@@ -1066,6 +1099,10 @@ enum OutputMismatch {
         expected: &'static str,
         observed: &'static str,
     },
+    EvidenceDepth {
+        expected: &'static str,
+        observed: &'static str,
+    },
     Kind {
         expected: DocumentKind,
         observed: DocumentKind,
@@ -1095,6 +1132,12 @@ impl fmt::Display for OutputMismatch {
                 write!(
                     formatter,
                     "output shape expected {expected}, observed {observed}"
+                )
+            }
+            Self::EvidenceDepth { expected, observed } => {
+                write!(
+                    formatter,
+                    "evidence depth expected {expected}, observed {observed}"
                 )
             }
             Self::Kind { expected, observed } => {
@@ -1143,6 +1186,7 @@ fn describe_target(target: &WorkspaceTarget) -> String {
 const fn action_shape(action: &PlatformAction) -> &'static str {
     match action {
         PlatformAction::Stat { .. } => "Stat",
+        PlatformAction::Inspect { .. } => "Inspect",
         PlatformAction::ListChildren { .. } => "ListChildren",
         PlatformAction::EnsureDirectory { .. } => "EnsureDirectory",
         PlatformAction::ReadToExchange { .. } => "ReadToExchange",
@@ -1227,6 +1271,16 @@ impl PlatformActionOutput {
         match (self, action) {
             (Self::Stat { metadata }, PlatformAction::Stat { target, .. }) => {
                 expect_target(metadata.target(), target)
+            }
+            (Self::Stat { metadata }, PlatformAction::Inspect { target, .. }) => {
+                expect_target(metadata.target(), target)?;
+                if metadata.evidence().verified_digest().is_some() {
+                    return Err(OutputMismatch::EvidenceDepth {
+                        expected: "metadata only",
+                        observed: "verified content",
+                    });
+                }
+                Ok(())
             }
             (Self::Listed { .. }, PlatformAction::ListChildren { .. }) => Ok(()),
             (Self::DirectoryReady { metadata }, PlatformAction::EnsureDirectory { path, .. }) => {

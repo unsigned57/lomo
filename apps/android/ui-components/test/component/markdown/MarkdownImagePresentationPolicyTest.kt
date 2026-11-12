@@ -20,32 +20,40 @@ import io.kotest.matchers.shouldBe
 class MarkdownImagePresentationPolicyTest : UiComponentsFunSpec() {
     init {
         test("first loading state shows loading placeholder when no success is retained") {
-        (resolveMarkdownImagePresentation(
-                loadState = MarkdownImageLoadState.Loading,
-                hasRetainedSuccess = false,
-            )) shouldBe (MarkdownImagePresentation.LoadingPlaceholder)
+            (
+                resolveMarkdownImagePresentation(
+                    loadState = MarkdownImageLoadState.Loading,
+                    hasRetainedSuccess = false,
+                )
+                ) shouldBe (MarkdownImagePresentation.LoadingPlaceholder)
         }
     }
 
     init {
         test("loading and empty states keep retained success image") {
-        (resolveMarkdownImagePresentation(
-                loadState = MarkdownImageLoadState.Loading,
-                hasRetainedSuccess = true,
-            )) shouldBe (MarkdownImagePresentation.RetainedSuccess)
-        (resolveMarkdownImagePresentation(
-                loadState = MarkdownImageLoadState.Empty,
-                hasRetainedSuccess = true,
-            )) shouldBe (MarkdownImagePresentation.RetainedSuccess)
+            (
+                resolveMarkdownImagePresentation(
+                    loadState = MarkdownImageLoadState.Loading,
+                    hasRetainedSuccess = true,
+                )
+                ) shouldBe (MarkdownImagePresentation.RetainedSuccess)
+            (
+                resolveMarkdownImagePresentation(
+                    loadState = MarkdownImageLoadState.Empty,
+                    hasRetainedSuccess = true,
+                )
+                ) shouldBe (MarkdownImagePresentation.RetainedSuccess)
         }
     }
 
     init {
         test("error state still shows error placeholder even after retained success") {
-        (resolveMarkdownImagePresentation(
-                loadState = MarkdownImageLoadState.Error,
-                hasRetainedSuccess = true,
-            )) shouldBe (MarkdownImagePresentation.ErrorPlaceholder)
+            (
+                resolveMarkdownImagePresentation(
+                    loadState = MarkdownImageLoadState.Error,
+                    hasRetainedSuccess = true,
+                )
+                ) shouldBe (MarkdownImagePresentation.ErrorPlaceholder)
         }
     }
 }

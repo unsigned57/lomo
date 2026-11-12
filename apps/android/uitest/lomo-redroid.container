@@ -1,0 +1,26 @@
+# Rootful Quadlet template for an always-on lomo-redroid container.
+# Install: copy to /etc/containers/systemd/lomo-redroid.container, then
+# `systemctl daemon-reload && systemctl start lomo-redroid`. The generated unit is
+# never `systemctl enable`d — the [Install] section starts it at boot.
+# Reuse afterwards needs no privileges: `just uitest`/`uishot`/benchmark/perf attach
+# over adb directly. Mirrors the --redroid provisioning in
+# crates/lomo-xtask/src/android.rs; keep image pin and androidboot flags in sync.
+[Unit]
+Description=lomo redroid Android container (adb on localhost:5555)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/redroid/redroid:15.0.0_64only-250627
+ContainerName=lomo-redroid
+PodmanArgs=--privileged
+Tmpfs=/data:rw,exec,size=2G
+PublishPort=5555:5555
+Exec=androidboot.use_memfd=1 androidboot.redroid_gpu_mode=host androidboot.redroid_width=1080 androidboot.redroid_height=2400 androidboot.redroid_dpi=420
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

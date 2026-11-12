@@ -1,8 +1,16 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract — P2-05 multi-phase workspace scan + document-command jobs
 //!
 //! Capability: drive workspace scan and document commands through the stage-1 single-writer
 //! actor using exchange tokens only (no large `ByteArray` bodies across the job boundary). Scan
-//! publishes bounded pages (≤256) with an opaque Rust-owned cursor. Document commands fail closed
+//! publishes bounded pages (≤512) with an opaque Rust-owned cursor. Document commands fail closed
 //! on stale fingerprints and do not double-write on replay / `AlreadySatisfied` postconditions.
 //!
 //! Scenarios:
@@ -39,7 +47,7 @@
 //! - Given one listed page contains multiple Markdown files, when the scan plans independent reads,
 //!   then those reads share one bounded platform batch instead of one durable round trip per file.
 //! - Given a workspace scan starts, when it requests a provider listing page, then it uses the
-//!   protocol maximum of 256 documents before partitioning independent reads into bounded batches.
+//!   protocol maximum of 512 documents before partitioning independent reads into bounded batches.
 //! - Given one file with 257+ memos or a page boundary inside a later file, when scan resumes from
 //!   its opaque cursor, then every memo is emitted exactly once in file order.
 //! - Given a cursor that points inside a file, when that file changes before resume, then scan fails
@@ -204,7 +212,7 @@ mod tests {
             current_bytes: &[u8],
             expected: &ActionEvidence,
         ) -> Option<ActionOutcome> {
-            let current_digest = format!("{:x}", Sha256::digest(current_bytes));
+            let current_digest = lomo_core::hex_encode(&Sha256::digest(current_bytes));
             if expected
                 .verified_digest()
                 .is_some_and(|digest| current_digest == digest.as_str())
@@ -350,7 +358,8 @@ mod tests {
         }
 
         fn write_trash_record(&self, record: &TrashRecordV1) {
-            let path = trash_record_relative_path(&record.memo_id).test_ok("trash record path");
+            let path = trash_record_relative_path(&record.memo_id, &record.source_path)
+                .test_ok("trash record path");
             let bytes = encode_trash_record(record).test_ok("encode trash record");
             self.write_file(path.as_str(), &bytes);
         }
@@ -366,6 +375,7 @@ mod tests {
                 PlatformAction::Delete { .. } => self.execute_delete(action),
                 PlatformAction::Move { .. } => self.execute_move(action),
                 PlatformAction::Stat { .. }
+                | PlatformAction::Inspect { .. }
                 | PlatformAction::Read { .. }
                 | PlatformAction::ArtifactWrite { .. } => {
                     panic!("unexpected action in harness: {action:?}")
@@ -386,7 +396,7 @@ mod tests {
                 panic!("move helper received non-move action: {action:?}");
             };
             let move_metadata = |path: &lomo_core::RelativeWorkspacePath, bytes: &[u8]| {
-                let digest = format!("{:x}", Sha256::digest(bytes));
+                let digest = lomo_core::hex_encode(&Sha256::digest(bytes));
                 DocumentMetadata::new(
                     WorkspaceTarget::Relative(path.clone()),
                     DocumentKind::File,
@@ -448,7 +458,7 @@ mod tests {
             };
             let bytes = fs::read(self.exchange_root.join(artifact.token().as_str()))
                 .test_ok("read exchange write artifact");
-            let digest = format!("{:x}", Sha256::digest(&bytes));
+            let digest = lomo_core::hex_encode(&Sha256::digest(&bytes));
             assert_eq!(digest, artifact.digest().as_str(), "artifact digest");
             let full = self.workspace_root.join(path.as_str());
             if let Some(outcome) = Self::guard_write_target(&full, *mode, expected_target) {
@@ -503,7 +513,7 @@ mod tests {
                 panic!("directory helper received non-directory action: {action:?}");
             };
             fs::create_dir_all(self.workspace_root.join(path.as_str())).test_ok("ensure directory");
-            let digest = format!("{:x}", Sha256::digest([]));
+            let digest = lomo_core::hex_encode(&Sha256::digest([]));
             let evidence = ActionEvidence::verified(
                 0,
                 Sha256Digest::parse(&digest).test_ok("directory digest"),
@@ -630,7 +640,7 @@ mod tests {
                 .test_ok("read source by locator");
             let digest = {
                 use sha2::{Digest, Sha256};
-                format!("{:x}", Sha256::digest(&bytes))
+                lomo_core::hex_encode(&Sha256::digest(&bytes))
             };
             let exchange_path = self.exchange_root.join(exchange_token.as_str());
             if let Some(parent) = exchange_path.parent() {
@@ -690,7 +700,8 @@ mod tests {
             };
             let digest = {
                 use sha2::{Digest, Sha256};
-                Sha256Digest::parse(&format!("{:x}", Sha256::digest(&bytes))).test_ok("digest")
+                Sha256Digest::parse(&lomo_core::hex_encode(&Sha256::digest(&bytes)))
+                    .test_ok("digest")
             };
             let evidence = ActionEvidence::verified(
                 bytes.len() as u64,
@@ -914,7 +925,7 @@ mod tests {
             panic!("expected one list action, got {:?}", list_batch.actions());
         };
 
-        assert_eq!(page_size.get(), 256);
+        assert_eq!(page_size.get(), 512);
     }
 
     #[test]
@@ -1621,7 +1632,8 @@ mod tests {
 
         assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
         assert_eq!(harness.read_file("2026_08_09.md"), source);
-        let marker_path = trash_record_relative_path(identity).test_ok("marker path");
+        let marker_path =
+            trash_record_relative_path(identity, "2026_08_09.md").test_ok("marker path");
         let marker_bytes = harness.read_file(marker_path.as_str());
         let marker = decode_trash_record(&marker_bytes).test_ok("trash record");
         assert_eq!(marker.memo_id, identity);
@@ -1654,7 +1666,8 @@ mod tests {
         let source = b"- 09:30:00\nkeep\n\n- 10:45:00\ndelete me\n";
         harness.write_file("2026_08_09.md", source);
         let identity = "2026_08_09_10:45:00_0";
-        let marker_path = trash_record_relative_path(identity).test_ok("marker path");
+        let marker_path =
+            trash_record_relative_path(identity, "2026_08_09.md").test_ok("marker path");
         harness.write_file(marker_path.as_str(), b"stale marker bytes");
 
         let request = TrashCommandRequest {
@@ -1688,7 +1701,8 @@ mod tests {
                 chronology_epoch_ms: 1_754_808_300_000,
             },
         });
-        let marker_path = trash_record_relative_path(identity).test_ok("marker path");
+        let marker_path =
+            trash_record_relative_path(identity, "2026_08_10.md").test_ok("marker path");
         assert!(harness.workspace_root.join(marker_path.as_str()).is_file());
 
         let restored = harness.trash_command(&TrashCommandRequest {
@@ -1720,7 +1734,8 @@ mod tests {
                 chronology_epoch_ms: 1_754_894_700_000,
             },
         });
-        let marker_path = trash_record_relative_path(identity).test_ok("marker path");
+        let marker_path =
+            trash_record_relative_path(identity, "2026_08_11.md").test_ok("marker path");
 
         let deleted = harness.trash_command(&TrashCommandRequest {
             path: "2026_08_11.md".to_owned(),
@@ -1780,7 +1795,7 @@ mod tests {
 
         let page = harness.trash_scan_page(16, None);
 
-        assert!(page.items.is_empty());
+        assert_eq!(page.items, Vec::<TrashMemoSummary>::new());
         assert!(page.next_cursor.is_none());
     }
 
@@ -2162,13 +2177,16 @@ mod tests {
     #[test]
     fn scan_returns_empty_directory_page_before_consuming_the_next_listing_page() {
         let harness = Harness::new();
-        for index in 0..257 {
+        for index in 0..513 {
             harness.write_file(&format!("attachment-{index:03}.bin"), b"not markdown");
         }
 
         let page = harness.scan_page(1, None).test_ok("scan page");
 
-        assert!(page.items.is_empty());
+        assert_eq!(
+            page.items,
+            Vec::<lomo_workspace::WorkspaceMemoSummary>::new()
+        );
         assert!(page.next_cursor.is_some());
     }
 }

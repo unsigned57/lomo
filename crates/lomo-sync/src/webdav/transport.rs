@@ -185,7 +185,7 @@ impl WebDavTransport {
                 &format!("failed to fsync webdav temp file: {error}"),
             )
         })?;
-        let digest = format!("{:x}", hasher.finalize());
+        let digest = lomo_core::hex_encode(&hasher.finalize());
         Ok((temp_path, etag, digest))
     }
 

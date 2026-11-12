@@ -9,11 +9,11 @@ import kotlin.concurrent.write
  * Read/write lifecycle lease for generated BoltFFI handles.
  *
  * Readers take the shared lock only after the lease is still Open. Close atomically enters
- * Closing, then takes the exclusive write lock so every in-flight reader exits before the
+ * Closing, wakes native observations, then takes the exclusive write lock so every in-flight reader exits before the
  * close body runs. There is no separate pre-lock reader counter that can deadlock with the
  * write lock.
  */
-internal class NativeHandleLease {
+internal class NativeHandleLease(private val interruptReaders: () -> Unit) {
     private enum class State {
         Open,
         Closing,
@@ -40,13 +40,18 @@ internal class NativeHandleLease {
         if (!state.compareAndSet(State.Open, State.Closing)) {
             return false
         }
+        // Stop/wake long-lived native observations BEFORE draining readers. Closing has
+        // already refused new readers; handle destruction still waits for every old one.
+        val release = ReleaseSequence()
+        release.release(interruptReaders)
         lock.write {
             try {
-                block()
+                release.release(block)
             } finally {
                 state.set(State.Closed)
             }
         }
+        release.throwIfFailed()
         return true
     }
 

@@ -57,22 +57,20 @@ internal fun rememberLanShareNetworkPermissionRequester(
     return requestPermissions
 }
 
-internal class CapabilityRecoveryExecutor(
-    private val onOpenAppSettings: () -> Unit,
-) {
-    fun execute(action: CapabilityRecoveryAction?): Boolean =
-        when (action) {
-            CapabilityRecoveryAction.OpenAppSettings -> {
-                onOpenAppSettings()
-                true
-            }
-            CapabilityRecoveryAction.RequestRuntimePermissions,
-            is CapabilityRecoveryAction.OpenSettings,
-            CapabilityRecoveryAction.SelectSafTree,
-            CapabilityRecoveryAction.SelectSafDocument,
-            null,
-            -> false
+internal class CapabilityRecoveryExecutor(private val onOpenAppSettings: () -> Unit) {
+    fun execute(action: CapabilityRecoveryAction?): Boolean = when (action) {
+        CapabilityRecoveryAction.OpenAppSettings -> {
+            onOpenAppSettings()
+            true
         }
+
+        CapabilityRecoveryAction.RequestRuntimePermissions,
+        is CapabilityRecoveryAction.OpenSettings,
+        CapabilityRecoveryAction.SelectSafTree,
+        CapabilityRecoveryAction.SelectSafDocument,
+        null,
+        -> false
+    }
 }
 
 @Composable

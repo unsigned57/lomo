@@ -12,7 +12,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -24,6 +23,7 @@ import com.lomo.domain.model.markdown.MarkdownRenderContractException
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -86,7 +86,7 @@ fun LomoAppUpdateDialog(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TextButton(
+                LomoTextButton(
                     onClick = {
                         haptic.medium()
                         onOpenReleasePage(dialogState.url)
@@ -95,7 +95,7 @@ fun LomoAppUpdateDialog(
                 ) {
                     Text(stringResource(R.string.action_github_download))
                 }
-                TextButton(
+                LomoTextButton(
                     onClick = {
                         haptic.medium()
                         if (dialogState.canDownloadInApp) {
@@ -117,7 +117,7 @@ fun LomoAppUpdateDialog(
             }
         },
         dismissButton = {
-            TextButton(
+            LomoTextButton(
                 onClick = {
                     haptic.medium()
                     onDismiss()
@@ -140,9 +140,9 @@ private fun UpdateDialogTextContent(
 ) {
     Column(
         modifier =
-            Modifier
-                .heightIn(max = 360.dp)
-                .verticalScroll(rememberScrollState()),
+        Modifier
+            .heightIn(max = 360.dp)
+            .verticalScroll(rememberScrollState()),
     ) {
         Text(updateMessage)
         Spacer(modifier = Modifier.height(10.dp))
@@ -160,11 +160,13 @@ private fun UpdateDialogTextContent(
         } else {
             when (releaseNotesRenderState) {
                 MarkdownRenderState.Pending -> ExpressiveLoadingIndicator()
+
                 is MarkdownRenderState.Ready ->
                     MarkdownRenderer(
                         document = releaseNotesRenderState.document,
                         modifier = Modifier.fillMaxWidth(),
                     )
+
                 is MarkdownRenderState.Failed ->
                     Text(
                         text = stringResource(R.string.update_dialog_release_notes_failed),

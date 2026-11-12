@@ -6,58 +6,49 @@ import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
+internal data class ActionColors(val container: Color, val content: Color)
+
 internal object ActionSheetTokens {
+    /** 32.dp expressive sheet corner. */
+    val SheetShape = AppShapes.ExtraLargeIncreased
     val ContentHorizontalPadding = AppSpacing.Medium
-    val ContentBottomPadding = AppSpacing.ExtraLarge
-    val RowVerticalPadding = AppSpacing.Medium
-    val ItemSpacing = AppSpacing.MediumSmall
-    val EqualWidthActionWidth = 92.dp
-    val DividerVerticalPadding = AppSpacing.Small
-    val SwipeEdgeSpacing = AppSpacing.MediumSmall
-    val SwipeTrackWidth = 112.dp
-    val SwipeTrackHeight = 6.dp
-    val SwipeThumbWidth = 28.dp
-    val SwipeShape = AppShapes.Full
-    val SwipeEdgeButtonSize = 48.dp
-    val SwipeEdgeIconSize = 18.dp
-    val ActionChipShape = AppShapes.LargeIncreased
-    val ActionChipHeight = 64.dp
-    val ActionChipMinWidth = 72.dp
-    val ActionChipPadding = AppSpacing.Small
-    val ActionChipIconSize = 22.dp
-    val ActionChipIconLabelSpacing = AppSpacing.ExtraSmall
-    val InfoCardShape = AppShapes.Medium
-    val InfoCardTopPadding = AppSpacing.Small
-    val InfoCardPadding = AppSpacing.Medium
-    val InfoItemTextSpacing = 2.dp
+    val ContentBottomPadding = AppSpacing.Large
+    val SectionSpacing = AppSpacing.MediumSmall
 
-    const val DragScaleFactor = 1.05f
-    const val DragAlpha = 0.92f
+    const val MaxTileCount = 3
+    val TileShape = AppShapes.ExtraLargeIncreased
+    val TileHeight = 96.dp
+    val TileSpacing = AppSpacing.Small
+    val TileContentPadding = AppSpacing.Small
+    val TileIconSize = 26.dp
+    val TileIconLabelSpacing = AppSpacing.Small
 
-    private const val DividerAlpha = 0.5f
-    private const val SwipeTrackAlpha = 0.35f
-    private const val SwipeThumbAlpha = 0.9f
+    val RowShape = AppShapes.Large
+    val RowMinHeight = 56.dp
+    val RowHorizontalPadding = AppSpacing.Medium
+    val RowIconSize = 24.dp
+    val RowIconLabelSpacing = AppSpacing.Medium
+    val DividerVerticalPadding = AppSpacing.ExtraSmall
 
-    fun dividerColor(colorScheme: ColorScheme): Color =
-        colorScheme.outlineVariant.copy(alpha = DividerAlpha)
+    const val InlineCapsuleMaxCount = 2
+    const val CapsuleLabelMaxLines = 2
+    val CapsuleShape = AppShapes.LargeIncreased
+    val CapsuleMinHeight = 56.dp
+    val CapsuleContentPadding = AppSpacing.MediumSmall
+    val CapsuleIconSize = 20.dp
+    val CapsuleIconLabelSpacing = AppSpacing.Small
 
-    fun swipeTrackColor(colorScheme: ColorScheme): Color =
-        colorScheme.outlineVariant.copy(alpha = SwipeTrackAlpha)
+    val MetaLabelValueSpacing = AppSpacing.ExtraSmall
 
-    fun swipeThumbColor(colorScheme: ColorScheme): Color =
-        colorScheme.secondaryContainer.copy(alpha = SwipeThumbAlpha)
+    fun tileColors(colorScheme: ColorScheme, action: ActionItemUi): ActionColors = when {
+        action.isDestructive -> ActionColors(colorScheme.errorContainer, colorScheme.onErrorContainer)
+        action.isHighlighted -> ActionColors(colorScheme.primaryContainer, colorScheme.onPrimaryContainer)
+        else -> ActionColors(colorScheme.surfaceContainerHigh, colorScheme.onSurface)
+    }
 
-    fun actionChipContainerColor(
-        colorScheme: ColorScheme,
-        isDestructive: Boolean,
-        isHighlighted: Boolean,
-    ): Color =
-        when {
-            isDestructive -> colorScheme.errorContainer
-            isHighlighted -> colorScheme.primaryContainer
-            else -> colorScheme.surfaceContainerHigh
-        }
-
-    fun infoCardContainerColor(colorScheme: ColorScheme): Color =
-        colorScheme.surfaceContainerHigh
+    fun capsuleColors(colorScheme: ColorScheme, action: ActionItemUi): ActionColors = when {
+        action.isDestructive -> ActionColors(colorScheme.errorContainer, colorScheme.onErrorContainer)
+        action.isHighlighted -> ActionColors(colorScheme.primary, colorScheme.onPrimary)
+        else -> ActionColors(colorScheme.secondaryContainer, colorScheme.onSecondaryContainer)
+    }
 }

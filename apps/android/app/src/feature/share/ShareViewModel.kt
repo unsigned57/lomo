@@ -247,10 +247,7 @@ class ShareViewModel(
         }
     }
 
-    private fun reportOperationError(
-        throwable: Throwable,
-        fallbackMessage: String,
-    ) {
+    private fun reportOperationError(throwable: Throwable, fallbackMessage: String) {
         if (throwable is CancellationException) throw throwable
         val message = throwable.toUserMessage(fallbackMessage, shareErrorPolicy::sanitizeUserFacingMessage)
         _operationError.value = message
@@ -271,6 +268,7 @@ class ShareViewModel(
                 _lanSharePermissionState.value = LanSharePermissionState.Denied
                 _lanShareDiscoveryError.value = LAN_SHARE_PERMISSION_REQUIRED_MESSAGE
             }
+
             LanShareRuntimeState.Running,
             LanShareRuntimeState.WaitingForTopology,
             -> {
@@ -281,6 +279,7 @@ class ShareViewModel(
                     _lanShareDiscoveryError.value = null
                 }
             }
+
             LanShareRuntimeState.Stopped -> Unit
         }
     }
@@ -302,17 +301,14 @@ private data class ShareSessionSecondary(
     val operationError: String?,
 )
 
-private fun LanShareStartupFailure.toShareUserFacingMessage(): String =
-    when (this) {
-        LanShareStartupFailure.DiscoveryStartFailed -> "Failed to start device discovery"
-        LanShareStartupFailure.ServiceRegistrationFailed ->
-            "Failed to register this device for LAN sharing"
-    }
+private fun LanShareStartupFailure.toShareUserFacingMessage(): String = when (this) {
+    LanShareStartupFailure.DiscoveryStartFailed -> "Failed to start device discovery"
 
-private fun resolveShareMemoContent(
-    savedStateHandle: SavedStateHandle,
-    payloadKey: String,
-): String {
+    LanShareStartupFailure.ServiceRegistrationFailed ->
+        "Failed to register this device for LAN sharing"
+}
+
+private fun resolveShareMemoContent(savedStateHandle: SavedStateHandle, payloadKey: String): String {
     val routeStoreContent = ShareRoutePayloadStore.consumeMemoContent(payloadKey).orEmpty()
     return routeStoreContent.ifBlank {
         savedStateHandle.get<String>(SHARE_MEMO_CONTENT_KEY).orEmpty()

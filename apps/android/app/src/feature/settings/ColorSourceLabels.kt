@@ -11,21 +11,19 @@ import java.util.Locale
 internal const val COLOR_PICKER_RGB_MASK = 0xFFFFFF
 
 @Composable
-internal fun colorSourceSummaryLabel(source: ColorSource): String =
-    when (source) {
-        is ColorSource.DynamicWallpaper -> stringResource(R.string.settings_color_source_dynamic)
-        is ColorSource.Preset -> presetDisplayName(source.id)
-        is ColorSource.CustomSeed -> "#%06X".format(Locale.ROOT, source.argb and COLOR_PICKER_RGB_MASK)
-    }
+internal fun colorSourceSummaryLabel(source: ColorSource): String = when (source) {
+    is ColorSource.DynamicWallpaper -> stringResource(R.string.settings_color_source_dynamic)
+    is ColorSource.Preset -> presetDisplayName(source.id)
+    is ColorSource.CustomSeed -> "#%06X".format(Locale.ROOT, source.argb and COLOR_PICKER_RGB_MASK)
+}
 
 @Composable
-internal fun presetDisplayName(id: ColorPresetId): String =
-    when (id) {
-        ColorPresetId.INDIGO -> stringResource(R.string.settings_color_preset_indigo)
-        ColorPresetId.FOREST -> stringResource(R.string.settings_color_preset_forest)
-        ColorPresetId.OCEAN -> stringResource(R.string.settings_color_preset_ocean)
-        ColorPresetId.SUNSET -> stringResource(R.string.settings_color_preset_sunset)
-        ColorPresetId.LAVENDER -> stringResource(R.string.settings_color_preset_lavender)
-        ColorPresetId.ROSE -> stringResource(R.string.settings_color_preset_rose)
-        ColorPresetId.SAND -> stringResource(R.string.settings_color_preset_sand)
-    }
+internal fun presetDisplayName(id: ColorPresetId): String = when (id) {
+    ColorPresetId.INDIGO -> stringResource(R.string.settings_color_preset_indigo)
+    ColorPresetId.FOREST -> stringResource(R.string.settings_color_preset_forest)
+    ColorPresetId.OCEAN -> stringResource(R.string.settings_color_preset_ocean)
+    ColorPresetId.SUNSET -> stringResource(R.string.settings_color_preset_sunset)
+    ColorPresetId.LAVENDER -> stringResource(R.string.settings_color_preset_lavender)
+    ColorPresetId.ROSE -> stringResource(R.string.settings_color_preset_rose)
+    ColorPresetId.SAND -> stringResource(R.string.settings_color_preset_sand)
+}

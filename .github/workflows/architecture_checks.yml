@@ -5,6 +5,7 @@ on:
   push:
     tags-ignore:
       - 'v*'
+      - 'tui-v*'
   workflow_dispatch:
 
 permissions:
@@ -14,15 +15,6 @@ permissions:
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  CARGO_HOME: ${{ github.workspace }}/.cache/cargo-home
-  HOME: ${{ github.workspace }}/.home
-  ANDROID_USER_HOME: ${{ github.workspace }}/.android
-  XDG_DATA_HOME: ${{ github.workspace }}/.local/share
-  XDG_CONFIG_HOME: ${{ github.workspace }}/.config
-  LOMO_KOTLIN_GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/kotlin-toolchain
-  KOTLIN_CLI_BOOTSTRAP_CACHE_DIR: ${{ github.workspace }}/.kotlin-cli
 
 jobs:
   changes:
@@ -38,21 +30,24 @@ jobs:
       skip: ${{ steps.guard.outputs.skip }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Detect changed paths
-        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
           filters: |
             rust:
               - 'crates/**'
+              - 'apps/tui/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
-              - 'tools.toml'
-              - 'deny.toml'
-              - 'clippy.toml'
-              - 'rustfmt.toml'
+              - 'quality/tools.toml'
+              - 'quality/rust/deny.toml'
+              - '.clippy.toml'
+              - '.rustfmt.toml'
+              - '.cargo/**'
+              - '.config/nextest.toml'
               - 'Justfile'
             kotlin:
               - 'apps/android/**'
@@ -60,14 +55,17 @@ jobs:
               - 'kotlin'
             native:
               - 'crates/lomo-native/**'
+              - '.cargo/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - 'tools.toml'
+              - 'quality/tools.toml'
               - 'rust-toolchain.toml'
               - 'crates/lomo-xtask/src/native.rs'
               - 'crates/lomo-xtask/src/android.rs'
               - 'crates/lomo-xtask/src/tools.rs'
             quality_infra:
+              - 'fixtures/**'
+              - '.config/nextest.toml'
               - 'Justfile'
               - '.githooks/**'
               - '.github/workflows/**'
@@ -91,9 +89,9 @@ jobs:
           run_android=false
           if [ "$rust" = 'true' ] || [ "$quality" = 'true' ]; then run_rust=true; fi
           # jniLibs are required for Kotlin APK packaging and for native contract verification.
-          if [ "$native" = 'true' ] || [ "$kotlin" = 'true' ] || [ "$quality" = 'true' ]; then run_native=true; fi
-          # Full Kotlin static/host surface only when app/data/domain/ui or quality infra moves.
-          if [ "$kotlin" = 'true' ] || [ "$quality" = 'true' ]; then run_android=true; fi
+          if [ "$rust" = 'true' ] || [ "$native" = 'true' ] || [ "$kotlin" = 'true' ] || [ "$quality" = 'true' ]; then run_native=true; fi
+          # Rust owner changes can propagate through lomo-native into Kotlin consumers.
+          if [ "$rust" = 'true' ] || [ "$kotlin" = 'true' ] || [ "$quality" = 'true' ]; then run_android=true; fi
           # Docs-only / unmatched changes still exercise the Rust host surface.
           if [ "$run_rust" = 'false' ] && [ "$run_native" = 'false' ] && [ "$run_android" = 'false' ]; then
             run_rust=true
@@ -104,6 +102,8 @@ jobs:
       - name: Skip duplicate push runs with an open PR
         id: guard
         if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           branch="${GITHUB_REF#refs/heads/}"
           if gh pr list --head "$branch" --state open --json number --jq 'length > 0' | grep -qx true; then
@@ -118,21 +118,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Cache pinned Rust tools and host build
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            .cache/cargo-home
-            .cache/cargo-tools
-            target
-          key: rust-host-1.98-${{ hashFiles('Cargo.lock', 'tools.toml', 'rust-toolchain.toml') }}
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/lomo/cargo-tools
+            target/cargo
+            target/lomo/build
+          key: rust-host-1.99-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'rust-toolchain.toml') }}
       - name: Bootstrap pinned Rust tools
-        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
+        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
       - name: Run Rust host gate (no coverage)
-        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-rust fast
+        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-rust fast
 
   native:
     needs: changes
@@ -144,24 +146,26 @@ jobs:
         abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
       - name: Cache pinned native toolchain
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            .cache/cargo-home
-            .cache/cargo-tools
-            target
-            ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-          key: native-1.98-ndk29-${{ matrix.abi }}-release-ci-${{ hashFiles('Cargo.lock', 'tools.toml') }}
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/lomo/cargo-tools
+            target/cargo
+            target/lomo/build
+            ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
+          key: native-1.99-ndk30-${{ matrix.abi }}-release-ci-${{ hashFiles('Cargo.lock', 'quality/tools.toml') }}
       - name: Bootstrap pinned native toolchain
-        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Build and verify ${{ matrix.abi }} (release-ci)
-        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-native release-ci ${{ matrix.abi }}
+        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-native release-ci ${{ matrix.abi }}
       - name: Upload native libraries
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.abi }}
           path: apps/android/app/jniLibs/${{ matrix.abi }}/*
@@ -177,64 +181,69 @@ jobs:
       (needs.changes.outputs.run_native != 'true' || needs.native.result == 'success')
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Set up JDK 27
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: zulu
           java-version: '27'
       - name: Set up Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
       - name: Cache Android and Kotlin toolchains
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            .cache
-            .gradle/kotlin-toolchain
-            .kotlin-cli
-            target
-            ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-          key: android-1.98-ndk29-${{ hashFiles('Cargo.lock', 'tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/lomo
+            ~/.cache/JetBrains/Kotlin
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            target/cargo
+            target/lomo/build
+            ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
+          key: android-1.99-ndk30-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}
       - name: Download arm64-v8a
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-arm64-v8a
           path: apps/android/app/jniLibs/arm64-v8a
       - name: Download armeabi-v7a
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-armeabi-v7a
           path: apps/android/app/jniLibs/armeabi-v7a
       - name: Download x86_64
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-x86_64
           path: apps/android/app/jniLibs/x86_64
       - name: Download x86
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-x86
           path: apps/android/app/jniLibs/x86
       - name: Bootstrap pinned toolchain
-        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Run Android and Kotlin gate (no coverage)
         env:
           MEANINGFUL_TEST_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-android fast
+          MEANINGFUL_TEST_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-android fast
       - name: Upload debug APK
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: debug-apk
-          path: target/lomo/apk/debug/Lomo-*.apk
+          path: target/lomo/artifacts/android/debug/Lomo-*.apk
           if-no-files-found: error
       - name: Upload reports on failure
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quality-reports
-          path: target/lomo/reports/**
+          path: reports/**
           if-no-files-found: ignore
 
   quality:
@@ -244,6 +253,7 @@ jobs:
     steps:
       - name: Aggregate required quality jobs
         env:
+          CHANGES: ${{ needs.changes.result }}
           RUN_RUST: ${{ needs.changes.outputs.run_rust }}
           RUN_NATIVE: ${{ needs.changes.outputs.run_native }}
           RUN_ANDROID: ${{ needs.changes.outputs.run_android }}
@@ -251,6 +261,7 @@ jobs:
           NATIVE: ${{ needs.native.result }}
           ANDROID_KOTLIN: ${{ needs.android-kotlin.result }}
         run: |
+          test "$CHANGES" = success
           require() {
             local need="$1"
             local result="$2"

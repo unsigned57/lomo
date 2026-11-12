@@ -51,11 +51,13 @@ class RustSyncScheduler(
                 cancel()
                 null
             }
+
             SyncBackendType.UNKNOWN -> {
                 // Unparseable selection: neither schedule nor destroy existing work.
                 Timber.w("RustSyncScheduler skip reschedule: unrecognized stored backend")
                 null
             }
+
             else -> remoteSchedulePlan(backend)
         }
     }
@@ -65,10 +67,13 @@ class RustSyncScheduler(
             when (backend) {
                 SyncBackendType.GIT ->
                     dataStore.gitAutoSyncEnabled.first() to dataStore.gitAutoSyncInterval.first()
+
                 SyncBackendType.WEBDAV ->
                     dataStore.webDavAutoSyncEnabled.first() to dataStore.webDavAutoSyncInterval.first()
+
                 SyncBackendType.S3 ->
                     dataStore.s3AutoSyncEnabled.first() to dataStore.s3AutoSyncInterval.first()
+
                 SyncBackendType.NONE,
                 SyncBackendType.INBOX,
                 SyncBackendType.UNKNOWN,
@@ -171,13 +176,9 @@ class RustSyncScheduler(
  * [Accepted.workName] is the unique-work name observers can correlate with the durable record.
  */
 sealed interface RustSyncEnqueueOutcome {
-    data class Accepted(
-        val workName: String,
-    ) : RustSyncEnqueueOutcome
+    data class Accepted(val workName: String) : RustSyncEnqueueOutcome
 
-    data class Rejected(
-        val reason: RustSyncEnqueueRejection,
-    ) : RustSyncEnqueueOutcome
+    data class Rejected(val reason: RustSyncEnqueueRejection) : RustSyncEnqueueOutcome
 }
 
 /** Real skip reasons for a rejected one-shot enqueue (no silent returns). */

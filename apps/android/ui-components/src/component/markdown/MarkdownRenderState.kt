@@ -6,13 +6,9 @@ import com.lomo.domain.model.markdown.MarkdownRenderDocument
 sealed interface MarkdownRenderState {
     data object Pending : MarkdownRenderState
 
-    data class Ready(
-        val document: MarkdownRenderDocument,
-    ) : MarkdownRenderState
+    data class Ready(val document: MarkdownRenderDocument) : MarkdownRenderState
 
-    data class Failed(
-        val code: String,
-    ) : MarkdownRenderState {
+    data class Failed(val code: String) : MarkdownRenderState {
         init {
             require(code.isNotBlank()) { "Markdown render failure code must not be blank" }
         }

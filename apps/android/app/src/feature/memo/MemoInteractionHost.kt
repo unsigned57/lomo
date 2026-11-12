@@ -67,6 +67,7 @@ internal fun rememberFullMemoEditorOpener(
                 val draftId =
                     when {
                         recoveredContent != null -> recoveredContent.draftId
+
                         draft != null -> {
                             // Baseline moved on: the stale draft is discarded and its staged
                             // leases released; the session starts under a fresh identity.
@@ -74,6 +75,7 @@ internal fun rememberFullMemoEditorOpener(
                             mediaRepository.releaseDraftLeases(draft.draftId)
                             DraftId.mint()
                         }
+
                         else -> DraftId.mint()
                     }
                 try {
@@ -95,6 +97,7 @@ fun MemoInteractionHost(
     menuCommandHandler: MemoMenuCommandHandler,
     editorSurface: MemoEditorSurface,
     onEditorOpenFailure: (Throwable) -> Unit,
+    onAutoSaveCommitted: () -> Unit = {},
     controller: MemoEditorController = rememberMemoEditorController(),
     content: @Composable (
         showMenu: (MemoMenuSelection) -> Unit,
@@ -108,6 +111,7 @@ fun MemoInteractionHost(
         MemoEditorSheetHost(
             controller = controller,
             surface = editorSurface,
+            onAutoSaveCommitted = onAutoSaveCommitted,
         )
     }
 }

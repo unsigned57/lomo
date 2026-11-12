@@ -3,16 +3,13 @@ package com.lomo.ui.text
 import kotlin.math.ceil
 
 internal interface MemoTextMeasurer {
-    fun measureText(
-        text: String,
-        start: Int,
-        end: Int,
-    ): Float
+    fun measureText(text: String, start: Int, end: Int): Float
 }
 
 internal data class MemoTextLayoutInput(
     val text: String,
     val maxWidthPx: Float,
+    val fontSizePx: Float,
     val baseLetterSpacingPx: Float = 0f,
     val maxLines: Int = Int.MAX_VALUE,
     val lineHeightPx: Float = 0f,
@@ -21,18 +18,11 @@ internal data class MemoTextLayoutInput(
     val ellipsizeLastVisibleLine: Boolean = false,
 )
 
-internal data class MemoTextProtectedRange(
-    val start: Int,
-    val end: Int,
-) {
+internal data class MemoTextProtectedRange(val start: Int, val end: Int) {
     fun containsInteriorBoundary(boundaryOffset: Int): Boolean = boundaryOffset in (start + 1) until end
 }
 
-internal data class MemoTextLayout(
-    val text: String,
-    val lines: List<MemoTextLine>,
-    val heightPx: Float,
-) {
+internal data class MemoTextLayout(val text: String, val lines: List<MemoTextLine>, val heightPx: Float) {
     val isEmpty: Boolean
         get() = lines.isEmpty()
 }
@@ -50,10 +40,7 @@ internal data class MemoTextLine(
     val wasForcedBreak: Boolean,
 )
 
-internal data class MemoTextEllipsis(
-    val xPx: Float,
-    val widthPx: Float,
-)
+internal data class MemoTextEllipsis(val xPx: Float, val widthPx: Float)
 
 internal data class MemoTextRun(
     val start: Int,
@@ -91,9 +78,7 @@ internal enum class MemoTextExpansionSlotKind {
     CjkLatinBoundary,
 }
 
-internal class MemoTextLayoutEngine(
-    private val measurer: MemoTextMeasurer,
-) {
+internal class MemoTextLayoutEngine(private val measurer: MemoTextMeasurer) {
     fun layout(input: MemoTextLayoutInput): MemoTextLayout {
         if (input.text.isEmpty() || input.maxWidthPx <= 0f || input.maxLines <= 0) {
             return MemoTextLayout(text = input.text, lines = emptyList(), heightPx = 0f)
@@ -125,10 +110,10 @@ internal class MemoTextLayoutEngine(
                             baselinePx = index * lineHeight + baselineOffset,
                             bottomPx = (index + 1) * lineHeight,
                             shouldJustify =
-                                shouldJustifyParagraph &&
-                                    !isTruncatedFinalLine &&
-                                    !isLastVisibleLine &&
-                                    !line.endsWithHardBreak,
+                            shouldJustifyParagraph &&
+                                !isTruncatedFinalLine &&
+                                !isLastVisibleLine &&
+                                !line.endsWithHardBreak,
                         )
                 }
         val height =
@@ -146,10 +131,7 @@ internal class MemoTextLayoutEngine(
         )
     }
 
-    private fun tokenize(
-        text: String,
-        baseLetterSpacingPx: Float,
-    ): List<LayoutToken> {
+    private fun tokenize(text: String, baseLetterSpacingPx: Float): List<LayoutToken> {
         val tokens = mutableListOf<LayoutToken>()
         var index = 0
         while (index < text.length) {
@@ -236,19 +218,13 @@ internal class MemoTextLayoutEngine(
         )
     }
 
-    private fun buildNaturalLines(
-        tokens: List<LayoutToken>,
-        input: MemoTextLayoutInput,
-    ): List<NaturalLine> {
+    private fun buildNaturalLines(tokens: List<LayoutToken>, input: MemoTextLayoutInput): List<NaturalLine> {
         val lines = mutableListOf<NaturalLine>()
         val current = mutableListOf<LayoutToken>()
         var currentWidth = 0f
         var index = 0
 
-        fun flush(
-            hardBreak: Boolean,
-            forcedBreak: Boolean,
-        ) {
+        fun flush(hardBreak: Boolean, forcedBreak: Boolean) {
             trimTrailingWhitespace(current)
             if (current.isNotEmpty() || hardBreak) {
                 lines +=
@@ -289,11 +265,36 @@ internal class MemoTextLayoutEngine(
                     currentWidth = candidateWidth
                 }
 
+                token.startsWithLineStartForbiddenPunctuation -> {
+                    // Kinsoku: closing/neutral punctuation must not open a line, so it hangs
+                    // onto the overflowing line instead of wrapping.
+                    current += token
+                    currentWidth = candidateWidth
+                }
+
                 else -> {
+                    // Kinsoku: an opening mark must not end a line, so carry it onto the new
+                    // line together with the token that follows it.
+                    val carried =
+                        current.lastOrNull()?.takeIf {
+                            it.endsWithLineEndForbiddenPunctuation && current.size > 1
+                        }
+                    if (carried != null) {
+                        current.removeAt(current.lastIndex)
+                    }
                     flush(hardBreak = false, forcedBreak = false)
+                    if (carried != null) {
+                        current += carried
+                        currentWidth = carried.widthPx
+                    }
                     if (!token.isWhitespace) {
                         current += token
-                        currentWidth = token.widthPx
+                        currentWidth += token.widthPx +
+                            if (current.size > 1) {
+                                input.baseLetterSpacingPx
+                            } else {
+                                0f
+                            }
                     }
                 }
             }
@@ -304,10 +305,7 @@ internal class MemoTextLayoutEngine(
         return lines
     }
 
-    private fun splitOversizedToken(
-        token: LayoutToken,
-        input: MemoTextLayoutInput,
-    ): ForcedSplitResult {
+    private fun splitOversizedToken(token: LayoutToken, input: MemoTextLayoutInput): ForcedSplitResult {
         val lines = mutableListOf<NaturalLine>()
         val current = mutableListOf<LayoutToken>()
         var currentWidth = 0f
@@ -357,13 +355,22 @@ internal class MemoTextLayoutEngine(
             } else {
                 emptyList()
             }
-        val extraPerSlot =
+        val requiredPerSlot =
             if (selectedSlots.isNotEmpty()) {
                 extra / selectedSlots.size
             } else {
                 0f
             }
-        val slotsWithExtra = selectedSlots.map { it.copy(extraWidthPx = extraPerSlot) }
+        // Justification may widen each slot by at most 0.15em; beyond the cap the line stays
+        // ragged instead of over-stretching CJK glyphs.
+        val slotsWithExtra =
+            if (requiredPerSlot > 0f &&
+                requiredPerSlot <= input.fontSizePx * JUSTIFICATION_SLOT_EXPANSION_LIMIT_EM
+            ) {
+                selectedSlots.map { it.copy(extraWidthPx = requiredPerSlot) }
+            } else {
+                emptyList()
+            }
         val extrasByRunIndex = slotsWithExtra.associate { it.afterRunIndex to it.extraWidthPx }
         val runs = mutableListOf<MemoTextRun>()
         var x = 0f
@@ -414,10 +421,7 @@ internal class MemoTextLayoutEngine(
         )
     }
 
-    private fun NaturalLine.maybeEllipsized(
-        input: MemoTextLayoutInput,
-        shouldEllipsize: Boolean,
-    ): NaturalLine =
+    private fun NaturalLine.maybeEllipsized(input: MemoTextLayoutInput, shouldEllipsize: Boolean): NaturalLine =
         if (!shouldEllipsize) {
             this
         } else {
@@ -456,10 +460,9 @@ internal class MemoTextLayoutEngine(
         tokensWithCandidate: List<LayoutToken>,
         input: MemoTextLayoutInput,
         ellipsisWidthPx: Float,
-    ): Boolean =
-        currentWidthPx + tokenWidthPx +
-            ellipsisSpacingAfter(tokensWithCandidate, input.baseLetterSpacingPx) +
-            ellipsisWidthPx <= input.maxWidthPx
+    ): Boolean = currentWidthPx + tokenWidthPx +
+        ellipsisSpacingAfter(tokensWithCandidate, input.baseLetterSpacingPx) +
+        ellipsisWidthPx <= input.maxWidthPx
 
     private fun fitTokenPiecesBeforeEllipsis(
         token: LayoutToken,
@@ -521,5 +524,6 @@ internal class MemoTextLayoutEngine(
 
     private companion object {
         private const val NEWLINE_CODE_POINT = '\n'.code
+        private const val JUSTIFICATION_SLOT_EXPANSION_LIMIT_EM = 0.15f
     }
 }

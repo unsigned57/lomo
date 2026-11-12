@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract (P5-05 `WebDAV` backend adapter)
 //!
 //! Capability: public [`RemoteSyncPort`] `WebDAV` adapter compiles/executes intents only; core owns
@@ -31,6 +39,12 @@
 //!   without raising single-shot `RemoteSnapshot` past 512; Incomplete listing never authorizes
 //!   delete under `run_sync_cycle_streaming`; residual cycle can consume `WebDAV` paged listings
 //!   host-only (dark; no production DI).
+//!
+//! Performance contract: Given sibling uploads, when a publish batch runs, then successful
+//! parent collection observations are shared within that batch; every conditional upload is
+//! still applied and verified. A later publish re-observes parents; a failed parent observation
+//! is never cached as success. Excludes cross-batch caching and parallel mutation ordering.
+//! TDD proof: parent-batch-red.log observes 96 MKCOL calls instead of 3 for 32 siblings.
 //!
 //! Observable outcomes: [`RemoteCapabilities`], [`SnapshotCompleteness`], [`PathPublishStatus`],
 //! `LomoError` code/category/`retry_disposition` (via [`map_http_status`] + transport boundary),
@@ -236,7 +250,7 @@ mod tests {
     }
 
     fn simple_etag(body: &[u8]) -> String {
-        format!("{:x}", Sha256::digest(body))
+        lomo_core::hex_encode(&Sha256::digest(body))
             .chars()
             .take(16)
             .collect()
@@ -749,7 +763,7 @@ mod tests {
     }
 
     fn digest_of(bytes: &[u8]) -> ContentDigest {
-        ContentDigest::parse(&format!("{:x}", Sha256::digest(bytes))).expect("digest")
+        ContentDigest::parse(&lomo_core::hex_encode(&Sha256::digest(bytes))).expect("digest")
     }
 
     fn path(raw: &str) -> SyncPath {
@@ -1406,6 +1420,110 @@ mod tests {
             server.has(rel),
             "nested object must land after parent ensure"
         );
+    }
+
+    #[test]
+    fn sibling_uploads_share_parent_observations_only_within_one_publish() {
+        let server = FaultServer::start();
+        server.set_faults(FaultConfig {
+            require_parent_collections: true,
+            ..FaultConfig::default()
+        });
+        let body = b"shared-parent-body";
+        let mut objects = MapObjectSource::default();
+        let intents = (0..32)
+            .map(|index| {
+                let relative = format!("media/pictures/2026/{index}.bin");
+                objects.objects.insert(relative.clone(), body.to_vec());
+                ProviderNeutralIntent::EnsurePresent {
+                    path: path(&relative),
+                    digest: digest_of(body),
+                    expected_remote_token: None,
+                }
+            })
+            .collect();
+        let (_dir, adapter) = adapter_with(&server, objects);
+        let batch = PreparedRemoteBatch::new(BatchAtomicity::PerPath, intents).expect("batch");
+        let receipt = adapter.publish(&batch).expect("publish");
+        assert_eq!(receipt.path_results.len(), 32);
+        let expectations: Vec<_> = receipt
+            .path_results
+            .iter()
+            .map(|(path, status)| {
+                let PathPublishStatus::Applied { new_token } = status else {
+                    panic!("upload: {status:?}")
+                };
+                VerifyExpectation {
+                    path: path.clone(),
+                    expected_digest: Some(digest_of(body)),
+                    expected_token: Some(new_token.clone()),
+                }
+            })
+            .collect();
+        assert!(
+            adapter
+                .verify(&expectations)
+                .expect("verify")
+                .all_verified()
+        );
+        assert_eq!(
+            server.mkcol_paths(),
+            ["media", "media/pictures", "media/pictures/2026"]
+        );
+        let retried = adapter.publish(&batch).expect("repeat publish");
+        assert!(
+            retried
+                .path_results
+                .iter()
+                .all(|(_, status)| matches!(status, PathPublishStatus::PreconditionFailed))
+        );
+        assert_eq!(
+            server.mkcol_paths().len(),
+            6,
+            "each batch must establish its own parent observations"
+        );
+    }
+
+    #[test]
+    fn failed_parent_observations_do_not_authorize_later_sibling_uploads() {
+        let server = FaultServer::start();
+        server.set_faults(FaultConfig {
+            force_status: Some(("MKCOL".into(), 500)),
+            require_parent_collections: true,
+            ..FaultConfig::default()
+        });
+        let body = b"parent-failure-body";
+        let mut objects = MapObjectSource::default();
+        let intents = ["media/album/first.bin", "media/album/second.bin"]
+            .into_iter()
+            .map(|relative| {
+                objects.objects.insert(relative.into(), body.to_vec());
+                ProviderNeutralIntent::EnsurePresent {
+                    path: path(relative),
+                    digest: digest_of(body),
+                    expected_remote_token: None,
+                }
+            })
+            .collect();
+        let (_dir, adapter) = adapter_with(&server, objects);
+        let batch = PreparedRemoteBatch::new(BatchAtomicity::PerPath, intents).expect("batch");
+        let receipt = adapter.publish(&batch).expect("publish receipt");
+        assert_eq!(receipt.path_results.len(), 2);
+        assert!(receipt.path_results.iter().all(|(_, result)| matches!(result, PathPublishStatus::Failed { code } if code == "webdav_server_error")), "both paths must report their failed parent observation: {receipt:?}");
+        assert!(!server.has("media/album/first.bin"));
+        assert!(!server.has("media/album/second.bin"));
+        server.set_faults(FaultConfig {
+            require_parent_collections: true,
+            ..FaultConfig::default()
+        });
+        let receipt = adapter.publish(&batch).expect("retry receipt");
+        assert!(
+            receipt
+                .path_results
+                .iter()
+                .all(|(_, result)| matches!(result, PathPublishStatus::Applied { .. }))
+        );
+        assert_eq!(server.mkcol_paths(), ["media", "media/album"]);
     }
 
     #[test]

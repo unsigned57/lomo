@@ -1,0 +1,36 @@
+# Keep draft content and submit capability across compact/fullscreen/preview transitions.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- eraseText
+- inputText: "uitest editor mode probe"
+- repeat:
+    times: 3
+    commands:
+      - tapOn:
+          id: "benchmark_input_editor_expand"
+      - waitForAnimationToEnd
+      - assertVisible: "Preview"
+      - tapOn: "Collapse"
+      - waitForAnimationToEnd
+      - assertVisible:
+          id: "benchmark_input_editor_expand"
+      - assertVisible: "uitest editor mode probe"
+- tapOn:
+    id: "benchmark_input_editor_expand"
+- waitForAnimationToEnd
+- tapOn: "Preview"
+- waitForAnimationToEnd
+- tapOn: "Collapse"
+- waitForAnimationToEnd
+- assertVisible: "uitest editor mode probe"
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible:
+    id: "benchmark_main_root"
+- assertVisible: "uitest editor mode probe"

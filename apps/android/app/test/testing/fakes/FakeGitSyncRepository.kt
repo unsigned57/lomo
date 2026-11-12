@@ -24,13 +24,15 @@ class FakeGitSyncRepository : GitSyncRepository {
     override fun isGitSyncEnabled(): Flow<Boolean> = _isGitSyncEnabled.asStateFlow()
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = _syncOnRefreshEnabled.asStateFlow()
 
-    override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) { _syncOnRefreshEnabled.value = enabled }
+    override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) {
+        _syncOnRefreshEnabled.value = enabled
+    }
 
     override fun getRemoteUrl(): Flow<String?> = MutableStateFlow(null)
     override suspend fun setRemoteUrl(url: String) {}
     override fun getBranch(): Flow<String> = MutableStateFlow("main")
     override suspend fun setBranch(branch: String) {}
-    
+
     override suspend fun setToken(token: String) {}
     override suspend fun getTokenStatus(): StoredCredentialStatus = StoredCredentialStatus.Missing
     override suspend fun setAuthorInfo(name: String, email: String) {}

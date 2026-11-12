@@ -44,10 +44,8 @@ internal constructor(
      * Memo-scoped reschedule: only cancels/replaces occurrences for [memoIds]; other memos keep
      * their active alarms.
      */
-    suspend fun applyPlanForMemos(
-        memoIds: Set<String>,
-        alarms: List<PlannedReminderAlarm>,
-    ): RollingWindowApplyResult = applyPlanInternal(alarms, scopeMemoIds = memoIds)
+    suspend fun applyPlanForMemos(memoIds: Set<String>, alarms: List<PlannedReminderAlarm>): RollingWindowApplyResult =
+        applyPlanInternal(alarms, scopeMemoIds = memoIds)
 
     /**
      * Cancels a memo's alarms for the reminder identities supplied by the caller.
@@ -56,10 +54,7 @@ internal constructor(
      * or before this scheduler instance ever applied a plan, so cancellation enumerates recorded
      * occurrences for those reminder ids rather than any in-process cache.
      */
-    suspend fun cancelForMemo(
-        memoId: String,
-        reminderIds: Set<String>,
-    ) {
+    suspend fun cancelForMemo(memoId: String, reminderIds: Set<String>) {
         require(memoId.isNotBlank()) { "Memo identity must not be blank" }
         reminderIds.forEach { reminderId ->
             require(reminderId.isNotBlank()) { "Reminder identity must not be blank" }
@@ -143,8 +138,7 @@ internal constructor(
 private fun ReminderExecutionLedger.ScheduledOccurrence.matchesPlan(
     alarm: PlannedReminderAlarm,
     plannedMode: AlarmTriggerMode,
-): Boolean =
-    memoId == alarm.memoId &&
-        reminderId == alarm.reminderId &&
-        triggerAtUtcMillis == alarm.triggerAtUtcMillis &&
-        mode == plannedMode
+): Boolean = memoId == alarm.memoId &&
+    reminderId == alarm.reminderId &&
+    triggerAtUtcMillis == alarm.triggerAtUtcMillis &&
+    mode == plannedMode

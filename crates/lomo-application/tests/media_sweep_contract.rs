@@ -1,4 +1,21 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
+//! Storage scenarios: recovery bytes and expiry intents stay private even across independent roots.
+//! Storage TDD proof: `sweep-red.log` failed the private recovery assertion; `sweep-green.log` passed all fourteen cases.
+//! Test Change Justification:
+//! Reason category: cross-storage recovery must publish bytes before source unlink.
+//! Old behavior/assertion being replaced: failure injection intercepted a same-root Move action.
+//! Why old assertion is no longer correct: a private recovery destination requires streaming copy plus CAS unlink.
+//! Coverage preserved by: exact partial completion, surviving source, retry and expiry outcomes.
+//! Why this is not fitting the test to the implementation: the injected interruption still freezes the destructive source step.
 //! Capability: the session-owned two-phase media orphan sweep reclaims only bytes no protection
 //! source still names — live and trashed bodies, in-window history, conflict drafts, frozen
 //! transactions, and stage-ledger leases — while expired trash leaves through a durable delete
@@ -150,7 +167,8 @@ mod tests {
     }
 
     fn create_memo(ctx: &Ctx, operation: &str, relative_path: &str, content: &str) -> MemoId {
-        ctx.session
+        let committed = ctx
+            .session
             .create_memo(CreateMemoRequest {
                 operation_id: OperationId::parse(operation).expect("op"),
                 relative_path: Some(RelativeWorkspacePath::parse(relative_path).expect("path")),
@@ -161,8 +179,17 @@ mod tests {
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
             })
-            .expect("create")
-            .memo_id
+            .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        committed.memo_id
     }
 
     fn protection_source(
@@ -174,6 +201,58 @@ mod tests {
             .iter()
             .find(|item| item.relative_path == path)
             .map(|item| item.source)
+    }
+
+    #[test]
+    fn orphan_recovery_files_stay_private_when_user_documents_use_a_separate_root() {
+        let private = tempdir().expect("private control root");
+        let private_path = private.path().to_path_buf();
+        let ctx = open_session_with_executor(Some(Box::new(move |documents| {
+            let records = Arc::new(
+                FsPlatformActionExecutor::new(documents.exchange_directory())
+                    .expect("private executor"),
+            );
+            records
+                .bind_root(CapabilityToken::parse("notes").expect("cap"), &private_path)
+                .expect("private bind");
+            Arc::new(lomo_application::WorkspaceStorageExecutor::new(
+                documents, records,
+            ))
+        })));
+        let orphan = seed_media(&ctx, "media/orphan.png", PNG);
+        let report = ctx
+            .session
+            .media_orphan_sweep(NOW_MS, WINDOW_MS)
+            .expect("sweep");
+        assert!(
+            report.failures.is_empty(),
+            "private relocation failed: {:?}",
+            report.failures
+        );
+        let moved = report
+            .moved_to_trash
+            .first()
+            .expect("private recovery entry");
+        assert!(
+            private.path().join(&moved.trash_path).is_file(),
+            "recovery bytes belong to private storage"
+        );
+        assert!(!orphan.exists());
+        assert!(
+            !ctx.workspace_path
+                .join(lomo_media::MEDIA_TRASH_DIR_NAME)
+                .exists()
+        );
+        let purged = ctx
+            .session
+            .media_orphan_sweep(NOW_MS + WINDOW_MS + 1, WINDOW_MS)
+            .expect("expire private recovery");
+        assert_eq!(purged.permanently_deleted.len(), 1);
+        assert!(
+            !ctx.workspace_path
+                .join(lomo_media::MEDIA_DELETE_INTENT_DIR_NAME)
+                .exists()
+        );
     }
 
     #[test]
@@ -237,7 +316,10 @@ mod tests {
             "audio reference must protect; image-only collectors drop it"
         );
         assert!(ctx.workspace_path.join("media/voice/n.m4a").is_file());
-        assert!(report.moved_to_trash.is_empty());
+        assert_eq!(
+            report.moved_to_trash,
+            Vec::<lomo_media::MediaTrashEntry>::new()
+        );
     }
 
     #[test]
@@ -288,6 +370,12 @@ mod tests {
                 trashed_at_ms: Some(1_757_400_000_000),
             })
             .expect("delete");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
 
         let report = ctx
             .session
@@ -322,6 +410,12 @@ mod tests {
                 pending_promotes: Vec::new(),
             })
             .expect("update");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
 
         let report = ctx
             .session
@@ -531,6 +625,9 @@ mod tests {
         assert_eq!(first.observations(), second.observations());
         let observed = ctx.session.observe_attachments().expect("observed");
         assert_eq!(observed.as_slice(), second.observations());
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let stats = ctx.session.attachment_index_stats().expect("stats");
         assert_eq!(
             (stats.builds, stats.hits),
@@ -646,6 +743,15 @@ mod tests {
         }
     }
 
+    /// Given a committed create whose document write fails once while converging, when the
+    /// sweep runs, then it first drains the frozen intent (the retry converges) and the
+    /// attachment is protected by the now-durable memo body — it is never trashed while a
+    /// frozen transaction names it.
+    ///
+    /// Justified assertion change: under write-behind every sweep drains queued intents before
+    /// observing references, so a same-session frozen intent is converged (or the sweep fails
+    /// closed) rather than observed as `PendingOperation`. Mount-time pending records keep that
+    /// protection through the journal.
     #[test]
     fn pending_operation_protects_its_planned_attachment() {
         let ctx = open_session_with_executor(Some(Box::new(|inner| {
@@ -667,6 +773,9 @@ mod tests {
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
             })
+            .expect("intent commits");
+        ctx.session
+            .settle_workspace()
             .expect_err("injected write failure freezes the operation");
 
         let report = ctx
@@ -676,11 +785,14 @@ mod tests {
 
         assert_eq!(
             protection_source(&report, "media/img/p.png"),
-            Some(ReferenceSource::PendingOperation),
-            "a frozen transaction's planned attachment must protect until recovery"
+            Some(ReferenceSource::CurrentMemo),
+            "the drained intent's attachment is protected by its durable memo"
         );
         assert!(ctx.workspace_path.join("media/img/p.png").is_file());
-        assert!(report.moved_to_trash.is_empty());
+        assert_eq!(
+            report.moved_to_trash,
+            Vec::<lomo_media::MediaTrashEntry>::new()
+        );
     }
 
     #[test]
@@ -726,7 +838,10 @@ mod tests {
             "a stage-ledger lease must protect identical bytes by digest"
         );
         assert!(committed.is_file());
-        assert!(report.moved_to_trash.is_empty());
+        assert_eq!(
+            report.moved_to_trash,
+            Vec::<lomo_media::MediaTrashEntry>::new()
+        );
     }
 
     #[test]
@@ -765,21 +880,21 @@ mod tests {
         );
     }
 
-    /// Executor wrapper that fails the first `Move` touching a path substring, freezing one
+    /// Executor wrapper that fails the first source `Delete` touching a path substring, freezing one
     /// candidate mid-sweep while every other verified action commits.
-    struct FailOnceMove {
+    struct FailOnceUnlink {
         inner: Arc<dyn PlatformActionExecutor>,
         path_substring: String,
         fired: AtomicBool,
     }
 
-    impl PlatformActionExecutor for FailOnceMove {
+    impl PlatformActionExecutor for FailOnceUnlink {
         fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
             if self.fired.load(Ordering::SeqCst) {
                 return self.inner.execute(batch);
             }
             for action in batch.actions() {
-                if let PlatformAction::Move { source, .. } = action
+                if let PlatformAction::Delete { path: source, .. } = action
                     && source.as_str().contains(&self.path_substring)
                 {
                     self.fired.store(true, Ordering::SeqCst);
@@ -789,7 +904,7 @@ mod tests {
                         RetryDisposition::Never,
                         None,
                         None,
-                        "injected move failure",
+                        "injected source unlink failure",
                     )
                     .unwrap_or_else(|error| error));
                 }
@@ -801,7 +916,7 @@ mod tests {
     #[test]
     fn interrupted_sweep_leaves_durable_state_and_recovers() {
         let ctx = open_session_with_executor(Some(Box::new(|inner| {
-            Arc::new(FailOnceMove {
+            Arc::new(FailOnceUnlink {
                 inner,
                 path_substring: "media/img/b.png".to_owned(),
                 fired: AtomicBool::new(false),
@@ -841,7 +956,10 @@ mod tests {
             .expect("re-sweep");
         assert_eq!(second.moved_to_trash.len(), 1);
         assert!(!ctx.workspace_path.join("media/img/b.png").exists());
-        assert!(second.failures.is_empty());
+        assert_eq!(
+            second.failures,
+            Vec::<lomo_application::media_sweep::MediaSweepFailure>::new()
+        );
         assert!(
             ctx.workspace_path.join(&moved.trash_path).is_file(),
             "the first trash entry stays durable across re-sweep"
@@ -857,9 +975,21 @@ mod tests {
             .expect("sweep");
 
         assert_eq!(report.candidates, 0);
-        assert!(report.protections.is_empty());
-        assert!(report.moved_to_trash.is_empty());
-        assert!(report.permanently_deleted.is_empty());
-        assert!(report.failures.is_empty());
+        assert_eq!(
+            report.protections,
+            Vec::<lomo_application::media_sweep::MediaSweepProtection>::new()
+        );
+        assert_eq!(
+            report.moved_to_trash,
+            Vec::<lomo_media::MediaTrashEntry>::new()
+        );
+        assert_eq!(
+            report.permanently_deleted,
+            Vec::<lomo_media::MediaDeleteIntent>::new()
+        );
+        assert_eq!(
+            report.failures,
+            Vec::<lomo_application::media_sweep::MediaSweepFailure>::new()
+        );
     }
 }

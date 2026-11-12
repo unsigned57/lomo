@@ -71,6 +71,7 @@ mod tests {
         let ffi = action_to_ffi(action);
         match (action, &ffi) {
             (core::PlatformAction::Stat { .. }, PlatformAction::Stat { .. })
+            | (core::PlatformAction::Inspect { .. }, PlatformAction::Inspect { .. })
             | (core::PlatformAction::ListChildren { .. }, PlatformAction::ListChildren { .. })
             | (
                 core::PlatformAction::EnsureDirectory { .. },
@@ -97,6 +98,16 @@ mod tests {
         let artifact = exchange_artifact();
         let expected = core::ExpectedFingerprint::matching(core_evidence());
         let actions = [
+            core::PlatformAction::inspect(
+                action_id("inspect-root"),
+                capability.clone(),
+                core::WorkspaceTarget::Root,
+            ),
+            core::PlatformAction::inspect(
+                action_id("inspect-relative"),
+                capability.clone(),
+                core::WorkspaceTarget::Relative(path.clone()),
+            ),
             core::PlatformAction::stat_root(action_id("stat-root"), capability.clone()),
             core::PlatformAction::stat(action_id("stat-rel"), capability.clone(), path.clone()),
             core::PlatformAction::list_root(

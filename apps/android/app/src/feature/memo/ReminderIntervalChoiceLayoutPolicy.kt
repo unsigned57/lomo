@@ -11,11 +11,10 @@ internal data class ReminderIntervalChoiceLayoutSpec(
 )
 
 internal object ReminderIntervalChoiceLayoutPolicy {
-    fun spec(): ReminderIntervalChoiceLayoutSpec =
-        ReminderIntervalChoiceLayoutSpec(
-            choiceWidth = 72.dp,
-            choiceHeight = 40.dp,
-            horizontalSpacing = 8.dp,
-            verticalSpacing = 8.dp,
-        )
+    fun spec(): ReminderIntervalChoiceLayoutSpec = ReminderIntervalChoiceLayoutSpec(
+        choiceWidth = 72.dp,
+        choiceHeight = 40.dp,
+        horizontalSpacing = 8.dp,
+        verticalSpacing = 8.dp,
+    )
 }

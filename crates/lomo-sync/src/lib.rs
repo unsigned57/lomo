@@ -78,6 +78,7 @@ pub use machine::{
     migration_preflight, plan_intents, plan_intents_streaming,
     plan_intents_streaming_with_atomicity, plan_intents_with_atomicity,
     reject_if_migration_class_emitted_delete, run_composed_sync_cycle,
+    run_composed_sync_cycle_with_local_port, run_composed_sync_cycle_with_ports,
     run_composed_sync_cycle_with_remote_port, run_sync_cycle, run_sync_cycle_streaming,
 };
 pub use pipeline::{

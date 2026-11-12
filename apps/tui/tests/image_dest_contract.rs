@@ -1,3 +1,12 @@
+// Test Change Justification:
+// Reason category: mechanical migration plus removal of an obsolete upstream workaround.
+// Old behavior/assertion being replaced: wide halfblock images were shrunk below 65,536 cells.
+// Why old assertion is no longer correct: ratatui-image 11.1 fixes encoder and render indexing.
+// Coverage preserved by: the original no-panic check and a new exact 300x300 fitted-area check.
+// Why this is not fitting the test to the implementation: the requested geometry is an external
+// input; RED in reports/manual/dependency-upgrade/tui-wide-red.log observed the old 255x255 shrink.
+// TDD proof: same focused test after deleting bounded_encode_area; see tui-wide-green.log.
+//
 // adversarial-reaudit: image/media pipeline + the `ImageDest` boundary.
 //
 // Independent verification of the claimed I7 remediation (audit/08, group G5):
@@ -6,6 +15,12 @@
 // findings themselves.
 //
 // Behavior Contract:
+// Test Change Justification:
+// Reason category: requested private orphan recovery storage.
+// Old behavior/assertion being replaced: recovery bytes were expected in the public workspace.
+// Why old assertion is no longer correct: dedicated private state owns lifecycle recovery bytes.
+// Coverage preserved by: exact draft protections, orphan source removal, and durable recovery assertions.
+// Why this is not fitting the test to the implementation: only the user/private boundary changed.
 // Capability: Markdown `![..](dest)` classifies at the workspace fact authority into
 //   Local(canonical, contained) / External / Malformed; the feed, reader, image
 //   hydration, player handoff and media sweep consume that classification without a
@@ -79,7 +94,7 @@ mod tests {
     /// The picker the probe reports on a capable terminal: queried font metrics
     /// plus an explicit protocol answer, constructed without touching stdio.
     fn probed_picker(protocol: ProtocolType) -> Picker {
-        let mut picker = Picker::from_fontsize((8, 16));
+        let mut picker = crate::support::picker_with_font_size((8, 16));
         picker.set_protocol_type(protocol);
         picker
     }
@@ -1303,19 +1318,14 @@ mod tests {
         );
     }
 
-    /// EVIDENCE OF A DEPENDENCY DEFECT (RED — ratatui-image 8.0.1
-    /// halfblocks.rs:49): `Halfblocks::encode` computes
-    /// `(rect.width * rect.height)` in u16 — any fitted cell area above
-    /// `65_535` cells panics the decode worker instead of producing an image.
-    /// Reachable whenever the terminal is large enough that a fitted image
-    /// occupies >256×256 cells (e.g. a tall image on a big window). The
-    /// required contract: `prepare_image` returns a typed `Err`, never panics.
+    /// The current upstream encoder supports more than 65,535 halfblock cells.
+    /// A wide fitted image must retain its requested dimensions and never panic.
     #[test]
     fn a_halfblocks_encode_must_survive_a_wide_render_box() {
         let picker = probed_picker(ProtocolType::Halfblocks);
         // A 1:2 source in a 300×300-cell box fits to 300×300 cells = 90_000 >
-        // u16::MAX — the u16 product in `Halfblocks::encode` overflows.
-        graphics::prepare_image(
+        // u16::MAX, exercising the old encoder overflow and its removed shrink workaround.
+        let image = graphics::prepare_image(
             &png(4, 8, [1, 2, 3, 255]),
             300,
             300,
@@ -1323,6 +1333,11 @@ mod tests {
             &CancelToken::live(),
         )
         .expect("a large render box must encode or fail typed — never panic");
+        assert_eq!(
+            image.area(),
+            Rect::new(0, 0, 300, 300),
+            "the current encoder supports the full fitted box beyond 16-bit cell counts"
+        );
     }
 
     /// Eviction is not sticky across identity: a resize changes the request
@@ -1712,7 +1727,10 @@ mod tests {
             "the orphan left the media tree"
         );
         assert!(
-            subtree_has_file(&workspace.join(".lomo-media-trash"), "orphan.png"),
+            subtree_has_file(
+                &fixture.runtime.paths.state_dir.join(".lomo-media-trash"),
+                "orphan.png"
+            ),
             "the orphan lands in durable .lomo-media-trash"
         );
 

@@ -20,6 +20,10 @@ package com.lomo.app.feature.main
  *   expand is shown even though the preview body is short.
  * - Given a non-empty preview body, when mapped, then collapsedSummary stays blank because the
  *   preview itself is the collapsed surface.
+ * - Given a preview row, when mapped, then its block-bounded preview bytes render through the
+ *   Rust Markdown owner (lomo-store cuts previews on block boundaries for standalone rendering).
+ * - Given a preview shorter than the store char_count, when mapped, then expand is offered so the
+ *   cut content is reachable; a preview equal to the whole memo keeps expand hidden.
  *
  * Observable outcomes:
  * - Public method results, DI wiring, and presentation fields match the post-cutover contracts.
@@ -31,7 +35,22 @@ package com.lomo.app.feature.main
  * Excludes:
  * - Room schema ownership, sync backend redesign, and Compose pixel rendering.
  *
+ * TDD proof (preview rendering): RED `./kotlin test --include-module=app
+ *   --include-classes='com.lomo.app.feature.main.MemoUiMapperTest'` — preview render calls were []
+ *   and a 46-char preview of a 320-char memo reported shouldShowExpand=false; GREEN after previews
+ *   render through the owner and truncation drives expand.
+ *
  * Test Change Justification:
+ * - Reason category: feed preview contract realigned with the lomo-store preview owner.
+ * - Old behavior/assertion being replaced: "preview mapping uses a bounded summary and skips full
+ *   Markdown rendering" asserted zero render calls and one inert paragraph block.
+ * - Why old assertion is no longer correct: lomo-store `body_preview` cuts on block boundaries
+ *   precisely so the app renders it as standalone Markdown; the inert paragraph showed raw `>`/`![]`
+ *   syntax and hid truncation in the feed.
+ * - Coverage preserved by: the replacement asserts the preview bytes reach the owner exactly once and
+ *   the projected-count expand cases remain.
+ * - Why this is not fitting the test to the implementation: it asserts the owner contract (what is
+ *   rendered and whether cut content is reachable), not a call shape of the mapper.
  * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
  * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
  *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
@@ -50,22 +69,21 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoContentKind
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import io.kotest.matchers.collections.shouldHaveSize
 import kotlinx.coroutines.test.runTest
 
 class MemoUiMapperTest : AppFunSpec() {
     private val mapper =
         testMemoUiMapper(
             workspace =
-                FakeMarkdownWorkspaceRepository(
-                    plainTextTransform = { content ->
-                        // Presentation plain text drops known #tag tokens for body display contracts.
-                        content
-                            .replace(Regex("""(^|\s)#(work|todo)(?=\s|$)""")) { match ->
-                                if (match.value.first().isWhitespace()) " " else ""
-                            }.trim()
-                    },
-                ),
+            FakeMarkdownWorkspaceRepository(
+                plainTextTransform = { content ->
+                    // Presentation plain text drops known #tag tokens for body display contracts.
+                    content
+                        .replace(Regex("""(^|\s)#(work|todo)(?=\s|$)""")) { match ->
+                            if (match.value.first().isWhitespace()) " " else ""
+                        }.trim()
+                },
+            ),
         )
 
     init {
@@ -121,11 +139,11 @@ class MemoUiMapperTest : AppFunSpec() {
 
                 val models =
                     batchMapper.mapToUiModels(
-                    listOf(memo(id = "a", content = "alpha"), memo(id = "b", content = "beta")),
-                    null,
-                    null,
-                    emptyMap(),
-                )
+                        listOf(memo(id = "a", content = "alpha"), memo(id = "b", content = "beta")),
+                        null,
+                        null,
+                        emptyMap(),
+                    )
 
                 models.map { it.memo.id } shouldBe listOf("a", "b")
                 models.map { it.memo.reminders } shouldBe listOf(emptyList(), emptyList())
@@ -153,12 +171,12 @@ class MemoUiMapperTest : AppFunSpec() {
             }
         }
 
-        test("preview mapping uses a bounded summary and skips full Markdown rendering") {
+        test("given a preview row when mapped then the bounded preview renders through the Markdown owner") {
             runTest {
-                var renderCalls = 0
+                val rendered = mutableListOf<String>()
                 val previewMapper =
                     testMemoUiMapper(
-                        workspace = FakeMarkdownWorkspaceRepository(onRender = { renderCalls += 1 }),
+                        workspace = FakeMarkdownWorkspaceRepository(onRender = { rendered += it }),
                     )
                 val preview =
                     memo(
@@ -170,9 +188,39 @@ class MemoUiMapperTest : AppFunSpec() {
 
                 val uiModel = previewMapper.mapToCachedUiModel(preview, null, null, emptyMap(), preview.reminders)
 
-                renderCalls shouldBe 0
+                rendered shouldBe listOf(preview.content)
                 uiModel.renderDocument.plainText shouldBe preview.content
-                uiModel.renderDocument.blocks shouldHaveSize 1
+            }
+        }
+
+        test("given a preview cut shorter than its projected char count when mapped then expand is offered") {
+            runTest {
+                val preview =
+                    memo(
+                        content = "first two hundred characters of a longer memo",
+                        contentKind = MemoContentKind.Preview,
+                        projectedCharCount = 320L,
+                    )
+
+                val uiModel = mapper.mapToUiModel(preview, null, null, emptyMap())
+
+                uiModel.shouldShowExpand shouldBe true
+            }
+        }
+
+        test("given a preview equal to the whole memo when mapped then expand stays hidden") {
+            runTest {
+                val content = "complete short memo"
+                val preview =
+                    memo(
+                        content = content,
+                        contentKind = MemoContentKind.Preview,
+                        projectedCharCount = content.length.toLong(),
+                    )
+
+                val uiModel = mapper.mapToUiModel(preview, null, null, emptyMap())
+
+                uiModel.shouldShowExpand shouldBe false
             }
         }
 
@@ -216,16 +264,15 @@ private fun memo(
     fileFingerprint: String? = null,
     contentKind: MemoContentKind = MemoContentKind.Full,
     projectedCharCount: Long? = null,
-): Memo =
-    Memo(
-        id = id,
-        timestamp = 1_700_000_000_000L,
-        content = content,
-        rawContent = "- 10:00 $content",
-        dateKey = "2026_03_27",
-        tags = tags,
-        contentRevision = contentRevision,
-        fileFingerprint = fileFingerprint,
-        contentKind = contentKind,
-        projectedCharCount = projectedCharCount,
-    )
+): Memo = Memo(
+    id = id,
+    timestamp = 1_700_000_000_000L,
+    content = content,
+    rawContent = "- 10:00 $content",
+    dateKey = "2026_03_27",
+    tags = tags,
+    contentRevision = contentRevision,
+    fileFingerprint = fileFingerprint,
+    contentKind = contentKind,
+    projectedCharCount = projectedCharCount,
+)

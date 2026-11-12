@@ -1,13 +1,13 @@
 package com.lomo.app.util
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.app.util
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
@@ -40,14 +39,16 @@ class ShareCardBitmapRendererFooterTest : AppFunSpec() {
                     createdAtText = "2026-04-15 09:30",
                 )
 
-            (result) shouldBe (ShareCardFooterContent(
+            (result) shouldBe (
+                ShareCardFooterContent(
                     showFooter = true,
                     row =
-                        ShareCardFooterRow(
-                            startText = "2026-04-15 09:30",
-                            endText = "Unsigned57",
-                        ),
-                ))
+                    ShareCardFooterRow(
+                        startText = "2026-04-15 09:30",
+                        endText = "Unsigned57",
+                    ),
+                )
+                )
         }
     }
 
@@ -61,13 +62,15 @@ class ShareCardBitmapRendererFooterTest : AppFunSpec() {
                     createdAtText = "2026-04-15 09:30",
                 )
 
-            (result) shouldBe (ShareCardFooterContent(
+            (result) shouldBe (
+                ShareCardFooterContent(
                     showFooter = true,
                     row =
-                        ShareCardFooterRow(
-                            centerText = "Lomo",
-                        ),
-                ))
+                    ShareCardFooterRow(
+                        centerText = "Lomo",
+                    ),
+                )
+                )
         }
     }
 
@@ -81,11 +84,12 @@ class ShareCardBitmapRendererFooterTest : AppFunSpec() {
                     createdAtText = "2026-04-15 09:30",
                 )
 
-            (result) shouldBe (ShareCardFooterContent(
+            (result) shouldBe (
+                ShareCardFooterContent(
                     showFooter = false,
                     row = null,
-                ))
+                )
+                )
         }
     }
-
 }

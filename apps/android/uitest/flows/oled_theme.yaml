@@ -1,0 +1,27 @@
+# Capture both dark toggle states, light appearance, and restart; preference defaults are host-tested.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_settings"
+- scrollUntilVisible:
+    element:
+      text: "Theme Mode"
+- tapOn: "Theme Mode"
+- tapOn: "Dark Mode"
+- takeScreenshot: oled-before-toggle
+- tapOn: "Pure black in dark mode"
+- waitForAnimationToEnd
+- takeScreenshot: oled-after-toggle
+- tapOn: "Light Mode"
+- waitForAnimationToEnd
+- takeScreenshot: oled-light-mode
+- tapOn: "Dark Mode"
+- stopApp
+- launchApp
+- assertVisible:
+    id: "benchmark_main_root"
+- takeScreenshot: oled-restart

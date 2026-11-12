@@ -40,17 +40,18 @@ import kotlin.io.path.writeText
  * a comment mentioning cancellation hides an actual swallowed exception from the text search.
  * Excludes: Android runtime, generated bindings and whole-program type resolution.
  */
-class PipelineSafetyRulesTest : FunSpec({
-    test("registers NoSwallowedCancellationInPagingSource in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoSwallowedCancellationInPagingSource")].shouldNotBeNull()
-    }
+class PipelineSafetyRulesTest :
+    FunSpec({
+        test("registers NoSwallowedCancellationInPagingSource in rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoSwallowedCancellationInPagingSource")].shouldNotBeNull()
+        }
 
-    test("flags PagingSource.load when CancellationException is swallowed into LoadResult.Error") {
-        val findings =
-            rule("NoSwallowedCancellationInPagingSource").findingsForSource(
-                "data/src/engine/store/SamplePagingSource.kt",
-                """
+        test("flags PagingSource.load when CancellationException is swallowed into LoadResult.Error") {
+            val findings =
+                rule("NoSwallowedCancellationInPagingSource").findingsForSource(
+                    "data/src/engine/store/SamplePagingSource.kt",
+                    """
                 package com.lomo.data.engine.store
 
                 import androidx.paging.PagingSource
@@ -65,17 +66,17 @@ class PipelineSafetyRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Swallowed CancellationException in PagingSource.load"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Swallowed CancellationException in PagingSource.load"
+        }
 
-    test("allows PagingSource.load when CancellationException is explicitly rethrown") {
-        val findings =
-            rule("NoSwallowedCancellationInPagingSource").findingsForSource(
-                "data/src/engine/store/SamplePagingSource.kt",
-                """
+        test("allows PagingSource.load when CancellationException is explicitly rethrown") {
+            val findings =
+                rule("NoSwallowedCancellationInPagingSource").findingsForSource(
+                    "data/src/engine/store/SamplePagingSource.kt",
+                    """
                 package com.lomo.data.engine.store
 
                 import androidx.paging.PagingSource
@@ -92,14 +93,14 @@ class PipelineSafetyRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("allows a delegating PagingSource to observe errors and clean up in finally") {
-        pagingFindings(
-            """
+        test("allows a delegating PagingSource to observe errors and clean up in finally") {
+            pagingFindings(
+                """
             try {
                 val result = delegate.load(params)
                 if (result is LoadResult.Error) notifyError(result.throwable)
@@ -108,24 +109,24 @@ class PipelineSafetyRulesTest : FunSpec({
                 notifyLoading(false)
             }
             """,
-        ).shouldHaveSize(0)
-    }
+            ).shouldHaveSize(0)
+        }
 
-    test("allows narrow IOException conversion that cannot swallow coroutine cancellation") {
-        pagingFindings(
-            """
+        test("allows narrow IOException conversion that cannot swallow coroutine cancellation") {
+            pagingFindings(
+                """
             return try {
                 delegate.load(params)
             } catch (failure: java.io.IOException) {
                 LoadResult.Error(failure)
             }
             """,
-        ).shouldHaveSize(0)
-    }
+            ).shouldHaveSize(0)
+        }
 
-    test("cancellation words in a comment cannot mask a swallowing catch") {
-        pagingFindings(
-            """
+        test("cancellation words in a comment cannot mask a swallowing catch") {
+            pagingFindings(
+                """
             return try {
                 delegate.load(params)
             } catch (failure: Exception) {
@@ -133,12 +134,12 @@ class PipelineSafetyRulesTest : FunSpec({
                 LoadResult.Error(failure)
             }
             """,
-        ).shouldHaveSize(1)
-    }
+            ).shouldHaveSize(1)
+        }
 
-    test("a different catch rethrow cannot validate an unsafe error conversion") {
-        pagingFindings(
-            """
+        test("a different catch rethrow cannot validate an unsafe error conversion") {
+            pagingFindings(
+                """
             try {
                 checkReady()
             } catch (failure: Exception) {
@@ -150,20 +151,20 @@ class PipelineSafetyRulesTest : FunSpec({
                 LoadResult.Error(failure)
             }
             """,
-        ).shouldHaveSize(1)
-    }
+            ).shouldHaveSize(1)
+        }
 
-    test("Result failure conversion requires a guard for its own throwable") {
-        pagingFindings(
-            """
+        test("Result failure conversion requires a guard for its own throwable") {
+            pagingFindings(
+                """
             return result.fold(
                 onSuccess = { page -> page },
                 onFailure = { failure -> LoadResult.Error(failure) },
             )
             """,
-        ).shouldHaveSize(1)
-        pagingFindings(
-            """
+            ).shouldHaveSize(1)
+            pagingFindings(
+                """
             return result.fold(
                 onSuccess = { page -> page },
                 onFailure = { failure ->
@@ -172,9 +173,9 @@ class PipelineSafetyRulesTest : FunSpec({
                 },
             )
             """,
-        ).shouldHaveSize(0)
-    }
-})
+            ).shouldHaveSize(0)
+        }
+    })
 
 private fun pagingFindings(body: String): List<dev.detekt.api.Finding> =
     rule("NoSwallowedCancellationInPagingSource").findingsForSource(
@@ -192,18 +193,12 @@ private fun pagingFindings(body: String): List<dev.detekt.api.Finding> =
         """,
     )
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<dev.detekt.api.Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<dev.detekt.api.Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-pipeline-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

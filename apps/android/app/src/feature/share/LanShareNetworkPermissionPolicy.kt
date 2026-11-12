@@ -29,23 +29,18 @@ internal fun lanSharePermissionRecognizer(context: Context): LanSharePermissionR
 internal fun requiredLanShareNetworkPermissions(
     sdkInt: Int = Build.VERSION.SDK_INT,
     isPermissionRecognized: LanSharePermissionRecognizer = { true },
-): List<String> =
-    LanShareNetworkPermissionPolicy.requiredRequirements(
-        sdkInt = sdkInt,
-        isRequirementRecognized = { requirement ->
-            isPermissionRecognized(requirement.toAndroidPermissionName())
-        },
-    ).map(LanShareNetworkPermissionRequirement::toAndroidPermissionName)
+): List<String> = LanShareNetworkPermissionPolicy.requiredRequirements(
+    sdkInt = sdkInt,
+    isRequirementRecognized = { requirement ->
+        isPermissionRecognized(requirement.toAndroidPermissionName())
+    },
+).map(LanShareNetworkPermissionRequirement::toAndroidPermissionName)
 
-private fun LanShareNetworkPermissionRequirement.toAndroidPermissionName(): String =
-    when (this) {
-        LanShareNetworkPermissionRequirement.AccessLocalNetwork -> ACCESS_LOCAL_NETWORK_PERMISSION
-    }
+private fun LanShareNetworkPermissionRequirement.toAndroidPermissionName(): String = when (this) {
+    LanShareNetworkPermissionRequirement.AccessLocalNetwork -> ACCESS_LOCAL_NETWORK_PERMISSION
+}
 
-internal fun hasLanShareNetworkPermissions(
-    context: Context,
-    sdkInt: Int = Build.VERSION.SDK_INT,
-): Boolean =
+internal fun hasLanShareNetworkPermissions(context: Context, sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
     requiredLanShareNetworkPermissions(sdkInt, lanSharePermissionRecognizer(context)).all { permission ->
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
@@ -54,25 +49,21 @@ internal fun isLanSharePermissionRequestGranted(
     requiredPermissions: List<String>,
     permissionResults: Map<String, Boolean>,
     hasCurrentPermissions: Boolean,
-): Boolean =
-    lanShareNetworkPermissionPlan().isGrantSatisfied(
-        requiredPermissions = requiredPermissions,
-        permissionResults = permissionResults,
-        hasCurrentPermissions = hasCurrentPermissions,
-    )
+): Boolean = lanShareNetworkPermissionPlan().isGrantSatisfied(
+    requiredPermissions = requiredPermissions,
+    permissionResults = permissionResults,
+    hasCurrentPermissions = hasCurrentPermissions,
+)
 
-internal fun lanShareNetworkPermissionPlan(): CapabilityRuntimePermissionPlan =
-    requireNotNull(
-        CapabilityGatePolicies.requirePolicy(CapabilityGateId.LocalNetwork)
-            .recoveryPlan
-            .runtimePermissionPlan,
-    ) {
-        "Local Network capability must define a runtime permission plan."
-    }
+internal fun lanShareNetworkPermissionPlan(): CapabilityRuntimePermissionPlan = requireNotNull(
+    CapabilityGatePolicies.requirePolicy(CapabilityGateId.LocalNetwork)
+        .recoveryPlan
+        .runtimePermissionPlan,
+) {
+    "Local Network capability must define a runtime permission plan."
+}
 
-internal fun lanSharePermissionRecoveryAction(
-    decision: CapabilityRecoveryDecision,
-): CapabilityRecoveryAction? =
+internal fun lanSharePermissionRecoveryAction(decision: CapabilityRecoveryDecision): CapabilityRecoveryAction? =
     CapabilityGatePolicies.requirePolicy(CapabilityGateId.LocalNetwork)
         .recoveryPlan
         .fallbackAction(decision)

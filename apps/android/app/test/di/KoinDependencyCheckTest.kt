@@ -23,7 +23,7 @@ package com.lomo.app.di
  *
  * Excludes:
  * - Android framework object creation, worker execution, network calls, database IO, and app startup side effects.
- 
+
  * Test Change Justification:
  * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
  * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
@@ -51,8 +51,8 @@ private val dataModules: List<Module> by lazy {
     val p2 = "data.di.DataModulesKt"
     val modules =
         Class.forName("$p1.$p2")
-        .getMethod("getDataModules")
-        .invoke(null)
+            .getMethod("getDataModules")
+            .invoke(null)
     require(modules is List<*>) {
         "DataModulesKt.getDataModules must return List<Module>."
     }
@@ -113,8 +113,8 @@ class KoinDependencyCheckTest : AppFunSpec() {
                     Class.forName("com.lomo.data.repository.MediaEdgeRepositoryDependencies").kotlin,
                     Class.forName("com.lomo.data.repository.MediaEdgeRepositoryLimits").kotlin,
                     Class.forName("com.lomo.data.repository.SyncInboxRepositoryDependencies").kotlin,
-                    Class.forName("io.ktor.client.HttpClient").kotlin
-                )
+                    Class.forName("io.ktor.client.HttpClient").kotlin,
+                ),
             )
 
             ((dataModules + appModules).sumOf { module -> module.mappings.size } > 0) shouldBe true

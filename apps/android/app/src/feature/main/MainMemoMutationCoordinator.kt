@@ -6,23 +6,16 @@ import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 
-
 class MainMemoMutationCoordinator(
     private val deleteMemoUseCase: DeleteMemoUseCase,
     private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
 ) {
-        suspend fun deleteMemo(
-            memo: Memo,
-            operationId: MemoOperationId,
-        ) {
-            deleteMemoUseCase(memo, operationId)
-        }
-
-        suspend fun toggleCheckboxLineAndUpdate(
-            memo: Memo,
-            actionSpan: MarkdownSourceSpan,
-        ): String {
-            val updatedContent = toggleMemoCheckboxUseCase(memo, actionSpan)
-            return updatedContent
-        }
+    suspend fun deleteMemo(memo: Memo, operationId: MemoOperationId) {
+        deleteMemoUseCase(memo, operationId)
     }
+
+    suspend fun toggleCheckboxLineAndUpdate(memo: Memo, actionSpan: MarkdownSourceSpan): String {
+        val updatedContent = toggleMemoCheckboxUseCase(memo, actionSpan)
+        return updatedContent
+    }
+}

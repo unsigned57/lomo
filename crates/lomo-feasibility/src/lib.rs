@@ -3,6 +3,7 @@
 //! This crate is tooling-only. Production crates must never depend on it.
 
 mod corpus;
+mod device_fixture;
 mod exit_code;
 mod generate;
 mod git_http;
@@ -15,12 +16,20 @@ mod report;
 mod sqlite_probe;
 
 pub use corpus::{CorpusFileEntryV1, CorpusManifestV1, CorpusWorkloadV1, LogicalAttachmentEntryV1};
+pub use device_fixture::{
+    DAV_PASSWORD, DAV_PREFIX, DAV_USERNAME, GIT_BRANCH, HttpSyncFixture, S3_ACCESS_KEY_ID,
+    S3_BUCKET, S3_REGION, S3_SECRET_ACCESS_KEY, SyncFixtureError, SyncFixtureStats,
+    seed_device_git_remote,
+};
 pub use exit_code::FeasibilityExitCode;
 pub use generate::{
     CAPACITY_ATTACHMENT_LOGICAL_BYTES, CAPACITY_MEMO_COUNT, CAPACITY_REMOTE_CHANGES,
-    CORPUS_VERSION, CorpusMode, GenerateError, GenerateRequest, QUICK_ATTACHMENT_LOGICAL_BYTES,
-    QUICK_MEMO_COUNT, QUICK_REMOTE_CHANGES, SCALE_ATTACHMENT_LOGICAL_BYTES, SCALE_MEMO_COUNT,
-    SCALE_REMOTE_CHANGES, SeedRng, generate_corpus, stream_digest, validate_relative_path,
+    CORPUS_VERSION, CorpusMode, DEVICE_BULK_BYTES, DEVICE_BULK_COUNT, DEVICE_BULK_DIR,
+    DEVICE_DOC_COUNT, DEVICE_MEDIA_BYTES, DEVICE_MEDIA_COUNT, DEVICE_MEDIA_JPEG_PREFIX,
+    DEVICE_MEMO_COUNT, DEVICE_MEMOS_PER_DOC, GenerateError, GenerateRequest,
+    QUICK_ATTACHMENT_LOGICAL_BYTES, QUICK_MEMO_COUNT, QUICK_REMOTE_CHANGES,
+    SCALE_ATTACHMENT_LOGICAL_BYTES, SCALE_MEMO_COUNT, SCALE_REMOTE_CHANGES, SeedRng,
+    generate_corpus, stream_digest, validate_relative_path,
 };
 pub use git_http::{SmartHttpGitFixture, SmartHttpGitReport, run_smart_http_git_probe};
 pub use git_probe::{GitProbeError, GitProbeRemoteFlags, GitProbeReport, run_local_git_probe};

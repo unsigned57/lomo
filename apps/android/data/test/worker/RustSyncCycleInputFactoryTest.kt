@@ -34,85 +34,85 @@ import com.lomo.data.testing.fakes.MemorySecretMaterialSource
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.SyncBackendType
 import io.kotest.core.spec.style.FunSpec
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 
-class RustSyncCycleInputFactoryTest : FunSpec({
-    test("persisted git branch reaches the work request") {
-        runTest {
-            val dataStore = createFactoryDataStore(backgroundScope)
-            dataStore.updateGitRemoteUrl("https://example.com/repo.git")
-            dataStore.updateGitBranch("master")
-            dataStore.updateGitAuthorName("Alice")
-            dataStore.updateGitAuthorEmail("alice@example.com")
-            val factory = RustSyncCycleInputFactory(dataStore, identityMaterial = MemorySecretMaterialSource())
+class RustSyncCycleInputFactoryTest :
+    FunSpec({
+        test("persisted git branch reaches the work request") {
+            runTest {
+                val dataStore = createFactoryDataStore(backgroundScope)
+                dataStore.updateGitRemoteUrl("https://example.com/repo.git")
+                dataStore.updateGitBranch("master")
+                dataStore.updateGitAuthorName("Alice")
+                dataStore.updateGitAuthorEmail("alice@example.com")
+                val factory = RustSyncCycleInputFactory(dataStore, identityMaterial = MemorySecretMaterialSource())
 
-            val data = factory.resolveCycleInput(SyncBackendType.GIT, "/ws")
-            val request = RustSyncWorker.resolveWorkRequest(data!!)
+                val data = factory.resolveCycleInput(SyncBackendType.GIT, "/ws")
+                val request = RustSyncWorker.resolveWorkRequest(data!!)
 
-            request.backendKind shouldBe "git"
-            request.endpointUrl shouldBe "https://example.com/repo.git"
-            request.gitBranch shouldBe "master"
-            request.gitAuthorName shouldBe "Alice"
-            request.gitAuthorEmail shouldBe "alice@example.com"
-            request.secretFieldKey shouldBe CredentialField.GIT_TOKEN.name
+                request.backendKind shouldBe "git"
+                request.endpointUrl shouldBe "https://example.com/repo.git"
+                request.gitBranch shouldBe "master"
+                request.gitAuthorName shouldBe "Alice"
+                request.gitAuthorEmail shouldBe "alice@example.com"
+                request.secretFieldKey shouldBe CredentialField.GIT_TOKEN.name
+            }
         }
-    }
 
-    test("git remote with userinfo fails closed") {
-        runTest {
-            val dataStore = createFactoryDataStore(backgroundScope)
-            dataStore.updateGitRemoteUrl("https://alice:s3cret@example.com/repo.git")
-            dataStore.updateGitBranch("main")
-            val factory = RustSyncCycleInputFactory(dataStore, identityMaterial = MemorySecretMaterialSource())
+        test("git remote with userinfo fails closed") {
+            runTest {
+                val dataStore = createFactoryDataStore(backgroundScope)
+                dataStore.updateGitRemoteUrl("https://alice:s3cret@example.com/repo.git")
+                dataStore.updateGitBranch("main")
+                val factory = RustSyncCycleInputFactory(dataStore, identityMaterial = MemorySecretMaterialSource())
 
-            factory.resolveCycleInput(SyncBackendType.GIT, "/ws").shouldBeNull()
+                factory.resolveCycleInput(SyncBackendType.GIT, "/ws").shouldBeNull()
+            }
         }
-    }
 
-    test("blank remote or blank branch fails closed") {
-        runTest {
-            val dataStore = createFactoryDataStore(backgroundScope)
-            val factory = RustSyncCycleInputFactory(dataStore, identityMaterial = MemorySecretMaterialSource())
+        test("blank remote or blank branch fails closed") {
+            runTest {
+                val dataStore = createFactoryDataStore(backgroundScope)
+                val factory = RustSyncCycleInputFactory(dataStore, identityMaterial = MemorySecretMaterialSource())
 
-            factory.resolveCycleInput(SyncBackendType.GIT, "/ws").shouldBeNull()
+                factory.resolveCycleInput(SyncBackendType.GIT, "/ws").shouldBeNull()
 
-            dataStore.updateGitRemoteUrl("https://example.com/repo.git")
-            dataStore.updateGitBranch("   ")
-            factory.resolveCycleInput(SyncBackendType.GIT, "/ws").shouldBeNull()
+                dataStore.updateGitRemoteUrl("https://example.com/repo.git")
+                dataStore.updateGitBranch("   ")
+                factory.resolveCycleInput(SyncBackendType.GIT, "/ws").shouldBeNull()
+            }
         }
-    }
 
-    test("git username material advertises the identity field key") {
-        runTest {
-            val dataStore = createFactoryDataStore(backgroundScope)
-            dataStore.updateGitRemoteUrl("https://example.com/repo.git")
-            dataStore.updateGitBranch("main")
-            val material =
-                object : SecretMaterialSource {
-                    override fun readSecretBytes(fieldKey: String): ByteArray? =
-                        if (fieldKey == CredentialField.GIT_USERNAME.name) {
-                            "alice".toByteArray()
-                        } else {
-                            null
-                        }
+        test("git username material advertises the identity field key") {
+            runTest {
+                val dataStore = createFactoryDataStore(backgroundScope)
+                dataStore.updateGitRemoteUrl("https://example.com/repo.git")
+                dataStore.updateGitBranch("main")
+                val material =
+                    object : SecretMaterialSource {
+                        override fun readSecretBytes(fieldKey: String): ByteArray? =
+                            if (fieldKey == CredentialField.GIT_USERNAME.name) {
+                                "alice".toByteArray()
+                            } else {
+                                null
+                            }
 
-                    override fun hasMaterial(fieldKey: String): Boolean =
-                        fieldKey == CredentialField.GIT_USERNAME.name
-                }
-            val factory = RustSyncCycleInputFactory(dataStore, material)
+                        override fun hasMaterial(fieldKey: String): Boolean =
+                            fieldKey == CredentialField.GIT_USERNAME.name
+                    }
+                val factory = RustSyncCycleInputFactory(dataStore, material)
 
-            val data = factory.resolveCycleInput(SyncBackendType.GIT, "/ws")
-            val request = RustSyncWorker.resolveWorkRequest(data!!)
+                val data = factory.resolveCycleInput(SyncBackendType.GIT, "/ws")
+                val request = RustSyncWorker.resolveWorkRequest(data!!)
 
-            request.identityFieldKey shouldBe CredentialField.GIT_USERNAME.name
+                request.identityFieldKey shouldBe CredentialField.GIT_USERNAME.name
+            }
         }
-    }
-})
+    })
 
 private fun createFactoryDataStore(scope: CoroutineScope): LomoDataStore {
     val backingFile =

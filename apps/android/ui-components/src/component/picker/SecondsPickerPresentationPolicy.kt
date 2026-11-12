@@ -14,10 +14,7 @@ internal enum class SecondsPickerScrollBehavior {
     Immediate,
 }
 
-internal data class SecondsPickerSelectionEffect(
-    val emitValueChange: Boolean,
-    val emitHaptic: Boolean,
-)
+internal data class SecondsPickerSelectionEffect(val emitValueChange: Boolean, val emitHaptic: Boolean)
 
 internal data class SecondsPickerAccessibilityProgressAction(
     val handled: Boolean,
@@ -28,23 +25,18 @@ internal data class SecondsPickerAccessibilityProgressAction(
 internal object SecondsPickerPresentationPolicy {
     private const val MINIMUM_DISPLAY_DIGITS = 2
 
-    fun displayText(
-        second: Int,
-        locale: Locale = Locale.ROOT,
-    ): String =
-        NumberFormat
-            .getIntegerInstance(locale)
-            .apply {
-                minimumIntegerDigits = MINIMUM_DISPLAY_DIGITS
-                isGroupingUsed = false
-            }.format(SecondsWheelMath.clamp(second))
+    fun displayText(second: Int, locale: Locale = Locale.ROOT): String = NumberFormat
+        .getIntegerInstance(locale)
+        .apply {
+            minimumIntegerDigits = MINIMUM_DISPLAY_DIGITS
+            isGroupingUsed = false
+        }.format(SecondsWheelMath.clamp(second))
 
-    fun scrollBehavior(reduceMotion: Boolean): SecondsPickerScrollBehavior =
-        if (reduceMotion) {
-            SecondsPickerScrollBehavior.Immediate
-        } else {
-            SecondsPickerScrollBehavior.Animated
-        }
+    fun scrollBehavior(reduceMotion: Boolean): SecondsPickerScrollBehavior = if (reduceMotion) {
+        SecondsPickerScrollBehavior.Immediate
+    } else {
+        SecondsPickerScrollBehavior.Animated
+    }
 
     fun selectionEffect(
         origin: SecondsPickerChangeOrigin,

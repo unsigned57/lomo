@@ -84,7 +84,7 @@ impl DeviceId {
         let mut hasher = Sha256::new();
         hasher.update(b"lomo-lan-device-id-v2");
         hasher.update(public_key.as_bytes());
-        Self(format!("{:x}", hasher.finalize()))
+        Self(lomo_core::hex_encode(&hasher.finalize()))
     }
 
     /// Parses a previously derived device id from durable state.

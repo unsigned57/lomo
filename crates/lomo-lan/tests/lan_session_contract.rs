@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 // adversarial-audit: peer-declared hello deadlines are never upper-bounded;
 // a far-future `deadline_ms` fills the bounded pending-pairing / pending-session budget with
 // entries that TTL eviction can never release, permanently locking out legitimate peers
@@ -307,7 +315,7 @@ mod tests {
             &batch_id,
             0,
             1_700_000_000_000,
-            &format!("{:x}", Sha256::digest(body)),
+            &lomo_core::hex_encode(&Sha256::digest(body)),
             body.len() as u64,
             "Title",
             Vec::new(),

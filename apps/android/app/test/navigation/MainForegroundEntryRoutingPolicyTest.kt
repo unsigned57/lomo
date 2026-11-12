@@ -140,5 +140,4 @@ class MainForegroundEntryRoutingPolicyTest : AppFunSpec() {
                 )
         }
     }
-
 }

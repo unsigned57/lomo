@@ -6,6 +6,10 @@
  * - Capability: process-level recording state machine with deterministic markdown on stop and service-starter side effect.
  *
  * Scenarios:
+ * - Given two captures in one editor draft, when a new recording starts, then capture IDs differ
+ *   so a delayed stop command cannot address the replacement capture.
+ * - TDD proof (capture identity): RED both captures used the same-editor draft ID; GREEN with
+ *   RecordingCaptureId minted for each capture while the editor draft continues owning media.
  * - Given Idle, when startRecording, then state becomes Recording(filename, startedAtMillis) and foreground service starts.
  * - Given Recording, when stopRecording, then state returns to Idle, markdown is ![voice](finalize dest), foreground service stops, finalizeVoiceCapture is called.
  * - Given the recorder fails to stop, when stopRecording, then no markdown is returned and the error is surfaced.
@@ -19,6 +23,9 @@
  * Observable outcomes: state transitions, returned markdown, service start/stop call counts, errorMessage.
  *
  * TDD proof:
+ * - Draft ownership RED: RecordingSessionImplTest returned a recording-* draft instead of the
+ *   editor-with-existing-attachments draft; GREEN: the same test retains the supplied draft.
+
  * - RED command: ./kotlin test --include-classes='com.lomo.data.recording.RecordingSessionImplTest'
  * - RED symptom: stopRecording failure returned ![voice](...) instead of null, and concurrent startRecording calls reached the fake recorder twice.
  * - GREEN command: ./kotlin test --include-classes='com.lomo.data.recording.RecordingSessionImplTest'
@@ -42,11 +49,11 @@ package com.lomo.data.recording
 import com.lomo.data.repository.RecordingMediaRepository
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.RecordingSessionState
-import com.lomo.domain.repository.VoiceRecordingRepository
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.repository.VoiceRecordingRepository
+import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -65,11 +72,38 @@ class RecordingSessionImplTest : DataFunSpec() {
     private val testDispatcher = UnconfinedTestDispatcher(testScheduler)
 
     init {
+        test(
+            "given two captures in one editor draft when restarted then stale stop commands cannot name the new capture",
+        ) {
+            runTest(testDispatcher) {
+                val fixture = createFixture(backgroundScope, testScheduler)
+                val draft = com.lomo.domain.model.DraftId("same-editor")
+                fixture.session.startRecording(draft)
+                val firstCapture = fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Recording>()
+                    .captureId
+                fixture.session.stopRecording()
+                fixture.session.startRecording(draft)
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Recording>().captureId shouldNotBe
+                    firstCapture
+                fixture.session.cancelRecording()
+            }
+        }
+
+        test("given an editor draft when capture starts then recording retains that media lease owner") {
+            runTest(testDispatcher) {
+                val fixture = createFixture(backgroundScope, testScheduler)
+                val draft = com.lomo.domain.model.DraftId("editor-with-existing-attachments")
+                fixture.session.startRecording(draft)
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Recording>().draftId shouldBe draft
+                fixture.session.cancelRecording()
+            }
+        }
+
         test("startRecording transitions to Recording and starts foreground service") {
             runTest(testDispatcher) {
                 val fixture = createFixture(backgroundScope, testScheduler)
 
-                fixture.session.startRecording()
+                fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
 
                 val state = fixture.session.state.value
@@ -84,7 +118,7 @@ class RecordingSessionImplTest : DataFunSpec() {
             runTest(testDispatcher) {
                 val fixture = createFixture(backgroundScope, testScheduler)
 
-                fixture.session.startRecording()
+                fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
 
                 val recordingState = fixture.session.state.value as RecordingSessionState.Recording
@@ -105,7 +139,7 @@ class RecordingSessionImplTest : DataFunSpec() {
             runTest(testDispatcher) {
                 val fixture = createFixture(backgroundScope, testScheduler)
 
-                fixture.session.startRecording()
+                fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
                 fixture.voiceRecordingRepository.stopException = IllegalStateException("encoder failed")
 
@@ -123,7 +157,7 @@ class RecordingSessionImplTest : DataFunSpec() {
             runTest(testDispatcher) {
                 val fixture = createFixture(backgroundScope, testScheduler)
 
-                fixture.session.startRecording()
+                fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
 
                 fixture.session.cancelRecording()
@@ -163,10 +197,10 @@ class RecordingSessionImplTest : DataFunSpec() {
             runTest(testDispatcher) {
                 val fixture = createFixture(backgroundScope, testScheduler)
 
-                fixture.session.startRecording()
+                fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
 
-                fixture.session.startRecording()
+                fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
 
                 fixture.serviceController.startCallCount shouldBe 1
@@ -181,8 +215,8 @@ class RecordingSessionImplTest : DataFunSpec() {
                         it.voiceRecordingRepository.awaitStartCompletion = startMayComplete
                     }
 
-                val first = async { fixture.session.startRecording() }
-                val second = async { fixture.session.startRecording() }
+                val first = async { fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test")) }
+                val second = async { fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test")) }
                 runCurrent()
 
                 fixture.voiceRecordingRepository.startCallCount shouldBe 1
@@ -204,7 +238,7 @@ class RecordingSessionImplTest : DataFunSpec() {
                 val fixture = createFixture(backgroundScope, testScheduler)
                 fixture.voiceRecordingRepository.startException = IllegalStateException("mic unavailable")
 
-                fixture.session.startRecording()
+                fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
 
                 fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
@@ -213,11 +247,13 @@ class RecordingSessionImplTest : DataFunSpec() {
             }
         }
 
-        test("given an active capture when the recorder reports a mid-capture failure then the session fails closed with timing stopped") {
+        test(
+            "given an active capture when the recorder reports a mid-capture failure then the session fails closed with timing stopped",
+        ) {
             runTest(testDispatcher) {
                 val fixture = createFixture(backgroundScope, testScheduler)
 
-                fixture.session.startRecording()
+                fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
                 fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Recording>()
 
@@ -240,7 +276,7 @@ class RecordingSessionImplTest : DataFunSpec() {
                 val fixture = createFixture(backgroundScope, testScheduler)
                 fixture.voiceRecordingRepository.amplitudeSample = null
 
-                fixture.session.startRecording()
+                fixture.session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 testScheduler.advanceTimeBy(VISUALIZER_UPDATE_INTERVAL_FOR_TEST + 1)
                 advanceUntilIdle()
 
@@ -260,10 +296,7 @@ private data class RecordingSessionFixture(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-private fun createFixture(
-    appScope: CoroutineScope,
-    scheduler: TestCoroutineScheduler,
-): RecordingSessionFixture {
+private fun createFixture(appScope: CoroutineScope, scheduler: TestCoroutineScheduler): RecordingSessionFixture {
     val voiceRecordingRepository = FakeVoiceRecordingRepository()
     val serviceController = FakeRecordingServiceController()
     val mediaRepository = RecordingMediaRepository()

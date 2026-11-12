@@ -1,13 +1,13 @@
 package com.lomo.app.util
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.app.util
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.floats.plusOrMinus
@@ -68,32 +67,56 @@ class ShareCardBitmapRendererTextTest : AppFunSpec() {
                 )
             val paragraphLines = listOf(ShareBodyLine("Centered candidate", ShareBodyLineType.Paragraph))
 
-            ((shouldUseCenteredBody(
-                    baseInput.copy(displayTags = listOf("tag")),
-                    paragraphLines,
-                ))) shouldBe false
-            ((shouldUseCenteredBody(
-                    baseInput.copy(title = "Title"),
-                    paragraphLines,
-                ))) shouldBe false
-            ((shouldUseCenteredBody(
-                    baseInput.copy(hasImages = true),
-                    paragraphLines,
-                ))) shouldBe false
-            ((shouldUseCenteredBody(
-                    baseInput.copy(textLengthWithoutMarkers = SHORT_BODY_CENTER_THRESHOLD + 1),
-                    paragraphLines,
-                ))) shouldBe false
-            ((shouldUseCenteredBody(
-                    baseInput,
-                    listOf(ShareBodyLine("• bullet", ShareBodyLineType.Bullet)),
-                ))) shouldBe false
-            ((shouldUseCenteredBody(
-                    baseInput,
-                    List(SHORT_BODY_MAX_NON_BLANK_LINES + 1) { index ->
-                        ShareBodyLine("line $index", ShareBodyLineType.Paragraph)
-                    },
-                ))) shouldBe false
+            (
+                (
+                    shouldUseCenteredBody(
+                        baseInput.copy(displayTags = listOf("tag")),
+                        paragraphLines,
+                    )
+                    )
+                ) shouldBe false
+            (
+                (
+                    shouldUseCenteredBody(
+                        baseInput.copy(title = "Title"),
+                        paragraphLines,
+                    )
+                    )
+                ) shouldBe false
+            (
+                (
+                    shouldUseCenteredBody(
+                        baseInput.copy(hasImages = true),
+                        paragraphLines,
+                    )
+                    )
+                ) shouldBe false
+            (
+                (
+                    shouldUseCenteredBody(
+                        baseInput.copy(textLengthWithoutMarkers = SHORT_BODY_CENTER_THRESHOLD + 1),
+                        paragraphLines,
+                    )
+                    )
+                ) shouldBe false
+            (
+                (
+                    shouldUseCenteredBody(
+                        baseInput,
+                        listOf(ShareBodyLine("• bullet", ShareBodyLineType.Bullet)),
+                    )
+                    )
+                ) shouldBe false
+            (
+                (
+                    shouldUseCenteredBody(
+                        baseInput,
+                        List(SHORT_BODY_MAX_NON_BLANK_LINES + 1) { index ->
+                            ShareBodyLine("line $index", ShareBodyLineType.Paragraph)
+                        },
+                    )
+                    )
+                ) shouldBe false
         }
     }
 
@@ -118,30 +141,28 @@ class ShareCardBitmapRendererTextTest : AppFunSpec() {
             (style.textWidth) shouldBe (308)
         }
     }
-
 }
 
-private fun shareCardLayoutSpecForTest(contentWidth: Int): ShareCardLayoutSpec =
-    ShareCardLayoutSpec(
-        canvasWidth = 400,
-        outerPadding = 0f,
-        cardPadding = 0f,
-        cardCorner = 0f,
-        lineSpacing = 0f,
-        tagBottomSpacing = 0f,
-        titleBottomSpacing = 0f,
-        codeHorizontalPadding = 0f,
-        codeVerticalPadding = 0f,
-        codeCorner = 0f,
-        imageCorner = 0f,
-        imageVerticalPadding = 0f,
-        maxImageHeightPx = 0f,
-        dividerTopSpacing = 0f,
-        dividerStrokeWidth = 0f,
-        footerRowTopSpacing = 0f,
-        minCardHeight = 0f,
-        contentWidth = contentWidth,
-        quoteIndicatorWidth = 4f,
-        quoteIndicatorCornerRadius = 2f,
-        quoteTextStartPadding = 8f,
-    )
+private fun shareCardLayoutSpecForTest(contentWidth: Int): ShareCardLayoutSpec = ShareCardLayoutSpec(
+    canvasWidth = 400,
+    outerPadding = 0f,
+    cardPadding = 0f,
+    cardCorner = 0f,
+    lineSpacing = 0f,
+    tagBottomSpacing = 0f,
+    titleBottomSpacing = 0f,
+    codeHorizontalPadding = 0f,
+    codeVerticalPadding = 0f,
+    codeCorner = 0f,
+    imageCorner = 0f,
+    imageVerticalPadding = 0f,
+    maxImageHeightPx = 0f,
+    dividerTopSpacing = 0f,
+    dividerStrokeWidth = 0f,
+    footerRowTopSpacing = 0f,
+    minCardHeight = 0f,
+    contentWidth = contentWidth,
+    quoteIndicatorWidth = 4f,
+    quoteIndicatorCornerRadius = 2f,
+    quoteTextStartPadding = 8f,
+)

@@ -15,16 +15,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Notes
+import androidx.compose.material.icons.automirrored.rounded.ShortText
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.rounded.Analytics
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.NightsStay
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Tag
+import androidx.compose.material.icons.rounded.TextFields
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -40,13 +48,17 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import com.lomo.app.util.injectedKoinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
+import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.MemoStatistics
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.stats.CalendarHeatmap
 import com.lomo.ui.component.stats.ChartTagSlice
 import com.lomo.ui.component.stats.HourlyActivityChart
@@ -54,6 +66,7 @@ import com.lomo.ui.component.stats.PeriodReportCard
 import com.lomo.ui.component.stats.StatCard
 import com.lomo.ui.component.stats.TagDistributionChart
 import com.lomo.ui.component.stats.WeeklyHourHeatmap
+import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.toImmutableList
@@ -79,6 +92,20 @@ fun StatisticsScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val screenshotLayer = rememberGraphicsLayer()
+    val shareScope = rememberCoroutineScope()
+    val shareCurrentPage: () -> Unit = {
+        haptic.medium()
+        shareScope.launch {
+            try {
+                viewModel.shareStatisticsImage(captureStatisticsPngSource(screenshotLayer))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                viewModel.reportShareFailure(error)
+            }
+        }
+    }
 
     StatisticsShareEffects(
         context = context,
@@ -91,29 +118,20 @@ fun StatisticsScreen(
     )
 
     Scaffold(
-        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier =
+        modifier
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
+            .benchmarkAnchorRoot(BenchmarkAnchorContract.STATISTICS_ROOT),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.sidebar_statistics)) },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            haptic.medium()
-                            onBackClick()
-                        },
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
+            StatisticsTopBar(
+                isReady = uiState is StatisticsScreenState.Ready,
                 scrollBehavior = scrollBehavior,
+                onBackClick = {
+                    haptic.medium()
+                    onBackClick()
+                },
+                onShareClick = shareCurrentPage,
             )
         },
     ) { padding ->
@@ -124,31 +142,78 @@ fun StatisticsScreen(
             contentAlignment = Alignment.Center,
         ) {
             com.lomo.ui.component.common.LomoStateContent(
-            state = uiState,
-            contentKey = { it::class },
-            modifier = Modifier.fillMaxSize(),
-        ) { state ->
-            when (state) {
-                is StatisticsScreenState.Loading -> ExpressiveContainedLoadingIndicator()
-                is StatisticsScreenState.Error -> {
-                    Text(
-                        text = state.message,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(AppSpacing.Medium),
-                    )
-                }
-                is StatisticsScreenState.Ready -> {
-                    StatisticsContent(
-                        stats = state.statistics,
-                        calendarHeatmapThresholds = appPreferences.calendarHeatmapThresholds,
-                        onShareImageCaptured = viewModel::shareStatisticsImage,
-                        onShareCaptureFailed = viewModel::reportShareFailure,
-                    )
+                state = uiState,
+                contentKey = { it::class },
+                modifier = Modifier.fillMaxSize(),
+            ) { state ->
+                when (state) {
+                    is StatisticsScreenState.Loading -> ExpressiveContainedLoadingIndicator()
+
+                    is StatisticsScreenState.Error -> {
+                        EmptyState(
+                            icon = Icons.Outlined.ErrorOutline,
+                            title = stringResource(R.string.stats_load_failed_title),
+                            description = stringResource(R.string.stats_load_failed_description),
+                            action = {
+                                LomoTextButton(onClick = viewModel::retry) {
+                                    Text(stringResource(R.string.action_retry))
+                                }
+                            },
+                        )
+                    }
+
+                    is StatisticsScreenState.Ready -> {
+                        StatisticsContent(
+                            stats = state.statistics,
+                            calendarHeatmapThresholds = appPreferences.calendarHeatmapThresholds,
+                            screenshotLayer = screenshotLayer,
+                        )
+                    }
                 }
             }
         }
-        }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StatisticsTopBar(
+    isReady: Boolean,
+    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
+    onBackClick: () -> Unit,
+    onShareClick: () -> Unit,
+) {
+    TopAppBar(
+        title = {
+            Text(
+                text = stringResource(R.string.sidebar_statistics),
+                style = MaterialTheme.typography.titleLargeEmphasized,
+            )
+        },
+        navigationIcon = {
+            LomoIconButton(onClick = onBackClick) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = stringResource(R.string.back),
+                )
+            }
+        },
+        actions = {
+            if (isReady) {
+                LomoIconButton(onClick = onShareClick) {
+                    Icon(
+                        Icons.Rounded.Share,
+                        contentDescription = stringResource(R.string.stats_share_current_page),
+                    )
+                }
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        scrollBehavior = scrollBehavior,
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -156,34 +221,31 @@ fun StatisticsScreen(
 private fun StatisticsContent(
     stats: MemoStatistics,
     calendarHeatmapThresholds: CalendarHeatmapThresholds,
-    onShareImageCaptured: (StatisticsPngSource) -> Unit,
-    onShareCaptureFailed: (Throwable) -> Unit,
+    screenshotLayer: androidx.compose.ui.graphics.layer.GraphicsLayer,
 ) {
     val scrollState = rememberScrollState()
-    val screenshotLayer = rememberGraphicsLayer()
-    val coroutineScope = rememberCoroutineScope()
     val screenshotBackgroundColor = MaterialTheme.colorScheme.surface
     val presentationDates = resolveStatisticsSnapshotPresentationDates(stats)
 
     Column(
         modifier =
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
     ) {
         Column(
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .drawWithContent {
-                        screenshotLayer.record {
-                            drawRect(screenshotBackgroundColor)
-                            this@drawWithContent.drawContent()
-                        }
-                        drawLayer(screenshotLayer)
-                    },
+            Modifier
+                .fillMaxWidth()
+                .drawWithContent {
+                    screenshotLayer.record {
+                        drawRect(screenshotBackgroundColor)
+                        this@drawWithContent.drawContent()
+                    }
+                    drawLayer(screenshotLayer)
+                },
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
             StatisticsOverviewSection(stats = stats)
@@ -201,29 +263,6 @@ private fun StatisticsContent(
             StatisticsTagsSection(stats = stats)
 
             Spacer(modifier = Modifier.height(AppSpacing.ExtraLarge))
-        }
-        FilledTonalButton(
-            onClick = {
-                coroutineScope.launch {
-                    try {
-                        onShareImageCaptured(captureStatisticsPngSource(screenshotLayer))
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Exception) {
-                        onShareCaptureFailed(error)
-                    }
-                }
-            },
-            modifier =
-                Modifier
-                    .fillMaxWidth(),
-        ) {
-            Icon(
-                Icons.Outlined.Share,
-                contentDescription = null,
-            )
-            Spacer(modifier = Modifier.padding(horizontal = AppSpacing.ExtraSmall))
-            Text(stringResource(R.string.stats_share_current_page))
         }
     }
 }
@@ -244,16 +283,19 @@ private fun StatisticsOverviewSection(stats: MemoStatistics) {
             StatCard(
                 value = stats.totalMemos.toString(),
                 label = stringResource(R.string.stats_total_memos),
+                icon = Icons.AutoMirrored.Rounded.Notes,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = formatStatisticsNumber(stats.totalWords),
                 label = stringResource(R.string.stats_total_words),
+                icon = Icons.AutoMirrored.Rounded.ShortText,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = stats.activeDays.toString(),
                 label = stringResource(R.string.stats_active_days),
+                icon = Icons.Rounded.CalendarMonth,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -265,16 +307,19 @@ private fun StatisticsOverviewSection(stats: MemoStatistics) {
             StatCard(
                 value = "%.1f".format(Locale.US, stats.averageWordsPerMemo),
                 label = stringResource(R.string.stats_avg_words),
+                icon = Icons.Rounded.Analytics,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = stats.totalTags.toString(),
                 label = stringResource(R.string.stats_total_tags),
+                icon = Icons.Rounded.Tag,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = formatStatisticsNumber(stats.totalCharacters),
                 label = stringResource(R.string.stats_total_chars),
+                icon = Icons.Rounded.TextFields,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -292,15 +337,24 @@ private fun StatisticsActivitySection(
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
         SectionHeader(text = stringResource(R.string.stats_section_activity))
-        CalendarHeatmap(
-            memoCountByDate =
-                stats.memoCountByDate
-                    .filterKeys { !it.isAfter(today) }
-                    .toImmutableMap(),
-            today = today,
-            thresholds = calendarHeatmapThresholds,
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-        )
+            shape = AppShapes.LargeIncreased,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Box(modifier = Modifier.padding(AppSpacing.Medium)) {
+                CalendarHeatmap(
+                    memoCountByDate =
+                    stats.memoCountByDate
+                        .filterKeys { !it.isAfter(today) }
+                        .toImmutableMap(),
+                    today = today,
+                    thresholds = calendarHeatmapThresholds,
+                    yearBackgroundColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }
 
@@ -320,52 +374,83 @@ private fun StatisticsTimeSection(stats: MemoStatistics) {
             StatCard(
                 value = formatStatisticsDailyMemoTime(stats.earliestDailyMemoTime),
                 label = stringResource(R.string.stats_earliest_note_time),
+                icon = Icons.Rounded.WbSunny,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = formatStatisticsDailyMemoTime(stats.latestDailyMemoTime),
                 label = stringResource(R.string.stats_latest_note_time),
+                icon = Icons.Rounded.NightsStay,
                 modifier = Modifier.weight(1f),
             )
         }
+        val weeklyHourDistribution =
+            remember(stats.weeklyHourDistribution) {
+                stats.weeklyHourDistribution
+                    .mapValues { (_, hourlyMap) -> hourlyMap.toImmutableMap() }
+                    .toImmutableMap()
+            }
+        val hourlyDistribution =
+            remember(stats.hourlyDistribution) {
+                stats.hourlyDistribution.toImmutableMap()
+            }
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             when (resolveStatisticsTimeDistributionLayout(widthDp = maxWidth.value.roundToInt())) {
                 StatisticsTimeDistributionLayout.Stacked -> {
-                    Column(
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(AppSpacing.MediumSmall),
+                        shape = AppShapes.LargeIncreased,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
                     ) {
-                        WeeklyHourHeatmap(
-                            weeklyHourDistribution =
-                                stats.weeklyHourDistribution
-                                    .mapValues { (_, hourlyMap) -> hourlyMap.toImmutableMap() }
-                                    .toImmutableMap(),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        HourlyActivityChart(
-                            hourlyDistribution = stats.hourlyDistribution.toImmutableMap(),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        Column(
+                            modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(AppSpacing.Medium),
+                            verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
+                        ) {
+                            WeeklyHourHeatmap(
+                                weeklyHourDistribution = weeklyHourDistribution,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            HourlyActivityChart(
+                                hourlyDistribution = hourlyDistribution,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
 
                 StatisticsTimeDistributionLayout.TwoColumn -> {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
                         verticalAlignment = Alignment.Top,
                     ) {
-                        WeeklyHourHeatmap(
-                            weeklyHourDistribution =
-                                stats.weeklyHourDistribution
-                                    .mapValues { (_, hourlyMap) -> hourlyMap.toImmutableMap() }
-                                    .toImmutableMap(),
+                        Surface(
                             modifier = Modifier.weight(1f),
-                        )
-                        HourlyActivityChart(
-                            hourlyDistribution = stats.hourlyDistribution.toImmutableMap(),
+                            shape = AppShapes.LargeIncreased,
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        ) {
+                            Box(modifier = Modifier.padding(AppSpacing.Medium)) {
+                                WeeklyHourHeatmap(
+                                    weeklyHourDistribution = weeklyHourDistribution,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                        Surface(
                             modifier = Modifier.weight(1f),
-                        )
+                            shape = AppShapes.LargeIncreased,
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        ) {
+                            Box(modifier = Modifier.padding(AppSpacing.Medium)) {
+                                HourlyActivityChart(
+                                    hourlyDistribution = hourlyDistribution,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -374,11 +459,7 @@ private fun StatisticsTimeSection(stats: MemoStatistics) {
 }
 
 @Composable
-private fun StatisticsReportsSection(
-    stats: MemoStatistics,
-    today: LocalDate,
-    weekDays: Int,
-) {
+private fun StatisticsReportsSection(stats: MemoStatistics, today: LocalDate, weekDays: Int) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
@@ -415,13 +496,21 @@ private fun StatisticsTagsSection(stats: MemoStatistics) {
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
         SectionHeader(text = stringResource(R.string.stats_section_tags))
-        TagDistributionChart(
-            slices =
-                stats.tagCounts
-                    .map { tagCount -> ChartTagSlice(name = tagCount.name, count = tagCount.count) }
-                    .toImmutableList(),
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-        )
+            shape = AppShapes.LargeIncreased,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Box(modifier = Modifier.padding(AppSpacing.Medium)) {
+                TagDistributionChart(
+                    slices =
+                    stats.tagCounts
+                        .map { tagCount -> ChartTagSlice(name = tagCount.name, count = tagCount.count) }
+                        .toImmutableList(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }
 
@@ -429,8 +518,7 @@ private fun StatisticsTagsSection(stats: MemoStatistics) {
 private fun SectionHeader(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
+        style = MaterialTheme.typography.titleMediumEmphasized,
         color = MaterialTheme.colorScheme.onSurface,
     )
 }

@@ -6,7 +6,8 @@ sealed interface RecordingSessionState {
     data class Recording(
         val filename: String,
         val startedAtMillis: Long,
-        /** The recording session's draft identity; its media lease transfers on the created memo. */
+        val captureId: RecordingCaptureId,
+        /** The receiving editor's draft identity; several distinct captures may share this lease owner. */
         val draftId: DraftId,
     ) : RecordingSessionState
 }

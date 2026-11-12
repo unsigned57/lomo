@@ -33,11 +33,7 @@ enum class WebDavSyncReason {
     CONFLICT,
 }
 
-data class WebDavSyncOutcome(
-    val path: String,
-    val direction: WebDavSyncDirection,
-    val reason: WebDavSyncReason,
-)
+data class WebDavSyncOutcome(val path: String, val direction: WebDavSyncDirection, val reason: WebDavSyncReason)
 
 data class WebDavSyncStatus(
     val remoteFileCount: Int,
@@ -47,18 +43,13 @@ data class WebDavSyncStatus(
 )
 
 sealed interface WebDavSyncResult {
-    data class Success(
-        val message: String,
-        val outcomes: List<WebDavSyncOutcome> = emptyList(),
-    ) : WebDavSyncResult
+    data class Success(val message: String, val outcomes: List<WebDavSyncOutcome> = emptyList()) : WebDavSyncResult
 
     /**
      * WorkManager accepted the enqueue — proves admission only.
      * The durable Rust cycle record owns the terminal outcome.
      */
-    data class Accepted(
-        val message: String,
-    ) : WebDavSyncResult
+    data class Accepted(val message: String) : WebDavSyncResult
 
     data class Error(
         val code: WebDavSyncErrorCode,
@@ -69,15 +60,9 @@ sealed interface WebDavSyncResult {
 
     data object NotConfigured : WebDavSyncResult
 
-    data class Conflict(
-        val message: String,
-        val conflicts: SyncConflictSet,
-    ) : WebDavSyncResult
+    data class Conflict(val message: String, val conflicts: SyncConflictSet) : WebDavSyncResult
 
-    data class Review(
-        val message: String,
-        val review: SyncReviewSession,
-    ) : WebDavSyncResult
+    data class Review(val message: String, val review: SyncReviewSession) : WebDavSyncResult
 }
 
 sealed interface WebDavSyncState {
@@ -95,30 +80,16 @@ sealed interface WebDavSyncState {
 
     data object Deleting : WebDavSyncState
 
-    data class Success(
-        val timestamp: Long,
-        val summary: String,
-    ) : WebDavSyncState
+    data class Success(val timestamp: Long, val summary: String) : WebDavSyncState
 
-    data class Error(
-        val code: WebDavSyncErrorCode,
-        val message: String,
-        val timestamp: Long,
-    ) : WebDavSyncState
+    data class Error(val code: WebDavSyncErrorCode, val message: String, val timestamp: Long) : WebDavSyncState
 
     data object NotConfigured : WebDavSyncState
 
-    data class ReviewingInitialSync(
-        val review: SyncReviewSession,
-    ) : WebDavSyncState
+    data class ReviewingInitialSync(val review: SyncReviewSession) : WebDavSyncState
 
-    data class ConflictDetected(
-        val conflicts: SyncConflictSet,
-    ) : WebDavSyncState
+    data class ConflictDetected(val conflicts: SyncConflictSet) : WebDavSyncState
 }
 
-class WebDavSyncFailureException(
-    val code: WebDavSyncErrorCode,
-    message: String,
-    cause: Throwable? = null,
-) : Exception(message, cause)
+class WebDavSyncFailureException(val code: WebDavSyncErrorCode, message: String, cause: Throwable? = null) :
+    Exception(message, cause)

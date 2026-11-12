@@ -2,10 +2,10 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
+import com.lomo.ui.component.common.LomoTextButton
 import kotlinx.collections.immutable.toImmutableList
 
 @Composable
@@ -65,7 +65,7 @@ private fun SnapshotDisableConfirmDialog(
         title = { Text(stringResource(R.string.settings_memo_snapshot_disable_title)) },
         text = { Text(stringResource(R.string.settings_memo_snapshot_disable_message)) },
         confirmButton = {
-            TextButton(
+            LomoTextButton(
                 onClick = {
                     if (target == SettingsSnapshotDisableTarget.MEMO) {
                         snapshotFeature.updateMemoSnapshotsEnabled(false)
@@ -77,7 +77,7 @@ private fun SnapshotDisableConfirmDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = { dialogState.pendingSnapshotDisableTarget = null }) {
+            LomoTextButton(onClick = { dialogState.pendingSnapshotDisableTarget = null }) {
                 Text(stringResource(R.string.action_cancel))
             }
         },

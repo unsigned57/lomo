@@ -1,6 +1,6 @@
 package com.lomo.app.feature.update
 
-/**
+/*
  * Behavior Contract:
  * - Unit under test: AppUpdateDownloadManager
  * - Owning layer: app
@@ -211,13 +211,12 @@ class AppUpdateDownloadManagerTest : AppFunSpec() {
         }
     }
 
-    private fun sampleDialogState(): AppUpdateDialogState =
-        AppUpdateDialogState(
-            url = "https://example.com/releases/1.2.0",
-            version = "1.2.0",
-            releaseNotes = "notes",
-            apkDownloadUrl = "https://example.com/assets/lomo-v1.2.0.apk",
-            apkFileName = "lomo-v1.2.0.apk",
-            apkSizeBytes = 4096L,
-        )
+    private fun sampleDialogState(): AppUpdateDialogState = AppUpdateDialogState(
+        url = "https://example.com/releases/1.2.0",
+        version = "1.2.0",
+        releaseNotes = "notes",
+        apkDownloadUrl = "https://example.com/assets/lomo-v1.2.0.apk",
+        apkFileName = "lomo-v1.2.0.apk",
+        apkSizeBytes = 4096L,
+    )
 }

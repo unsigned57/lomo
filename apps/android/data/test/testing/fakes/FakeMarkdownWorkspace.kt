@@ -37,23 +37,23 @@ internal class FakeMarkdownWorkspaceRepository(
                     ordered = false,
                     startNumber = 1uL,
                     items =
-                        listOf(
-                            MarkdownRenderListItem(
-                                sourceSpan = span,
-                                actionSpan = span,
-                                checked = content.contains("[x]", ignoreCase = true),
-                                blocks =
+                    listOf(
+                        MarkdownRenderListItem(
+                            sourceSpan = span,
+                            actionSpan = span,
+                            checked = content.contains("[x]", ignoreCase = true),
+                            blocks =
+                            listOf(
+                                MarkdownRenderBlock.Paragraph(
+                                    sourceSpan = span,
+                                    inlines =
                                     listOf(
-                                        MarkdownRenderBlock.Paragraph(
-                                            sourceSpan = span,
-                                            inlines =
-                                                listOf(
-                                                    MarkdownRenderInline.Text(span, "task"),
-                                                ),
-                                        ),
+                                        MarkdownRenderInline.Text(span, "task"),
                                     ),
+                                ),
                             ),
                         ),
+                    ),
                 )
         }
         if (hasUrl) {
@@ -66,14 +66,14 @@ internal class FakeMarkdownWorkspaceRepository(
                 MarkdownRenderBlock.Paragraph(
                     sourceSpan = span,
                     inlines =
-                        listOf(
-                            MarkdownRenderInline.Link(
-                                sourceSpan = span,
-                                destination = url,
-                                title = null,
-                                inlines = listOf(MarkdownRenderInline.Text(span, url)),
-                            ),
+                    listOf(
+                        MarkdownRenderInline.Link(
+                            sourceSpan = span,
+                            destination = url,
+                            title = null,
+                            inlines = listOf(MarkdownRenderInline.Text(span, url)),
                         ),
+                    ),
                 )
         }
         if (blocks.isEmpty()) {
@@ -93,9 +93,10 @@ internal class FakeMarkdownWorkspaceRepository(
     }
 
     override suspend fun toggleTask(
+        operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,
         actionSpan: MarkdownSourceSpan,
-    ): com.lomo.domain.model.MemoDocumentMutation = error("toggleTask is not expected in this fake")
+    ): String = error("toggleTask is not expected in this fake")
 }
 
 internal fun fakeMarkdownWorkspaceContentProjector(
@@ -109,17 +110,18 @@ private val TEST_WIKI_IMAGE_PATTERN = Regex("""!\[\[([^\]|]+)(?:\|[^\]]+)?]]""")
 private val TEST_AUDIO_LINK_PATTERN =
     Regex("""\[[^\]]*]\(([^)]+\.(?:mp3|m4a|ogg|wav|aac|flac))\)""", RegexOption.IGNORE_CASE)
 
-internal fun extractTestTags(content: String): List<String> =
-    TEST_TAG_PATTERN
-        .findAll(content)
-        .map { it.groupValues[1] }
-        .distinct()
-        .toList()
+internal fun extractTestTags(content: String): List<String> = TEST_TAG_PATTERN
+    .findAll(content)
+    .map { it.groupValues[1] }
+    .distinct()
+    .toList()
 
 internal fun extractTestAttachments(content: String): List<MarkdownAttachment> {
     val images =
-        (TEST_MD_IMAGE_PATTERN.findAll(content).map { it.groupValues[1] } +
-            TEST_WIKI_IMAGE_PATTERN.findAll(content).map { it.groupValues[1] })
+        (
+            TEST_MD_IMAGE_PATTERN.findAll(content).map { it.groupValues[1] } +
+                TEST_WIKI_IMAGE_PATTERN.findAll(content).map { it.groupValues[1] }
+            )
             .map { destination -> MarkdownAttachment(destination, MediaClass.IMAGE) }
             .toList()
     val audio =

@@ -8,7 +8,7 @@ use lomo_store::{ScannedHistoryProjection, ScannedPinProjection};
 use lomo_workspace::{
     HistoryHead, HistoryRevisionV2, HistoryTombstone, LomoLayoutVersion, LomoRecord,
     LomoRecordKind, MemoId, RevisionId, StateHead, StateRevisionV2, WorkspaceLayout, decode_record,
-    history_revision_path, history_tombstone_path, state_head_path,
+    history_head_path, history_revision_path, history_tombstone_path, state_head_path,
 };
 use serde::de::DeserializeOwned;
 
@@ -16,8 +16,11 @@ use lomo_workspace::layout::relative as lomo_rel;
 
 use crate::{
     error::corruption,
-    record_plan::{history_tip, state_tip, state_tip_at, validate_history_revision},
-    workspace_io::{FileSnapshot, WorkspaceIo},
+    record_plan::{
+        decode_canonical_history_head, history_tip, state_tip, state_tip_at,
+        validate_history_revision,
+    },
+    workspace_io::{FileSnapshot, MAX_WORKSPACE_READ_BATCH, WorkspaceIo},
 };
 
 fn layout_paths() -> WorkspaceLayout {
@@ -40,6 +43,31 @@ fn body<T: DeserializeOwned>(record: &LomoRecord, kind: LomoRecordKind) -> Resul
     }
     serde_json::from_str(&record.payload.body_json)
         .map_err(|error| corruption("invalid_record_body", error.to_string()))
+}
+
+/// Complete listing presence plus the verified files this reconcile wrote after listing.
+/// Absence is actionable only against both observations, never the pre-write listing alone.
+pub struct RecordPresence<'a> {
+    listed: &'a BTreeMap<String, String>,
+    written: BTreeSet<String>,
+}
+
+impl<'a> RecordPresence<'a> {
+    pub(crate) const fn new(listed: &'a BTreeMap<String, String>) -> Self {
+        Self {
+            listed,
+            written: BTreeSet::new(),
+        }
+    }
+
+    pub(crate) fn observe_writes(&mut self, paths: &[RelativeWorkspacePath]) {
+        self.written
+            .extend(paths.iter().map(|path| path.as_str().to_owned()));
+    }
+
+    fn contains(&self, path: &RelativeWorkspacePath) -> bool {
+        self.listed.contains_key(path.as_str()) || self.written.contains(path.as_str())
+    }
 }
 
 #[derive(Default)]
@@ -157,24 +185,6 @@ impl HistoryGraph {
         Ok(Vec::new())
     }
 
-    /// Re-reads the durable head and proves it still points at `head` — the freshness check
-    /// every projection runs before walking.
-    fn check_tip(io: &WorkspaceIo<'_>, memo_id: &str, head: &RevisionId) -> Result<(), LomoError> {
-        let tip = history_tip(io, &MemoId::parse(memo_id)?)?.ok_or_else(|| {
-            corruption(
-                "history_head_missing",
-                "history head disappeared while rebuilding",
-            )
-        })?;
-        if &tip.revision.revision_id != head {
-            return Err(corruption(
-                "history_head_changed",
-                "history head changed during rebuild",
-            ));
-        }
-        Ok(())
-    }
-
     /// Walks the already-loaded object map beneath `head`.
     fn project_loaded(
         &self,
@@ -225,9 +235,42 @@ impl HistoryGraph {
 
     fn project(&self, io: &WorkspaceIo<'_>) -> Result<Vec<ScannedHistoryProjection>, LomoError> {
         let mut output = Vec::new();
-        for (memo_id, head) in &self.heads {
-            Self::check_tip(io, memo_id, head)?;
-            output.extend(self.project_loaded(memo_id, head)?);
+        let heads: Vec<_> = self.heads.iter().collect();
+        for chunk in heads.chunks(MAX_WORKSPACE_READ_BATCH) {
+            let paths = chunk
+                .iter()
+                .map(|(id, _)| relative(&history_head_path(&layout_paths(), id)))
+                .collect::<Result<Vec<_>, _>>()?;
+            let snapshots = io.require_batch(&paths).map_err(|error| {
+                if error.code() == "document_not_found" {
+                    corruption(
+                        "history_head_missing",
+                        "history head disappeared while rebuilding",
+                    )
+                } else {
+                    error
+                }
+            })?;
+            for ((memo_id, head), snapshot) in chunk.iter().zip(snapshots) {
+                let current = decode_canonical_history_head(&snapshot, &MemoId::parse(memo_id)?)?;
+                if &current.head_revision_id != *head {
+                    return Err(corruption(
+                        "history_head_changed",
+                        "history head changed during rebuild",
+                    ));
+                }
+                if self
+                    .revisions
+                    .get(*head)
+                    .is_some_and(|revision| revision.memo_id != **memo_id)
+                {
+                    return Err(corruption(
+                        "history_head_mismatch",
+                        "history head points outside its memo identity",
+                    ));
+                }
+                output.extend(self.project_loaded(memo_id, head)?);
+            }
         }
         Ok(output)
     }
@@ -236,15 +279,51 @@ impl HistoryGraph {
 pub fn history(
     io: &WorkspaceIo<'_>,
     paths: &[RelativeWorkspacePath],
+    tips: Vec<HistoryRevisionV2>,
 ) -> Result<Vec<ScannedHistoryProjection>, LomoError> {
     let mut graph = HistoryGraph::default();
-    for path in paths {
-        graph.insert(path, &decode_record(&io.require(path)?.bytes)?)?;
+    let mut admitted_paths = BTreeSet::new();
+    for revision in tips {
+        // Each tip came from a canonical head observation or a verified initial-history
+        // write. Carry that observation into the graph; project() still re-reads the head
+        // once at the final freshness boundary, catching a concurrent head replacement.
+        admitted_paths.insert(
+            relative(&history_head_path(&layout_paths(), &revision.memo_id))?
+                .as_str()
+                .to_owned(),
+        );
+        graph
+            .heads
+            .insert(revision.memo_id.clone(), revision.revision_id.clone());
+        admitted_paths.insert(
+            relative(&history_revision_path(
+                &layout_paths(),
+                &revision.revision_id,
+            ))?
+            .as_str()
+            .to_owned(),
+        );
+        graph
+            .revisions
+            .insert(revision.revision_id.clone(), revision);
+    }
+    let unread: Vec<_> = paths
+        .iter()
+        .filter(|path| !admitted_paths.contains(path.as_str()))
+        .cloned()
+        .collect();
+    for chunk in unread.chunks(MAX_WORKSPACE_READ_BATCH) {
+        let snapshots = io.require_batch(chunk)?;
+        for (path, snapshot) in chunk.iter().zip(snapshots) {
+            graph.insert(path, &decode_record(&snapshot.bytes)?)?;
+        }
     }
     graph.project(io)
 }
 
 /// Re-walks exactly one memo's durable history chain for a path-scoped reconcile.
+/// Complete enumeration is absence evidence for heads and optional tombstones; asking SAF
+/// to rediscover every absent slot would enumerate the root again for each history revision.
 ///
 /// The canonical slot resolves through [`history_tip`] — the same fail-closed
 /// envelope, revision-id, and tip-object checks the full scan's freshness check
@@ -266,11 +345,19 @@ pub fn history(
 pub fn history_scoped(
     io: &WorkspaceIo<'_>,
     memo_id: &MemoId,
+    presence: &RecordPresence<'_>,
 ) -> Result<Vec<ScannedHistoryProjection>, LomoError> {
     let mut graph = HistoryGraph::default();
-    let Some(tip) = history_tip(io, memo_id)? else {
+    let head_path = crate::record_plan::history_head_relative_path(memo_id)?;
+    if !presence.contains(&head_path) {
         return Ok(Vec::new());
-    };
+    }
+    let tip = history_tip(io, memo_id)?.ok_or_else(|| {
+        corruption(
+            "history_head_missing",
+            "listed history head disappeared during scoped rebuild",
+        )
+    })?;
     // `history_tip` already proved `revision.revision_id == head_revision_id`, so the
     // resolved tip is exactly the claim the slot file made — the `check_tip` freshness
     // compare a batched cold scan needs is trivially satisfied by this single read.
@@ -297,7 +384,8 @@ pub fn history_scoped(
             pending.extend(discovered);
         }
         let tombstone_path = relative(&history_tombstone_path(&layout_paths(), &id))?;
-        if let Some(snapshot) = io.read(&tombstone_path)? {
+        if presence.contains(&tombstone_path) {
+            let snapshot = io.require(&tombstone_path)?;
             graph.insert(&tombstone_path, &decode_record(&snapshot.bytes)?)?;
         }
     }
@@ -343,8 +431,12 @@ pub enum ScopedPinVerdict {
 /// # Errors
 /// Same failures `pins()` surfaces for this file: framing, kind, body, and
 /// identity admission are the identical checks.
-pub fn state_scoped(io: &WorkspaceIo<'_>, memo_id: &MemoId) -> Result<ScopedPinVerdict, LomoError> {
-    let Some((head_file, _head)) = admitted_state_head(io, memo_id)? else {
+pub fn state_scoped(
+    io: &WorkspaceIo<'_>,
+    memo_id: &MemoId,
+    presence: &RecordPresence<'_>,
+) -> Result<ScopedPinVerdict, LomoError> {
+    let Some((head_file, _head)) = admitted_state_head(io, memo_id, presence)? else {
         return Ok(ScopedPinVerdict::Unattested);
     };
     let tip = state_tip_at(io, memo_id, head_file)?;
@@ -365,7 +457,7 @@ pub fn state_scoped(io: &WorkspaceIo<'_>, memo_id: &MemoId) -> Result<ScopedPinV
 /// authority — the single head-admission predicate [`state_scoped`]'s
 /// `Unattested` answer and [`pins()`]'s head walk share.
 ///
-/// `None` is the unattested answer: the canonical slot is absent or the file
+/// `None` is the unattested answer: the complete listing has no canonical slot, or the file
 /// on it decodes to a body naming another identity — that identity's duplicate
 /// evidence, never this one's head. Decode failures propagate: `pins()` meets
 /// the same file through the identical `decode_state_head` predicate, so the
@@ -373,11 +465,13 @@ pub fn state_scoped(io: &WorkspaceIo<'_>, memo_id: &MemoId) -> Result<ScopedPinV
 fn admitted_state_head(
     io: &WorkspaceIo<'_>,
     memo_id: &MemoId,
+    presence: &RecordPresence<'_>,
 ) -> Result<Option<(FileSnapshot, StateHead)>, LomoError> {
     let head_path = relative(&state_head_path(&layout_paths(), memo_id.as_str()))?;
-    let Some(head_file) = io.read(&head_path)? else {
+    if !presence.contains(&head_path) {
         return Ok(None);
-    };
+    }
+    let head_file = io.require(&head_path)?;
     let (body_id, head) = decode_state_head(&decode_record(&head_file.bytes)?)?;
     if body_id != *memo_id {
         return Ok(None);
@@ -400,8 +494,9 @@ fn admitted_state_head(
 pub fn state_head_tip_claim(
     io: &WorkspaceIo<'_>,
     memo_id: &MemoId,
+    presence: &RecordPresence<'_>,
 ) -> Result<Option<RevisionId>, LomoError> {
-    Ok(admitted_state_head(io, memo_id)?.map(|(_, head)| head.head_revision_id))
+    Ok(admitted_state_head(io, memo_id, presence)?.map(|(_, head)| head.head_revision_id))
 }
 
 /// Decodes a durable history head far enough for scope proving — the body-authority

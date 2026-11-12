@@ -8,7 +8,18 @@ internal data class ShareCardParagraphLayoutPolicy(
     val justificationMode: Int,
     val breakStrategy: Int,
     val hyphenationFrequency: Int,
-)
+) {
+    companion object {
+        /** Titles, tags, quotes, code and placeholders: start-aligned, unjustified, normal hyphenation. */
+        val Plain =
+            ShareCardParagraphLayoutPolicy(
+                alignment = Layout.Alignment.ALIGN_NORMAL,
+                justificationMode = Layout.JUSTIFICATION_MODE_NONE,
+                breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY,
+                hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL,
+            )
+    }
+}
 
 internal fun resolveShareCardParagraphLayoutPolicy(
     text: String,

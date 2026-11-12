@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 // adversarial-audit: command availability x notification layering re-audit (I2/I9).
 //
 // Behavior Contract
@@ -2617,7 +2626,7 @@ mod tests {
         badged.raise_badge(Severity::Warn, BadgeClass::Sync, "sync failed".to_owned());
         let effect = apply_command(&mut badged, Command::Back);
         assert!(effect.is_none());
-        assert!(badged.badges.is_empty());
+        assert_eq!(badged.badges, Vec::<Badge>::new());
         // Nothing left: Esc refuses and names it.
         let mut bare = feed_model(2);
         let effect = apply_command(&mut bare, Command::Back);

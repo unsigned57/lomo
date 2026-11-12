@@ -19,9 +19,7 @@ internal interface LanDeviceKey {
 }
 
 /** Non-exportable installation identity backed by AndroidKeyStore. */
-internal class AndroidLanDeviceKey(
-    private val alias: String = KEY_ALIAS,
-) : LanDeviceKey {
+internal class AndroidLanDeviceKey(private val alias: String = KEY_ALIAS) : LanDeviceKey {
     override fun publicIdentity(displayName: String): LanDeviceIdentity {
         val keyPair = getOrCreateKeyPair()
         val publicKey = keyPair.public as? ECPublicKey

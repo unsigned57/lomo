@@ -22,10 +22,7 @@ interface CustomFontStore {
      * bytes must pass font validation before they are atomically published. Returns a typed
      * [CustomFontImportResult] — a rejected import never becomes a selectable fact.
      */
-    suspend fun importFont(
-        source: CustomFontSource,
-        originalFileName: String,
-    ): CustomFontImportResult
+    suspend fun importFont(source: CustomFontSource, originalFileName: String): CustomFontImportResult
 
     /** Removes a font by id. Safe to call with an id that no longer exists. */
     suspend fun deleteFont(id: String)

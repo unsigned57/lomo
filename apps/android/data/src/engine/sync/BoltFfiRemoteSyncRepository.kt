@@ -3,6 +3,7 @@ package com.lomo.data.engine.sync
 import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.nativebridge.EngineError
 import com.lomo.nativebridge.SyncBackendConfigDto as BridgeBackendConfig
+import com.lomo.nativebridge.SyncBackendProbeDto as BridgeBackendProbe
 import com.lomo.nativebridge.SyncConflictPageDto as BridgeConflictPage
 import com.lomo.nativebridge.SyncConflictPathDto as BridgeConflictPath
 import com.lomo.nativebridge.SyncConflictPathStatusDto as BridgePathStatus
@@ -11,7 +12,6 @@ import com.lomo.nativebridge.SyncConflictResolveResultDto as BridgeResolveResult
 import com.lomo.nativebridge.SyncConflictSessionStateDto as BridgeConflictSession
 import com.lomo.nativebridge.SyncCyclePlanSummaryDto as BridgeCyclePlan
 import com.lomo.nativebridge.SyncCycleStatusDto as BridgeCycleStatus
-import com.lomo.nativebridge.SyncBackendProbeDto as BridgeBackendProbe
 import com.lomo.nativebridge.SyncSecretLeaseDto as BridgeSecretLease
 
 /**
@@ -20,14 +20,8 @@ import com.lomo.nativebridge.SyncSecretLeaseDto as BridgeSecretLease
  * Mapping only — conflict revision fences, path budgets, composed owner cycle, session local pull,
  * and secret vault rules stay in Rust. Production-wired at P5-13.
  */
-class BoltFfiRemoteSyncRepository(
-    private val bridge: SyncNativeBridge,
-) : RemoteSyncRepository {
-    override fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage {
+class BoltFfiRemoteSyncRepository(private val bridge: SyncNativeBridge) : RemoteSyncRepository {
+    override fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage {
         require(cursor >= 0) { "conflict list cursor must be non-negative" }
         require(limit > 0) { "conflict list limit must be positive" }
         return mapBoundary {
@@ -57,10 +51,7 @@ class BoltFfiRemoteSyncRepository(
         }
     }
 
-    override fun issueSecretLease(
-        secretBytes: ByteArray,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease {
+    override fun issueSecretLease(secretBytes: ByteArray, ttlMillis: Long): RemoteSyncSecretLease {
         require(secretBytes.isNotEmpty()) { "secret material must be non-empty" }
         require(ttlMillis > 0) { "secret lease TTL must be positive" }
         return mapBoundary {
@@ -148,69 +139,74 @@ class BoltFfiRemoteSyncRepository(
  * Apply cycles are not this type: [EngineOwnedSyncNativeBridge] routes `runCycle` through the
  * open workspace session. Host tests still inject fakes for mapping without JNI.
  */
-class FreeFunctionSyncNativeBridge : SyncNativeBridge {
-    override fun listConflicts(
-        workspaceRoot: String,
-        cursor: UInt,
-        limit: UInt,
-    ): BridgeConflictPage = com.lomo.nativebridge.syncListConflicts(workspaceRoot, cursor, limit)
+class FreeFunctionSyncNativeBridge(private val privateStateRoot: (String) -> String) : SyncNativeBridge {
+    override fun listConflicts(workspaceRoot: String, cursor: UInt, limit: UInt): BridgeConflictPage =
+        com.lomo.nativebridge.syncListConflicts(
+            workspaceRoot,
+            privateStateRoot(workspaceRoot),
+            cursor,
+            limit,
+        )
 
     override fun resolveConflicts(
         workspaceRoot: String,
         expectedRevision: ULong,
         resolutions: List<BridgeResolution>,
-    ): BridgeResolveResult =
-        com.lomo.nativebridge.syncResolveConflicts(workspaceRoot, expectedRevision, resolutions)
+    ): BridgeResolveResult = com.lomo.nativebridge.syncResolveConflicts(
+        workspaceRoot,
+        privateStateRoot(workspaceRoot),
+        expectedRevision,
+        resolutions,
+    )
 
-    override fun issueSecretLease(
-        secretBytes: ByteArray,
-        ttlMillis: ULong,
-    ): BridgeSecretLease = com.lomo.nativebridge.syncIssueSecretLease(secretBytes, ttlMillis)
+    override fun issueSecretLease(secretBytes: ByteArray, ttlMillis: ULong): BridgeSecretLease =
+        com.lomo.nativebridge.syncIssueSecretLease(secretBytes, ttlMillis)
 
-    override fun probeSecretLease(leaseId: String): UInt =
-        com.lomo.nativebridge.syncProbeSecretLease(leaseId)
+    override fun probeSecretLease(leaseId: String): UInt = com.lomo.nativebridge.syncProbeSecretLease(leaseId)
 
     override fun revokeSecretLease(leaseId: String) {
         com.lomo.nativebridge.syncRevokeSecretLease(leaseId)
     }
 
-    override fun readConflictArtifact(
-        workspaceRoot: String,
-        artifactRef: String,
-    ): ByteArray = com.lomo.nativebridge.syncReadConflictArtifact(workspaceRoot, artifactRef)
+    override fun readConflictArtifact(workspaceRoot: String, artifactRef: String): ByteArray =
+        com.lomo.nativebridge.syncReadConflictArtifact(
+            workspaceRoot,
+            privateStateRoot(workspaceRoot),
+            artifactRef,
+        )
 
     override fun runCycle(
         workspaceRoot: String,
         config: BridgeBackendConfig,
         secretLeaseId: String,
         applyRemote: Boolean,
-    ): BridgeCyclePlan =
-        com.lomo.nativebridge.syncRunCycle(
-            workspaceRoot,
-            config,
-            secretLeaseId,
-            applyRemote,
-        )
+    ): BridgeCyclePlan = com.lomo.nativebridge.syncRunCycle(
+        workspaceRoot,
+        privateStateRoot(workspaceRoot),
+        config,
+        secretLeaseId,
+        applyRemote,
+    )
 
     override fun loadWorkspaceGeneration(workspaceRoot: String): String =
-        com.lomo.nativebridge.syncWorkspaceGeneration(workspaceRoot)
+        com.lomo.nativebridge.syncWorkspaceGeneration(workspaceRoot, privateStateRoot(workspaceRoot))
 
     override fun resetControlTree(workspaceRoot: String) {
-        com.lomo.nativebridge.syncResetControlTree(workspaceRoot)
+        com.lomo.nativebridge.syncResetControlTree(workspaceRoot, privateStateRoot(workspaceRoot))
     }
 
     override fun cycleStatus(workspaceRoot: String): BridgeCycleStatus =
-        com.lomo.nativebridge.syncCycleStatus(workspaceRoot)
+        com.lomo.nativebridge.syncCycleStatus(workspaceRoot, privateStateRoot(workspaceRoot))
 
     override fun requestCancel(workspaceRoot: String): BridgeCycleStatus =
-        com.lomo.nativebridge.syncRequestCancel(workspaceRoot)
+        com.lomo.nativebridge.syncRequestCancel(workspaceRoot, privateStateRoot(workspaceRoot))
 
     override fun probeBackend(
         workspaceRoot: String,
         config: BridgeBackendConfig,
         secretLeaseId: String,
     ): BridgeBackendProbe =
-        com.lomo.nativebridge.syncProbeBackend(workspaceRoot, config, secretLeaseId)
+        com.lomo.nativebridge.syncProbeBackend(workspaceRoot, privateStateRoot(workspaceRoot), config, secretLeaseId)
 }
 
 /**
@@ -219,88 +215,79 @@ class FreeFunctionSyncNativeBridge : SyncNativeBridge {
  */
 internal class EngineOwnedSyncNativeBridge(
     private val engine: SessionNativeBridge,
-    private val freeFunctions: SyncNativeBridge = FreeFunctionSyncNativeBridge(),
+    private val freeFunctions: SyncNativeBridge,
 ) : SyncNativeBridge by freeFunctions {
     override fun runCycle(
         workspaceRoot: String,
         config: BridgeBackendConfig,
         secretLeaseId: String,
         applyRemote: Boolean,
-    ): BridgeCyclePlan =
-        engine.syncRunCycle(
-            workspaceRoot = workspaceRoot,
-            config = config,
-            secretLeaseId = secretLeaseId,
-            applyRemote = applyRemote,
-        )
+    ): BridgeCyclePlan = engine.syncRunCycle(
+        workspaceRoot = workspaceRoot,
+        config = config,
+        secretLeaseId = secretLeaseId,
+        applyRemote = applyRemote,
+    )
 }
 
-private inline fun <T> mapBoundary(block: () -> T): T =
-    try {
-        block()
-    } catch (error: EngineError.Failure) {
-        val failure = error.failure
-        throw RemoteSyncBoundaryFailure(
-            category = failure.category,
-            code = failure.code,
-            retryDisposition = failure.retryDisposition,
-            diagnostic = failure.diagnostic,
-            operationId = failure.operationId,
-            jobId = failure.jobId,
-        ).also { mapped -> mapped.initCause(error) }
-    }
+private inline fun <T> mapBoundary(block: () -> T): T = try {
+    block()
+} catch (error: EngineError.Failure) {
+    val failure = error.failure
+    throw RemoteSyncBoundaryFailure(
+        category = failure.category,
+        code = failure.code,
+        retryDisposition = failure.retryDisposition,
+        diagnostic = failure.diagnostic,
+        operationId = failure.operationId,
+        jobId = failure.jobId,
+    ).also { mapped -> mapped.initCause(error) }
+}
 
-private fun BridgeConflictPage.toFacts(): RemoteSyncConflictPage =
-    RemoteSyncConflictPage(
-        session = session.toFacts(),
-        sessionId = sessionId,
-        conflictRevision = conflictRevision.toLong(),
-        items = items.map { it.toFacts() },
-        nextCursor = nextCursor?.toInt(),
-    )
+private fun BridgeConflictPage.toFacts(): RemoteSyncConflictPage = RemoteSyncConflictPage(
+    session = session.toFacts(),
+    sessionId = sessionId,
+    conflictRevision = conflictRevision.toLong(),
+    items = items.map { it.toFacts() },
+    nextCursor = nextCursor?.toInt(),
+)
 
-private fun BridgeConflictSession.toFacts(): RemoteSyncConflictSessionState =
-    when (this) {
-        BridgeConflictSession.ABSENT -> RemoteSyncConflictSessionState.Absent
-        BridgeConflictSession.PRESENT -> RemoteSyncConflictSessionState.Present
-    }
+private fun BridgeConflictSession.toFacts(): RemoteSyncConflictSessionState = when (this) {
+    BridgeConflictSession.ABSENT -> RemoteSyncConflictSessionState.Absent
+    BridgeConflictSession.PRESENT -> RemoteSyncConflictSessionState.Present
+}
 
-private fun BridgeConflictPath.toFacts(): RemoteSyncConflictPath =
-    RemoteSyncConflictPath(
-        path = path,
-        kind = kind,
-        localDigest = localDigest,
-        remoteDigest = remoteDigest,
-        baselineDigest = baselineDigest,
-        remoteTokenPresent = remoteTokenPresent,
-        localArtifactRef = localArtifactRef,
-        remoteArtifactRef = remoteArtifactRef,
-        baselineArtifactRef = baselineArtifactRef,
-        status = status.toFacts(),
-    )
+private fun BridgeConflictPath.toFacts(): RemoteSyncConflictPath = RemoteSyncConflictPath(
+    path = path,
+    kind = kind,
+    localDigest = localDigest,
+    remoteDigest = remoteDigest,
+    baselineDigest = baselineDigest,
+    remoteTokenPresent = remoteTokenPresent,
+    localArtifactRef = localArtifactRef,
+    remoteArtifactRef = remoteArtifactRef,
+    baselineArtifactRef = baselineArtifactRef,
+    status = status.toFacts(),
+)
 
-private fun BridgePathStatus.toFacts(): RemoteSyncConflictPathStatus =
-    when (this) {
-        BridgePathStatus.OPEN -> RemoteSyncConflictPathStatus.Open
-        BridgePathStatus.RESOLVED_KEEP_LOCAL -> RemoteSyncConflictPathStatus.ResolvedKeepLocal
-        BridgePathStatus.RESOLVED_KEEP_REMOTE -> RemoteSyncConflictPathStatus.ResolvedKeepRemote
-        BridgePathStatus.RESOLVED_MERGED -> RemoteSyncConflictPathStatus.ResolvedMerged
-        BridgePathStatus.SKIPPED_FOR_NOW -> RemoteSyncConflictPathStatus.SkippedForNow
-    }
+private fun BridgePathStatus.toFacts(): RemoteSyncConflictPathStatus = when (this) {
+    BridgePathStatus.OPEN -> RemoteSyncConflictPathStatus.Open
+    BridgePathStatus.RESOLVED_KEEP_LOCAL -> RemoteSyncConflictPathStatus.ResolvedKeepLocal
+    BridgePathStatus.RESOLVED_KEEP_REMOTE -> RemoteSyncConflictPathStatus.ResolvedKeepRemote
+    BridgePathStatus.RESOLVED_MERGED -> RemoteSyncConflictPathStatus.ResolvedMerged
+    BridgePathStatus.SKIPPED_FOR_NOW -> RemoteSyncConflictPathStatus.SkippedForNow
+}
 
-private fun RemoteSyncConflictResolution.toBridge(): BridgeResolution =
-    BridgeResolution(
-        path = path,
-        kind = kind,
-        mergedBody = mergedBody,
-    )
+private fun RemoteSyncConflictResolution.toBridge(): BridgeResolution = BridgeResolution(
+    path = path,
+    kind = kind,
+    mergedBody = mergedBody,
+)
 
-private fun BridgeResolveResult.toFacts(): RemoteSyncConflictResolveResult =
-    RemoteSyncConflictResolveResult(
-        sessionId = sessionId,
-        conflictRevision = conflictRevision.toLong(),
-        appliedPaths = appliedPaths,
-    )
+private fun BridgeResolveResult.toFacts(): RemoteSyncConflictResolveResult = RemoteSyncConflictResolveResult(
+    sessionId = sessionId,
+    conflictRevision = conflictRevision.toLong(),
+    appliedPaths = appliedPaths,
+)
 
-private fun BridgeSecretLease.toFacts(): RemoteSyncSecretLease =
-    RemoteSyncSecretLease(leaseId = leaseId)
+private fun BridgeSecretLease.toFacts(): RemoteSyncSecretLease = RemoteSyncSecretLease(leaseId = leaseId)

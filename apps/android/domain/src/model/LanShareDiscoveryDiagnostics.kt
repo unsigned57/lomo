@@ -11,11 +11,7 @@ data class LanShareDiscoveryDiagnostics(
     val lastDegradedReason: LanShareDiscoveryDegradedReason? = null,
 )
 
-data class LanShareRouteSnapshot(
-    val networkKey: String,
-    val bindHost: String,
-    val routeState: LanShareProbeRouteState,
-)
+data class LanShareRouteSnapshot(val networkKey: String, val bindHost: String, val routeState: LanShareProbeRouteState)
 
 enum class LanShareProbeRouteState {
     BoundNetwork,

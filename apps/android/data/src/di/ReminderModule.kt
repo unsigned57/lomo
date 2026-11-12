@@ -10,17 +10,17 @@ import com.lomo.data.reminder.OwnerReminderTokenFactory
 import com.lomo.data.reminder.ReminderAsyncRunner
 import com.lomo.data.reminder.ReminderExecutionLedger
 import com.lomo.data.reminder.ReminderNotifier
-import com.lomo.data.reminder.ReminderRollingWindowScheduler
 import com.lomo.data.reminder.ReminderRebuildDemand
 import com.lomo.data.reminder.ReminderRebuildWorker
+import com.lomo.data.reminder.ReminderRollingWindowScheduler
 import com.lomo.data.reminder.WorkManagerReminderRebuildDemand
 import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.ReminderTokenFactory
-import org.koin.dsl.module
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.workerOf
-import org.koin.dsl.bind
 import org.koin.core.qualifier.named
+import org.koin.dsl.bind
+import org.koin.dsl.module
 
 val reminderModule = module {
     single<AlarmSchedulePort> {
@@ -48,7 +48,8 @@ val reminderModule = module {
             scheduler = get(),
             memoQueryRepository = get(),
             markdownReminderRepository = get(),
-            memoMutationRepository = get(),
+            storePort = get(),
+            mutationLease = get(),
             reminderTokenFactory = get(),
         )
     } bind ReminderCoordinator::class

@@ -26,5 +26,4 @@ class MemoEditorFocusStabilityTest : AppFunSpec() {
             (controller.focusRequestToken) shouldBe (initialFocusRequestToken)
         }
     }
-
 }

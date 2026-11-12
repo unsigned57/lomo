@@ -388,6 +388,12 @@ mod tests {
                 )
                 .expect("pin");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .rebuild_projection()
                 .expect("the pin's durable state records reconcile");
             assert!(
@@ -409,6 +415,12 @@ mod tests {
                     .expect("unpin request"),
                 )
                 .expect("unpin");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session
                 .rebuild_projection()
                 .expect("the unpin's durable state records reconcile");
@@ -434,6 +446,12 @@ mod tests {
                     trashed_at_ms: Some(1_757_500_000_000),
                 })
                 .expect("delete");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session
                 .rebuild_projection()
                 .expect("the delete's durable records reconcile");
@@ -1249,6 +1267,12 @@ mod tests {
                     .expect("pin request"),
                 )
                 .expect("pin");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
         }
 
         /// Edits a memo through the app path so a second durable history revision
@@ -1268,6 +1292,12 @@ mod tests {
                     pending_promotes: Vec::new(),
                 })
                 .expect("update");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
         }
 
         /// Absolute path of a memo's canonical v2 state head inside `workspace`.
@@ -2099,6 +2129,12 @@ mod tests {
                     pending_promotes: Vec::new(),
                 })
                 .expect("update");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
         }
 
         /// Absolute path of a memo's canonical v2 history head inside `workspace`.
@@ -3109,6 +3145,12 @@ mod tests {
                     pending_promotes: Vec::new(),
                 })
                 .expect("update");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
         }
 
         /// Pins a memo through the app path so its canonical state head and tip
@@ -3124,6 +3166,12 @@ mod tests {
                     .expect("pin request"),
                 )
                 .expect("pin");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
         }
 
         /// Unpins a memo through the app path: the durable state head keeps
@@ -3140,6 +3188,12 @@ mod tests {
                     .expect("unpin request"),
                 )
                 .expect("unpin");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
         }
 
         /// Absolute path of a memo's canonical v2 state head inside `workspace`.
@@ -4004,6 +4058,12 @@ mod tests {
                     .expect("pin request"),
                 )
                 .expect("pin");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
         }
 
         /// Unpins a memo through the app path: the durable state head keeps
@@ -4020,6 +4080,12 @@ mod tests {
                     .expect("unpin request"),
                 )
                 .expect("unpin");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
         }
 
         /// Absolute path of a memo's canonical v2 state head inside `workspace`.

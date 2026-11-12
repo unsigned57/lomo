@@ -14,29 +14,35 @@ import io.kotest.matchers.shouldBe
 class MarkdownImageSharedTransitionKeyPolicyTest : UiComponentsFunSpec() {
     init {
         test("non navigable markdown image preview does not expose a shared transition key") {
-        (resolveMarkdownImageSharedElementKey(
-                destination = "content://images/history.png",
-                hasNavigationTarget = false,
-            )) shouldBe null
+            (
+                resolveMarkdownImageSharedElementKey(
+                    destination = "content://images/history.png",
+                    hasNavigationTarget = false,
+                )
+                ) shouldBe null
         }
     }
 
     init {
         test("navigable markdown image preview keeps destination as shared transition key by default") {
-        (resolveMarkdownImageSharedElementKey(
-                destination = "content://images/history.png",
-                hasNavigationTarget = true,
-            )) shouldBe ("content://images/history.png")
+            (
+                resolveMarkdownImageSharedElementKey(
+                    destination = "content://images/history.png",
+                    hasNavigationTarget = true,
+                )
+                ) shouldBe ("content://images/history.png")
         }
     }
 
     init {
         test("namespace isolates shared transition keys for duplicate image destinations") {
-        (resolveMarkdownImageSharedElementKey(
-                destination = "content://images/history.png",
-                hasNavigationTarget = true,
-                namespace = "history:r2",
-            )) shouldBe ("history:r2|content://images/history.png")
+            (
+                resolveMarkdownImageSharedElementKey(
+                    destination = "content://images/history.png",
+                    hasNavigationTarget = true,
+                    namespace = "history:r2",
+                )
+                ) shouldBe ("history:r2|content://images/history.png")
         }
     }
 }

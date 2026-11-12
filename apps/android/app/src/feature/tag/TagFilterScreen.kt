@@ -8,66 +8,59 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.Tag
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.lomo.app.util.injectedKoinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lomo.app.benchmark.BenchmarkAnchorContract
-import com.lomo.app.R
-import com.lomo.app.feature.image.ImageViewerRequest
-import com.lomo.app.feature.common.MemoActionOrderScopes
-import com.lomo.app.feature.memo.MemoCardList
-import com.lomo.app.feature.memo.MemoCardListAnimation
-import com.lomo.app.feature.memo.MemoEditorSessionState
-import com.lomo.app.feature.memo.MemoInteractionHost
-import com.lomo.app.feature.memo.MemoMenuPresentationState
-import com.lomo.app.feature.memo.MemoMenuSelection
-import com.lomo.app.feature.memo.existingMemoEditorSurface
-import com.lomo.app.feature.memo.handleMemoJumpToMain
-import com.lomo.app.feature.memo.rememberMemoEditorController
-import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
-import com.lomo.app.feature.memo.rememberFullMemoEditorOpener
-import com.lomo.ui.benchmark.benchmarkAnchorRoot
-import com.lomo.ui.component.common.EmptyState
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableSet
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toImmutableMap
-import kotlinx.collections.immutable.toImmutableSet
-
+import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.LoadState
+import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
+import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.memo.MemoCardList
+import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.MemoMenuContextAction
+import com.lomo.app.feature.memo.MemoMenuPresentationState
+import com.lomo.app.feature.memo.MemoMenuSelection
+import com.lomo.app.feature.memo.handleMemoJumpToMain
+import com.lomo.app.feature.memo.rememberAutoSaveCommittedNotifier
+import com.lomo.app.feature.memo.rememberFullMemoEditorOpener
+import com.lomo.app.feature.memo.rememberMemoEditorController
+import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
+import com.lomo.app.util.injectedKoinViewModel
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.EmptyState
+import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.component.common.LomoStateContent
+import com.lomo.ui.component.common.LomoTextButton
+import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.theme.AppSpacing
+import kotlinx.collections.immutable.toImmutableMap
 
-private val TAG_FILTER_ICON_SIZE = 28.dp
-private val TAG_FILTER_ICON_SPACING = 8.dp
+private val TAG_FILTER_ICON_BADGE_SIZE = 32.dp
+private val TAG_FILTER_ICON_SIZE = 18.dp
 private val TAG_FILTER_LIST_PADDING = 16.dp
 private val TAG_FILTER_LIST_BOTTOM_PADDING = 88.dp
 
@@ -78,18 +71,18 @@ internal enum class TagFilterContentState {
     List,
 }
 
-internal fun resolveTagFilterContentState(
-    itemCount: Int,
-    refreshState: LoadState,
-): TagFilterContentState =
-    when {
-        itemCount > 0 -> TagFilterContentState.List
-        refreshState is LoadState.Loading -> TagFilterContentState.Loading
-        refreshState is LoadState.Error -> TagFilterContentState.Error
-        refreshState is LoadState.NotLoading && !refreshState.endOfPaginationReached ->
-            TagFilterContentState.Loading
-        else -> TagFilterContentState.Empty
-    }
+internal fun resolveTagFilterContentState(itemCount: Int, refreshState: LoadState): TagFilterContentState = when {
+    itemCount > 0 -> TagFilterContentState.List
+
+    refreshState is LoadState.Loading -> TagFilterContentState.Loading
+
+    refreshState is LoadState.Error -> TagFilterContentState.Error
+
+    refreshState is LoadState.NotLoading && !refreshState.endOfPaginationReached ->
+        TagFilterContentState.Loading
+
+    else -> TagFilterContentState.Empty
+}
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -123,60 +116,49 @@ fun TagFilterScreen(
         snackbarHostState = snackbarHostState,
         onClearError = viewModel::clearError,
     )
+    val mainViewModel: com.lomo.app.feature.main.MainViewModel = com.lomo.app.util.activityKoinViewModel()
     val memoMenuCommandHandler =
         rememberMemoMenuCommandHandler(
             presentationState =
-                MemoMenuPresentationState(
-                    shareCardShowTime = appPreferences.shareCardShowTime,
-                    shareCardShowSignature = appPreferences.shareCardShowBrand,
-                    shareCardSignatureText = appPreferences.shareCardSignatureText,
-                    customFontPath = appPreferences.customFontPath,
-                    showJump = true,
-                    memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
-                    memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.TAG),
-                ),
+            MemoMenuPresentationState(
+                shareCardShowTime = appPreferences.shareCardShowTime,
+                shareCardShowSignature = appPreferences.shareCardShowBrand,
+                shareCardSignatureText = appPreferences.shareCardSignatureText,
+                customFontPath = appPreferences.customFontPath,
+            ),
             onEditMemo = openFullMemoEditor,
             onDeleteMemo = viewModel::deleteMemo,
             onLanShare =
-                if (lanShareEnabled) {
-                    { request -> onNavigateToShare(request.content, request.timestamp) }
-                } else {
-                    null
-                },
-            onJump = { state ->
+            if (lanShareEnabled) {
+                { request -> onNavigateToShare(request.content, request.timestamp) }
+            } else {
+                null
+            },
+            contextAction =
+            MemoMenuContextAction.Jump { state ->
                 handleMemoJumpToMain(
                     selection = state,
                     requestFocusMemo = onRequestFocusMemo,
                     navigateToMain = onNavigateToMain,
                 )
             },
-            onMemoActionInvoked = viewModel::recordMemoActionUsage,
-            onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
+            onVersionHistory = { selection -> mainViewModel.loadVersionHistory(selection.memo) },
         )
 
-    val editorSurface =
-        existingMemoEditorSurface(
-            session =
-                MemoEditorSessionState(
-                    imageDirectory = imageDirectory,
-                    ownerDraftId = viewModel.ownerDraftId,
-                    rootPath = rootDirectory,
-                    imageMap = stableImageMap,
-                    dateFormat = appPreferences.dateFormat,
-                    timeFormat = appPreferences.timeFormat,
-                ),
-            toolbarToolOrder = appPreferences.inputToolbarToolOrder,
-            onUpdateMemo = viewModel::submitMemoUpdate,
-            submissionState = viewModel.editorSubmissionState,
-            onSaveImage = viewModel::saveImage,
-            onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
-        )
+    val editorSurface = tagMemoEditorSurface(
+        viewModel,
+        rootDirectory,
+        imageDirectory,
+        stableImageMap,
+        appPreferences,
+    )
 
     MemoInteractionHost(
         menuCommandHandler = memoMenuCommandHandler,
         controller = editorController,
         editorSurface = editorSurface,
         onEditorOpenFailure = viewModel::reportError,
+        onAutoSaveCommitted = rememberAutoSaveCommittedNotifier(snackbarHostState),
     ) { showMenu, openEditor ->
         TagFilterScreenScaffold(
             tagName = tagName,
@@ -203,6 +185,7 @@ fun TagFilterScreen(
             )
         }
     }
+    com.lomo.app.feature.main.MainVersionHistoryEffectHost(mainViewModel = mainViewModel)
 }
 
 @Composable
@@ -227,31 +210,37 @@ private fun TagFilterScreenScaffold(
     onBackClick: () -> Unit,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
 
     Scaffold(
         modifier =
-            Modifier
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .benchmarkAnchorRoot(BenchmarkAnchorContract.TAG_ROOT),
+        Modifier
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
+            .benchmarkAnchorRoot(BenchmarkAnchorContract.TAG_ROOT),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            LargeTopAppBar(
+            TopAppBar(
                 title = { TagFilterTitle(tagName = tagName) },
                 navigationIcon = {
-                    IconButton(onClick = onBackClick) {
+                    LomoIconButton(
+                        onClick = {
+                            haptic.medium()
+                            onBackClick()
+                        },
+                    ) {
                         Icon(
-                            Icons.Default.Close,
-                            contentDescription = stringResource(R.string.cd_close),
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
                         )
                     }
                 },
                 scrollBehavior = scrollBehavior,
                 colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
             )
         },
         content = content,
@@ -261,14 +250,25 @@ private fun TagFilterScreenScaffold(
 @Composable
 private fun TagFilterTitle(tagName: String) {
     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-        Icon(
-            Icons.Outlined.Tag,
-            contentDescription = null,
-            modifier = Modifier.size(TAG_FILTER_ICON_SIZE),
-            tint = MaterialTheme.colorScheme.primary,
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shape = AppShapes.Medium,
+            modifier = Modifier.size(TAG_FILTER_ICON_BADGE_SIZE),
+        ) {
+            Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Icon(
+                    Icons.Outlined.Tag,
+                    contentDescription = null,
+                    modifier = Modifier.size(TAG_FILTER_ICON_SIZE),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+        }
+        Spacer(Modifier.width(AppSpacing.Small))
+        Text(
+            text = tagName,
+            style = MaterialTheme.typography.titleLargeEmphasized,
         )
-        Spacer(Modifier.width(TAG_FILTER_ICON_SPACING))
-        Text(tagName)
     }
 }
 
@@ -289,50 +289,60 @@ private fun TagFilterScreenContent(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
+    val contentState = resolveTagFilterContentState(pagedItems.itemCount, pagedItems.loadState.refresh)
     Box(modifier = modifier.fillMaxSize()) {
-        when (resolveTagFilterContentState(pagedItems.itemCount, pagedItems.loadState.refresh)) {
-            TagFilterContentState.Loading ->
-                CircularProgressIndicator(modifier = Modifier.align(androidx.compose.ui.Alignment.Center))
-            TagFilterContentState.Error ->
-                EmptyState(
-                    icon = Icons.Outlined.ErrorOutline,
-                    title = stringResource(R.string.memo_list_load_failed_title),
-                    description = stringResource(R.string.memo_list_load_failed_description),
-                    action = {
-                        TextButton(onClick = pagedItems::retry) {
-                            Text(stringResource(R.string.action_retry))
-                        }
-                    },
-                )
-            TagFilterContentState.Empty ->
-                EmptyState(
-                    icon = Icons.Outlined.Tag,
-                    title = stringResource(R.string.empty_no_tag_matches_title, tagName),
-                    description = stringResource(R.string.empty_no_tag_matches_subtitle),
-                )
-            TagFilterContentState.List -> MemoCardList(
-                pagedMemos = pagedItems,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                doubleTapEditEnabled = doubleTapEditEnabled,
-                freeTextCopyEnabled = freeTextCopyEnabled,
-                onMemoEdit = onMemoEdit,
-                onShowMenu = onShowMenu,
-                onImageClick = onImageClick,
-                onTodoClick = onTodoClick,
-                onTagClick = onNavigateToTag,
-                animation = MemoCardListAnimation.Placement,
-                exitAnimationRegistry = exitAnimationRegistry,
-                listState = listState,
-                contentPadding =
+        LomoStateContent(
+            state = contentState,
+            contentKey = { it },
+            modifier = Modifier.fillMaxSize(),
+        ) { state ->
+            when (state) {
+                TagFilterContentState.Loading ->
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        ExpressiveContainedLoadingIndicator()
+                    }
+
+                TagFilterContentState.Error ->
+                    EmptyState(
+                        icon = Icons.Outlined.ErrorOutline,
+                        title = stringResource(R.string.memo_list_load_failed_title),
+                        description = stringResource(R.string.memo_list_load_failed_description),
+                        action = {
+                            LomoTextButton(onClick = pagedItems::retry) {
+                                Text(stringResource(R.string.action_retry))
+                            }
+                        },
+                    )
+
+                TagFilterContentState.Empty ->
+                    EmptyState(
+                        icon = Icons.Outlined.Tag,
+                        title = stringResource(R.string.empty_no_tag_matches_title, tagName),
+                        description = stringResource(R.string.empty_no_tag_matches_subtitle),
+                    )
+
+                TagFilterContentState.List -> MemoCardList(
+                    pagedMemos = pagedItems,
+                    dateFormat = dateFormat,
+                    timeFormat = timeFormat,
+                    doubleTapEditEnabled = doubleTapEditEnabled,
+                    freeTextCopyEnabled = freeTextCopyEnabled,
+                    onMemoEdit = onMemoEdit,
+                    onShowMenu = onShowMenu,
+                    onImageClick = onImageClick,
+                    onTodoClick = onTodoClick,
+                    onTagClick = onNavigateToTag,
+                    exitAnimationRegistry = exitAnimationRegistry,
+                    listState = listState,
+                    contentPadding =
                     PaddingValues(
                         top = TAG_FILTER_LIST_PADDING,
                         start = TAG_FILTER_LIST_PADDING,
                         end = TAG_FILTER_LIST_PADDING,
                         bottom = TAG_FILTER_LIST_BOTTOM_PADDING,
                     ),
-                modifier = Modifier.fillMaxSize(),
-            )
+                )
+            }
         }
     }
 }

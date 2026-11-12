@@ -10,6 +10,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,29 +36,22 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import org.jetbrains.compose.resources.pluralStringResource
+import androidx.compose.ui.platform.LocalLocale
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.calendar_heatmap_memo_count
-import java.time.DayOfWeek
-import java.time.format.TextStyle
-import java.util.Locale
+import com.lomo.ui.theme.LocalLomoMotion
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.toImmutableList
+import org.jetbrains.compose.resources.pluralStringResource
+import java.time.DayOfWeek
+import java.time.format.TextStyle
 
-private const val HOURS_IN_DAY = 24
 private const val DAYS_IN_WEEK = 7
-private const val HOUR_LABEL_INTERVAL = 3
 private const val LEVEL_ONE_MAX_RATIO = 0.25f
 private const val LEVEL_TWO_MAX_RATIO = 0.50f
 private const val LEVEL_THREE_MAX_RATIO = 0.75f
 
-private data class WeeklyHeatmapCellHit(
-    val dayIndex: Int,
-    val hour: Int,
-    val day: DayOfWeek,
-    val count: Int,
-)
+private data class WeeklyHeatmapCellHit(val dayIndex: Int, val hour: Int, val day: DayOfWeek, val count: Int)
 
 @Composable
 fun WeeklyHourHeatmap(
@@ -65,38 +59,22 @@ fun WeeklyHourHeatmap(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val cellSizePx = with(density) { StatsChartTokens.WeeklyCellSize.toPx() }
     val spacingPx = with(density) { StatsChartTokens.WeeklyCellSpacing.toPx() }
     val cornerRadiusPx = with(density) { StatsChartTokens.CellCornerRadius.toPx() }
-    val cellStep = cellSizePx + spacingPx
 
     val colors = rememberWeeklyHeatmapColors()
     val textPaint = rememberWeeklyHeatmapTextPaint(
         density = density,
         textColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb(),
     )
-
-    val dayOrder = remember {
-        listOf(
-            DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
-            DayOfWeek.THURSDAY, DayOfWeek.FRIDAY, DayOfWeek.SATURDAY, DayOfWeek.SUNDAY,
-        ).toImmutableList()
-    }
-    val dayLabels = remember {
-        dayOrder.map { it.getDisplayName(TextStyle.SHORT, Locale.getDefault()) }.toImmutableList()
-    }
+    val dayLabels = rememberHourAxisDayLabels()
+    val gutterPx = rememberHourAxisGutterPx(textPaint = textPaint, spacingPx = spacingPx)
 
     val maxCount = remember(weeklyHourDistribution) {
         weeklyHourDistribution.values.flatMap { it.values }.maxOrNull() ?: 1
     }
 
-    val labelWidthPx = remember(textPaint, dayLabels) {
-        dayLabels.maxOf { textPaint.measureText(it) }
-    }
-    val leftMarginPx = labelWidthPx + spacingPx * 2
-
     val hourLabelHeightPx = with(density) { StatsChartTokens.LabelFontSize.toPx() } + spacingPx
-    val totalHeight = hourLabelHeightPx + DAYS_IN_WEEK * cellStep
 
     var selectedHit by remember { mutableStateOf<WeeklyHeatmapCellHit?>(null) }
     var popupOffset by remember { mutableStateOf(Offset.Zero) }
@@ -105,33 +83,44 @@ fun WeeklyHourHeatmap(
         modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        WeeklyHeatmapCanvas(
-            weeklyHourDistribution = weeklyHourDistribution,
-            dayOrder = dayOrder,
-            dayLabels = dayLabels,
-            maxCount = maxCount,
-            colors = colors,
-            textPaint = textPaint,
-            cellSizePx = cellSizePx,
-            spacingPx = spacingPx,
-            cornerRadiusPx = cornerRadiusPx,
-            cellStep = cellStep,
-            leftMarginPx = leftMarginPx,
-            hourLabelHeightPx = hourLabelHeightPx,
-            totalHeight = totalHeight,
-            selectedHit = selectedHit,
-            density = density,
-            onTap = { hit, offset ->
-                if (hit == null) {
-                    selectedHit = null
-                } else if (selectedHit?.dayIndex == hit.dayIndex && selectedHit?.hour == hit.hour) {
-                    selectedHit = null
-                } else {
-                    selectedHit = hit
-                    popupOffset = offset
-                }
-            },
-        )
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            // The grid fills the width to the right of the shared day-name gutter, so this chart
+            // spans the same width as the hourly bar chart below it.
+            val cellStep =
+                HourAxis.stepPx(
+                    widthPx = with(density) { maxWidth.toPx() },
+                    gutterPx = gutterPx,
+                )
+            val cellSizePx = (cellStep - spacingPx).coerceAtLeast(1f)
+            val totalHeight = hourLabelHeightPx + DAYS_IN_WEEK * cellStep
+            WeeklyHeatmapCanvas(
+                weeklyHourDistribution = weeklyHourDistribution,
+                dayOrder = HourAxisDayOrder,
+                dayLabels = dayLabels,
+                maxCount = maxCount,
+                colors = colors,
+                textPaint = textPaint,
+                cellSizePx = cellSizePx,
+                spacingPx = spacingPx,
+                cornerRadiusPx = cornerRadiusPx,
+                cellStep = cellStep,
+                gutterPx = gutterPx,
+                hourLabelHeightPx = hourLabelHeightPx,
+                totalHeight = totalHeight,
+                selectedHit = selectedHit,
+                density = density,
+                onTap = { hit, offset ->
+                    if (hit == null) {
+                        selectedHit = null
+                    } else if (selectedHit?.dayIndex == hit.dayIndex && selectedHit?.hour == hit.hour) {
+                        selectedHit = null
+                    } else {
+                        selectedHit = hit
+                        popupOffset = offset
+                    }
+                },
+            )
+        }
 
         WeeklyHeatmapSelectionPopup(
             selectedHit = selectedHit,
@@ -154,7 +143,7 @@ private fun WeeklyHeatmapCanvas(
     spacingPx: Float,
     cornerRadiusPx: Float,
     cellStep: Float,
-    leftMarginPx: Float,
+    gutterPx: Float,
     hourLabelHeightPx: Float,
     totalHeight: Float,
     selectedHit: WeeklyHeatmapCellHit?,
@@ -165,12 +154,12 @@ private fun WeeklyHeatmapCanvas(
         modifier = Modifier
             .fillMaxWidth()
             .height(with(density) { totalHeight.toDp() })
-            .pointerInput(weeklyHourDistribution, leftMarginPx, cellStep, hourLabelHeightPx) {
+            .pointerInput(weeklyHourDistribution, gutterPx, cellStep, hourLabelHeightPx) {
                 detectTapGestures(
                     onTap = { offset ->
                         val hit = resolveWeeklyHeatmapHit(
                             offset = offset,
-                            leftMarginPx = leftMarginPx,
+                            gutterPx = gutterPx,
                             cellStep = cellStep,
                             hourLabelHeightPx = hourLabelHeightPx,
                             dayOrder = dayOrder,
@@ -178,7 +167,7 @@ private fun WeeklyHeatmapCanvas(
                         )
                         val popupPos = if (hit != null) {
                             Offset(
-                                leftMarginPx + hit.hour * cellStep + cellSizePx / 2,
+                                gutterPx + hit.hour * cellStep + cellSizePx / 2,
                                 hourLabelHeightPx + hit.dayIndex * cellStep,
                             )
                         } else {
@@ -189,13 +178,13 @@ private fun WeeklyHeatmapCanvas(
                 )
             },
     ) {
-        for (hour in 0 until HOURS_IN_DAY) {
-            if (hour % HOUR_LABEL_INTERVAL == 0) {
-                val label = "$hour"
+        for (hour in 0 until HourAxis.HoursInDay) {
+            if (hour % HourAxis.LabelInterval == 0) {
+                val label = "${hour}h"
                 val textWidth = textPaint.measureText(label)
                 drawContext.canvas.nativeCanvas.drawText(
                     label,
-                    leftMarginPx + hour * cellStep + cellSizePx / 2 - textWidth / 2,
+                    gutterPx + hour * cellStep + cellSizePx / 2 - textWidth / 2,
                     hourLabelHeightPx - spacingPx,
                     textPaint,
                 )
@@ -213,9 +202,9 @@ private fun WeeklyHeatmapCanvas(
             )
 
             val hourMap = weeklyHourDistribution[day].orEmpty()
-            for (hour in 0 until HOURS_IN_DAY) {
+            for (hour in 0 until HourAxis.HoursInDay) {
                 val count = hourMap[hour] ?: 0
-                val x = leftMarginPx + hour * cellStep
+                val x = gutterPx + hour * cellStep
                 drawRoundRect(
                     color = resolveWeeklyHeatmapColor(count, maxCount, colors),
                     topLeft = Offset(x, rowY),
@@ -245,7 +234,7 @@ private fun WeeklyHeatmapSelectionPopup(
     density: androidx.compose.ui.unit.Density,
     onDismiss: () -> Unit,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
+    val motionScheme = LocalLomoMotion.current.component
     var activeData by remember { mutableStateOf<WeeklyHeatmapCellHit?>(null) }
     var isVisible by remember { mutableStateOf(false) }
 
@@ -268,10 +257,11 @@ private fun WeeklyHeatmapSelectionPopup(
     }
     if (!transition.currentState && !transition.targetState) return
 
-    val dayLabel = remember(data.day) {
-        data.day.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    val locale = LocalLocale.current.platformLocale
+    val dayLabel = remember(data.day, locale) {
+        data.day.getDisplayName(TextStyle.SHORT, locale)
     }
-    val hourLabel = "%d:00".format(Locale.getDefault(), data.hour)
+    val hourLabel = "%d:00".format(locale, data.hour)
     val countLabel = pluralStringResource(Res.plurals.calendar_heatmap_memo_count, data.count, data.count)
 
     val positionProvider = remember(popupOffset, density) {
@@ -322,19 +312,19 @@ private fun WeeklyHeatmapSelectionPopup(
 
 private fun resolveWeeklyHeatmapHit(
     offset: Offset,
-    leftMarginPx: Float,
+    gutterPx: Float,
     cellStep: Float,
     hourLabelHeightPx: Float,
     dayOrder: List<DayOfWeek>,
     weeklyHourDistribution: ImmutableMap<DayOfWeek, ImmutableMap<Int, Int>>,
 ): WeeklyHeatmapCellHit? {
-    val x = offset.x - leftMarginPx
+    val x = offset.x - gutterPx
     val y = offset.y - hourLabelHeightPx
     if (x < 0 || y < 0) return null
 
     val hour = (x / cellStep).toInt()
     val dayIndex = (y / cellStep).toInt()
-    if (hour !in 0 until HOURS_IN_DAY || dayIndex !in 0 until DAYS_IN_WEEK) return null
+    if (hour !in 0 until HourAxis.HoursInDay || dayIndex !in 0 until DAYS_IN_WEEK) return null
 
     val day = dayOrder[dayIndex]
     val count = weeklyHourDistribution[day]?.get(hour) ?: 0
@@ -354,10 +344,7 @@ private fun rememberWeeklyHeatmapColors(): WeeklyHeatmapColors =
     StatsChartTokens.weeklyHeatmapColors(MaterialTheme.colorScheme)
 
 @Composable
-private fun rememberWeeklyHeatmapTextPaint(
-    density: androidx.compose.ui.unit.Density,
-    textColor: Int,
-): Paint {
+private fun rememberWeeklyHeatmapTextPaint(density: androidx.compose.ui.unit.Density, textColor: Int): Paint {
     val densityScale = density.density
     val fontScale = density.fontScale
     return remember(textColor, densityScale, fontScale) {
@@ -371,11 +358,7 @@ private fun rememberWeeklyHeatmapTextPaint(
     }
 }
 
-private fun resolveWeeklyHeatmapColor(
-    count: Int,
-    maxCount: Int,
-    colors: WeeklyHeatmapColors,
-): Color {
+private fun resolveWeeklyHeatmapColor(count: Int, maxCount: Int, colors: WeeklyHeatmapColors): Color {
     if (maxCount == 0 || count == 0) return colors.empty
     val ratio = count.toFloat() / maxCount
     return when {

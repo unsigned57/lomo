@@ -4,26 +4,20 @@ internal fun resolveScrollbarThumbVisualState(
     isThumbDragged: Boolean,
     isScrollInProgress: Boolean,
     recentlyScrolled: Boolean,
-): ScrollbarThumbVisualState =
-    when {
-        isThumbDragged -> ScrollbarThumbVisualState.Drag
-        isScrollInProgress || recentlyScrolled -> ScrollbarThumbVisualState.Active
-        else -> ScrollbarThumbVisualState.Idle
-    }
+): ScrollbarThumbVisualState = when {
+    isThumbDragged -> ScrollbarThumbVisualState.Drag
+    isScrollInProgress || recentlyScrolled -> ScrollbarThumbVisualState.Active
+    else -> ScrollbarThumbVisualState.Idle
+}
 
-internal fun resolveScrollbarThumbAlpha(state: ScrollbarThumbVisualState): Float =
-    when (state) {
-        ScrollbarThumbVisualState.Idle -> DraggableScrollbarTokens.IdleAlpha
-        ScrollbarThumbVisualState.Active -> DraggableScrollbarTokens.ActiveAlpha
-        ScrollbarThumbVisualState.Drag -> DraggableScrollbarTokens.DragAlpha
-    }
+internal fun resolveScrollbarThumbAlpha(state: ScrollbarThumbVisualState): Float = when (state) {
+    ScrollbarThumbVisualState.Idle -> DraggableScrollbarTokens.IdleAlpha
+    ScrollbarThumbVisualState.Active -> DraggableScrollbarTokens.ActiveAlpha
+    ScrollbarThumbVisualState.Drag -> DraggableScrollbarTokens.DragAlpha
+}
 
 /** True iff [pointerXPx] falls inside the end-aligned scrollbar touch zone of a canvas of width [canvasWidthPx]. */
-internal fun isPointInScrollbarTouchZone(
-    pointerXPx: Float,
-    canvasWidthPx: Float,
-    touchTargetWidthPx: Float,
-): Boolean {
+internal fun isPointInScrollbarTouchZone(pointerXPx: Float, canvasWidthPx: Float, touchTargetWidthPx: Float): Boolean {
     if (canvasWidthPx <= 0f) return false
     if (pointerXPx < 0f) return false
     val zoneStart = (canvasWidthPx - touchTargetWidthPx).coerceAtLeast(0f)
@@ -36,10 +30,8 @@ internal fun resolveDisplayedThumbOffsetPx(
     settledThumbOffsetPx: Float,
 ): Float = if (isThumbDragged) draggedThumbOffsetPx else settledThumbOffsetPx
 
-internal fun shouldSyncDraggedThumbOffsetFromExternal(
-    visible: Boolean,
-    isThumbDragged: Boolean,
-): Boolean = !visible || !isThumbDragged
+internal fun shouldSyncDraggedThumbOffsetFromExternal(visible: Boolean, isThumbDragged: Boolean): Boolean =
+    !visible || !isThumbDragged
 
 internal fun resolveThumbDragStartOffsetFromPress(
     pressY: Float,

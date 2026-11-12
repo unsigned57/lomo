@@ -25,7 +25,8 @@ import kotlinx.collections.immutable.toImmutableList
  * - Given duplicate ids in the loaded window, when computeExitRenderKeyWindow is called, then keys stay unique without scanning placeholders.
  * - Given a stable prefix after append, when incrementalSourceKeys runs, then it reuses the previous prefix.
  * - Given a stable suffix after prepend, when incrementalSourceKeys runs, then it reuses the previous suffix.
- * - Given a same-size middle identity change, when incrementalSourceKeys runs, then it rebuilds instead of reusing the previous list.
+ * - Given a middle identity change, including one racing append/prepend, then source absence
+ *   is accurate and a settled committed deletion releases its retained row.
  *
  * Observable outcomes:
  * - list of resolved entries with items, snapshot values, and exit phases.
@@ -33,14 +34,27 @@ import kotlinx.collections.immutable.toImmutableList
  *
  * TDD proof:
  * - Fails if a settled animation removes its registry entry before mutation commit and source absence are both observed.
- * - Fails if an exiting item whose anchor is missing is not appended to the end of the list.
+ * - Mixed growth RED: expected an empty registry but b remained Hidden after committed deletion.
+ *   ./kotlin test --include-module=ui-components
+ *   --include-classes='com.lomo.ui.component.common.LomoListExitSupportTest'
+ *   Evidence: target/lomo/reports/manual/list-motion/source-keys-red.stdout.log.
+ *   GREEN: same command with exact retained-segment equality.
+ * - Fails if an exit with no position in the current window is moved to the tail.
  * - Fails when key deduplication returns empty lists because of the dummy implementations.
  *
  * Excludes:
  * - UI rendering, layout animations, lazy list viewport boundaries.
  *
  * Test Change Justification:
- * - Reason category: systemic behavior replacement.
+ * - Reason category: product contract corrected.
+ * - Old behavior/assertion being replaced: orphan exits were appended at an invented tail position.
+ * - Why old assertion is no longer correct: an absent predecessor means the exit is outside the
+ *   current window; showing it elsewhere produces a visible teleport.
+ * - Coverage preserved by: in-source, retained, transitive and head-anchored exits remain covered.
+ * - Why this is not fitting the test to the implementation: an exit must retain its proven position
+ *   or finish offscreen, never reappear at an unrelated position.
+ *
+ * Earlier key-window justification:
  * - Old behavior/assertion being replaced: O(totalItemCount) key lists that peeked unloaded ranks.
  * - Why old assertion is no longer correct: placeholder-backed itemCount is the query total, so key
  *   uniqueness must stay O(loaded window) and unloaded ranks use a formula.
@@ -52,308 +66,326 @@ import kotlinx.collections.immutable.toImmutableList
 private data class TestItem(val id: String, val content: String = "")
 private fun testKey(item: TestItem): String = item.id
 
-class LomoListExitSupportTest : FunSpec({
-    test("no deleting ids yields all source items with no exit phase") {
-        val source = listOf(TestItem("a"), TestItem("b"), TestItem("c"))
+class LomoListExitSupportTest :
+    FunSpec({
+        test(
+            "given deletion mixed with page growth when source keys update then a settled committed exit is released",
+        ) {
+            for (nextIds in listOf(listOf("a", "x", "c", "d"), listOf("x", "a", "z", "c"))) {
+                val tracker = IncrementalSourceKeyTracker(::testKey)
+                tracker.keysFor(listOf(TestItem("a"), TestItem("b"), TestItem("c")))
+                val registry = ExitAnimationRegistry<TestItem>()
+                registry.beginExit("b", TestItem("b"), "a")
+                registry.markExitAnimationSettled("b")
+                registry.markExitMutationCommitted("b")
 
-        val result = resolveExitRenderList(
-            allItems = source,
-            itemKey = ::testKey,
-            activeExits = emptyMap(),
-        )
+                registry.updateSourceKeys(tracker.keysFor(nextIds.map { TestItem(it) }))
 
-        result.map { it.item } shouldContainExactly source
-        result.map { it.exitPhase } shouldContainExactly listOf(null, null, null)
-    }
+                registry.entries.value shouldBe emptyMap()
+            }
+        }
 
-    test("deleting id still in source appears in-place with exiting phase and snapshotMemo holds the live value") {
-        val source = listOf(TestItem("a"), TestItem("b", "live"), TestItem("c"))
-        val activeExits = mapOf(
-            "b" to ExitAnimationRegistry.ExitEntry(
-                item = TestItem("b", "snapshot"),
-                anchoredAfterKey = "a",
+        test("no deleting ids yields all source items with no exit phase") {
+            val source = listOf(TestItem("a"), TestItem("b"), TestItem("c"))
+
+            val result = resolveExitRenderList(
+                allItems = source,
+                itemKey = ::testKey,
+                activeExits = emptyMap(),
             )
-        )
 
-        val result = resolveExitRenderList(
-            allItems = source,
-            itemKey = ::testKey,
-            activeExits = activeExits,
-        )
+            result.map { it.item } shouldContainExactly source
+            result.map { it.exitPhase } shouldContainExactly listOf(null, null, null)
+        }
 
-        result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
-        result.map { it.exitPhase } shouldContainExactly listOf(null, LomoListExitPhase.Exiting, null)
-        result[1].snapshotMemo.content shouldBe "snapshot"
-    }
-
-    test("animation-settled id still in source appears in-place with hidden phase") {
-        val source = listOf(TestItem("a"), TestItem("b", "live"), TestItem("c"))
-        val activeExits = mapOf(
-            "b" to ExitAnimationRegistry.ExitEntry(
-                item = TestItem("b", "snapshot"),
-                anchoredAfterKey = "a",
-                animationSettled = true,
-                mutationCommitted = true,
-                sourceAbsent = false,
+        test("deleting id still in source appears in-place with exiting phase and snapshotMemo holds the live value") {
+            val source = listOf(TestItem("a"), TestItem("b", "live"), TestItem("c"))
+            val activeExits = mapOf(
+                "b" to ExitAnimationRegistry.ExitEntry(
+                    item = TestItem("b", "snapshot"),
+                    anchoredAfterKey = "a",
+                ),
             )
-        )
 
-        val result = resolveExitRenderList(
-            allItems = source,
-            itemKey = ::testKey,
-            activeExits = activeExits,
-        )
-
-        result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
-        result.map { it.exitPhase } shouldContainExactly listOf(null, LomoListExitPhase.Hidden, null)
-        result[1].isExiting shouldBe true
-    }
-
-    test("deleting id removed from source is retained at its anchoredAfterKey position") {
-        val source = listOf(TestItem("a"), TestItem("c"))
-        val activeExits = mapOf(
-            "b" to ExitAnimationRegistry.ExitEntry(
-                item = TestItem("b"),
-                anchoredAfterKey = "a",
-            ),
-        )
-
-        val result = resolveExitRenderList(
-            allItems = source,
-            itemKey = ::testKey,
-            activeExits = activeExits,
-        )
-
-        result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
-        result.map { it.exitPhase } shouldContainExactly listOf(null, LomoListExitPhase.Exiting, null)
-    }
-
-    test("multiple concurrent deletes preserve transitive order") {
-        val source = listOf(TestItem("a"), TestItem("d"))
-        val activeExits = mapOf(
-            "b" to ExitAnimationRegistry.ExitEntry(
-                item = TestItem("b"),
-                anchoredAfterKey = "a",
-            ),
-            "c" to ExitAnimationRegistry.ExitEntry(
-                item = TestItem("c"),
-                anchoredAfterKey = "b",
-            ),
-        )
-
-        val result = resolveExitRenderList(
-            allItems = source,
-            itemKey = ::testKey,
-            activeExits = activeExits,
-        )
-
-        result.map { it.item.id } shouldContainExactly listOf("a", "b", "c", "d")
-        result.all { it.item.id != "b" || it.exitPhase == LomoListExitPhase.Exiting } shouldBe true
-        result.all { it.item.id != "c" || it.exitPhase == LomoListExitPhase.Exiting } shouldBe true
-    }
-
-    test("null anchoredAfterKey places item at the beginning of the list") {
-        val source = listOf(TestItem("b"), TestItem("c"))
-        val activeExits = mapOf(
-            "a" to ExitAnimationRegistry.ExitEntry(
-                item = TestItem("a"),
-                anchoredAfterKey = null,
-            ),
-        )
-
-        val result = resolveExitRenderList(
-            allItems = source,
-            itemKey = ::testKey,
-            activeExits = activeExits,
-        )
-
-        result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
-    }
-
-    test("orphans whose anchors do not exist are appended to the end of the list") {
-        val source = listOf(TestItem("a"), TestItem("b"))
-        val activeExits = mapOf(
-            "c" to ExitAnimationRegistry.ExitEntry(
-                item = TestItem("c"),
-                anchoredAfterKey = "nonexistent",
-            ),
-        )
-
-        val result = resolveExitRenderList(
-            allItems = source,
-            itemKey = ::testKey,
-            activeExits = activeExits,
-        )
-
-        result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
-    }
-
-    test("retained exits placed before existing source items do not shift other items keys") {
-        val source = listOf(TestItem("b"), TestItem("c"))
-        val activeExits = mapOf(
-            "a" to ExitAnimationRegistry.ExitEntry(
-                item = TestItem("a"),
-                anchoredAfterKey = null,
+            val result = resolveExitRenderList(
+                allItems = source,
+                itemKey = ::testKey,
+                activeExits = activeExits,
             )
-        )
 
-        val result = resolveExitRenderList(
-            allItems = source,
-            itemKey = ::testKey,
-            activeExits = activeExits,
-        )
+            result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
+            result.map { it.exitPhase } shouldContainExactly listOf(null, LomoListExitPhase.Exiting, null)
+            result[1].snapshotMemo.content shouldBe "snapshot"
+        }
 
-        result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
-    }
-
-    test("ExitAnimationRegistry removes entries only after animation, mutation, and source absence complete") {
-        val registry = ExitAnimationRegistry<TestItem>()
-        registry.entries.value.isEmpty() shouldBe true
-
-        registry.beginExit("a", TestItem("a"), "prev")
-        registry.entries.value shouldBe mapOf(
-            "a" to ExitAnimationRegistry.ExitEntry(
-                item = TestItem("a"),
-                anchoredAfterKey = "prev",
-                animationSettled = false,
-                mutationCommitted = false,
-                sourceAbsent = false,
+        test("animation-settled id still in source appears in-place with hidden phase") {
+            val source = listOf(TestItem("a"), TestItem("b", "live"), TestItem("c"))
+            val activeExits = mapOf(
+                "b" to ExitAnimationRegistry.ExitEntry(
+                    item = TestItem("b", "snapshot"),
+                    anchoredAfterKey = "a",
+                    animationSettled = true,
+                    mutationCommitted = true,
+                    sourceAbsent = false,
+                ),
             )
-        )
 
-        registry.markExitAnimationSettled("a")
-        registry.entries.value["a"]?.animationSettled shouldBe true
-        registry.entries.value["a"]?.mutationCommitted shouldBe false
-        registry.entries.value["a"]?.sourceAbsent shouldBe false
-
-        registry.markExitMutationCommitted("a")
-        registry.entries.value["a"]?.animationSettled shouldBe true
-        registry.entries.value["a"]?.mutationCommitted shouldBe true
-        registry.entries.value["a"]?.sourceAbsent shouldBe false
-
-        registry.updateSourceKeys(setOf("a"))
-        registry.entries.value.containsKey("a") shouldBe true
-
-        registry.updateSourceKeys(emptySet())
-        registry.entries.value.isEmpty() shouldBe true
-
-        registry.beginExit("b", TestItem("b"), null)
-        registry.clear()
-        registry.entries.value.isEmpty() shouldBe true
-    }
-
-    test("ExitAnimationRegistry converges when mutation and source absence complete before animation settles") {
-        val registry = ExitAnimationRegistry<TestItem>()
-
-        registry.beginExit("a", TestItem("a"), null)
-        registry.markExitMutationCommitted("a")
-        registry.updateSourceKeys(emptySet())
-
-        registry.entries.value.containsKey("a") shouldBe true
-        registry.entries.value["a"]?.animationSettled shouldBe false
-        registry.entries.value["a"]?.mutationCommitted shouldBe true
-        registry.entries.value["a"]?.sourceAbsent shouldBe true
-
-        registry.markExitAnimationSettled("a")
-
-        registry.entries.value.isEmpty() shouldBe true
-    }
-
-    test("rollback removes the entry even when lifecycle conditions are partially complete") {
-        val registry = ExitAnimationRegistry<TestItem>()
-
-        registry.beginExit("a", TestItem("a"), null)
-        registry.markExitAnimationSettled("a")
-        registry.rollbackExit("a")
-
-        registry.entries.value.isEmpty() shouldBe true
-    }
-
-    test("keys without duplicates are returned unchanged") {
-        val base = listOf("a", "b", "c")
-        uniqueMemoListRenderKeys(base) shouldContainExactly base
-    }
-
-    test("repeated keys are disambiguated while first occurrence and order are preserved") {
-        val base = listOf("a", "b", "a", "c", "b")
-        val result = uniqueMemoListRenderKeys(base)
-
-        result.size shouldBe base.size
-        result.toSet().size shouldBe base.size
-        result[0] shouldBe "a"
-        result[1] shouldBe "b"
-        result[3] shouldBe "c"
-        (result[2] == "a") shouldBe false
-        (result[4] == "b") shouldBe false
-    }
-
-    test("computeExitRenderKeyWindow unique-ifies only the loaded window") {
-        val renderList = listOf(
-            LomoListExitRenderEntry(item = TestItem("a"), snapshotMemo = TestItem("a"), exitPhase = null),
-            LomoListExitRenderEntry(
-                item = TestItem("b"),
-                snapshotMemo = TestItem("b"),
-                exitPhase = LomoListExitPhase.Exiting,
+            val result = resolveExitRenderList(
+                allItems = source,
+                itemKey = ::testKey,
+                activeExits = activeExits,
             )
-        ).toImmutableList()
 
-        val window = computeExitRenderKeyWindow(
-            snapshotStartIndex = 300,
-            renderList = renderList,
-            itemKey = ::testKey,
-        )
+            result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
+            result.map { it.exitPhase } shouldContainExactly listOf(null, LomoListExitPhase.Hidden, null)
+            result[1].isExiting shouldBe true
+        }
 
-        window.keys.size shouldBe 2
-        window.keyAt(300) shouldBe "a"
-        window.keyAt(301) shouldBe "b"
-        window.keyAt(0) shouldBe "placeholder-0"
-        window.keyAt(500) shouldBe "placeholder-500"
-    }
+        test("deleting id removed from source is retained at its anchoredAfterKey position") {
+            val source = listOf(TestItem("a"), TestItem("c"))
+            val activeExits = mapOf(
+                "b" to ExitAnimationRegistry.ExitEntry(
+                    item = TestItem("b"),
+                    anchoredAfterKey = "a",
+                ),
+            )
 
-    test("duplicate ids in the loaded window are unique without scanning placeholders") {
-        val renderList = listOf(
-            LomoListExitRenderEntry(item = TestItem("a"), snapshotMemo = TestItem("a"), exitPhase = null),
-            LomoListExitRenderEntry(item = TestItem("b"), snapshotMemo = TestItem("b"), exitPhase = null),
-            LomoListExitRenderEntry(item = TestItem("a"), snapshotMemo = TestItem("a"), exitPhase = null),
-        ).toImmutableList()
+            val result = resolveExitRenderList(
+                allItems = source,
+                itemKey = ::testKey,
+                activeExits = activeExits,
+            )
 
-        val window = computeExitRenderKeyWindow(
-            snapshotStartIndex = 10,
-            renderList = renderList,
-            itemKey = ::testKey,
-        )
+            result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
+            result.map { it.exitPhase } shouldContainExactly listOf(null, LomoListExitPhase.Exiting, null)
+        }
 
-        window.keys.size shouldBe 3
-        window.keys.toSet().size shouldBe 3
-        window.keyAt(10) shouldBe "a"
-        (window.keyAt(12) == "a") shouldBe false
-    }
+        test("multiple concurrent deletes preserve transitive order") {
+            val source = listOf(TestItem("a"), TestItem("d"))
+            val activeExits = mapOf(
+                "b" to ExitAnimationRegistry.ExitEntry(
+                    item = TestItem("b"),
+                    anchoredAfterKey = "a",
+                ),
+                "c" to ExitAnimationRegistry.ExitEntry(
+                    item = TestItem("c"),
+                    anchoredAfterKey = "b",
+                ),
+            )
 
-    test("append reuses the previous prefix and maps only the new page") {
-        val previous = listOf("a", "b", "c")
-        val next = listOf(TestItem("a"), TestItem("b"), TestItem("c"), TestItem("d"), TestItem("e"))
+            val result = resolveExitRenderList(
+                allItems = source,
+                itemKey = ::testKey,
+                activeExits = activeExits,
+            )
 
-        incrementalSourceKeys(previous, next, ::testKey) shouldContainExactly listOf("a", "b", "c", "d", "e")
-    }
+            result.map { it.item.id } shouldContainExactly listOf("a", "b", "c", "d")
+            result.all { it.item.id != "b" || it.exitPhase == LomoListExitPhase.Exiting } shouldBe true
+            result.all { it.item.id != "c" || it.exitPhase == LomoListExitPhase.Exiting } shouldBe true
+        }
 
-    test("prepend reuses the previous suffix and maps only the new page") {
-        val previous = listOf("c", "d", "e")
-        val next = listOf(TestItem("a"), TestItem("b"), TestItem("c"), TestItem("d"), TestItem("e"))
+        test("null anchoredAfterKey places item at the beginning of the list") {
+            val source = listOf(TestItem("b"), TestItem("c"))
+            val activeExits = mapOf(
+                "a" to ExitAnimationRegistry.ExitEntry(
+                    item = TestItem("a"),
+                    anchoredAfterKey = null,
+                ),
+            )
 
-        incrementalSourceKeys(previous, next, ::testKey) shouldContainExactly listOf("a", "b", "c", "d", "e")
-    }
+            val result = resolveExitRenderList(
+                allItems = source,
+                itemKey = ::testKey,
+                activeExits = activeExits,
+            )
 
-    test("unchanged identities reuse the previous key list instance") {
-        val previous = listOf("a", "b", "c")
-        val next = listOf(TestItem("a"), TestItem("b"), TestItem("c"))
+            result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
+        }
 
-        incrementalSourceKeys(previous, next, ::testKey) shouldBe previous
-    }
+        test("given an exit outside the anchored window then it is not relocated to the tail") {
+            val source = listOf(TestItem("a"), TestItem("b"))
+            val activeExits = mapOf(
+                "c" to ExitAnimationRegistry.ExitEntry(
+                    item = TestItem("c"),
+                    anchoredAfterKey = "nonexistent",
+                ),
+            )
 
-    test("same-size middle identity change rebuilds the key list") {
-        val previous = listOf("a", "b", "c")
-        val next = listOf(TestItem("a"), TestItem("x"), TestItem("c"))
+            val result = resolveExitRenderList(
+                allItems = source,
+                itemKey = ::testKey,
+                activeExits = activeExits,
+            )
 
-        incrementalSourceKeys(previous, next, ::testKey) shouldContainExactly listOf("a", "x", "c")
-    }
-})
+            result.map { it.item.id } shouldContainExactly listOf("a", "b")
+        }
+
+        test("retained exits placed before existing source items do not shift other items keys") {
+            val source = listOf(TestItem("b"), TestItem("c"))
+            val activeExits = mapOf(
+                "a" to ExitAnimationRegistry.ExitEntry(
+                    item = TestItem("a"),
+                    anchoredAfterKey = null,
+                ),
+            )
+
+            val result = resolveExitRenderList(
+                allItems = source,
+                itemKey = ::testKey,
+                activeExits = activeExits,
+            )
+
+            result.map { it.item.id } shouldContainExactly listOf("a", "b", "c")
+        }
+
+        test("ExitAnimationRegistry removes entries only after animation, mutation, and source absence complete") {
+            val registry = ExitAnimationRegistry<TestItem>()
+            registry.entries.value.isEmpty() shouldBe true
+
+            registry.beginExit("a", TestItem("a"), "prev")
+            registry.entries.value shouldBe mapOf(
+                "a" to ExitAnimationRegistry.ExitEntry(
+                    item = TestItem("a"),
+                    anchoredAfterKey = "prev",
+                    animationSettled = false,
+                    mutationCommitted = false,
+                    sourceAbsent = false,
+                ),
+            )
+
+            registry.markExitAnimationSettled("a")
+            registry.entries.value["a"]?.animationSettled shouldBe true
+            registry.entries.value["a"]?.mutationCommitted shouldBe false
+            registry.entries.value["a"]?.sourceAbsent shouldBe false
+
+            registry.markExitMutationCommitted("a")
+            registry.entries.value["a"]?.animationSettled shouldBe true
+            registry.entries.value["a"]?.mutationCommitted shouldBe true
+            registry.entries.value["a"]?.sourceAbsent shouldBe false
+
+            registry.updateSourceKeys(setOf("a"))
+            registry.entries.value.containsKey("a") shouldBe true
+
+            registry.updateSourceKeys(emptySet())
+            registry.entries.value.isEmpty() shouldBe true
+
+            registry.beginExit("b", TestItem("b"), null)
+            registry.clear()
+            registry.entries.value.isEmpty() shouldBe true
+        }
+
+        test("ExitAnimationRegistry converges when mutation and source absence complete before animation settles") {
+            val registry = ExitAnimationRegistry<TestItem>()
+
+            registry.beginExit("a", TestItem("a"), null)
+            registry.markExitMutationCommitted("a")
+            registry.updateSourceKeys(emptySet())
+
+            registry.entries.value.containsKey("a") shouldBe true
+            registry.entries.value["a"]?.animationSettled shouldBe false
+            registry.entries.value["a"]?.mutationCommitted shouldBe true
+            registry.entries.value["a"]?.sourceAbsent shouldBe true
+
+            registry.markExitAnimationSettled("a")
+
+            registry.entries.value.isEmpty() shouldBe true
+        }
+
+        test("rollback removes the entry even when lifecycle conditions are partially complete") {
+            val registry = ExitAnimationRegistry<TestItem>()
+
+            registry.beginExit("a", TestItem("a"), null)
+            registry.markExitAnimationSettled("a")
+            registry.rollbackExit("a")
+
+            registry.entries.value.isEmpty() shouldBe true
+        }
+
+        test("keys without duplicates are returned unchanged") {
+            val base = listOf("a", "b", "c")
+            uniqueMemoListRenderKeys(base) shouldContainExactly base
+        }
+
+        test("repeated keys are disambiguated while first occurrence and order are preserved") {
+            val base = listOf("a", "b", "a", "c", "b")
+            val result = uniqueMemoListRenderKeys(base)
+
+            result.size shouldBe base.size
+            result.toSet().size shouldBe base.size
+            result[0] shouldBe "a"
+            result[1] shouldBe "b"
+            result[3] shouldBe "c"
+            (result[2] == "a") shouldBe false
+            (result[4] == "b") shouldBe false
+        }
+
+        test("computeExitRenderKeyWindow unique-ifies only the loaded window") {
+            val renderList = listOf(
+                LomoListExitRenderEntry(item = TestItem("a"), snapshotMemo = TestItem("a"), exitPhase = null),
+                LomoListExitRenderEntry(
+                    item = TestItem("b"),
+                    snapshotMemo = TestItem("b"),
+                    exitPhase = LomoListExitPhase.Exiting,
+                ),
+            ).toImmutableList()
+
+            val window = computeExitRenderKeyWindow(
+                snapshotStartIndex = 300,
+                renderList = renderList,
+                itemKey = ::testKey,
+            )
+
+            window.keys.size shouldBe 2
+            window.keyAt(300) shouldBe "a"
+            window.keyAt(301) shouldBe "b"
+            window.keyAt(0) shouldBe "placeholder-0"
+            window.keyAt(500) shouldBe "placeholder-500"
+        }
+
+        test("duplicate ids in the loaded window are unique without scanning placeholders") {
+            val renderList = listOf(
+                LomoListExitRenderEntry(item = TestItem("a"), snapshotMemo = TestItem("a"), exitPhase = null),
+                LomoListExitRenderEntry(item = TestItem("b"), snapshotMemo = TestItem("b"), exitPhase = null),
+                LomoListExitRenderEntry(item = TestItem("a"), snapshotMemo = TestItem("a"), exitPhase = null),
+            ).toImmutableList()
+
+            val window = computeExitRenderKeyWindow(
+                snapshotStartIndex = 10,
+                renderList = renderList,
+                itemKey = ::testKey,
+            )
+
+            window.keys.size shouldBe 3
+            window.keys.toSet().size shouldBe 3
+            window.keyAt(10) shouldBe "a"
+            (window.keyAt(12) == "a") shouldBe false
+        }
+
+        test("append reuses the previous prefix and maps only the new page") {
+            val previous = listOf("a", "b", "c")
+            val next = listOf(TestItem("a"), TestItem("b"), TestItem("c"), TestItem("d"), TestItem("e"))
+
+            incrementalSourceKeys(previous, next, ::testKey) shouldContainExactly listOf("a", "b", "c", "d", "e")
+        }
+
+        test("prepend reuses the previous suffix and maps only the new page") {
+            val previous = listOf("c", "d", "e")
+            val next = listOf(TestItem("a"), TestItem("b"), TestItem("c"), TestItem("d"), TestItem("e"))
+
+            incrementalSourceKeys(previous, next, ::testKey) shouldContainExactly listOf("a", "b", "c", "d", "e")
+        }
+
+        test("unchanged identities reuse the previous key list instance") {
+            val previous = listOf("a", "b", "c")
+            val next = listOf(TestItem("a"), TestItem("b"), TestItem("c"))
+
+            incrementalSourceKeys(previous, next, ::testKey) shouldBe previous
+        }
+
+        test("same-size middle identity change rebuilds the key list") {
+            val previous = listOf("a", "b", "c")
+            val next = listOf(TestItem("a"), TestItem("x"), TestItem("c"))
+
+            incrementalSourceKeys(previous, next, ::testKey) shouldContainExactly listOf("a", "x", "c")
+        }
+    })

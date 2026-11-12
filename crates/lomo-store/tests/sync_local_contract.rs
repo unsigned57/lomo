@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract (P5-04 unified Direct/SAF local sync ports)
 //!
 //! Capability: coarse `snapshot_sync_view` (path/digest/revision/media only) and expected-revision
@@ -64,7 +72,7 @@ mod tests {
     use tempfile::tempdir;
 
     fn hex_digest(bytes: &[u8]) -> String {
-        format!("{:x}", Sha256::digest(bytes))
+        lomo_core::hex_encode(&Sha256::digest(bytes))
     }
 
     fn open_with_generation(root: &std::path::Path) -> Store {
@@ -79,7 +87,7 @@ mod tests {
         seed_memo(root, "m1", "hello-sync", &[]);
         let store = indexed_store(root);
         let snap = store.snapshot_sync_view().expect("snapshot");
-        assert!(!snap.workspace_generation.is_empty());
+        assert_ne!(snap.workspace_generation, "");
         assert_eq!(snap.entries.len(), 1);
         let entry = snap.entries.first().expect("entry");
         assert_eq!(entry.path, "memos/m1.md");
@@ -378,7 +386,7 @@ mod tests {
         let generation = load_workspace_generation(root)
             .or_else(|_| mint_new_workspace_generation(root))
             .expect("generation fence");
-        assert!(!generation.as_str().is_empty());
+        assert_ne!(generation.as_str(), "");
     }
 
     #[test]

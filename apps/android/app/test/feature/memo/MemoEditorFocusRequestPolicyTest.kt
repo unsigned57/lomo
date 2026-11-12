@@ -78,5 +78,4 @@ class MemoEditorFocusRequestPolicyTest : AppFunSpec() {
             (controller.focusRequestToken) shouldBe (initialToken)
         }
     }
-
 }

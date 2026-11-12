@@ -28,29 +28,28 @@ data class MemoStatistics(
     val tagCounts: List<MemoTagCount>,
 ) {
     companion object {
-        fun empty(asOfDate: LocalDate): MemoStatistics =
-            MemoStatistics(
-                asOfDate = asOfDate,
-                totalMemos = 0,
-                totalWords = 0,
-                totalCharacters = 0,
-                averageWordsPerMemo = 0.0,
-                totalTags = 0,
-                activeDays = 0,
-                currentStreak = 0,
-                longestStreak = 0,
-                memoCountByDate = emptyMap(),
-                hourlyDistribution = emptyMap(),
-                weeklyHourDistribution = emptyMap(),
-                earliestDailyMemoTime = null,
-                latestDailyMemoTime = null,
-                thisWeekCount = 0,
-                lastWeekCount = 0,
-                thisMonthCount = 0,
-                lastMonthCount = 0,
-                thisYearCount = 0,
-                lastYearCount = 0,
-                tagCounts = emptyList(),
-            )
+        fun empty(asOfDate: LocalDate): MemoStatistics = MemoStatistics(
+            asOfDate = asOfDate,
+            totalMemos = 0,
+            totalWords = 0,
+            totalCharacters = 0,
+            averageWordsPerMemo = 0.0,
+            totalTags = 0,
+            activeDays = 0,
+            currentStreak = 0,
+            longestStreak = 0,
+            memoCountByDate = emptyMap(),
+            hourlyDistribution = emptyMap(),
+            weeklyHourDistribution = emptyMap(),
+            earliestDailyMemoTime = null,
+            latestDailyMemoTime = null,
+            thisWeekCount = 0,
+            lastWeekCount = 0,
+            thisMonthCount = 0,
+            lastMonthCount = 0,
+            thisYearCount = 0,
+            lastYearCount = 0,
+            tagCounts = emptyList(),
+        )
     }
 }

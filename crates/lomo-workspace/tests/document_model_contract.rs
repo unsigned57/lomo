@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //!
 //! Capability: parse one UTF-8 source once into a workspace document that owns Lomo/Thino time-header
@@ -263,7 +272,7 @@ mod tests {
     #[test]
     fn empty_document_has_zero_memos_and_stable_bytes() {
         let document = parse_fixture("empty.md", "2024-06-03").test_ok("parse");
-        assert!(document.memos().is_empty());
+        assert_eq!(document.memos(), []);
         assert_eq!(document.serialize_unedited(), b"");
         assert!(matches!(
             document.format(),

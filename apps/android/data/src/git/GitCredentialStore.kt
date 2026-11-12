@@ -11,10 +11,7 @@ import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.StoredCredentialStatus
 
-
-class GitCredentialStore private constructor(
-    secureStringStoreFactory: () -> SecureStringStore,
-) {
+class GitCredentialStore private constructor(secureStringStoreFactory: () -> SecureStringStore) {
     constructor(
         context: Context,
     ) : this(
@@ -48,10 +45,10 @@ class GitCredentialStore private constructor(
             CredentialState(
                 provider = CredentialProvider.GIT,
                 fields =
-                    listOf(
-                        CredentialFieldState(CredentialField.GIT_TOKEN, tokenStatus),
-                        CredentialFieldState(CredentialField.GIT_USERNAME, usernameStatus),
-                    ),
+                listOf(
+                    CredentialFieldState(CredentialField.GIT_TOKEN, tokenStatus),
+                    CredentialFieldState(CredentialField.GIT_USERNAME, usernameStatus),
+                ),
             )
 
     internal fun setToken(token: String?) {

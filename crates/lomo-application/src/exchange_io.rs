@@ -26,6 +26,6 @@ pub fn stage_content(exchange_dir: &Path, content: &[u8]) -> Result<ExchangeArti
     ExchangeArtifact::new(
         token.as_str(),
         length,
-        Sha256Digest::parse(&format!("{:x}", Sha256::digest(content)))?,
+        Sha256Digest::parse(&lomo_core::hex_encode(&Sha256::digest(content)))?,
     )
 }

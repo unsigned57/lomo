@@ -594,22 +594,32 @@ impl IntentJournal {
 
     /// Bounded metadata enumeration of recoverable operations.
     ///
-    /// Returns identities only: bodies are thawed one record at a time by
-    /// [`Self::pending_record`] so recovery never holds every frozen payload in memory.
-    pub fn pending_ids(&self) -> Result<Vec<OperationId>, LomoError> {
+    /// Excludes immutable published records already owned by the live applier. Remaining
+    /// identities follow publication clocks; [`Self::pending_record`] thaws their bodies
+    /// only as the recovery caller admits each bounded prefix.
+    pub fn pending_ids(
+        &self,
+        live_owned: &BTreeSet<OperationId>,
+    ) -> Result<Vec<OperationId>, LomoError> {
         let mut ids = Vec::new();
         for id in record_ids(&self.directory.join("pending"))? {
-            if self.committed(&id)?.is_some() {
+            // The caller already owns these immutable, published records under workspace
+            // exclusion. Only orphan records need metadata validation and recovery ordering.
+            if live_owned.contains(&id) || self.committed(&id)?.is_some() {
                 continue;
             }
             let pending = self
                 .pending_metadata(&id)?
                 .ok_or_else(|| corruption("operation_plan_missing", "pending index disappeared"))?;
             pending.clock_after()?;
-            ids.push(pending.operation_id);
+            ids.push((
+                pending.clock_before.core_revision,
+                pending.clock_before.event_sequence,
+                pending.operation_id,
+            ));
         }
-        ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
-        Ok(ids)
+        ids.sort();
+        Ok(ids.into_iter().map(|(_, _, id)| id).collect())
     }
 
     /// Thaws exactly one recoverable operation.

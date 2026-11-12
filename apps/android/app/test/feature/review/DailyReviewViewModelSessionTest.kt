@@ -1,62 +1,28 @@
-/*
- * Behavior Contract:
- * - Unit under test: DailyReviewViewModelSession
- * - Owning layer: production path under test
- * - Priority tier: P1
- * - Capability: preserve observable product behavior after Markdown semantic ownership moved to
- *   lomo-workspace (typed IR, workspace scan/render/document commands) with Kotlin adapters only.
- *
- * Scenarios:
- * - Given production collaborators expose workspace IR / document-command seams, when this suite
- *   runs, then assertions verify the same user-visible outcomes without Kotlin MarkdownParser.
- * - Given deleted JetBrains or line-authority helpers, when tests construct fakes, then they use
- *   FakeMarkdownWorkspace / content projector adapters instead of dual-authority parsers.
- * - Given invalid or missing readiness inputs, when exercised, then fail-closed outcomes remain.
- *
- * Observable outcomes:
- * - Public method results, DI wiring, and presentation fields match the post-cutover contracts.
- *
- * TDD proof:
- * - RED: suites fail to compile or assert against MarkdownParser / JetBrains plan types after cutover.
- * - GREEN: ./kotlin test on this class passes against workspace IR adapters.
- *
- * Excludes:
- * - Room schema ownership, sync backend redesign, and Compose pixel rendering.
- *
- * Test Change Justification:
- * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
- * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
- *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
- * - Why old assertion is no longer correct: production storage analysis and presentation consume
- *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
- * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
- *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
- * - Why this is not fitting the test to the implementation: assertions still check public behavior and
- *   fail-closed boundaries, not private parser implementation details.
- */
-
 package com.lomo.app.feature.review
 
-import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
-import com.lomo.app.testing.fakes.testMemoUiMapper
+import app.cash.turbine.test
 import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeDailyReviewSessionRepository
+import com.lomo.app.testing.fakes.FakeMediaRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
+import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
+import com.lomo.app.testing.fakes.testMemoUiMapper
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.FakeSaveImageUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
-import com.lomo.app.provider.emptyImageMapProvider
+import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import com.lomo.domain.usecase.FakeSaveImageUseCase
-import com.lomo.app.testing.fakes.FakeMediaRepository
+import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -64,11 +30,28 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
-/**
+/*
  * Behavior Contract:
- * - Unit under test: DailyReviewViewModel session wiring post IR cutover.
- * - Observable outcomes: ViewModel constructs and loads without dual Markdown authority.
- * - Excludes: random-walk page characterizations (re-covered by domain session use cases).
+ * - Capability: review state publishes matching memos, cursor options and page as one session.
+ * - Owning layer: app ViewModel; priority: P1.
+ * Scenarios:
+ * - Given loaded memos and a nonzero page, when attachment/random options change, then Loading
+ *   precedes a Ready state containing only matches, page zero, and persisted new options.
+ * - Given valid presentation collaborators, when constructing, then preferences and state load.
+ * - Production scope: apps/android/app/src/feature/review/DailyReviewViewModel.kt
+ * - Production scope: apps/android/domain/src/usecase/DailyReviewQueryUseCase.kt
+ * - Production scope: apps/android/domain/src/usecase/DailyReviewSessionUseCase.kt
+ * - Observable outcomes: Turbine state sequence, memo identities, page and stored options.
+ * - TDD proof: review-state-red.log observed Ready with [] before mapped [plain, photo].
+ * - Test Change Justification: extends the existing construction smoke regression with atomic
+ *   query replacement; existing smoke assertions remain, no implementation-text checks added.
+ * - Excludes: native order (store contract), Compose pixels and Android persistence transport.
+ * Test Change Justification:
+ * Reason category: bounded review-session migration.
+ * Old behavior/assertion being replaced: The constructor smoke assertions remain; atomic replacement scenarios extend them.
+ * Why old assertion is no longer correct: existing outcome assertions remain valid and retained.
+ * Coverage preserved by: The public Loading/Ready sequence, memo IDs, page reset and persisted options remain asserted.
+ * Why this is not fitting the test to the implementation: no expected product outcome is weakened.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class DailyReviewViewModelSessionTest : AppFunSpec() {
@@ -81,7 +64,9 @@ class DailyReviewViewModelSessionTest : AppFunSpec() {
             repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
             validator = ValidateMemoContentUseCase(),
         )
-    private val deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository))
+    private val deleteMemoUseCase = DeleteMemoUseCase(
+        com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
+    )
     private val dailyReviewSessionRepository = FakeDailyReviewSessionRepository()
     private val dailyReviewSessionUseCase = DailyReviewSessionUseCase(dailyReviewSessionRepository)
     private val dailyReviewQueryUseCase =
@@ -91,6 +76,42 @@ class DailyReviewViewModelSessionTest : AppFunSpec() {
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
+
+        test("given review filter changes when reloading then each ready state has matching memos and page resets") {
+            runTest {
+                memoRepository.setActiveMemos(
+                    listOf(sampleMemo("plain"), sampleMemo("photo").copy(imageUrls = listOf("photo.jpg"))),
+                )
+                val viewModel = createViewModel()
+                viewModel.uiState.test {
+                    awaitItem() shouldBe DailyReviewScreenState.Loading
+                    advanceUntilIdle()
+                    awaitItem().shouldBeInstanceOf<DailyReviewScreenState.Ready>().memos.map {
+                        it.memo.id
+                    }.toSet() shouldBe
+                        setOf(
+                            "plain",
+                            "photo",
+                        )
+                    viewModel.onPageChanged(1)
+                    advanceUntilIdle()
+                    awaitItem().shouldBeInstanceOf<DailyReviewScreenState.Ready>().pageIndex shouldBe 1
+                    val options = com.lomo.domain.model.DailyReviewOptions(
+                        sort = com.lomo.domain.model.DailyReviewSort.RANDOM,
+                        filter = com.lomo.domain.model.MemoListFilter(hasAttachment = true),
+                    )
+                    viewModel.updateReviewOptions(options)
+                    advanceUntilIdle()
+                    awaitItem() shouldBe DailyReviewScreenState.Loading
+                    val ready = awaitItem().shouldBeInstanceOf<DailyReviewScreenState.Ready>()
+                    ready.memos.map { it.memo.id } shouldBe listOf("photo")
+                    ready.pageIndex shouldBe 0
+                    ready.options shouldBe options
+                    dailyReviewSessionRepository.getSession()?.options shouldBe options
+                    cancelAndIgnoreRemainingEvents()
+                }
+            }
+        }
 
         test("viewModel constructs with workspace IR mapper and loads idle state") {
             runTest {
@@ -103,40 +124,42 @@ class DailyReviewViewModelSessionTest : AppFunSpec() {
         }
     }
 
-    private fun createViewModel(): DailyReviewViewModel =
-        DailyReviewViewModel(
-            DailyReviewViewModelDependencies(
-                observeActiveDayCountUseCase =
-                    ObserveActiveDayCountUseCase(
-                        com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
-                    ),
-                appConfigStateProvider =
-                    com.lomo.app.feature.common.AppConfigStateProvider(
-                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                        appPreferencesSnapshotRepository = appConfigRepository,
-                        customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
-                        preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
-                        appScope = CoroutineScope(SupervisorJob() + testDispatcher),
-                    ),
-                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                imageMapProvider = imageMapProvider,
-                memoUiMapper = testMemoUiMapper(dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher)),
-                deleteMemoUseCase = deleteMemoUseCase,
-                updateMemoContentUseCase = updateMemoContentUseCase,
-                toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
-                saveImageUseCase = saveImageUseCase,
-                dailyReviewQueryUseCase = dailyReviewQueryUseCase,
-                dailyReviewSessionUseCase = dailyReviewSessionUseCase,
+    private fun createViewModel(): DailyReviewViewModel = DailyReviewViewModel(
+        DailyReviewViewModelDependencies(
+            observeActiveDayCountUseCase =
+            ObserveActiveDayCountUseCase(
+                com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
             ),
-        )
+            appConfigStateProvider =
+            com.lomo.app.feature.common.AppConfigStateProvider(
+                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                appPreferencesSnapshotRepository = appConfigRepository,
+                customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(
+                    com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                ),
+                preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
+                appScope = CoroutineScope(SupervisorJob() + testDispatcher),
+            ),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            imageMapProvider = imageMapProvider,
+            memoUiMapper = testMemoUiMapper(
+                dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher),
+            ),
+            deleteMemoUseCase = deleteMemoUseCase,
+            updateMemoContentUseCase = updateMemoContentUseCase,
+            toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
+            saveImageUseCase = saveImageUseCase,
+            dailyReviewQueryUseCase = dailyReviewQueryUseCase,
+            dailyReviewSessionUseCase = dailyReviewSessionUseCase,
+        ),
+    )
 
-    private fun sampleMemo(id: String): Memo =
-        Memo(
-            id = id,
-            timestamp = 1L,
-            content = id,
-            rawContent = "- 10:00 $id",
-            dateKey = "2026_04_16",
-        )
+    private fun sampleMemo(id: String): Memo = Memo(
+        id = id,
+        timestamp = 1L,
+        content = id,
+        rawContent = "- 10:00 $id",
+        dateKey = "2026_04_16",
+    )
 }

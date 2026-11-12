@@ -17,6 +17,7 @@ enum class Recurrence {
 data class ReminderReference(
     val opaqueId: String,
     val revision: String,
+    /** Rust source locator for a Markdown patch; use the memo's durable ID for projection queries. */
     val memoIdentity: String,
     val sourceSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan,
     val tokenFingerprint: String,

@@ -1,179 +1,166 @@
 package com.lomo.ui.component.input
 
-import androidx.compose.runtime.State
-
-import androidx.compose.animation.core.MutableTransitionState
-
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.offset
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
-import com.lomo.ui.theme.SheetHandleTokens
+import com.lomo.ui.theme.LocalLomoMotion
 
 private const val INPUT_SHEET_BACK_SCALE_REDUCTION = 0.04f
 
+/**
+ * Window-level host of the input sheet: scrim, focus parking target and the morphing surface.
+ * The sheet overlays its whole window, so geometry is resolved against the window width.
+ */
 @Composable
 internal fun InputSheetScaffold(
     isSheetVisible: Boolean,
-    presentationState: InputSheetPresentationState,
-    scrimAlpha: Float,
+    expansion: InputSheetExpansionState,
     onRequestDismiss: () -> Unit,
     benchmarkRootTag: String?,
     focusParkingRequester: FocusRequester,
-    content: @Composable (InputSheetMotionStage, Modifier) -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
-    val animatedScrimAlpha by animateFloatAsState(
-        targetValue = scrimAlpha,
-        animationSpec =
-            motionScheme.defaultEffectsSpec(),
+    val motionScheme = LocalLomoMotion.current.layout
+    val scrimAlpha by animateFloatAsState(
+        targetValue = if (isSheetVisible) InputSheetTokens.ScrimAlpha else 0f,
+        animationSpec = motionScheme.defaultEffectsSpec(),
         label = "InputSheetScrimAlpha",
     )
     Box(modifier = Modifier.fillMaxSize()) {
         InputSheetFocusParkingTarget(focusParkingRequester = focusParkingRequester)
         InputSheetDismissScrim(
-            scrimAlpha = animatedScrimAlpha,
+            scrimAlpha = scrimAlpha,
             enabled = isSheetVisible,
             onRequestDismiss = onRequestDismiss,
         )
         AnimatedVisibility(
             visibleState = LocalInputSheetVisibilityState.current,
-            modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             enter = inputSheetVisibilityEnterTransition(motionScheme),
             exit = inputSheetVisibilityExitTransition(motionScheme),
         ) {
-            InputSheetAnimatedSurface(
-                presentationState = presentationState,
+            InputSheetSurface(
+                expansion = expansion,
                 benchmarkRootTag = benchmarkRootTag,
-            ) { motionStage, contentModifier ->
-                InputSheetSurfaceContent(
-                    motionStage = motionStage,
-                    modifier = contentModifier,
-                    content = content,
-                )
-            }
+                content = content,
+            )
         }
     }
 }
 
 @Composable
-private fun InputSheetAnimatedSurface(
-    presentationState: InputSheetPresentationState,
+private fun InputSheetSurface(
+    expansion: InputSheetExpansionState,
     benchmarkRootTag: String?,
-    content: @Composable (InputSheetMotionStage, Modifier) -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    BoxWithConstraints(
+    val density = LocalDensity.current
+    val backProgress = LocalInputSheetBackProgress.current
+    val windowWidthPx = LocalWindowInfo.current.containerSize.width
+    val statusBarTopPx = WindowInsets.statusBars.getTop(density)
+    val geometry =
+        remember(windowWidthPx, statusBarTopPx, density) {
+            with(density) {
+                resolveInputSheetGeometry(
+                    containerWidth = windowWidthPx.toDp(),
+                    statusBarTop = statusBarTopPx.toDp(),
+                )
+            }
+        }
+    val surfaceColor = MaterialTheme.colorScheme.surfaceContainerLow
+    Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        val backProgress = LocalInputSheetBackProgress.current
-        val density = LocalDensity.current
-        val fullSurfaceHeightPx = with(density) { maxHeight.roundToPx() }
-        val surfaceState =
-            rememberInputSheetAnimatedSurfaceState(
-                presentationState = presentationState,
-                fullSurfaceHeightPx = fullSurfaceHeightPx,
-                fallbackCompactSurfaceHeightPx =
-                    remember(density) {
-                        with(density) { InputSheetTokens.CompactFallbackHeight.roundToPx() }
-                    },
-            )
-        val animatedInsets = rememberInputSheetAnimatedInsets()
-
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier =
+            Modifier
+                .inputSheetFrame(expansion, geometry)
+                .benchmarkAnchorRoot(benchmarkRootTag)
+                .inputSheetSurfaceLayer(expansion, geometry, backProgress)
+                .background(surfaceColor)
+                .pointerInput(Unit) { detectTapGestures(onTap = { }) }
+                .inputSheetContentTopInset(expansion, geometry)
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
         ) {
-            Box(
-                modifier =
-                    Modifier
-                        .benchmarkAnchorRoot(benchmarkRootTag)
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .inputSheetSurfaceHeight(
-                            motionStage = surfaceState.motionStage,
-                            animatedSurfaceHeightPx = surfaceState.animatedSurfaceHeightPx,
-                            density = density,
-                            onCompactSurfaceHeightChanged = surfaceState.onCompactSurfaceHeightChanged,
-                        )
-                        .graphicsLayer {
-                            val fraction = backProgress.value
-                            scaleX = 1f - INPUT_SHEET_BACK_SCALE_REDUCTION * fraction
-                            scaleY = 1f - INPUT_SHEET_BACK_SCALE_REDUCTION * fraction
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
-                            translationY = 24.dp.toPx() * fraction
-                        }
-                        .clip(
-                            RoundedCornerShape(
-                                topStart = surfaceState.animatedCornerRadius,
-                                topEnd = surfaceState.animatedCornerRadius,
-                            ),
-                        )
-                        .background(MaterialTheme.colorScheme.surface)
-                        .pointerInput(Unit) { detectTapGestures(onTap = { }) },
-            ) {
-                content(
-                    surfaceState.motionStage,
-                    Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (surfaceState.motionStage.usesExpandedSurfaceForm()) {
-                                Modifier.fillMaxHeight()
-                            } else {
-                                Modifier
-                            },
-                        )
-                        .padding(
-                            top = animatedInsets.top,
-                            bottom = animatedInsets.bottom,
-                        )
-                        .windowInsetsPadding(WindowInsets.ime),
-                )
-            }
+            content()
         }
     }
 }
 
-@Composable
-internal fun InputSheetDragHandle(modifier: Modifier = Modifier) {
-    Box(
-        modifier =
-            modifier
-                .padding(vertical = SheetHandleTokens.VerticalPadding)
-                .width(SheetHandleTokens.Width)
-                .height(SheetHandleTokens.Height)
-                .clip(SheetHandleTokens.Shape)
-                .background(SheetHandleTokens.color(MaterialTheme.colorScheme))
-                .clearAndSetSemantics { },
-    )
+/** Width and the clear space above the surface follow the morph; the content decides the height. */
+private fun Modifier.inputSheetFrame(expansion: InputSheetExpansionState, geometry: InputSheetGeometry): Modifier =
+    layout { measurable, constraints ->
+        val form = geometry.at(expansion.fraction)
+        val width = form.width.roundToPx().coerceIn(constraints.minWidth, constraints.maxWidth)
+        val maxHeight = (constraints.maxHeight - form.topGap.roundToPx()).coerceAtLeast(constraints.minHeight)
+        val placeable =
+            measurable.measure(
+                Constraints(
+                    minWidth = width,
+                    maxWidth = width,
+                    minHeight = constraints.minHeight,
+                    maxHeight = maxHeight,
+                ),
+            )
+        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+
+/** Corner radius and the predictive-back preview are draw-phase only: motion never relayouts them. */
+private fun Modifier.inputSheetSurfaceLayer(
+    expansion: InputSheetExpansionState,
+    geometry: InputSheetGeometry,
+    backProgress: State<Float>,
+): Modifier = graphicsLayer {
+    val back = backProgress.value
+    val scale = 1f - INPUT_SHEET_BACK_SCALE_REDUCTION * back
+    scaleX = scale
+    scaleY = scale
+    transformOrigin = TransformOrigin.Center
+    translationY = InputSheetTokens.BackPreviewTravel.toPx() * back
+    val radius = geometry.at(expansion.fraction).cornerRadius
+    shape = RoundedCornerShape(topStart = radius, topEnd = radius)
+    clip = true
+}
+
+/** A full-bleed surface slides under the status bar while its content stays on the status-bar line. */
+private fun Modifier.inputSheetContentTopInset(
+    expansion: InputSheetExpansionState,
+    geometry: InputSheetGeometry,
+): Modifier = layout { measurable, constraints ->
+    val inset =
+        geometry.at(expansion.fraction).contentTopInset.roundToPx()
+            .coerceAtMost(constraints.maxHeight)
+    val placeable = measurable.measure(constraints.offset(vertical = -inset))
+    layout(placeable.width, placeable.height + inset) { placeable.place(0, inset) }
 }
 
 internal val LocalInputSheetVisibilityState =

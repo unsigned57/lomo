@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //! Capability: English and Simplified Chinese cover the same reading and auxiliary flows.
 //! Scenarios: seven page titles and current capture/reading help in both locales.
@@ -27,8 +36,8 @@ mod tests {
             Screen::Trash,
             Screen::Settings,
         ] {
-            assert!(!en.screen_title(screen).is_empty());
-            assert!(!zh.screen_title(screen).is_empty());
+            assert_ne!(en.screen_title(screen), "");
+            assert_ne!(zh.screen_title(screen), "");
             assert_ne!(en.screen_title(screen), zh.screen_title(screen));
         }
         for locale in [&en, &zh] {

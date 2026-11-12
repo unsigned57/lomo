@@ -44,18 +44,18 @@ fun resolveMemoParagraphLayoutPolicy(
         gravity = Gravity.START,
         textAlignment = android.view.View.TEXT_ALIGNMENT_VIEW_START,
         justificationMode =
-            if (shouldUseStrictCjkJustification) {
-                JUSTIFICATION_MODE_INTER_CHARACTER_COMPAT
-            } else {
-                Layout.JUSTIFICATION_MODE_NONE
-            },
+        if (shouldUseStrictCjkJustification) {
+            JUSTIFICATION_MODE_INTER_CHARACTER_COMPAT
+        } else {
+            Layout.JUSTIFICATION_MODE_NONE
+        },
         breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY,
         hyphenationFrequency =
-            if (shouldUseStrictCjkJustification) {
-                Layout.HYPHENATION_FREQUENCY_NONE
-            } else {
-                Layout.HYPHENATION_FREQUENCY_NORMAL
-            },
+        if (shouldUseStrictCjkJustification) {
+            Layout.HYPHENATION_FREQUENCY_NONE
+        } else {
+            Layout.HYPHENATION_FREQUENCY_NORMAL
+        },
         shouldUseStrictCjkJustification = shouldUseStrictCjkJustification,
     )
 }

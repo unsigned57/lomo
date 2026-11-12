@@ -1,13 +1,13 @@
 package com.lomo.detektrules
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.detektrules
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
@@ -50,73 +49,74 @@ import kotlin.io.path.writeText
  * Excludes:
  * - production source.
  */
-class ForbiddenTestStackImportsRuleTest : FunSpec({
-    test("flags org.junit.Assert imports") {
-        val findings = rule().findingsForTestSource(
-            """
+class ForbiddenTestStackImportsRuleTest :
+    FunSpec({
+        test("flags org.junit.Assert imports") {
+            val findings = rule().findingsForTestSource(
+                """
             package com.lomo.sample
 
             import org.junit.Assert.assertTrue
 
             fun example() = assertTrue(true)
             """,
-        )
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "org.junit"
-    }
+            )
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "org.junit"
+        }
 
-    test("flags mockito imports") {
-        val findings = rule().findingsForTestSource(
-            """
+        test("flags mockito imports") {
+            val findings = rule().findingsForTestSource(
+                """
             package com.lomo.sample
 
             import org.mockito.Mockito
 
             fun example() = Mockito.mock(String::class.java)
             """,
-        )
-        findings.shouldHaveSize(1)
-    }
+            )
+            findings.shouldHaveSize(1)
+        }
 
-    test("flags strikt imports") {
-        val findings = rule().findingsForTestSource(
-            """
+        test("flags strikt imports") {
+            val findings = rule().findingsForTestSource(
+                """
             package com.lomo.sample
 
             import strikt.api.expectThat
 
             fun example() = expectThat(1)
             """,
-        )
-        findings.shouldHaveSize(1)
-    }
+            )
+            findings.shouldHaveSize(1)
+        }
 
-    test("flags assertk and assertj imports") {
-        val findingsAssertk = rule().findingsForTestSource(
-            """
+        test("flags assertk and assertj imports") {
+            val findingsAssertk = rule().findingsForTestSource(
+                """
             package com.lomo.sample
 
             import assertk.assertThat
 
             fun example() = assertThat(1)
             """,
-        )
-        val findingsAssertj = rule().findingsForTestSource(
-            """
+            )
+            val findingsAssertj = rule().findingsForTestSource(
+                """
             package com.lomo.sample
 
             import org.assertj.core.api.Assertions
 
             fun example() = Assertions.assertThat(1)
             """,
-        )
-        findingsAssertk.shouldHaveSize(1)
-        findingsAssertj.shouldHaveSize(1)
-    }
+            )
+            findingsAssertk.shouldHaveSize(1)
+            findingsAssertj.shouldHaveSize(1)
+        }
 
-    test("allows kotest and detekt and coroutines imports") {
-        val findings = rule().findingsForTestSource(
-            """
+        test("allows kotest and detekt and coroutines imports") {
+            val findings = rule().findingsForTestSource(
+                """
             package com.lomo.sample
 
             import io.kotest.core.spec.style.FunSpec
@@ -129,23 +129,23 @@ class ForbiddenTestStackImportsRuleTest : FunSpec({
                 }
             })
             """,
-        )
-        findings.shouldHaveSize(0)
-    }
+            )
+            findings.shouldHaveSize(0)
+        }
 
-    test("does not flag banned imports in production source") {
-        val findings = rule().findingsForProductionSource(
-            """
+        test("does not flag banned imports in production source") {
+            val findings = rule().findingsForProductionSource(
+                """
             package com.lomo.sample
 
             import org.junit.Assert.assertTrue
 
             fun example() = assertTrue(true)
             """,
-        )
-        findings.shouldHaveSize(0)
-    }
-})
+            )
+            findings.shouldHaveSize(0)
+        }
+    })
 
 private fun rule(config: Config = Config.empty): Rule =
     checkNotNull(LomoTestStyleRuleSetProvider().instance().rules[RuleName("ForbiddenTestStackImports")]) {

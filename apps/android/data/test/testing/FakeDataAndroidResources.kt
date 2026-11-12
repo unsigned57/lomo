@@ -61,13 +61,9 @@ class FakeDataAndroidResources : DataAndroidResources {
             recordingSavedNotificationAction to "Edit",
         )
 
-    override fun getString(@StringRes id: Int): String =
-        requireNotNull(strings[id]) {
-            "Missing fake string for resource id $id"
-        }
+    override fun getString(@StringRes id: Int): String = requireNotNull(strings[id]) {
+        "Missing fake string for resource id $id"
+    }
 
-    override fun getString(
-        @StringRes id: Int,
-        vararg formatArgs: Any,
-    ): String = getString(id).format(*formatArgs)
+    override fun getString(@StringRes id: Int, vararg formatArgs: Any): String = getString(id).format(*formatArgs)
 }

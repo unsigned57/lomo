@@ -12,7 +12,6 @@ import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
 import com.lomo.domain.model.StoredCredentialStatus
-import com.lomo.domain.model.isConfigured
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
@@ -54,10 +53,9 @@ interface S3SyncBehaviorConfigurationRepository {
 
     fun observeLastSyncTimeMillis(): Flow<Long?>
 
-    fun observeLastSyncInstant(): Flow<Instant?> =
-        observeLastSyncTimeMillis().map { value ->
-            value?.let(Instant::ofEpochMilli)
-        }
+    fun observeLastSyncInstant(): Flow<Instant?> = observeLastSyncTimeMillis().map { value ->
+        value?.let(Instant::ofEpochMilli)
+    }
 }
 
 interface S3SyncConfigurationRepository :
@@ -93,54 +91,47 @@ interface S3SyncCredentialWriteRepository {
 }
 
 interface S3SyncCredentialStatusRepository : S3SyncCredentialConfiguredRepository {
-    suspend fun getAccessKeyStatus(): StoredCredentialStatus =
-        if (isAccessKeyConfigured()) {
-            StoredCredentialStatus.Present
-        } else {
-            StoredCredentialStatus.Missing
-        }
+    suspend fun getAccessKeyStatus(): StoredCredentialStatus = if (isAccessKeyConfigured()) {
+        StoredCredentialStatus.Present
+    } else {
+        StoredCredentialStatus.Missing
+    }
 
-    suspend fun getSecretAccessKeyStatus(): StoredCredentialStatus =
-        if (isSecretAccessKeyConfigured()) {
-            StoredCredentialStatus.Present
-        } else {
-            StoredCredentialStatus.Missing
-        }
+    suspend fun getSecretAccessKeyStatus(): StoredCredentialStatus = if (isSecretAccessKeyConfigured()) {
+        StoredCredentialStatus.Present
+    } else {
+        StoredCredentialStatus.Missing
+    }
 
-    suspend fun getSessionTokenStatus(): StoredCredentialStatus =
-        if (isSessionTokenConfigured()) {
-            StoredCredentialStatus.Present
-        } else {
-            StoredCredentialStatus.Missing
-        }
+    suspend fun getSessionTokenStatus(): StoredCredentialStatus = if (isSessionTokenConfigured()) {
+        StoredCredentialStatus.Present
+    } else {
+        StoredCredentialStatus.Missing
+    }
 
-    suspend fun getEncryptionPasswordStatus(): StoredCredentialStatus =
-        if (isEncryptionPasswordConfigured()) {
-            StoredCredentialStatus.Present
-        } else {
-            StoredCredentialStatus.Missing
-        }
+    suspend fun getEncryptionPasswordStatus(): StoredCredentialStatus = if (isEncryptionPasswordConfigured()) {
+        StoredCredentialStatus.Present
+    } else {
+        StoredCredentialStatus.Missing
+    }
 
-    suspend fun getEncryptionPassword2Status(): StoredCredentialStatus =
-        if (isEncryptionPassword2Configured()) {
-            StoredCredentialStatus.Present
-        } else {
-            StoredCredentialStatus.Missing
-        }
+    suspend fun getEncryptionPassword2Status(): StoredCredentialStatus = if (isEncryptionPassword2Configured()) {
+        StoredCredentialStatus.Present
+    } else {
+        StoredCredentialStatus.Missing
+    }
 
-    suspend fun getCredentialState(): CredentialState =
-        CredentialState(
-            provider = CredentialProvider.S3,
-            fields =
-                listOf(
-                    CredentialFieldState(CredentialField.S3_ACCESS_KEY_ID, getAccessKeyStatus()),
-                    CredentialFieldState(CredentialField.S3_SECRET_ACCESS_KEY, getSecretAccessKeyStatus()),
-                    CredentialFieldState(CredentialField.S3_SESSION_TOKEN, getSessionTokenStatus()),
-                    CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD, getEncryptionPasswordStatus()),
-                    CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD2, getEncryptionPassword2Status()),
-                ),
-        )
-
+    suspend fun getCredentialState(): CredentialState = CredentialState(
+        provider = CredentialProvider.S3,
+        fields =
+        listOf(
+            CredentialFieldState(CredentialField.S3_ACCESS_KEY_ID, getAccessKeyStatus()),
+            CredentialFieldState(CredentialField.S3_SECRET_ACCESS_KEY, getSecretAccessKeyStatus()),
+            CredentialFieldState(CredentialField.S3_SESSION_TOKEN, getSessionTokenStatus()),
+            CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD, getEncryptionPasswordStatus()),
+            CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD2, getEncryptionPassword2Status()),
+        ),
+    )
 }
 
 interface S3SyncCredentialConfiguredRepository {

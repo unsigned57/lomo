@@ -6,17 +6,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.ui.component.common.LomoTextButton
 
 @Composable
-internal fun LanShareDialogs(
-    features: SettingsFeatures,
-    dialogState: SettingsDialogState,
-) {
+internal fun LanShareDialogs(features: SettingsFeatures, dialogState: SettingsDialogState) {
     if (!dialogState.showDeviceNameDialog) return
     AlertDialog(
         onDismissRequest = { dialogState.showDeviceNameDialog = false },
@@ -34,7 +31,7 @@ internal fun LanShareDialogs(
                     singleLine = true,
                     label = { Text(stringResource(R.string.share_device_name_label)) },
                 )
-                TextButton(
+                LomoTextButton(
                     onClick = {
                         features.lanShare.updateLanShareDeviceName("")
                         dialogState.showDeviceNameDialog = false
@@ -45,7 +42,7 @@ internal fun LanShareDialogs(
             }
         },
         confirmButton = {
-            TextButton(
+            LomoTextButton(
                 onClick = {
                     features.lanShare.updateLanShareDeviceName(dialogState.deviceNameInput)
                     dialogState.showDeviceNameDialog = false
@@ -55,7 +52,7 @@ internal fun LanShareDialogs(
             }
         },
         dismissButton = {
-            TextButton(onClick = { dialogState.showDeviceNameDialog = false }) {
+            LomoTextButton(onClick = { dialogState.showDeviceNameDialog = false }) {
                 Text(stringResource(R.string.action_cancel))
             }
         },

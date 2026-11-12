@@ -6,6 +6,15 @@ package com.lomo.app.widget
 
 /*
  * Behavior Contract:
+ * Test Change Justification:
+ * Reason category: explicit activation input adaptation.
+ * Old behavior/assertion being replaced: root-only activations implicitly read attachment candidates from a journal.
+ * Why old assertion is no longer correct: activation now receives a prepared attachment change explicitly;
+ * these existing root-only calls select the committed attachment configuration with a null change.
+ * Coverage preserved by: every existing mount, state and failure assertion is retained without weakening.
+ * Why this is not fitting the test to the implementation: stale pending candidates must not influence restoration.
+ * TDD proof: Regression preservation - transaction-green-first.log and verification-green.log under
+ * target/lomo/reports/manual/directory-selection/; index-validation-red.log exposes premature activation.
  * - Unit under test: WidgetProjectionBinder
  * - Owning layer: app
  * - Priority tier: P0
@@ -64,10 +73,10 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.domain.model.CredentialReadAuthorization
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoProjectionPublication
 import com.lomo.domain.model.SecuritySessionState
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MemoListQueryRepository
-import com.lomo.domain.model.MemoProjectionPublication
 import com.lomo.domain.repository.SecuritySessionPolicy
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
@@ -89,7 +98,9 @@ import kotlin.io.path.createTempDirectory
 @OptIn(ExperimentalCoroutinesApi::class)
 class WidgetProjectionBinderTest : AppFunSpec() {
     init {
-        test("given rapid publications inside one debounce window when the window elapses then the snapshot is written once on the latest stamp") {
+        test(
+            "given rapid publications inside one debounce window when the window elapses then the snapshot is written once on the latest stamp",
+        ) {
             runTest {
                 val dir = createTempDirectory("widget-binder-debounce").toFile()
                 try {
@@ -129,7 +140,12 @@ class WidgetProjectionBinderTest : AppFunSpec() {
                     val ticking = TickingMemoListQueryRepository()
                     ticking.recent = listOf(sampleMemo("secret", 1_000L, content = "private body"))
 
-                    binder(ticking, widgets, store, session = RecordingSecuritySessionPolicy(SecuritySessionState.Locked))
+                    binder(
+                        ticking,
+                        widgets,
+                        store,
+                        session = RecordingSecuritySessionPolicy(SecuritySessionState.Locked),
+                    )
                     runCurrent()
 
                     val snapshot = store.read() as WidgetGlanceSnapshot.Ready
@@ -152,7 +168,12 @@ class WidgetProjectionBinderTest : AppFunSpec() {
                     val ticking = TickingMemoListQueryRepository()
                     ticking.recent = listOf(sampleMemo("a", 1_000L))
 
-                    binder(ticking, widgets, store, session = RecordingSecuritySessionPolicy(SecuritySessionState.Unknown))
+                    binder(
+                        ticking,
+                        widgets,
+                        store,
+                        session = RecordingSecuritySessionPolicy(SecuritySessionState.Unknown),
+                    )
                     runCurrent()
 
                     val snapshot = store.read() as WidgetGlanceSnapshot.Ready
@@ -164,7 +185,9 @@ class WidgetProjectionBinderTest : AppFunSpec() {
             }
         }
 
-        test("given a lock transition when it publishes then a redacted snapshot is written without a publication tick") {
+        test(
+            "given a lock transition when it publishes then a redacted snapshot is written without a publication tick",
+        ) {
             runTest {
                 val dir = createTempDirectory("widget-binder-lockflip").toFile()
                 try {
@@ -233,7 +256,7 @@ class WidgetProjectionBinderTest : AppFunSpec() {
                     (store.read() as WidgetGlanceSnapshot.Ready).availability shouldBe
                         WidgetSnapshotAvailability.UNAVAILABLE
 
-                    engineReadiness.activateWorkspace(StorageLocation("/tmp/ws"))
+                    engineReadiness.activateWorkspace(StorageLocation("/tmp/ws"), mediaChange = null)
                     ticking.publications.emit(MemoProjectionPublication(coreRevision = 11L))
                     runCurrent()
 
@@ -248,7 +271,9 @@ class WidgetProjectionBinderTest : AppFunSpec() {
             }
         }
 
-        test("given an unchanged memo set when a publication refreshes then the widget redraw is skipped while the stamp still advances") {
+        test(
+            "given an unchanged memo set when a publication refreshes then the widget redraw is skipped while the stamp still advances",
+        ) {
             runTest {
                 val dir = createTempDirectory("widget-binder-dedupe").toFile()
                 try {
@@ -310,7 +335,9 @@ class WidgetProjectionBinderTest : AppFunSpec() {
             }
         }
 
-        test("given a query failure when refresh throws then the binder skips the redraw and survives the next publication") {
+        test(
+            "given a query failure when refresh throws then the binder skips the redraw and survives the next publication",
+        ) {
             runTest {
                 val dir = createTempDirectory("widget-binder-failure").toFile()
                 try {
@@ -337,7 +364,9 @@ class WidgetProjectionBinderTest : AppFunSpec() {
             }
         }
 
-        test("given a cancelled refresh when it rethrows then the pipeline survives and the next publication still writes") {
+        test(
+            "given a cancelled refresh when it rethrows then the pipeline survives and the next publication still writes",
+        ) {
             runTest {
                 val dir = createTempDirectory("widget-binder-cancel").toFile()
                 try {
@@ -376,40 +405,33 @@ class WidgetProjectionBinderTest : AppFunSpec() {
         engineReadiness: FakeEngineReadinessRepository = FakeEngineReadinessRepository(),
         session: RecordingSecuritySessionPolicy = RecordingSecuritySessionPolicy(SecuritySessionState.LockOff),
         debounceMillis: Long = WidgetProjectionBinder.WIDGET_PROJECTION_DEBOUNCE_MILLIS,
-    ): WidgetProjectionBinder =
-        WidgetProjectionBinder(
-            scope = backgroundScope,
-            listQueryRepository = ticking,
-            appWidgetRepository = widgets,
-            snapshotStore = store,
-            engineReadiness = engineReadiness,
-            securitySession = session,
-            debounceMillis = debounceMillis,
-        )
+    ): WidgetProjectionBinder = WidgetProjectionBinder(
+        scope = backgroundScope,
+        listQueryRepository = ticking,
+        appWidgetRepository = widgets,
+        snapshotStore = store,
+        engineReadiness = engineReadiness,
+        securitySession = session,
+        debounceMillis = debounceMillis,
+    )
 
     private fun storeFile(dir: File): File = dir.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME)
 
     private fun snapshotStore(
         dir: File,
         scheduler: kotlinx.coroutines.test.TestCoroutineScheduler,
-    ): WidgetGlanceSnapshotStore =
-        WidgetGlanceSnapshotStore(
-            dir.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME),
-            StandardTestDispatcher(scheduler),
-        )
+    ): WidgetGlanceSnapshotStore = WidgetGlanceSnapshotStore(
+        dir.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME),
+        StandardTestDispatcher(scheduler),
+    )
 
-    private fun sampleMemo(
-        id: String,
-        timestampMillis: Long,
-        content: String = "content",
-    ): Memo =
-        Memo(
-            id = id,
-            timestamp = timestampMillis,
-            content = content,
-            rawContent = content,
-            dateKey = "2026-09-12",
-        )
+    private fun sampleMemo(id: String, timestampMillis: Long, content: String = "content"): Memo = Memo(
+        id = id,
+        timestamp = timestampMillis,
+        content = content,
+        rawContent = content,
+        dateKey = "2026-09-12",
+    )
 
     private class TickingMemoListQueryRepository : MemoListQueryRepository {
         val publications = MutableSharedFlow<MemoProjectionPublication>(extraBufferCapacity = 8)
@@ -448,9 +470,7 @@ class WidgetProjectionBinderTest : AppFunSpec() {
         }
     }
 
-    private class RecordingSecuritySessionPolicy(
-        initial: SecuritySessionState,
-    ) : SecuritySessionPolicy {
+    private class RecordingSecuritySessionPolicy(initial: SecuritySessionState) : SecuritySessionPolicy {
         private val states = MutableStateFlow(initial)
 
         fun publish(state: SecuritySessionState) {
@@ -465,4 +485,3 @@ class WidgetProjectionBinderTest : AppFunSpec() {
         override fun observe(): StateFlow<SecuritySessionState> = states.asStateFlow()
     }
 }
-

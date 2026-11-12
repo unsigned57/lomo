@@ -1,17 +1,17 @@
 package com.lomo.app.util
 
-import com.lomo.ui.theme.TypographyScales
-
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Typeface
 import com.lomo.app.R
 import com.lomo.app.presentation.sharecard.ShareCardDisplayFormatter
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.usecase.PrepareShareCardContentUseCase
+import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.resolveLomoColorScheme
 import java.time.format.DateTimeFormatter
@@ -24,6 +24,7 @@ data class ShareCardRenderOptions(
     val timestampMillis: Long?,
     val tags: List<String>,
     val colorSource: ColorSource,
+    val contrastLevel: ContrastLevel,
     val themeMode: ThemeMode,
     val typographyScales: TypographyScales = TypographyScales(),
     val resolvedImagePaths: List<String> = emptyList(),
@@ -37,18 +38,14 @@ class ShareCardBitmapRenderer(
 ) {
     private val shareCardTimeFormatter = DateTimeFormatter.ofPattern(SHARE_CARD_TIME_PATTERN)
 
-    fun render(
-        context: Context,
-        content: String,
-        title: String?,
-        options: ShareCardRenderOptions,
-    ): Bitmap {
+    fun render(context: Context, content: String, title: String?, options: ShareCardRenderOptions): Bitmap {
         val showTime = options.showTime
         val showSignature = options.showSignature
         val signatureText = options.signatureText
         val timestampMillis = options.timestampMillis
         val tags = options.tags
         val colorSource = options.colorSource
+        val contrastLevel = options.contrastLevel
         val themeMode = options.themeMode
         val resolvedImagePaths = options.resolvedImagePaths
         val bodyTypeface = options.bodyTypeface
@@ -74,7 +71,7 @@ class ShareCardBitmapRenderer(
                 signatureText = renderInput.signatureText,
                 createdAtText = renderInput.createdAtText,
             )
-        val palette = resolvePalette(context, colorSource, themeMode)
+        val palette = resolvePalette(context, colorSource, contrastLevel, themeMode)
         val readingStyle = com.lomo.ui.theme.buildAppTypography(androidx.compose.ui.text.font.FontFamily.SansSerif)
             .memoBodyTextStyle(options.typographyScales)
         val layoutSpec = createShareCardLayoutSpec(context.resources).let { spec ->
@@ -99,8 +96,8 @@ class ShareCardBitmapRenderer(
                 resources = context.resources,
                 palette = palette,
                 bodyTextSizeSp =
-                    bodyTextSizeSp(measuredRenderInput.textLengthWithoutMarkers) *
-                        options.typographyScales.fontSizeScale,
+                bodyTextSizeSp(measuredRenderInput.textLengthWithoutMarkers) *
+                    options.typographyScales.fontSizeScale,
                 bodyTypeface = bodyTypeface,
                 bodyLetterSpacing = readingStyle.letterSpacing.value / readingStyle.fontSize.value,
             )
@@ -177,9 +174,10 @@ class ShareCardBitmapRenderer(
     private fun resolvePalette(
         context: Context,
         colorSource: ColorSource,
+        contrastLevel: ContrastLevel,
         themeMode: ThemeMode,
     ): ShareCardPalette =
-        shareCardPaletteFromColorScheme(resolveLomoColorScheme(context, colorSource, themeMode))
+        shareCardPaletteFromColorScheme(resolveLomoColorScheme(context, colorSource, themeMode, contrastLevel))
 }
 
 internal fun buildShareCardFooterContent(

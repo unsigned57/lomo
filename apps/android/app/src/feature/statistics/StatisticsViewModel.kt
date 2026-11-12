@@ -3,8 +3,8 @@ package com.lomo.app.feature.statistics
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.PendingUiEvent
-import com.lomo.app.feature.common.UiEventQueueCoordinator
 import com.lomo.app.feature.common.UiEventEnqueueResult
+import com.lomo.app.feature.common.UiEventQueueCoordinator
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.domain.model.MemoStatistics
@@ -12,24 +12,25 @@ import com.lomo.domain.usecase.MemoStatisticsUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 sealed interface StatisticsScreenState {
     data object Loading : StatisticsScreenState
 
-    data class Ready(
-        val statistics: MemoStatistics,
-    ) : StatisticsScreenState
+    data class Ready(val statistics: MemoStatistics) : StatisticsScreenState
 
-    data class Error(
-        val message: String,
-    ) : StatisticsScreenState
+    data object Error : StatisticsScreenState
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class StatisticsViewModel(
     private val memoStatisticsUseCase: MemoStatisticsUseCase,
     private val persistShareImageUseCase: PersistShareImageUseCase,
@@ -42,21 +43,33 @@ class StatisticsViewModel(
     private val _shareErrorMessage = MutableStateFlow<String?>(null)
     val shareErrorMessage: StateFlow<String?> = _shareErrorMessage.asStateFlow()
     val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
+    private val statisticsCollectionAttempt = MutableStateFlow(0)
 
     init {
         viewModelScope.launch {
-            memoStatisticsUseCase
-                .observe()
-                .catch { throwable ->
-                    if (throwable is CancellationException) throw throwable
-                    _uiState.value =
-                        StatisticsScreenState.Error(
-                            throwable.toUserMessage("Failed to load statistics"),
-                        )
-                }.collect { stats ->
-                    _uiState.value = StatisticsScreenState.Ready(stats)
+            statisticsCollectionAttempt
+                .flatMapLatest {
+                    // The catch lives inside the attempt-scoped inner flow: an upstream-level
+                    // catch would end the whole collection after one failure, so retry could
+                    // never trigger a recollection. Failure becomes a state value here so the
+                    // derivation stays pure; the collect sink owns every state write.
+                    memoStatisticsUseCase.observe()
+                        .map<MemoStatistics, StatisticsScreenState> { stats ->
+                            StatisticsScreenState.Ready(stats)
+                        }.catch { throwable ->
+                            if (throwable is CancellationException) throw throwable
+                            Timber.w(throwable, "statistics failure")
+                            emit(StatisticsScreenState.Error)
+                        }
+                }.collect { state ->
+                    _uiState.value = state
                 }
         }
+    }
+
+    fun retry() {
+        _uiState.value = StatisticsScreenState.Loading
+        statisticsCollectionAttempt.value += 1
     }
 
     fun shareStatisticsImage(source: StatisticsPngSource) {
@@ -73,6 +86,7 @@ class StatisticsViewModel(
                     }
                 _shareErrorMessage.value = when (shareImageEventQueue.enqueue(filePath)) {
                     is UiEventEnqueueResult.Accepted -> null
+
                     is UiEventEnqueueResult.Rejected ->
                         "Too many pending shares. Complete an earlier share and try again."
                 }

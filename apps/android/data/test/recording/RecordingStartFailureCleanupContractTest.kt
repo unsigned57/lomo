@@ -11,6 +11,7 @@ package com.lomo.data.recording
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.DraftMediaReconciliation
+import com.lomo.domain.model.ImageLocationSnapshot
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
@@ -24,6 +25,7 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 
 /*
@@ -46,11 +48,19 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Successful recording sessions and playback; foreground-service permission UI.
+ * Test Change Justification:
+ * Reason category: contract clarification.
+ * Old behavior/assertion being replaced: The allocated capture cleanup assertions remain unchanged.
+ * Why old assertion is no longer correct: existing outcome assertions remain valid and retained.
+ * Coverage preserved by: The actual allocated entry and discarded staged bytes remain observable.
+ * Why this is not fitting the test to the implementation: no expected product outcome is weakened.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingStartFailureCleanupContractTest : DataFunSpec() {
     init {
-        test("given the capture target is allocated when the recording service fails to start then the staged capture is discarded") {
+        test(
+            "given the capture target is allocated when the recording service fails to start then the staged capture is discarded",
+        ) {
             runTest {
                 val recorder = AuditVoiceRecordingRepository()
                 val media = LeakTrackingMediaRepository()
@@ -63,7 +73,7 @@ class RecordingStartFailureCleanupContractTest : DataFunSpec() {
                         serviceController = serviceController,
                     )
 
-                session.startRecording()
+                session.startRecording(com.lomo.domain.model.DraftId("editor-test"))
 
                 session.state.value shouldBe RecordingSessionState.Idle
                 session.errorMessage.value.shouldNotBeNull()
@@ -104,9 +114,7 @@ class RecordingStartFailureCleanupContractTest : DataFunSpec() {
         var stopCallCount = 0
             private set
 
-        override fun start() {
-            throw IllegalStateException("mic foreground service start denied")
-        }
+        override fun start(): Unit = throw IllegalStateException("mic foreground service start denied")
 
         override fun stop() {
             stopCallCount += 1
@@ -118,17 +126,15 @@ class RecordingStartFailureCleanupContractTest : DataFunSpec() {
         val removedCaptures = mutableListOf<RemovedCapture>()
         private val locations = MutableStateFlow<Map<MediaEntryId, MediaImageDescriptor>>(emptyMap())
 
-        override suspend fun importImage(
-            source: StorageLocation,
-            draftId: DraftId,
-        ): StorageLocation = source
+        override suspend fun importImage(source: StorageLocation, draftId: DraftId): StorageLocation = source
 
-        override suspend fun removeImage(
-            entryId: MediaEntryId,
-            draftId: DraftId,
-        ) = Unit
+        override suspend fun removeImage(entryId: MediaEntryId, draftId: DraftId) = Unit
 
-        override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> = locations
+        override fun observeImageLocations(): Flow<ImageLocationSnapshot> = locations.map {
+            ImageLocationSnapshot.Ready(
+                it,
+            )
+        }
 
         override suspend fun refreshImageLocations() = Unit
 

@@ -11,10 +11,7 @@ internal data class TagNode(
     val children: List<TagNode> = emptyList(),
 )
 
-internal data class VisibleTagRow(
-    val node: TagNode,
-    val level: Int,
-)
+internal data class VisibleTagRow(val node: TagNode, val level: Int)
 
 internal fun buildTagTree(tags: List<SidebarTag>, rootOrder: List<String> = emptyList()): List<TagNode> {
     val rootNodes = mutableListOf<MutableTagNode>()
@@ -31,25 +28,17 @@ internal fun buildTagTree(tags: List<SidebarTag>, rootOrder: List<String> = empt
     return nodes.sortedBy { node -> orderIndex[node.name] ?: (rootOrder.size + nodes.indexOf(node)) }
 }
 
-internal fun visibleTagRows(
-    tagTree: List<TagNode>,
-    expandedNodePaths: Set<String>,
-): List<VisibleTagRow> =
-    buildList {
-        tagTree.forEach { node ->
-            addVisibleTagRows(
-                node = node,
-                level = 0,
-                expandedNodePaths = expandedNodePaths,
-            )
-        }
+internal fun visibleTagRows(tagTree: List<TagNode>, expandedNodePaths: Set<String>): List<VisibleTagRow> = buildList {
+    tagTree.forEach { node ->
+        addVisibleTagRows(
+            node = node,
+            level = 0,
+            expandedNodePaths = expandedNodePaths,
+        )
     }
+}
 
-private fun MutableList<VisibleTagRow>.addVisibleTagRows(
-    node: TagNode,
-    level: Int,
-    expandedNodePaths: Set<String>,
-) {
+private fun MutableList<VisibleTagRow>.addVisibleTagRows(node: TagNode, level: Int, expandedNodePaths: Set<String>) {
     add(VisibleTagRow(node = node, level = level))
     if (node.fullPath !in expandedNodePaths) return
 
@@ -62,11 +51,7 @@ private fun MutableList<VisibleTagRow>.addVisibleTagRows(
     }
 }
 
-internal fun applyReorderableTagMove(
-    tagTree: SnapshotStateList<TagNode>,
-    fromKey: Any?,
-    toKey: Any?,
-): Boolean {
+internal fun applyReorderableTagMove(tagTree: SnapshotStateList<TagNode>, fromKey: Any?, toKey: Any?): Boolean {
     val fromPath = fromKey as? String ?: return false
     val toPath = toKey as? String ?: return false
     val fromIndex = tagTree.indexOfFirst { it.fullPath == fromPath }
@@ -76,11 +61,7 @@ internal fun applyReorderableTagMove(
     return true
 }
 
-private fun insertTagPath(
-    rootNodes: MutableList<MutableTagNode>,
-    tag: SidebarTag,
-    tagMap: Map<String, Int>,
-) {
+private fun insertTagPath(rootNodes: MutableList<MutableTagNode>, tag: SidebarTag, tagMap: Map<String, Int>) {
     val parts = tag.name.split("/")
 
     fun insertAt(levelNodes: MutableList<MutableTagNode>, index: Int, currentPath: String) {
@@ -105,11 +86,8 @@ private fun insertTagPath(
     insertAt(levelNodes = rootNodes, index = 0, currentPath = "")
 }
 
-private fun resolveTagNodeCount(
-    currentPath: String,
-    tag: SidebarTag,
-    tagMap: Map<String, Int>,
-): Int? = if (currentPath == tag.name) tag.count else tagMap[currentPath]
+private fun resolveTagNodeCount(currentPath: String, tag: SidebarTag, tagMap: Map<String, Int>): Int? =
+    if (currentPath == tag.name) tag.count else tagMap[currentPath]
 
 private class MutableTagNode(
     val name: String,

@@ -4,7 +4,6 @@ import android.content.res.Resources
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
-import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
@@ -14,18 +13,14 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-internal fun bodyTextSizeSp(textLengthWithoutMarkers: Int): Float =
-    when {
-        textLengthWithoutMarkers <= BODY_TEXT_SIZE_SHORT_THRESHOLD -> BODY_TEXT_SIZE_SHORT_SP
-        textLengthWithoutMarkers <= BODY_TEXT_SIZE_MEDIUM_THRESHOLD -> BODY_TEXT_SIZE_MEDIUM_SP
-        textLengthWithoutMarkers <= BODY_TEXT_SIZE_LONG_THRESHOLD -> BODY_TEXT_SIZE_LONG_SP
-        else -> BODY_TEXT_SIZE_DEFAULT_SP
-    }
+internal fun bodyTextSizeSp(textLengthWithoutMarkers: Int): Float = when {
+    textLengthWithoutMarkers <= BODY_TEXT_SIZE_SHORT_THRESHOLD -> BODY_TEXT_SIZE_SHORT_SP
+    textLengthWithoutMarkers <= BODY_TEXT_SIZE_MEDIUM_THRESHOLD -> BODY_TEXT_SIZE_MEDIUM_SP
+    textLengthWithoutMarkers <= BODY_TEXT_SIZE_LONG_THRESHOLD -> BODY_TEXT_SIZE_LONG_SP
+    else -> BODY_TEXT_SIZE_DEFAULT_SP
+}
 
-internal fun shouldUseCenteredBody(
-    input: ShareCardRenderInput,
-    bodyLines: List<ShareBodyLine>,
-): Boolean {
+internal fun shouldUseCenteredBody(input: ShareCardRenderInput, bodyLines: List<ShareBodyLine>): Boolean {
     val hasNoHeader = input.displayTags.isEmpty() && input.title == null
     val hasOnlyParagraphs =
         bodyLines.all { line ->
@@ -49,70 +44,66 @@ internal fun createShareCardPaintSet(
     val bodyBase = bodyTypeface ?: Typeface.DEFAULT
     return ShareCardPaintSet(
         tagPaint =
-            createTextPaint(
-                color = palette.tagText,
-                textSizePx = sp(resources, TAG_TEXT_SIZE_SP),
-                typeface = Typeface.create(bodyBase, Typeface.BOLD),
-            ).apply { letterSpacing = TAG_LETTER_SPACING },
+        createTextPaint(
+            color = palette.tagText,
+            textSizePx = sp(resources, TAG_TEXT_SIZE_SP),
+            typeface = Typeface.create(bodyBase, Typeface.BOLD),
+        ).apply { letterSpacing = TAG_LETTER_SPACING },
         titlePaint =
-            createTextPaint(
-                color = palette.secondaryText,
-                textSizePx = sp(resources, TITLE_TEXT_SIZE_SP),
-                typeface = Typeface.create(bodyBase, Typeface.NORMAL),
-            ).apply { letterSpacing = TITLE_LETTER_SPACING },
+        createTextPaint(
+            color = palette.secondaryText,
+            textSizePx = sp(resources, TITLE_TEXT_SIZE_SP),
+            typeface = Typeface.create(bodyBase, Typeface.NORMAL),
+        ).apply { letterSpacing = TITLE_LETTER_SPACING },
         headingPaint =
-            createTextPaint(
-                color = palette.bodyText,
-                textSizePx = sp(resources, bodyTextSizeSp * HEADING_TEXT_SCALE),
-                typeface = Typeface.create(bodyBase, Typeface.BOLD),
-            ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
+        createTextPaint(
+            color = palette.bodyText,
+            textSizePx = sp(resources, bodyTextSizeSp * HEADING_TEXT_SCALE),
+            typeface = Typeface.create(bodyBase, Typeface.BOLD),
+        ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         paragraphPaint =
-            createTextPaint(
-                color = palette.bodyText,
-                textSizePx = sp(resources, bodyTextSizeSp),
-                typeface = Typeface.create(bodyBase, Typeface.NORMAL),
-            ).apply {
-                letterSpacing = bodyLetterSpacing
-            },
+        createTextPaint(
+            color = palette.bodyText,
+            textSizePx = sp(resources, bodyTextSizeSp),
+            typeface = Typeface.create(bodyBase, Typeface.NORMAL),
+        ).apply {
+            letterSpacing = bodyLetterSpacing
+        },
         bulletPaint =
-            createTextPaint(
-                color = palette.bodyText,
-                textSizePx = sp(resources, bodyTextSizeSp * BULLET_TEXT_SCALE),
-                typeface = Typeface.create(bodyBase, Typeface.BOLD),
-            ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
+        createTextPaint(
+            color = palette.bodyText,
+            textSizePx = sp(resources, bodyTextSizeSp * BULLET_TEXT_SCALE),
+            typeface = Typeface.create(bodyBase, Typeface.BOLD),
+        ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         quotePaint =
-            createTextPaint(
-                color = palette.secondaryText,
-                textSizePx = sp(resources, bodyTextSizeSp * QUOTE_TEXT_SCALE),
-                typeface = Typeface.create(bodyBase, Typeface.NORMAL),
-            ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
+        createTextPaint(
+            color = palette.secondaryText,
+            textSizePx = sp(resources, bodyTextSizeSp * QUOTE_TEXT_SCALE),
+            typeface = Typeface.create(bodyBase, Typeface.NORMAL),
+        ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         codePaint =
-            createTextPaint(
-                color = palette.bodyText,
-                textSizePx = sp(resources, bodyTextSizeSp * CODE_TEXT_SCALE),
-                typeface = Typeface.MONOSPACE,
-            ),
+        createTextPaint(
+            color = palette.bodyText,
+            textSizePx = sp(resources, bodyTextSizeSp * CODE_TEXT_SCALE),
+            typeface = Typeface.MONOSPACE,
+        ),
         tablePaint =
-            createTextPaint(
-                color = palette.bodyText,
-                textSizePx = sp(resources, bodyTextSizeSp * TABLE_TEXT_SCALE),
-                typeface = Typeface.MONOSPACE,
-            ),
+        createTextPaint(
+            color = palette.bodyText,
+            textSizePx = sp(resources, bodyTextSizeSp * TABLE_TEXT_SCALE),
+            typeface = Typeface.MONOSPACE,
+        ),
         footerPaint =
-            createTextPaint(
-                color = palette.secondaryText,
-                textSizePx = sp(resources, FOOTER_TEXT_SIZE_SP),
-                typeface = Typeface.create(bodyBase, Typeface.NORMAL),
-            ).apply { letterSpacing = FOOTER_LETTER_SPACING },
+        createTextPaint(
+            color = palette.secondaryText,
+            textSizePx = sp(resources, FOOTER_TEXT_SIZE_SP),
+            typeface = Typeface.create(bodyBase, Typeface.NORMAL),
+        ).apply { letterSpacing = FOOTER_LETTER_SPACING },
         linkColor = palette.linkText,
     )
 }
 
-internal fun createTextPaint(
-    color: Int,
-    textSizePx: Float,
-    typeface: Typeface,
-): TextPaint =
+internal fun createTextPaint(color: Int, textSizePx: Float, typeface: Typeface): TextPaint =
     TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color
         this.textSize = textSizePx
@@ -120,21 +111,15 @@ internal fun createTextPaint(
         isSubpixelText = true
     }
 
-private fun defaultBreakStrategy(): Int = Layout.BREAK_STRATEGY_HIGH_QUALITY
-
-private fun defaultJustificationMode(): Int = Layout.JUSTIFICATION_MODE_NONE
-
 internal fun buildStaticLayout(
     text: CharSequence,
     paint: TextPaint,
     width: Int,
     maxLines: Int = Int.MAX_VALUE,
-    alignment: Layout.Alignment = Layout.Alignment.ALIGN_NORMAL,
-    paragraphLayoutPolicy: ShareCardParagraphLayoutPolicy? = null,
+    paragraphLayoutPolicy: ShareCardParagraphLayoutPolicy = ShareCardParagraphLayoutPolicy.Plain,
     lineSpacingMultiplier: Float = LAYOUT_LINE_SPACING_MULTIPLIER,
 ): StaticLayout {
     val layoutText: CharSequence = if (text.isEmpty()) BLANK_LAYOUT_TEXT else text
-    val resolvedAlignment = paragraphLayoutPolicy?.alignment ?: alignment
 
     return StaticLayout
         .Builder
@@ -144,52 +129,33 @@ internal fun buildStaticLayout(
             layoutText.length,
             paint,
             width.coerceAtLeast(MIN_RENDER_DIMENSION_PX),
-        ).setAlignment(resolvedAlignment)
+        ).setAlignment(paragraphLayoutPolicy.alignment)
         .setIncludePad(false)
-        .setBreakStrategy(paragraphLayoutPolicy?.breakStrategy ?: defaultBreakStrategy())
-        .setHyphenationFrequency(
-            paragraphLayoutPolicy?.hyphenationFrequency ?: Layout.HYPHENATION_FREQUENCY_NORMAL,
-        ).setJustificationMode(
-            paragraphLayoutPolicy?.justificationMode ?: defaultJustificationMode(),
-        )
+        .setBreakStrategy(paragraphLayoutPolicy.breakStrategy)
+        .setHyphenationFrequency(paragraphLayoutPolicy.hyphenationFrequency)
+        .setJustificationMode(paragraphLayoutPolicy.justificationMode)
         .setLineSpacing(0f, lineSpacingMultiplier)
         .setMaxLines(maxLines)
         .setEllipsize(TextUtils.TruncateAt.END)
         .build()
 }
 
-internal fun drawLayout(
-    canvas: Canvas,
-    layout: StaticLayout,
-    x: Float,
-    y: Float,
-) {
+internal fun drawLayout(canvas: Canvas, layout: StaticLayout, x: Float, y: Float) {
     canvas.withTranslation(x, y) {
         layout.draw(this)
     }
 }
 
-internal fun dp(
-    resources: Resources,
-    value: Float,
-): Float = value * resources.displayMetrics.density
+internal fun dp(resources: Resources, value: Float): Float = value * resources.displayMetrics.density
 
-internal fun sp(
-    resources: Resources,
-    value: Float,
-): Float =
-    TypedValue.applyDimension(
-        TypedValue.COMPLEX_UNIT_SP,
-        value,
-        resources.displayMetrics,
-    )
+internal fun sp(resources: Resources, value: Float): Float = TypedValue.applyDimension(
+    TypedValue.COMPLEX_UNIT_SP,
+    value,
+    resources.displayMetrics,
+)
 
-internal fun formatShareCardTime(
-    createdAtMillis: Long,
-    formatter: DateTimeFormatter,
-): String =
-    formatter.format(
-        Instant
-            .ofEpochMilli(createdAtMillis)
-            .atZone(ZoneId.systemDefault()),
-    )
+internal fun formatShareCardTime(createdAtMillis: Long, formatter: DateTimeFormatter): String = formatter.format(
+    Instant
+        .ofEpochMilli(createdAtMillis)
+        .atZone(ZoneId.systemDefault()),
+)

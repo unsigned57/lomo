@@ -44,7 +44,7 @@ pub fn capture_path(runtime: &TuiRuntime) -> Result<PathBuf, TuiError> {
     let identity = canonical
         .to_str()
         .ok_or_else(|| TuiError::config("workspace path must be UTF-8"))?;
-    let digest = format!("{:x}", Sha256::digest(identity.as_bytes()));
+    let digest = lomo_core::hex_encode(&Sha256::digest(identity.as_bytes()));
     Ok(runtime
         .paths
         .capture_dir

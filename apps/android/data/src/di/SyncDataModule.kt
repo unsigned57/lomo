@@ -1,7 +1,6 @@
 package com.lomo.data.di
 
 import com.lomo.data.engine.SessionNativeBridge
-import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.engine.sync.BoltFfiRemoteSyncRepository
 import com.lomo.data.engine.sync.BridgeConflictArtifactSource
 import com.lomo.data.engine.sync.ConflictArtifactSource
@@ -14,8 +13,6 @@ import com.lomo.data.engine.sync.RustSyncCycleStatusStore
 import com.lomo.data.engine.sync.RustSyncSecretSupplier
 import com.lomo.data.engine.sync.SecretMaterialSource
 import com.lomo.data.engine.sync.SyncNativeBridge
-import com.lomo.data.sync.BoltFfiSyncConflictSuggestionPort
-import com.lomo.data.sync.SyncConflictSuggestionPort
 import com.lomo.data.repository.AppVersionRepositoryImpl
 import com.lomo.data.repository.GitRemoteSyncFacade
 import com.lomo.data.repository.GitSyncConfigurationMutationRepositoryImpl
@@ -30,9 +27,11 @@ import com.lomo.data.repository.WebDavRemoteSyncFacade
 import com.lomo.data.repository.WebDavSyncConfigurationMutationRepositoryImpl
 import com.lomo.data.repository.WebDavSyncConfigurationRepositoryImpl
 import com.lomo.data.repository.WebDavSyncStateRepositoryImpl
+import com.lomo.data.sync.BoltFfiSyncConflictSuggestionPort
 import com.lomo.data.sync.GitEndpointSecurityMigration
 import com.lomo.data.sync.RustSyncWorkPolicyPlanner
 import com.lomo.data.sync.SyncConflictBackupManager
+import com.lomo.data.sync.SyncConflictSuggestionPort
 import com.lomo.data.sync.SyncIdentityResetPolicy
 import com.lomo.data.worker.CoreSyncScheduler
 import com.lomo.data.worker.DeferredLockAuthorizedWorkResume
@@ -45,22 +44,22 @@ import com.lomo.data.worker.RustSyncWorker
 import com.lomo.data.worker.SyncWorker
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.AuthorizedWorkResume
-import com.lomo.domain.repository.GitSyncRepository
-import com.lomo.domain.repository.WebDavSyncStateRepository
-import com.lomo.domain.repository.WebDavSyncConfigurationRepository
-import com.lomo.domain.repository.WebDavSyncConfigurationMutationRepository
-import com.lomo.domain.repository.S3SyncStateRepository
-import com.lomo.domain.repository.S3SyncConfigurationRepository
-import com.lomo.domain.repository.S3SyncConfigurationMutationRepository
-import com.lomo.domain.repository.GitSyncStateRepository
-import com.lomo.domain.repository.GitSyncConfigurationRepository
 import com.lomo.domain.repository.GitSyncConfigurationMutationRepository
+import com.lomo.domain.repository.GitSyncConfigurationRepository
+import com.lomo.domain.repository.GitSyncRepository
+import com.lomo.domain.repository.GitSyncStateRepository
 import com.lomo.domain.repository.RemoteSyncCenterRepository
+import com.lomo.domain.repository.S3SyncConfigurationMutationRepository
+import com.lomo.domain.repository.S3SyncConfigurationRepository
 import com.lomo.domain.repository.S3SyncRepository
+import com.lomo.domain.repository.S3SyncStateRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.UnifiedSyncProvider
+import com.lomo.domain.repository.WebDavSyncConfigurationMutationRepository
+import com.lomo.domain.repository.WebDavSyncConfigurationRepository
 import com.lomo.domain.repository.WebDavSyncRepository
+import com.lomo.domain.repository.WebDavSyncStateRepository
 import com.lomo.domain.usecase.GitUnifiedSyncProvider
 import com.lomo.domain.usecase.InboxUnifiedSyncProvider
 import com.lomo.domain.usecase.S3UnifiedSyncProvider
@@ -85,7 +84,14 @@ val syncDataModule = module {
     singleOf(::AppVersionRepositoryImpl) bind AppVersionRepository::class
 
     // BoltFFI conversion: apply cycles require the open workspace session.
-    single<SyncNativeBridge> { EngineOwnedSyncNativeBridge(engine = get<SessionNativeBridge>()) }
+    single<SyncNativeBridge> {
+        get<SessionNativeBridge>().let { engine ->
+            EngineOwnedSyncNativeBridge(
+                engine = engine,
+                freeFunctions = com.lomo.data.engine.sync.FreeFunctionSyncNativeBridge(engine::syncPrivateStateRoot),
+            )
+        }
+    }
     single<RemoteSyncRepository> { BoltFfiRemoteSyncRepository(bridge = get()) }
     single<ConflictArtifactSource> { BridgeConflictArtifactSource(bridge = get()) }
     single<SecretMaterialSource> {

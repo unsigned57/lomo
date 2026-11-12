@@ -11,29 +11,27 @@ internal fun directStreamFile(
     rootDir: File,
     filename: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-): Flow<String> =
-    flow {
-        val file = File(rootDir, filename)
-        ensureWithinDirectory(rootDir, file)
-        if (file.exists()) {
-            file.bufferedReader(Charsets.UTF_8).useLines { lines ->
-                lines.forEach { line -> emit(line) }
-            }
+): Flow<String> = flow {
+    val file = File(rootDir, filename)
+    ensureWithinDirectory(rootDir, file)
+    if (file.exists()) {
+        file.bufferedReader(Charsets.UTF_8).useLines { lines ->
+            lines.forEach { line -> emit(line) }
         }
-    }.flowOn(dispatcherProvider.io)
+    }
+}.flowOn(dispatcherProvider.io)
 
 internal fun directStreamTrashFile(
     rootDir: File,
     filename: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-): Flow<String> =
-    flow {
-        val trashDir = directTrashDir(rootDir)
-        val file = File(trashDir, filename)
-        ensureWithinDirectory(trashDir, file)
-        if (file.exists()) {
-            file.bufferedReader(Charsets.UTF_8).useLines { lines ->
-                lines.forEach { line -> emit(line) }
-            }
+): Flow<String> = flow {
+    val trashDir = directTrashDir(rootDir)
+    val file = File(trashDir, filename)
+    ensureWithinDirectory(trashDir, file)
+    if (file.exists()) {
+        file.bufferedReader(Charsets.UTF_8).useLines { lines ->
+            lines.forEach { line -> emit(line) }
         }
-    }.flowOn(dispatcherProvider.io)
+    }
+}.flowOn(dispatcherProvider.io)

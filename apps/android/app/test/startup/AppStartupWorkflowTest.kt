@@ -72,33 +72,33 @@ class AppStartupWorkflowTest : AppFunSpec() {
                 val workflow =
                     AppStartupWorkflow(
                         tasks =
-                            listOf(
-                                RecordingStartupTask(
-                                    id = StartupTaskId.SECURITY_SESSION_RESTORE,
-                                    order = 10,
-                                    failurePolicy = StartupTaskFailurePolicy.REQUIRED,
-                                    eventLog = eventLog,
-                                ),
-                                RecordingStartupTask(
-                                    id = StartupTaskId.THEME_APPLICATION,
-                                    order = 20,
-                                    failurePolicy = StartupTaskFailurePolicy.REQUIRED,
-                                    eventLog = eventLog,
-                                ),
-                                RecordingStartupTask(
-                                    id = StartupTaskId.STARTUP_UPDATE_CHECK,
-                                    order = 40,
-                                    failurePolicy = StartupTaskFailurePolicy.BEST_EFFORT,
-                                    eventLog = eventLog,
-                                    failure = IllegalStateException("update unavailable"),
-                                ),
-                                RecordingStartupTask(
-                                    id = StartupTaskId.WORKSPACE_MAINTENANCE,
-                                    order = 30,
-                                    failurePolicy = StartupTaskFailurePolicy.REQUIRED,
-                                    eventLog = eventLog,
-                                ),
+                        listOf(
+                            RecordingStartupTask(
+                                id = StartupTaskId.SECURITY_SESSION_RESTORE,
+                                order = 10,
+                                failurePolicy = StartupTaskFailurePolicy.REQUIRED,
+                                eventLog = eventLog,
                             ),
+                            RecordingStartupTask(
+                                id = StartupTaskId.THEME_APPLICATION,
+                                order = 20,
+                                failurePolicy = StartupTaskFailurePolicy.REQUIRED,
+                                eventLog = eventLog,
+                            ),
+                            RecordingStartupTask(
+                                id = StartupTaskId.STARTUP_UPDATE_CHECK,
+                                order = 40,
+                                failurePolicy = StartupTaskFailurePolicy.BEST_EFFORT,
+                                eventLog = eventLog,
+                                failure = IllegalStateException("update unavailable"),
+                            ),
+                            RecordingStartupTask(
+                                id = StartupTaskId.WORKSPACE_MAINTENANCE,
+                                order = 30,
+                                failurePolicy = StartupTaskFailurePolicy.REQUIRED,
+                                eventLog = eventLog,
+                            ),
+                        ),
                     )
 
                 val firstResult = workflow.runStartup()
@@ -133,20 +133,20 @@ class AppStartupWorkflowTest : AppFunSpec() {
                 val workflow =
                     AppStartupWorkflow(
                         tasks =
-                            listOf(
-                                GatedStartupTask(
-                                    id = StartupTaskId.THEME_APPLICATION,
-                                    order = 20,
-                                    failurePolicy = StartupTaskFailurePolicy.REQUIRED,
-                                    gate = themeGate,
-                                ),
-                                SignalStartupTask(
-                                    id = StartupTaskId.WORKSPACE_MAINTENANCE,
-                                    order = 30,
-                                    failurePolicy = StartupTaskFailurePolicy.REQUIRED,
-                                    started = workspaceStarted,
-                                ),
+                        listOf(
+                            GatedStartupTask(
+                                id = StartupTaskId.THEME_APPLICATION,
+                                order = 20,
+                                failurePolicy = StartupTaskFailurePolicy.REQUIRED,
+                                gate = themeGate,
                             ),
+                            SignalStartupTask(
+                                id = StartupTaskId.WORKSPACE_MAINTENANCE,
+                                order = 30,
+                                failurePolicy = StartupTaskFailurePolicy.REQUIRED,
+                                started = workspaceStarted,
+                            ),
+                        ),
                     )
 
                 val result = async { workflow.runStartup() }
@@ -161,20 +161,22 @@ class AppStartupWorkflowTest : AppFunSpec() {
             }
         }
 
-        test("given theme task owns global side effects when activity observes theme then activity only stores resolved state") {
+        test(
+            "given theme task owns global side effects when activity observes theme then activity only stores resolved state",
+        ) {
             runTest(dispatcher.scheduler) {
                 val appliedThemes = mutableListOf<ThemeMode>()
                 val themeTask =
                     ThemeApplicationStartupTask(
                         appConfigRepository =
-                            FakeAppConfigRepository().apply {
-                                setThemeModeNow(ThemeMode.DARK)
-                            },
+                        FakeAppConfigRepository().apply {
+                            setThemeModeNow(ThemeMode.DARK)
+                        },
                         themeSideEffect =
-                            ThemeSideEffect(
-                                isAppliedResolver = { themeMode -> appliedThemes.lastOrNull() == themeMode },
-                                themeApplier = appliedThemes::add,
-                            ),
+                        ThemeSideEffect(
+                            isAppliedResolver = { themeMode -> appliedThemes.lastOrNull() == themeMode },
+                            themeApplier = appliedThemes::add,
+                        ),
                     )
                 val workflow = AppStartupWorkflow(tasks = listOf(themeTask))
                 val activityState = ActivityThemeState()
@@ -202,9 +204,9 @@ class AppStartupWorkflowTest : AppFunSpec() {
                 val workflow =
                     AppStartupWorkflow(
                         tasks =
-                            listOf(
-                                StartupUpdateCheckTask(updateOrchestrator),
-                            ),
+                        listOf(
+                            StartupUpdateCheckTask(updateOrchestrator),
+                        ),
                     )
 
                 workflow.runStartup()
@@ -220,9 +222,9 @@ class AppStartupWorkflowTest : AppFunSpec() {
                 val workflow =
                     AppStartupWorkflow(
                         tasks =
-                            listOf(
-                                SecuritySessionRestoreTask(securitySession),
-                            ),
+                        listOf(
+                            SecuritySessionRestoreTask(securitySession),
+                        ),
                     )
 
                 workflow.runStartup()
@@ -240,10 +242,10 @@ class AppStartupWorkflowTest : AppFunSpec() {
                 val workflow =
                     AppStartupWorkflow(
                         tasks =
-                            listOf(
-                                DynamicShortcutStartupTask(publisher),
-                                SecuritySessionRestoreTask(RecordingSecuritySessionController()),
-                            ),
+                        listOf(
+                            DynamicShortcutStartupTask(publisher),
+                            SecuritySessionRestoreTask(RecordingSecuritySessionController()),
+                        ),
                     )
 
                 val result = workflow.runStartup()
@@ -345,9 +347,7 @@ private class RecordingSecuritySessionController : com.lomo.domain.repository.Se
     }
 }
 
-private class RecordingDynamicShortcutPublisher(
-    private val failure: Throwable? = null,
-) : DynamicShortcutPublisher {
+private class RecordingDynamicShortcutPublisher(private val failure: Throwable? = null) : DynamicShortcutPublisher {
     var publishCount = 0
         private set
 

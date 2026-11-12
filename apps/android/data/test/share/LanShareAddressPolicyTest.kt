@@ -1,6 +1,6 @@
 package com.lomo.data.share
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
@@ -16,14 +16,12 @@ package com.lomo.data.share
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
-
-import java.net.InetAddress
 import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
+import java.net.InetAddress
 
 /*
  * Behavior Contract:
@@ -323,7 +321,11 @@ class LanShareAddressPolicyTest : DataFunSpec() {
             val hotspotNetwork = io.mockk.mockk<android.net.Network>()
             val networkSnapshots =
                 listOf(
-                    LanShareActiveNetworkSnapshot(networkKey = "wifi", bindHost = "192.168.1.7", network = hotspotNetwork),
+                    LanShareActiveNetworkSnapshot(
+                        networkKey = "wifi",
+                        bindHost = "192.168.1.7",
+                        network = hotspotNetwork,
+                    ),
                 )
             val interfaceSnapshots =
                 listOf(
@@ -334,7 +336,11 @@ class LanShareAddressPolicyTest : DataFunSpec() {
 
             merged shouldBe
                 listOf(
-                    LanShareActiveNetworkSnapshot(networkKey = "wifi", bindHost = "192.168.1.7", network = hotspotNetwork),
+                    LanShareActiveNetworkSnapshot(
+                        networkKey = "wifi",
+                        bindHost = "192.168.1.7",
+                        network = hotspotNetwork,
+                    ),
                     LanShareActiveNetworkSnapshot(networkKey = "if:ap0", bindHost = "192.168.43.1"),
                 )
         }

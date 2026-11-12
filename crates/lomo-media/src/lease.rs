@@ -230,13 +230,32 @@ impl StageLedger {
         staged: &MediaStaged,
         lease: StageLease,
     ) -> Result<StageRecord, LomoError> {
+        self.record_with_probe(staged, lease, |candidate| {
+            filesystem_candidate_is_available(
+                workspace_root,
+                candidate,
+                &staged.digest,
+                staged.size,
+            )
+        })
+    }
+
+    /// Resolves a leased destination using verified evidence from an external capability.
+    ///
+    /// # Errors
+    /// Propagates probe failures and rejects invalid destination paths or ledger writes.
+    pub fn record_with_probe(
+        &mut self,
+        staged: &MediaStaged,
+        lease: StageLease,
+        mut available: impl FnMut(&MediaRelativePath) -> Result<bool, LomoError>,
+    ) -> Result<StageRecord, LomoError> {
         let stage_dir = stage_directory_of(&staged.staging_path)?;
         let artifact_id = ArtifactId::of_digest(&staged.digest);
-        let resolved = self.resolve_final_relative_path(
-            workspace_root,
+        let resolved = self.resolve_with_probe(
             &staged.suggested_final_relative_path,
             &staged.digest,
-            staged.size,
+            &mut available,
         )?;
         let record = self
             .records
@@ -472,8 +491,19 @@ impl StageLedger {
         digest: &ContentDigest,
         size: u64,
     ) -> Result<MediaRelativePath, LomoError> {
+        self.resolve_with_probe(suggested, digest, &mut |candidate| {
+            filesystem_candidate_is_available(workspace_root, candidate, digest, size)
+        })
+    }
+
+    fn resolve_with_probe(
+        &self,
+        suggested: &str,
+        digest: &ContentDigest,
+        available: &mut impl FnMut(&MediaRelativePath) -> Result<bool, LomoError>,
+    ) -> Result<MediaRelativePath, LomoError> {
         let candidate = MediaRelativePath::parse(suggested)?;
-        if self.candidate_is_available(workspace_root, &candidate, digest, size)? {
+        if self.candidate_is_available(&candidate, digest, available)? {
             return Ok(candidate);
         }
         let path = Path::new(suggested);
@@ -508,7 +538,7 @@ impl StageLedger {
                 })?
                 .to_owned();
             let candidate = MediaRelativePath::parse(&raw)?;
-            if self.candidate_is_available(workspace_root, &candidate, digest, size)? {
+            if self.candidate_is_available(&candidate, digest, available)? {
                 return Ok(candidate);
             }
         }
@@ -520,10 +550,9 @@ impl StageLedger {
 
     fn candidate_is_available(
         &self,
-        workspace_root: Option<&Path>,
         candidate: &MediaRelativePath,
         digest: &ContentDigest,
-        size: u64,
+        available: &mut impl FnMut(&MediaRelativePath) -> Result<bool, LomoError>,
     ) -> Result<bool, LomoError> {
         let claimed_by_other = self.records.values().any(|record| {
             record.suggested_final_relative_path == candidate.as_str() && record.digest != *digest
@@ -531,19 +560,28 @@ impl StageLedger {
         if claimed_by_other {
             return Ok(false);
         }
-        let Some(root) = workspace_root else {
-            return Ok(true);
-        };
-        let absolute = root.join(candidate.as_str());
-        if !absolute.exists() {
-            return Ok(true);
-        }
-        if !absolute.is_file() {
-            return Ok(false);
-        }
-        let (existing, existing_size) = ContentDigest::stream_from_path(&absolute)?;
-        Ok(existing == *digest && existing_size == size)
+        available(candidate)
     }
+}
+
+fn filesystem_candidate_is_available(
+    workspace_root: Option<&Path>,
+    candidate: &MediaRelativePath,
+    digest: &ContentDigest,
+    size: u64,
+) -> Result<bool, LomoError> {
+    let Some(root) = workspace_root else {
+        return Ok(true);
+    };
+    let absolute = root.join(candidate.as_str());
+    if !absolute.exists() {
+        return Ok(true);
+    }
+    if !absolute.is_file() {
+        return Ok(false);
+    }
+    let (existing, existing_size) = ContentDigest::stream_from_path(&absolute)?;
+    Ok(existing == *digest && existing_size == size)
 }
 
 /// Returns the stage directory that owns `staging_path`.

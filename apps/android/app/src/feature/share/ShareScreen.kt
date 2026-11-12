@@ -10,7 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -23,8 +22,11 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.CapabilityRecoveryAction
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.domain.model.ShareTransferState
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 
@@ -32,6 +34,7 @@ import com.lomo.ui.util.LocalAppHapticFeedback
 @Composable
 fun ShareScreen(
     onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: ShareViewModel = injectedKoinViewModel(),
 ) {
     val uiState = collectShareScreenUiState(viewModel)
@@ -52,12 +55,18 @@ fun ShareScreen(
     LaunchedEffect(Unit) { viewModel.startLanShareDiscoverySession() }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier =
+        modifier
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
+            .benchmarkAnchorRoot(BenchmarkAnchorContract.LAN_SHARE_ROOT),
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.share_lan_title)) },
                 navigationIcon = {
-                    IconButton(onClick = { haptic.medium(); onBackClick() }) {
+                    LomoIconButton(onClick = {
+                        haptic.medium()
+                        onBackClick()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
                     }
                 },
@@ -71,10 +80,10 @@ fun ShareScreen(
     ) { padding ->
         Column(
             modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = AppSpacing.ScreenHorizontalPadding),
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = AppSpacing.ScreenHorizontalPadding),
         ) {
             LanShareSettingsCard(
                 deviceNameInput = localState.deviceNameInput,
@@ -86,7 +95,10 @@ fun ShareScreen(
                         viewModel.updateLanShareDeviceName(localState.deviceNameInput)
                     }
                 },
-                onUseSystemDeviceName = { localState.deviceNameInput = ""; viewModel.updateLanShareDeviceName("") },
+                onUseSystemDeviceName = {
+                    localState.deviceNameInput = ""
+                    viewModel.updateLanShareDeviceName("")
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(AppSpacing.MediumSmall))

@@ -279,9 +279,7 @@ pub fn open_runtime(paths: RuntimePaths, config: AppConfig) -> Result<TuiRuntime
     let executor = Arc::new(FsPlatformActionExecutor::new(&paths.exchange_dir)?);
     let capability = CapabilityToken::parse("notes-root")?;
     executor.bind_root(capability.clone(), &config.workspace)?;
-    lomo_workspace::migrate_history_state_v1_to_v2(&config.workspace)?;
-    let workspace_generation =
-        lomo_workspace::load_or_mint_workspace_generation(&config.workspace)?;
+    let workspace_generation = lomo_workspace::load_or_mint_workspace_generation(&paths.state_dir)?;
     let session_config = WorkspaceSessionConfig {
         capability,
         root_id: WorkspaceRootId::Notes,
@@ -294,7 +292,10 @@ pub fn open_runtime(paths: RuntimePaths, config: AppConfig) -> Result<TuiRuntime
         exchange_dir: paths.exchange_dir.clone(),
         media_stage_root: config.media_dir.clone(),
     };
-    let executor: Arc<dyn lomo_core::PlatformActionExecutor> = executor;
+    let records = Arc::new(FsPlatformActionExecutor::new(&paths.exchange_dir)?);
+    records.bind_root(session_config.capability.clone(), &paths.state_dir)?;
+    let storage = lomo_application::WorkspaceStorageExecutor::new(executor, records);
+    let executor: Arc<dyn lomo_core::PlatformActionExecutor> = Arc::new(storage);
     let session = WorkspaceSession::open(session_config.clone(), Arc::clone(&executor))?;
     Ok(TuiRuntime {
         session,

@@ -36,7 +36,9 @@ class DomainDiBoundaryTest : AppFunSpec() {
             }
         }
 
-        test("given sync provider extension when app DI is inspected then app does not manually construct provider list") {
+        test(
+            "given sync provider extension when app DI is inspected then app does not manually construct provider list",
+        ) {
             val diFiles = collectKotlinFiles(resolveModuleRoot("app").resolve("src/di"))
             val offenders =
                 diFiles.filter { file ->
@@ -50,13 +52,12 @@ class DomainDiBoundaryTest : AppFunSpec() {
         }
     }
 
-    private fun collectKotlinFiles(root: File): List<File> =
-        root
-            .takeIf(File::exists)
-            ?.walkTopDown()
-            ?.filter { it.isFile && it.extension == "kt" }
-            ?.toList()
-            .orEmpty()
+    private fun collectKotlinFiles(root: File): List<File> = root
+        .takeIf(File::exists)
+        ?.walkTopDown()
+        ?.filter { it.isFile && it.extension == "kt" }
+        ?.toList()
+        .orEmpty()
 
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."

@@ -33,8 +33,7 @@ fun markdownFactsFromState(
 fun binaryFactsFromState(
     ready: SyncCenterLoadState.Ready,
     path: RemoteSyncConflictPath,
-): RemoteSyncBinaryConflictFacts =
-    ready.binaryDetailByPath[path.path] ?: binaryFactsFor(path)
+): RemoteSyncBinaryConflictFacts = ready.binaryDetailByPath[path.path] ?: binaryFactsFor(path)
 
 fun selectedConflict(state: SyncCenterUiState): RemoteSyncConflictPath? {
     val ready = state.load as? SyncCenterLoadState.Ready ?: return null

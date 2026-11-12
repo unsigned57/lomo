@@ -1,0 +1,116 @@
+package com.lomo.data.engine
+
+import android.content.ContentResolver
+import android.content.Context
+import android.content.UriPermission
+import android.net.Uri
+import android.provider.DocumentsContract
+import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.testing.fakes.FakeCursor
+import com.lomo.domain.model.StorageLocation
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
+import kotlinx.coroutines.test.runTest
+
+/*
+ * Behavior Contract:
+ * Capability: all storage candidates prove access to the selected directory before switching; owner: data; priority: P0.
+ * Scenarios:
+ * - Given a writable grant parent and an unavailable selected child, when validated, then the child is rejected.
+ * - Given a valid grant and readable metadata but a null child query, when validated, then incomplete enumeration is rejected.
+ * - Given a complete empty directory, when validated, then selection succeeds.
+ * Observable outcomes: classified rejection or successful validation; no settings writes occur in this boundary.
+ * TDD proof: target/lomo/reports/manual/directory-selection/candidate-red.log and verification-green.log.
+ * Excludes: recursive Rust import and real provider timing.
+ */
+class SelectedDirectoryCandidateTest :
+    FunSpec({
+        afterTest { unmockkStatic(Uri::class, DocumentsContract::class, DocumentFile::class) }
+
+        test(
+            "given an available grant parent and unavailable selected child when validated then the child is rejected",
+        ) {
+            runTest {
+                val provider = CandidateProvider(childAvailable = false, listingAvailable = true)
+                shouldThrow<WorkspaceCandidateValidationException> {
+                    WorkspaceCandidateProbe(
+                        provider.context,
+                        com.lomo.domain.usecase.DefaultDispatcherProvider(),
+                    ).validate(StorageLocation(CANDIDATE))
+                }.code shouldBe "workspace_content_unavailable"
+            }
+        }
+        test("given a null listing when validated then the candidate fails before switching") {
+            runTest {
+                val provider = CandidateProvider(childAvailable = true, listingAvailable = false)
+                shouldThrow<WorkspaceCandidateValidationException> {
+                    WorkspaceCandidateProbe(
+                        provider.context,
+                        com.lomo.domain.usecase.DefaultDispatcherProvider(),
+                    ).validate(StorageLocation(CANDIDATE))
+                }.code shouldBe "metadata_enumeration_incomplete"
+            }
+        }
+        test("given a complete empty selected directory when validated then it is accepted") {
+            runTest {
+                val provider = CandidateProvider(childAvailable = true, listingAvailable = true)
+                WorkspaceCandidateProbe(
+                    provider.context,
+                    com.lomo.domain.usecase.DefaultDispatcherProvider(),
+                ).validate(StorageLocation(CANDIDATE))
+            }
+        }
+    })
+
+private const val CANDIDATE = "content://provider/tree/parent/document/selected-child"
+
+private class CandidateProvider(childAvailable: Boolean, listingAvailable: Boolean) {
+    val context = mockk<Context>()
+
+    init {
+        mockkStatic(Uri::class, DocumentsContract::class, DocumentFile::class)
+        val selected = mockk<Uri>()
+        val document = mockk<Uri>()
+        val children = mockk<Uri>()
+        val resolver = mockk<ContentResolver>()
+        val parent = mockk<DocumentFile>()
+        val child = mockk<DocumentFile>()
+        val grant = mockk<UriPermission>()
+        every { Uri.parse(CANDIDATE) } returns selected
+        every { selected.toString() } returns CANDIDATE
+        every { DocumentsContract.getTreeDocumentId(selected) } returns "parent"
+        every { DocumentsContract.getDocumentId(selected) } returns "selected-child"
+        every { DocumentsContract.buildDocumentUriUsingTree(selected, "selected-child") } returns document
+        every { DocumentsContract.buildChildDocumentsUriUsingTree(selected, "selected-child") } returns children
+        every { DocumentFile.fromTreeUri(context, selected) } returns parent
+        every { DocumentFile.fromSingleUri(context, document) } returns child
+        every { parent.exists() } returns true
+        every { parent.isDirectory } returns true
+        every { parent.canRead() } returns true
+        every { parent.canWrite() } returns true
+        every { child.exists() } returns childAvailable
+        every { child.isDirectory } returns true
+        every { child.canRead() } returns true
+        every { child.canWrite() } returns true
+        every { context.contentResolver } returns resolver
+        every { resolver.persistedUriPermissions } returns listOf(grant)
+        every { grant.uri } returns selected
+        every { grant.isReadPermission } returns true
+        every { grant.isWritePermission } returns true
+        every { resolver.query(children, any<Array<String>>(), null, null, null) } answers {
+            if (listingAvailable) {
+                FakeCursor(
+                    ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION,
+                    emptyList(),
+                )
+            } else {
+                null
+            }
+        }
+    }
+}

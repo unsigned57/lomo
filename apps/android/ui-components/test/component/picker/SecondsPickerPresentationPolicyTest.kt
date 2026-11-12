@@ -75,116 +75,126 @@ import java.io.File
 import java.util.Locale
 import javax.xml.parsers.DocumentBuilderFactory
 
-class SecondsPickerPresentationPolicyTest : FunSpec({
-    test("given single digit second and root locale when display text requested then two ASCII digits are returned") {
-        SecondsPickerPresentationPolicy.displayText(second = 5, locale = Locale.ROOT) shouldBe "05"
-    }
-
-    test("given Arabic Egypt locale when display text requested then localized two digit text is returned") {
-        SecondsPickerPresentationPolicy.displayText(
-            second = 5,
-            locale = Locale.forLanguageTag("ar-EG"),
-        ) shouldBe "\u0660\u0665"
-    }
-
-    test("given out of range second when display text requested then value is clamped before formatting") {
-        SecondsPickerPresentationPolicy.displayText(second = 64, locale = Locale.ROOT) shouldBe "59"
-    }
-
-    test("given selected state semantics when resources inspected then each locale owns the full sentence pattern") {
-        assertSoftly {
-            pickerStringResource(
-                localeDirectory = "values",
-                name = "seconds_wheel_picker_state_description",
-            ) shouldBe "%1\$s seconds selected"
-            pickerStringResource(
-                localeDirectory = "values-zh-rCN",
-                name = "seconds_wheel_picker_state_description",
-            ) shouldBe "\u5df2\u9009\u4e2d %1\$s \u79d2"
+class SecondsPickerPresentationPolicyTest :
+    FunSpec({
+        test(
+            "given single digit second and root locale when display text requested then two ASCII digits are returned",
+        ) {
+            SecondsPickerPresentationPolicy.displayText(second = 5, locale = Locale.ROOT) shouldBe "05"
         }
-    }
 
-    test("given selected state semantics when policy api inspected then policy exposes no sentence builder") {
-        SecondsPickerPresentationPolicy::class.java
-            .declaredMethods
-            .map { method -> method.name }
-            .toSet()
-            .shouldNotContain("selectedStateDescription")
-    }
+        test("given Arabic Egypt locale when display text requested then localized two digit text is returned") {
+            SecondsPickerPresentationPolicy.displayText(
+                second = 5,
+                locale = Locale.forLanguageTag("ar-EG"),
+            ) shouldBe "\u0660\u0665"
+        }
 
-    test("given user scroll changes centered second when effect requested then value change and haptic are emitted") {
-        SecondsPickerPresentationPolicy.selectionEffect(
-            origin = SecondsPickerChangeOrigin.UserScroll,
-            previousCenteredSecond = 4,
-            centeredSecond = 5,
-            externalValue = 4,
-        ) shouldBe SecondsPickerSelectionEffect(
-            emitValueChange = true,
-            emitHaptic = true,
-        )
-    }
+        test("given out of range second when display text requested then value is clamped before formatting") {
+            SecondsPickerPresentationPolicy.displayText(second = 64, locale = Locale.ROOT) shouldBe "59"
+        }
 
-    test("given external sync changes centered second when effect requested then no value change or haptic is emitted") {
-        SecondsPickerPresentationPolicy.selectionEffect(
-            origin = SecondsPickerChangeOrigin.ExternalValueSync,
-            previousCenteredSecond = 4,
-            centeredSecond = 5,
-            externalValue = 5,
-        ) shouldBe SecondsPickerSelectionEffect(
-            emitValueChange = false,
-            emitHaptic = false,
-        )
-    }
+        test(
+            "given selected state semantics when resources inspected then each locale owns the full sentence pattern",
+        ) {
+            assertSoftly {
+                pickerStringResource(
+                    localeDirectory = "values",
+                    name = "seconds_wheel_picker_state_description",
+                ) shouldBe "%1\$s seconds selected"
+                pickerStringResource(
+                    localeDirectory = "values-zh-rCN",
+                    name = "seconds_wheel_picker_state_description",
+                ) shouldBe "\u5df2\u9009\u4e2d %1\$s \u79d2"
+            }
+        }
 
-    test("given user scroll keeps same centered second when effect requested then no duplicate haptic is emitted") {
-        SecondsPickerPresentationPolicy.selectionEffect(
-            origin = SecondsPickerChangeOrigin.UserScroll,
-            previousCenteredSecond = 5,
-            centeredSecond = 5,
-            externalValue = 4,
-        ) shouldBe SecondsPickerSelectionEffect(
-            emitValueChange = false,
-            emitHaptic = false,
-        )
-    }
+        test("given selected state semantics when policy api inspected then policy exposes no sentence builder") {
+            SecondsPickerPresentationPolicy::class.java
+                .declaredMethods
+                .map { method -> method.name }
+                .toSet()
+                .shouldNotContain("selectedStateDescription")
+        }
 
-    test("given reduced motion requested when scroll behavior resolved then external sync scrolls immediately") {
-        SecondsPickerPresentationPolicy.scrollBehavior(reduceMotion = true) shouldBe
-            SecondsPickerScrollBehavior.Immediate
-    }
+        test(
+            "given user scroll changes centered second when effect requested then value change and haptic are emitted",
+        ) {
+            SecondsPickerPresentationPolicy.selectionEffect(
+                origin = SecondsPickerChangeOrigin.UserScroll,
+                previousCenteredSecond = 4,
+                centeredSecond = 5,
+                externalValue = 4,
+            ) shouldBe SecondsPickerSelectionEffect(
+                emitValueChange = true,
+                emitHaptic = true,
+            )
+        }
 
-    test("given reduced motion not requested when scroll behavior resolved then external sync animates") {
-        SecondsPickerPresentationPolicy.scrollBehavior(reduceMotion = false) shouldBe
-            SecondsPickerScrollBehavior.Animated
-    }
+        test(
+            "given external sync changes centered second when effect requested then no value change or haptic is emitted",
+        ) {
+            SecondsPickerPresentationPolicy.selectionEffect(
+                origin = SecondsPickerChangeOrigin.ExternalValueSync,
+                previousCenteredSecond = 4,
+                centeredSecond = 5,
+                externalValue = 5,
+            ) shouldBe SecondsPickerSelectionEffect(
+                emitValueChange = false,
+                emitHaptic = false,
+            )
+        }
 
-    test("given accessibility progress outside range when action resolved then target is rounded clamped and emitted") {
-        SecondsPickerPresentationPolicy.accessibilityProgressAction(
-            requestedProgress = 72.6f,
-            currentValue = 12,
-        ) shouldBe SecondsPickerAccessibilityProgressAction(
-            handled = true,
-            targetSecond = 59,
-            emitValueChange = true,
-        )
-    }
+        test("given user scroll keeps same centered second when effect requested then no duplicate haptic is emitted") {
+            SecondsPickerPresentationPolicy.selectionEffect(
+                origin = SecondsPickerChangeOrigin.UserScroll,
+                previousCenteredSecond = 5,
+                centeredSecond = 5,
+                externalValue = 4,
+            ) shouldBe SecondsPickerSelectionEffect(
+                emitValueChange = false,
+                emitHaptic = false,
+            )
+        }
 
-    test("given accessibility progress equals current value when action resolved then action is handled without duplicate emit") {
-        SecondsPickerPresentationPolicy.accessibilityProgressAction(
-            requestedProgress = 12.4f,
-            currentValue = 12,
-        ) shouldBe SecondsPickerAccessibilityProgressAction(
-            handled = true,
-            targetSecond = 12,
-            emitValueChange = false,
-        )
-    }
-})
+        test("given reduced motion requested when scroll behavior resolved then external sync scrolls immediately") {
+            SecondsPickerPresentationPolicy.scrollBehavior(reduceMotion = true) shouldBe
+                SecondsPickerScrollBehavior.Immediate
+        }
 
-private fun pickerStringResource(
-    localeDirectory: String,
-    name: String,
-): String {
+        test("given reduced motion not requested when scroll behavior resolved then external sync animates") {
+            SecondsPickerPresentationPolicy.scrollBehavior(reduceMotion = false) shouldBe
+                SecondsPickerScrollBehavior.Animated
+        }
+
+        test(
+            "given accessibility progress outside range when action resolved then target is rounded clamped and emitted",
+        ) {
+            SecondsPickerPresentationPolicy.accessibilityProgressAction(
+                requestedProgress = 72.6f,
+                currentValue = 12,
+            ) shouldBe SecondsPickerAccessibilityProgressAction(
+                handled = true,
+                targetSecond = 59,
+                emitValueChange = true,
+            )
+        }
+
+        test(
+            "given accessibility progress equals current value when action resolved then action is handled without duplicate emit",
+        ) {
+            SecondsPickerPresentationPolicy.accessibilityProgressAction(
+                requestedProgress = 12.4f,
+                currentValue = 12,
+            ) shouldBe SecondsPickerAccessibilityProgressAction(
+                handled = true,
+                targetSecond = 12,
+                emitValueChange = false,
+            )
+        }
+    })
+
+private fun pickerStringResource(localeDirectory: String, name: String): String {
     val stringsFile =
         listOf(
             File("ui-components/composeResources/$localeDirectory/strings.xml"),

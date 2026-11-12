@@ -29,6 +29,7 @@ class DailyReviewSessionUseCase(
                 date = today,
                 seed = seedProvider(),
                 pageIndex = 0,
+                options = existing?.options ?: com.lomo.domain.model.DailyReviewOptions(),
             )
         repository.saveSession(newSession)
         return newSession
@@ -37,12 +38,14 @@ class DailyReviewSessionUseCase(
     suspend fun updateCurrentPage(
         seed: Long,
         pageIndex: Int,
+        options: com.lomo.domain.model.DailyReviewOptions = com.lomo.domain.model.DailyReviewOptions(),
     ) {
         repository.saveSession(
             DailyReviewSession(
                 date = currentDateProvider(),
                 seed = seed,
                 pageIndex = pageIndex.coerceAtLeast(0),
+                options = options,
             ),
         )
     }

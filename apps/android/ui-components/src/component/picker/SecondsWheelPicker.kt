@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,9 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -46,9 +43,10 @@ import com.lomo.ui.generated.resources.seconds_wheel_picker_content_description
 import com.lomo.ui.generated.resources.seconds_wheel_picker_state_description
 import com.lomo.ui.util.AppHapticFeedback
 import com.lomo.ui.util.LocalAppHapticFeedback
+import kotlinx.coroutines.flow.distinctUntilChanged
+import org.jetbrains.compose.resources.stringResource
 import java.util.Locale
 import kotlin.math.abs
-import kotlinx.coroutines.flow.distinctUntilChanged
 
 private const val WHEEL_VISIBLE_ITEMS_DEFAULT = 5
 private val WHEEL_ITEM_HEIGHT_DEFAULT = 40.dp
@@ -133,23 +131,23 @@ fun SecondsWheelPicker(
             target = SecondsWheelMath.clamp(value),
             reduceMotion = reduceMotion,
             context =
-                SecondsWheelExternalSyncContext(
-                    listState = listState,
-                    centeredSecond = { centeredSecondState.value },
-                    externalSyncTarget = { externalSyncTarget },
-                    updateExternalSyncTarget = { externalSyncTarget = it },
-                    updatePreviousCenteredSecond = { previousCenteredSecond = it },
-                ),
+            SecondsWheelExternalSyncContext(
+                listState = listState,
+                centeredSecond = { centeredSecondState.value },
+                externalSyncTarget = { externalSyncTarget },
+                updateExternalSyncTarget = { externalSyncTarget = it },
+                updatePreviousCenteredSecond = { previousCenteredSecond = it },
+            ),
         )
     }
 
     SecondsWheelPickerContent(
         viewport =
-            SecondsWheelViewport(
-                visibleItems = visibleItems,
-                itemHeight = itemHeight,
-                padding = padding,
-            ),
+        SecondsWheelViewport(
+            visibleItems = visibleItems,
+            itemHeight = itemHeight,
+            padding = padding,
+        ),
         listState = listState,
         centeredSecond = centeredSecond,
         locale = locale,
@@ -230,11 +228,7 @@ private fun SecondsWheelPickerContent(
     }
 }
 
-private data class SecondsWheelViewport(
-    val visibleItems: Int,
-    val itemHeight: Dp,
-    val padding: Dp,
-)
+private data class SecondsWheelViewport(val visibleItems: Int, val itemHeight: Dp, val padding: Dp)
 
 private data class SecondsWheelSelectionContext(
     val centeredSecond: () -> Int,
@@ -308,12 +302,7 @@ private suspend fun syncSecondsWheelExternalValue(
 }
 
 @Composable
-private fun SecondsWheelRow(
-    second: Int,
-    centeredSecond: Int,
-    itemHeight: Dp,
-    locale: Locale,
-) {
+private fun SecondsWheelRow(second: Int, centeredSecond: Int, itemHeight: Dp, locale: Locale) {
     val distance = abs(second - centeredSecond)
     val alpha = (1f - distance * 0.35f).coerceAtLeast(WHEEL_FADE_MIN_ALPHA)
     val isCentered = distance == 0

@@ -17,30 +17,18 @@ class FakeReminderCoordinator : ReminderCoordinator {
 
     override suspend fun syncForMemo(memoId: String) = Unit
 
-    override suspend fun cancelForMemo(
-        memoId: String,
-        reminderIds: Set<String>,
-    ) = Unit
+    override suspend fun cancelForMemo(memoId: String, reminderIds: Set<String>) = Unit
 
     override suspend fun rebuildAll() = Unit
 
-    override suspend fun snooze(
-        memoId: String,
-        reminderId: String,
-    ) = Unit
+    override suspend fun snooze(memoId: String, reminderId: String) = Unit
 
-    override suspend fun markDone(
-        memoId: String,
-        reminderId: String,
-    ) {
+    override suspend fun markDone(memoId: String, reminderId: String) {
         markDoneFailure?.let { throw it }
         lastMarkedDoneMemoId = memoId
         lastMarkedDoneTokenRaw = reminderId
         markDoneCalledCount++
     }
 
-    override suspend fun recordFired(
-        memoId: String,
-        reminderId: String,
-    ) = Unit
+    override suspend fun recordFired(memoId: String, reminderId: String) = Unit
 }

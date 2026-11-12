@@ -56,9 +56,9 @@ fun ExpressiveSteppedPickerDialog(
                 val direction = if (forward) 1 else -1
                 (
                     slideInHorizontally { width -> direction * width / STEP_SLIDE_FRACTION } + fadeIn()
-                ) togetherWith (
+                    ) togetherWith (
                     slideOutHorizontally { width -> -direction * width / STEP_SLIDE_FRACTION } + fadeOut()
-                ) using SizeTransform(clip = false)
+                    ) using SizeTransform(clip = false)
             },
             label = "ExpressiveSteppedPickerStep",
         ) { index ->

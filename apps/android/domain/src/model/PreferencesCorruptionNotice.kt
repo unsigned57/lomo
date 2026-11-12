@@ -7,7 +7,4 @@ package com.lomo.domain.model
  * evidence, the session runs on empty preferences, and this notice is what lets the app present
  * recovery instead of silently losing settings.
  */
-data class PreferencesCorruptionNotice(
-    val quarantinedFileName: String,
-    val diagnostic: String,
-)
+data class PreferencesCorruptionNotice(val quarantinedFileName: String, val diagnostic: String)

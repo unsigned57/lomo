@@ -9,18 +9,18 @@ import com.lomo.data.engine.lan.LanInboxWait
 import com.lomo.data.engine.lan.LanLocalIdentity
 import com.lomo.data.engine.lan.LanNetworkFacts
 import com.lomo.data.engine.lan.LanPairingChallenge
-import com.lomo.data.engine.lan.LanPendingBatch
 import com.lomo.data.engine.lan.LanPeer
 import com.lomo.data.engine.lan.LanPeerPage
+import com.lomo.data.engine.lan.LanPendingBatch
+import com.lomo.data.engine.lan.LanProtocolLimits
 import com.lomo.data.engine.lan.LanRuntimeInbox
+import com.lomo.data.engine.lan.LanSendItemPlan
 import com.lomo.data.engine.lan.LanServicePhase
 import com.lomo.data.engine.lan.LanServiceState
-import com.lomo.data.engine.lan.LanSendItemPlan
 import com.lomo.data.engine.lan.LanSessionChallenge
 import com.lomo.data.engine.lan.LanSessionPhase
 import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
-import com.lomo.data.engine.lan.LanProtocolLimits
 import com.lomo.nativebridge.LomoEngine
 import com.lomo.nativebridge.PlatformBatchResult
 import com.lomo.nativebridge.RenderRequest
@@ -36,36 +36,38 @@ import java.util.concurrent.atomic.AtomicReference
  * fixed close order once. Store commits publish onto StoreInvalidationBus; journal CoreEvent is
  * not forwarded into Kotlin.
  */
-internal class BoltFfiNativeEnginePort(
-    engine: LomoEngine,
-) : WorkspaceNativeEnginePort,
+internal class BoltFfiNativeEnginePort(engine: LomoEngine) :
+    WorkspaceNativeEnginePort,
     AutoCloseable {
-    private val lease = NativeHandleLease()
+    private val lease = NativeHandleLease {
+        // Rust's service stop bumps the inbox generation and wakes its condvar. Calling
+        // it only after taking the exclusive handle lease would wait for the 30s poll.
+        check(engine.stopLanService().phase == com.lomo.nativebridge.LanServicePhaseDto.STOPPED) {
+            "Native LAN service did not stop before engine retirement"
+        }
+    }
     private val engineRef = AtomicReference(engine)
 
-    override fun state(): NativeEngineSnapshot =
-        withReadLease { engine ->
-            engine.state().toSnapshot()
-        }
+    override fun state(): NativeEngineSnapshot = withReadLease { engine ->
+        engine.state().toSnapshot()
+    }
 
-    override fun lanTransferShape(): LanTransferShape =
-        withReadLease { engine ->
-            engine.lanTransferShape().let { shape ->
-                LanTransferShape(shape.bodySlot, shape.chunkPlaintextBytes, shape.maxInflightChunks)
-            }
+    override fun lanTransferShape(): LanTransferShape = withReadLease { engine ->
+        engine.lanTransferShape().let { shape ->
+            LanTransferShape(shape.bodySlot, shape.chunkPlaintextBytes, shape.maxInflightChunks)
         }
+    }
 
-    override fun lanProtocolLimits(): LanProtocolLimits =
-        withReadLease { engine ->
-            engine.lanProtocolLimits().let { limits ->
-                LanProtocolLimits(
-                    protocolVersion = limits.protocolVersion,
-                    pairingTtlMs = limits.pairingTtlMs,
-                    sessionTtlMs = limits.sessionTtlMs,
-                    approvalTtlMs = limits.approvalTtlMs,
-                )
-            }
+    override fun lanProtocolLimits(): LanProtocolLimits = withReadLease { engine ->
+        engine.lanProtocolLimits().let { limits ->
+            LanProtocolLimits(
+                protocolVersion = limits.protocolVersion,
+                pairingTtlMs = limits.pairingTtlMs,
+                sessionTtlMs = limits.sessionTtlMs,
+                approvalTtlMs = limits.approvalTtlMs,
+            )
         }
+    }
 
     override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) {
         withReadLease { engine -> engine.updateLanNetworkSnapshot(snapshot.toBridge()) }
@@ -75,40 +77,32 @@ internal class BoltFfiNativeEnginePort(
         withReadLease { engine -> engine.updateLanDiscoverySnapshot(snapshot.toBridge()) }
     }
 
-    override fun startLanService(): LanServiceState =
-        withReadLease { engine -> engine.startLanService().toSnapshot() }
+    override fun startLanService(): LanServiceState = withReadLease { engine -> engine.startLanService().toSnapshot() }
 
-    override fun stopLanService(): LanServiceState =
-        withReadLease { engine -> engine.stopLanService().toSnapshot() }
+    override fun stopLanService(): LanServiceState = withReadLease { engine -> engine.stopLanService().toSnapshot() }
 
-    override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
-        withReadLease { engine ->
-            engine.awaitLanInbox(lastGeneration, timeoutMs).toSnapshot()
-        }
+    override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait = withReadLease { engine ->
+        engine.awaitLanInbox(lastGeneration, timeoutMs).toSnapshot()
+    }
 
     override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> =
         withReadLease { engine -> engine.listLanDiscoveredPeers().map { peer -> peer.toSnapshot() } }
 
-    override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity =
-        withReadLease { engine ->
-            engine.configureLanIdentity(
-                com.lomo.nativebridge.LanDeviceIdentityDto(
-                    publicKey = identity.publicKey,
-                    displayName = identity.displayName,
-                ),
-            ).let { configured ->
-                LanLocalIdentity(
-                    deviceId = configured.deviceId,
-                    displayName = configured.displayName,
-                )
-            }
+    override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity = withReadLease { engine ->
+        engine.configureLanIdentity(
+            com.lomo.nativebridge.LanDeviceIdentityDto(
+                publicKey = identity.publicKey,
+                displayName = identity.displayName,
+            ),
+        ).let { configured ->
+            LanLocalIdentity(
+                deviceId = configured.deviceId,
+                displayName = configured.displayName,
+            )
         }
+    }
 
-    override fun beginLanPairing(
-        peerDeviceId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ): LanPairingChallenge =
+    override fun beginLanPairing(peerDeviceId: String, nowMs: Long, ttlMs: Long): LanPairingChallenge =
         withReadLease { engine ->
             engine.beginLanPairing(peerDeviceId, nowMs, ttlMs).toSnapshot()
         }
@@ -116,11 +110,7 @@ internal class BoltFfiNativeEnginePort(
     override fun lanPairingChallenge(pairingId: String): LanPairingChallenge =
         withReadLease { engine -> engine.lanPairingChallenge(pairingId).toSnapshot() }
 
-    override fun confirmLanPairing(
-        pairingId: String,
-        signature: ByteArray,
-        nowMs: Long,
-    ) {
+    override fun confirmLanPairing(pairingId: String, signature: ByteArray, nowMs: Long) {
         withReadLease { engine -> engine.confirmLanPairing(pairingId, signature, nowMs) }
     }
 
@@ -128,50 +118,29 @@ internal class BoltFfiNativeEnginePort(
         withReadLease { engine -> engine.declineLanPairing(pairingId) }
     }
 
-    override fun beginLanSession(
-        peerDeviceId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ): LanSessionChallenge =
+    override fun beginLanSession(peerDeviceId: String, nowMs: Long, ttlMs: Long): LanSessionChallenge =
         withReadLease { engine -> engine.beginLanSession(peerDeviceId, nowMs, ttlMs).toSnapshot() }
 
-    override fun confirmLanSession(
-        sessionId: String,
-        signature: ByteArray,
-        nowMs: Long,
-    ) {
+    override fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long) {
         withReadLease { engine -> engine.confirmLanSession(sessionId, signature, nowMs) }
     }
 
     override fun lanSessionState(sessionId: String): LanSessionState =
         withReadLease { engine -> engine.lanSessionSnapshot(sessionId).toSnapshot() }
 
-    override fun prepareLanBatch(
-        sessionId: String,
-        batchId: String,
-        items: List<LanSendItemPlan>,
-    ) {
+    override fun prepareLanBatch(sessionId: String, batchId: String, items: List<LanSendItemPlan>) {
         withReadLease { engine ->
             engine.prepareLanBatch(sessionId, batchId, items.map(LanSendItemPlan::toBridge))
         }
     }
 
-    override fun approveLanBatch(
-        sessionId: String,
-        batchId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ) {
+    override fun approveLanBatch(sessionId: String, batchId: String, nowMs: Long, ttlMs: Long) {
         withReadLease { engine ->
             engine.approveLanBatch(sessionId, batchId, nowMs, ttlMs)
         }
     }
 
-    override fun rejectLanBatch(
-        sessionId: String,
-        batchId: String,
-        rejectedAtMs: Long,
-    ) {
+    override fun rejectLanBatch(sessionId: String, batchId: String, rejectedAtMs: Long) {
         withReadLease { engine -> engine.rejectLanBatch(sessionId, batchId, rejectedAtMs) }
     }
 
@@ -182,11 +151,7 @@ internal class BoltFfiNativeEnginePort(
     }
 
     @OptIn(ExperimentalUnsignedTypes::class)
-    override fun lanUnconfirmedBatchChunks(
-        batchId: String,
-        itemIndex: UInt,
-        attachmentSlot: UInt,
-    ): List<UInt> =
+    override fun lanUnconfirmedBatchChunks(batchId: String, itemIndex: UInt, attachmentSlot: UInt): List<UInt> =
         withReadLease { engine ->
             engine.lanUnconfirmedBatchChunks(batchId, itemIndex, attachmentSlot).toList()
         }
@@ -198,61 +163,45 @@ internal class BoltFfiNativeEnginePort(
     ): com.lomo.nativebridge.StoreMemoCommit =
         withReadLease { engine -> engine.commitReceivedLanItem(batchId, itemIndex, nowMs) }
 
-    override fun failReceivedLanItem(
-        batchId: String,
-        itemIndex: UInt,
-        code: String,
-    ) = withReadLease { engine -> engine.failReceivedLanItem(batchId, itemIndex, code) }
+    override fun failReceivedLanItem(batchId: String, itemIndex: UInt, code: String) =
+        withReadLease { engine -> engine.failReceivedLanItem(batchId, itemIndex, code) }
 
-    override fun listLanPeers(): LanPeerPage =
-        withReadLease { engine -> engine.listLanPeers().toSnapshot() }
+    override fun listLanPeers(): LanPeerPage = withReadLease { engine -> engine.listLanPeers().toSnapshot() }
 
-    override fun revokeLanPeer(
-        deviceId: String,
-        revokedAtMs: Long,
-    ): LanPeerPage =
+    override fun revokeLanPeer(deviceId: String, revokedAtMs: Long): LanPeerPage =
         withReadLease { engine -> engine.revokeLanPeer(deviceId, revokedAtMs).toSnapshot() }
 
-    override fun pollJob(jobId: String): NativeJobStep =
-        withReadLease { engine ->
-            engine.pollJob(jobId).toNative()
-        }
+    override fun pollJob(jobId: String): NativeJobStep = withReadLease { engine ->
+        engine.pollJob(jobId).toNative()
+    }
 
-    override fun submitPlatformResult(
-        jobId: String,
-        result: PlatformBatchResult,
-    ): NativeJobStep =
+    override fun submitPlatformResult(jobId: String, result: PlatformBatchResult): NativeJobStep =
         withReadLease { engine ->
             engine.submitPlatformResult(jobId, result).toNative()
         }
 
-    override fun renderMarkdown(
-        content: String,
-        schemaVersion: UInt,
-    ) =
-        withReadLease { engine ->
-            engine
-                .renderMarkdown(RenderRequest(content = content, schemaVersion = schemaVersion))
-                .toDomainDocument(sourceContent = content)
-        }
+    override fun renderMarkdown(content: String, schemaVersion: UInt) = withReadLease { engine ->
+        withRenderFailureConversion {
+            engine.renderMarkdown(RenderRequest(content = content, schemaVersion = schemaVersion))
+        }.toDomainDocument(sourceContent = content)
+    }
 
     override fun startWorkspaceDocumentCommand(
         path: String,
         expectedState: WorkspaceNativeExpectedState,
         command: WorkspaceNativeCommandSpec,
         deadlineMillis: ULong,
-    ): String =
-        withReadLease { engine ->
-            engine.startWorkspaceDocumentCommand(
-                WorkspaceDocumentCommand(
-                    path = path,
-                    expectedState = expectedState.toBridge(),
-                    command = command.toBridge(),
-                    history = command.historyWrite()?.toBridge(),
-                ),
-                deadlineMillis,
-            )
-        }
+    ): String = withReadLease { engine ->
+        engine.startWorkspaceDocumentCommand(
+            WorkspaceDocumentCommand(
+                path = path,
+                expectedState = expectedState.toBridge(),
+                command = command.toBridge(),
+                history = command.historyWrite()?.toBridge(),
+            ),
+            deadlineMillis,
+        )
+    }
 
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         withReadLease { engine ->
@@ -265,10 +214,9 @@ internal class BoltFfiNativeEnginePort(
         pageSize: UInt,
         startMemoId: String?,
         backward: Boolean,
-    ): com.lomo.nativebridge.StoreMemoPage =
-        withReadLease { engine ->
-            engine.queryMemos(query, cursor, pageSize, startMemoId, backward)
-        }
+    ): com.lomo.nativebridge.StoreMemoPage = withReadLease { engine ->
+        engine.queryMemos(query, cursor, pageSize, startMemoId, backward)
+    }
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withReadLease { engine -> engine.getMemo(memoId) }
@@ -289,41 +237,43 @@ internal class BoltFfiNativeEnginePort(
 
     override fun sessionCreateMemo(
         request: com.lomo.nativebridge.SessionCreateMemoRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withReadLease { engine -> engine.sessionCreateMemo(request) }
+        observer: com.lomo.nativebridge.MemoCreateObserver,
+    ): com.lomo.nativebridge.StoreMemoCommit = withReadLease { engine -> engine.sessionCreateMemo(request, observer) }
 
     override fun sessionUpdateMemo(
         request: com.lomo.nativebridge.SessionUpdateMemoRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withReadLease { engine -> engine.sessionUpdateMemo(request) }
+    ): com.lomo.nativebridge.StoreMemoCommit = withReadLease { engine -> engine.sessionUpdateMemo(request) }
 
     override fun sessionDeleteMemo(
         request: com.lomo.nativebridge.SessionDeleteMemoRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withReadLease { engine -> engine.sessionDeleteMemo(request) }
+    ): com.lomo.nativebridge.StoreMemoCommit = withReadLease { engine -> engine.sessionDeleteMemo(request) }
 
     override fun sessionPinMemo(
         request: com.lomo.nativebridge.SessionPinMemoRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withReadLease { engine -> engine.sessionPinMemo(request) }
+    ): com.lomo.nativebridge.StoreMemoCommit = withReadLease { engine -> engine.sessionPinMemo(request) }
 
     override fun sessionSearch(
         request: com.lomo.nativebridge.SessionSearchRequest,
-    ): com.lomo.nativebridge.SessionSearchOutcome =
-        withReadLease { engine -> engine.sessionSearch(request) }
+    ): com.lomo.nativebridge.SessionSearchOutcome = withReadLease { engine -> engine.sessionSearch(request) }
 
     override fun sessionListTasks(): List<com.lomo.nativebridge.SessionTaskItem> =
         withReadLease { engine -> engine.sessionListTasks() }
 
     override fun sessionToggleTask(
         request: com.lomo.nativebridge.SessionToggleTaskRequest,
+    ): com.lomo.nativebridge.StoreMemoCommit = withReadLease { engine -> engine.sessionToggleTask(request) }
+
+    override fun sessionToggleTaskMarker(
+        operationId: String,
+        memoId: String,
+        start: ULong,
+        end: ULong,
     ): com.lomo.nativebridge.StoreMemoCommit =
-        withReadLease { engine -> engine.sessionToggleTask(request) }
+        withReadLease { engine -> engine.sessionToggleTaskMarker(operationId, memoId, start, end) }
 
     override fun sessionStatistics(
         snapshot: com.lomo.nativebridge.SessionStatisticsSnapshot,
-    ): com.lomo.nativebridge.SessionStatistics =
-        withReadLease { engine -> engine.sessionStatistics(snapshot) }
+    ): com.lomo.nativebridge.SessionStatistics = withReadLease { engine -> engine.sessionStatistics(snapshot) }
 
     override fun sessionListHistory(
         memoId: String,
@@ -334,49 +284,50 @@ internal class BoltFfiNativeEnginePort(
 
     override fun sessionRestoreMemo(
         request: com.lomo.nativebridge.SessionRestoreRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withReadLease { engine -> engine.sessionRestoreMemo(request) }
+    ): com.lomo.nativebridge.StoreMemoCommit = withReadLease { engine -> engine.sessionRestoreMemo(request) }
 
     override fun sessionRestoreRevision(
         request: com.lomo.nativebridge.SessionRestoreRevisionRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withReadLease { engine -> engine.sessionRestoreRevision(request) }
+    ): com.lomo.nativebridge.StoreMemoCommit = withReadLease { engine -> engine.sessionRestoreRevision(request) }
 
     override fun sessionPermanentlyDeleteMemo(
         request: com.lomo.nativebridge.SessionRestoreRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withReadLease { engine -> engine.sessionPermanentlyDeleteMemo(request) }
+    ): com.lomo.nativebridge.StoreMemoCommit = withReadLease { engine -> engine.sessionPermanentlyDeleteMemo(request) }
 
     override fun sessionPermanentlyDeleteMany(
         request: com.lomo.nativebridge.StoreMemoBatchDelete,
     ): com.lomo.nativebridge.StoreMemoBatchCommit =
         withReadLease { engine -> engine.sessionPermanentlyDeleteMany(request) }
 
+    override fun sessionPlanReminderRewrite(
+        request: com.lomo.nativebridge.SessionReminderRewriteRequest,
+    ): com.lomo.nativebridge.SessionReminderRewritePlan =
+        withReadLease { engine -> engine.sessionPlanReminderRewrite(request) }
+
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =
         withReadLease { engine -> engine.sessionReminderPlan(nowUtcMs) }
 
-    override fun sessionSnoozeReminder(
-        opaqueId: String,
-        interval: com.lomo.nativebridge.ReminderSnoozeInterval,
-    ) = withReadLease { engine -> engine.sessionSnoozeReminder(opaqueId, interval) }
+    override fun sessionSnoozeReminder(opaqueId: String, interval: com.lomo.nativebridge.ReminderSnoozeInterval) =
+        withReadLease { engine -> engine.sessionSnoozeReminder(opaqueId, interval) }
 
-    override fun sessionRecoverReminderSnooze() =
-        withReadLease { engine -> engine.sessionRecoverReminderSnooze() }
+    override fun sessionRecoverReminderSnooze() = withReadLease { engine -> engine.sessionRecoverReminderSnooze() }
+
+    override fun syncPrivateStateRoot(workspaceRoot: String): String =
+        withReadLease { engine -> engine.syncPrivateStateRoot(workspaceRoot) }
 
     override fun syncRunCycle(
         workspaceRoot: String,
         config: com.lomo.nativebridge.SyncBackendConfigDto,
         secretLeaseId: String,
         applyRemote: Boolean,
-    ): com.lomo.nativebridge.SyncCyclePlanSummaryDto =
-        withReadLease { engine ->
-            engine.syncRunCycle(
-                workspaceRoot,
-                config,
-                secretLeaseId,
-                applyRemote,
-            )
-        }
+    ): com.lomo.nativebridge.SyncCyclePlanSummaryDto = withReadLease { engine ->
+        engine.syncRunCycle(
+            workspaceRoot,
+            config,
+            secretLeaseId,
+            applyRemote,
+        )
+    }
 
     override fun commitWorkspaceDocumentFacts(
         command: com.lomo.nativebridge.StoreMemoCommand,
@@ -396,12 +347,11 @@ internal class BoltFfiNativeEnginePort(
         withReadLease { engine -> engine.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint) }
 
     override fun recordStageLease(
-        workspaceRoot: String?,
         staged: com.lomo.nativebridge.MediaStagedDto,
         ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
         ownerId: String,
     ): com.lomo.nativebridge.MediaStageRecordDto =
-        withReadLease { engine -> engine.recordStageLease(workspaceRoot, staged, ownerKind, ownerId) }
+        withReadLease { engine -> engine.recordStageLease(staged, ownerKind, ownerId) }
 
     override fun stageRecordsForOwner(
         mediaRoot: String,
@@ -423,10 +373,8 @@ internal class BoltFfiNativeEnginePort(
     ): com.lomo.nativebridge.MediaStageReleaseDto =
         withReadLease { engine -> engine.releaseStageLease(mediaRoot, lease) }
 
-    override fun allocateRecordingTarget(
-        mediaRoot: String,
-        extension: String,
-    ): String = withReadLease { engine -> engine.allocateRecordingTarget(mediaRoot, extension) }
+    override fun allocateRecordingTarget(mediaRoot: String, extension: String): String =
+        withReadLease { engine -> engine.allocateRecordingTarget(mediaRoot, extension) }
 
     override fun finalizeRecording(
         mediaRoot: String,
@@ -445,29 +393,27 @@ internal class BoltFfiNativeEnginePort(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
         externalDrafts: List<com.lomo.nativebridge.SessionDraftGuardDto>,
-    ): com.lomo.nativebridge.SessionMediaSweepReportDto =
-        withReadLease { engine ->
-            engine.sessionMediaOrphanSweepGuarding(nowMs, recoveryWindowMs, externalDrafts)
-        }
+    ): com.lomo.nativebridge.SessionMediaSweepReportDto = withReadLease { engine ->
+        engine.sessionMediaOrphanSweepGuarding(nowMs, recoveryWindowMs, externalDrafts)
+    }
 
     override fun sessionExportArchive(
-        workspaceRoot: String,
         fileNameHint: String?,
+        mediaCapabilities: List<String>,
     ): com.lomo.nativebridge.ArchiveExportResultDto =
-        withReadLease { engine -> engine.sessionExportArchive(workspaceRoot, fileNameHint) }
+        withReadLease { engine -> engine.sessionExportArchive(fileNameHint, mediaCapabilities) }
 
     override fun sessionImportArchive(
         workspaceRoot: String,
         archivePath: String,
         stagingRoot: String,
-    ): com.lomo.nativebridge.StoreRebuildResult =
-        withReadLease { engine ->
-            engine.sessionImportArchive(
-                workspaceRoot,
-                archivePath,
-                stagingRoot,
-            )
-        }
+    ): com.lomo.nativebridge.StoreRebuildResult = withReadLease { engine ->
+        engine.sessionImportArchive(
+            workspaceRoot,
+            archivePath,
+            stagingRoot,
+        )
+    }
 
     override fun close() {
         lease.closeOnce {
@@ -488,106 +434,96 @@ internal class BoltFfiNativeEnginePort(
         }
     }
 
-    private inline fun <T> withReadLease(crossinline block: (LomoEngine) -> T): T =
-        lease.withRead {
-            val engine =
-                engineRef.get()
-                    ?: error("Native engine handle is closed")
-            block(engine)
-        }
+    private inline fun <T> withReadLease(crossinline block: (LomoEngine) -> T): T = lease.withRead {
+        val engine =
+            engineRef.get()
+                ?: error("Native engine handle is closed")
+        block(engine)
+    }
 
     private companion object {
         const val SHUTDOWN_DEADLINE_MILLIS: ULong = 5_000uL
     }
 }
 
-private fun com.lomo.nativebridge.LanServiceSnapshotDto.toSnapshot(): LanServiceState =
-    LanServiceState(
-        phase =
-            when (phase) {
-                com.lomo.nativebridge.LanServicePhaseDto.STOPPED -> LanServicePhase.Stopped
-                com.lomo.nativebridge.LanServicePhaseDto.LISTENING -> LanServicePhase.Listening
-            },
-        listenAddress = listenAddress,
-    )
+private fun com.lomo.nativebridge.LanServiceSnapshotDto.toSnapshot(): LanServiceState = LanServiceState(
+    phase =
+    when (phase) {
+        com.lomo.nativebridge.LanServicePhaseDto.STOPPED -> LanServicePhase.Stopped
+        com.lomo.nativebridge.LanServicePhaseDto.LISTENING -> LanServicePhase.Listening
+    },
+    listenAddress = listenAddress,
+)
 
-private fun com.lomo.nativebridge.LanDiscoveredPeerDto.toSnapshot(): LanDiscoveredPeer =
-    LanDiscoveredPeer(
-        deviceId = deviceId,
-        displayName = displayName,
-        host = host,
-        port = port,
-        protocolVersion = protocolVersion,
-    )
+private fun com.lomo.nativebridge.LanDiscoveredPeerDto.toSnapshot(): LanDiscoveredPeer = LanDiscoveredPeer(
+    deviceId = deviceId,
+    displayName = displayName,
+    host = host,
+    port = port,
+    protocolVersion = protocolVersion,
+)
 
-private fun com.lomo.nativebridge.LanPairingChallengeDto.toSnapshot(): LanPairingChallenge =
-    LanPairingChallenge(
-        pairingId = pairingId,
-        peerDeviceId = peerDeviceId,
-        peerDisplayName = peerDisplayName,
-        shortCode = shortCode,
-        transcriptToSign = transcriptToSign,
-        deadlineMs = deadlineMs,
-    )
+private fun com.lomo.nativebridge.LanPairingChallengeDto.toSnapshot(): LanPairingChallenge = LanPairingChallenge(
+    pairingId = pairingId,
+    peerDeviceId = peerDeviceId,
+    peerDisplayName = peerDisplayName,
+    shortCode = shortCode,
+    transcriptToSign = transcriptToSign,
+    deadlineMs = deadlineMs,
+)
 
-private fun com.lomo.nativebridge.LanSessionChallengeDto.toSnapshot(): LanSessionChallenge =
-    LanSessionChallenge(
-        sessionId = sessionId,
-        peerDeviceId = peerDeviceId,
-        transcriptToSign = transcriptToSign,
-        deadlineMs = deadlineMs,
-    )
+private fun com.lomo.nativebridge.LanSessionChallengeDto.toSnapshot(): LanSessionChallenge = LanSessionChallenge(
+    sessionId = sessionId,
+    peerDeviceId = peerDeviceId,
+    transcriptToSign = transcriptToSign,
+    deadlineMs = deadlineMs,
+)
 
-private fun com.lomo.nativebridge.LanSessionSnapshotDto.toSnapshot(): LanSessionState =
-    LanSessionState(
-        sessionId = sessionId,
-        peerDeviceId = peerDeviceId,
-        phase =
-            when (phase) {
-                com.lomo.nativebridge.LanSessionPhaseDto.AUTHENTICATED -> LanSessionPhase.Authenticated
-            },
-    )
+private fun com.lomo.nativebridge.LanSessionSnapshotDto.toSnapshot(): LanSessionState = LanSessionState(
+    sessionId = sessionId,
+    peerDeviceId = peerDeviceId,
+    phase =
+    when (phase) {
+        com.lomo.nativebridge.LanSessionPhaseDto.AUTHENTICATED -> LanSessionPhase.Authenticated
+    },
+)
 
-private fun com.lomo.nativebridge.LanInboxWaitDto.toSnapshot(): LanInboxWait =
-    LanInboxWait(
-        generation = generation,
-        inbox = inbox?.toSnapshot(),
-        rejectedConnectionCount = rejectedConnectionCount,
-        lastRejectionDiagnostic = lastRejectionDiagnostic,
-    )
+private fun com.lomo.nativebridge.LanInboxWaitDto.toSnapshot(): LanInboxWait = LanInboxWait(
+    generation = generation,
+    inbox = inbox?.toSnapshot(),
+    rejectedConnectionCount = rejectedConnectionCount,
+    lastRejectionDiagnostic = lastRejectionDiagnostic,
+)
 
-private fun com.lomo.nativebridge.LanRuntimeInboxDto.toSnapshot(): LanRuntimeInbox =
-    LanRuntimeInbox(
-        pairingChallenges = pairingChallenges.map { challenge -> challenge.toSnapshot() },
-        sessionChallenges = sessionChallenges.map { challenge -> challenge.toSnapshot() },
-        activeSessions = activeSessions.map { session -> session.toSnapshot() },
-        pendingBatches =
-            pendingBatches.map { pending ->
-                LanPendingBatch(
-                    sessionId = pending.sessionId,
-                    preview = pending.preview.toSnapshot(),
-                )
-            },
-        batchRecoveries = batchRecoveries.map { recovery -> recovery.toSnapshot() },
-        committableItems =
-            committableItems.map { item ->
-                LanCommittableItem(batchId = item.batchId, itemIndex = item.itemIndex)
-            },
-        outgoingBatches = outgoingBatches.map { batch -> batch.toSnapshot() },
-    )
+private fun com.lomo.nativebridge.LanRuntimeInboxDto.toSnapshot(): LanRuntimeInbox = LanRuntimeInbox(
+    pairingChallenges = pairingChallenges.map { challenge -> challenge.toSnapshot() },
+    sessionChallenges = sessionChallenges.map { challenge -> challenge.toSnapshot() },
+    activeSessions = activeSessions.map { session -> session.toSnapshot() },
+    pendingBatches =
+    pendingBatches.map { pending ->
+        LanPendingBatch(
+            sessionId = pending.sessionId,
+            preview = pending.preview.toSnapshot(),
+        )
+    },
+    batchRecoveries = batchRecoveries.map { recovery -> recovery.toSnapshot() },
+    committableItems =
+    committableItems.map { item ->
+        LanCommittableItem(batchId = item.batchId, itemIndex = item.itemIndex)
+    },
+    outgoingBatches = outgoingBatches.map { batch -> batch.toSnapshot() },
+)
 
-private fun com.lomo.nativebridge.LanPeerDto.toSnapshot(): LanPeer =
-    LanPeer(
-        deviceId = deviceId,
-        displayName = displayName,
-        publicKey = publicKey,
-        pairedAtMs = pairedAtMs,
-        revoked = revoked,
-        revokedAtMs = revokedAtMs,
-    )
+private fun com.lomo.nativebridge.LanPeerDto.toSnapshot(): LanPeer = LanPeer(
+    deviceId = deviceId,
+    displayName = displayName,
+    publicKey = publicKey,
+    pairedAtMs = pairedAtMs,
+    revoked = revoked,
+    revokedAtMs = revokedAtMs,
+)
 
-private fun com.lomo.nativebridge.LanPeerPageDto.toSnapshot(): LanPeerPage =
-    LanPeerPage(
-        peers = peers.map { peer -> peer.toSnapshot() },
-        total = total,
-    )
+private fun com.lomo.nativebridge.LanPeerPageDto.toSnapshot(): LanPeerPage = LanPeerPage(
+    peers = peers.map { peer -> peer.toSnapshot() },
+    total = total,
+)

@@ -1,6 +1,6 @@
 //! Staged media joins the transaction as identity plus a recoverable source, never as bytes.
 
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
 use lomo_core::{
     LomoError, OperationId, RelativeWorkspacePath, Sha256Digest, StagedArtifactSource,
@@ -10,7 +10,7 @@ use lomo_media::{
     stage_directory_of,
 };
 use lomo_store::{project_content_facts, select_pending_promotes};
-use lomo_workspace::canonical_attachment_path;
+use lomo_workspace::canonical_attachment_keys;
 
 use crate::{
     error::{storage, validation},
@@ -18,10 +18,20 @@ use crate::{
     workspace_io::WorkspaceIo,
 };
 
+/// Existing Markdown references remain valid source facts when their bytes are temporarily
+/// unavailable or live in a separately granted media root. Only newly introduced paths require
+/// a committed file or a staged promote in this transaction.
+#[derive(Clone, Copy)]
+pub enum AttachmentBaseline<'a> {
+    NewMemo,
+    ExistingMemo(&'a [String]),
+}
+
 pub fn plan_attachment_files(
     io: &WorkspaceIo<'_>,
     operation_id: &OperationId,
     content: &str,
+    baseline: AttachmentBaseline<'_>,
     pending: &[PromotePlan],
 ) -> Result<Vec<PlannedFile>, LomoError> {
     for plan in pending {
@@ -37,7 +47,7 @@ pub fn plan_attachment_files(
     for plan in &selected {
         files.push(planned_attachment(plan)?);
     }
-    require_referenced_attachments(io, content, &files)?;
+    require_referenced_attachments(io, content, baseline, &files)?;
     Ok(files)
 }
 
@@ -160,17 +170,21 @@ fn retain_stage_lease(plan: &PromotePlan) -> Result<(), LomoError> {
 fn require_referenced_attachments(
     io: &WorkspaceIo<'_>,
     content: &str,
+    baseline: AttachmentBaseline<'_>,
     planned: &[PlannedFile],
 ) -> Result<(), LomoError> {
+    let retained: BTreeSet<_> = match baseline {
+        AttachmentBaseline::NewMemo => BTreeSet::new(),
+        AttachmentBaseline::ExistingMemo(paths) => {
+            canonical_attachment_keys(paths).into_iter().collect()
+        }
+    };
     let facts = project_content_facts(content)?;
-    for relative in facts.attachment_paths {
-        // One canonical representation: `media/./x` and `media//x` must resolve to the same
-        // committed file check as `media/x`. A destination that cannot name a workspace file
-        // (external URL, empty, escapes the root) has nothing to require.
-        let Some(canonical) = canonical_attachment_path(&relative) else {
-            continue;
-        };
-        let path = RelativeWorkspacePath::parse(&canonical)?;
+    let references: BTreeSet<_> = canonical_attachment_keys(&facts.attachment_paths)
+        .into_iter()
+        .collect();
+    for canonical in references.difference(&retained) {
+        let path = RelativeWorkspacePath::parse(canonical)?;
         if planned.iter().any(|file| file.path() == &path) {
             continue;
         }
@@ -182,4 +196,37 @@ fn require_referenced_attachments(
         }
     }
     Ok(())
+}
+
+impl crate::session::WorkspaceSession {
+    /// Acquires a draft lease after resolving its destination under the mounted capability.
+    ///
+    /// # Errors
+    /// Rejects invalid stage ownership and unavailable or conflicting destination evidence.
+    pub fn record_media_stage_lease(
+        &self,
+        staged: &lomo_media::MediaStaged,
+        lease: StageLease,
+    ) -> Result<lomo_media::StageRecord, LomoError> {
+        let _held = self.write_behind.exclusive()?;
+        let stage_dir = stage_directory_of(&staged.staging_path)?;
+        if stage_dir != lomo_media::stage_directory(&self.config.media_stage_root) {
+            return Err(validation(
+                "foreign_media_stage",
+                "staged artifact belongs to another session root",
+            ));
+        }
+        StageLedger::load(&stage_dir)?.record_with_probe(staged, lease, |candidate| {
+            let path = RelativeWorkspacePath::parse(candidate.as_str())?;
+            let Some(metadata) = self.io().stat(&path)? else {
+                return Ok(true);
+            };
+            Ok(metadata.kind() == lomo_core::DocumentKind::File
+                && metadata.evidence().length() == staged.size
+                && metadata
+                    .evidence()
+                    .verified_digest()
+                    .is_some_and(|digest| digest.as_str() == staged.digest.as_str()))
+        })
+    }
 }

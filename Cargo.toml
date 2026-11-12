@@ -20,41 +20,42 @@ members = [
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.99"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
-anyhow = "=1.0.103"
-camino = "=1.2.4"
-serde = { version = "=1.0.228", default-features = false, features = ["derive", "std"] }
-serde_json = { version = "=1.0.150", default-features = false, features = ["std"] }
-sha2 = "=0.10.9"
+anyhow = "=1.0.104"
+camino = "=1.2.6"
+serde = { version = "=1.0.229", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std"] }
+sha2 = "=0.11.1"
 # B-14 W-09: event-streaming XML reader for S3/WebDAV response parsers (replaces handwritten scanners).
 quick-xml = { version = "=0.42.0", default-features = false }
 # B-14 W-11: strict rclone filename codecs (base32hex/base64url NOPAD) + hex (replaces handwritten).
 data-encoding = { version = "=2.11.1", default-features = false, features = ["alloc"] }
-thiserror = "=2.0.18"
+thiserror = "=2.0.21"
 # Stage-2 calendar / timezone primitives: pure Rust IANA database bundled offline.
-jiff = { version = "=0.2.31", default-features = false, features = ["alloc", "std", "tzdb-bundle-always"] }
+jiff = { version = "=0.2.43", default-features = false, features = ["alloc", "std", "tzdb-bundle-always"] }
 
 # Approved non-pure-Rust exception for stage-0 SQLite feasibility (bundled only).
-rusqlite = { version = "=0.40.1", default-features = false, features = ["bundled", "backup"] }
-pulldown-cmark = { version = "=0.13.4", default-features = false }
+rusqlite = { version = "=0.42.0", default-features = false, features = ["bundled", "backup"] }
+pulldown-cmark = { version = "=0.13.6", default-features = false }
+linkify = "=0.11.0"
 # Network feasibility: Rustls only (no native TLS). Used by tooling probes, not production.
-reqwest = { version = "=0.13.4", default-features = false, features = ["rustls", "blocking"] }
-rustls = { version = "=0.23.45", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
-rustls-pki-types = "=1.14.0"
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "blocking"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
+rustls-pki-types = "=1.16.0"
 # Stage-5 dark S3 rclone crypt (P5-06): audited RustCrypto primitives only (no custom cipher).
-aes = { version = "=0.8.4", default-features = false }
-cipher = { version = "=0.4.4", default-features = false }
-scrypt = { version = "=0.11.0", default-features = false }
+aes = { version = "=0.9.4", default-features = false }
+cipher = { version = "=0.5.2", default-features = false }
+scrypt = { version = "=0.12.0", default-features = false }
 # Successor of deprecated `xsalsa20poly1305` (RUSTSEC-2023-0037 rename).
 crypto_secretbox = { version = "=0.1.1", default-features = false, features = ["alloc", "salsa20"] }
 # LAN (stage 6) crypto provider: already linked for four ABIs through rustls/reqwest. Supplies
 # X25519 agreement, HKDF-SHA256, ChaCha20-Poly1305 AEAD, ECDSA P-256 verify and the system CSPRNG,
 # so `lomo-lan` adds no second crypto generation and no new native code.
-aws-lc-rs = { version = "=1.18.1", default-features = false, features = ["alloc", "aws-lc-sys"] }
-rcgen = { version = "=0.13.2", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
+aws-lc-rs = { version = "=1.19.0", default-features = false, features = ["alloc", "aws-lc-sys"] }
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
 # Git feasibility: approved non-pure-Rust exception (vendored libgit2 + openssl + zlib-ng).
 # Android BoltFFI links a Rust staticlib into JNI and has no custom system-library hook; vendoring
 # zlib keeps the official pack path self-contained instead of intercepting the NDK linker.
@@ -62,20 +63,20 @@ git2 = { version = "=0.21.0", default-features = false, features = ["vendored-li
 # Production depends on the repository-owned `boltffi` facade (macros expand to
 # `::boltffi::__private`). The facade pins official `boltffi_core` with default
 # features disabled so unused url/uuid codecs stay out of the Android .so.
-# Formal tag v0.30.1 includes the JVM use-after-close guard (PR #663 /
+# Formal tag v0.32.1 includes the JVM use-after-close guard (PR #663 /
 # 2de4597034e0e66dcdfd34191abbe9ae7de7b31e). Pin the tag tip SHA so CLI and
-# cargo share one exact revision (xtask tools.toml only accepts `rev=`).
+# cargo share one exact revision (xtask quality/tools.toml only accepts `rev=`).
 boltffi = { path = "crates/boltffi-facade" }
-boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "2e6320a6d92cb591d22b908477f3a47da7ebc9bc", default-features = false }
+boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "35781dcea9d40ff2d6e3e6de92ac40dbbe5b9c10", default-features = false }
 tempfile = "=3.27.0"
-rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "event"] }
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "event"] }
 # Cross-platform OS CSPRNG (Linux, macOS, Windows, *BSD). rustix::rand is Linux-only.
 getrandom = "=0.4.3"
-zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
-pinyin = { version = "=0.10.0", default-features = false, features = ["plain"] }
-# Bounded LRU memoization for fuzzy search snapshots. Pinned to the version ratatui already
-# resolved so the deny.toml multiple-versions=deny graph keeps exactly one lru build.
-lru = { version = "=0.12.5", default-features = false }
+zip = { version = "=9.5.1", default-features = false, features = ["deflate"] }
+pinyin = { version = "=0.11.0", default-features = false, features = ["plain"] }
+# Bounded LRU memoization for fuzzy search snapshots. Ratatui retains its own upstream
+# minor-version constraint; the dependency gate records that forced split.
+lru = { version = "=0.19.0", default-features = false }
 
 [workspace.lints.rust]
 warnings = "deny"
@@ -102,7 +103,7 @@ await_holding_lock = "deny"
 clone_on_ref_ptr = "deny"
 cognitive_complexity = "deny"
 dbg_macro = "deny"
-# Ensures clippy.toml disallowed-methods is enforced as deny (not only configured).
+# Ensures .clippy.toml disallowed-methods is enforced as deny (not only configured).
 disallowed_methods = "deny"
 drop_non_drop = "deny"
 enum_glob_use = "deny"
@@ -169,7 +170,7 @@ opt-level = "z"
 
 # PR / CI native verification profile. Keeps release optimizations that matter for
 # load/ELF contracts while avoiding fat-LTO wall-clock cost. Shipping APKs still
-# use `release-android` via `just android release` / local `just ci` native pack.
+# use `release-android` via `just build android release` / local `just ci` native pack.
 [profile.release-ci]
 inherits = "release"
 lto = "thin"

@@ -5,7 +5,7 @@
 //!
 //! Scenarios:
 //! - Given a seeded Direct memo, when soft delete is applied through Store Direct, then
-//!   `session_owns_document_writes` is returned and no `.lomo/trash` marker is minted.
+//!   `session_owns_document_writes` is returned and no `.trash` marker is minted.
 //! - Given a workspace-owned trash marker and no live Markdown, when rebuild runs, then the
 //!   projection is trashed with the marker fingerprint and the marker remains on disk.
 //!
@@ -78,7 +78,8 @@ mod tests {
             )
             .expect_err("direct delete");
         assert_eq!(error.code(), "session_owns_document_writes");
-        let relative = trash_record_relative_path(MEMO_ID).expect("record path");
+        let relative = trash_record_relative_path(MEMO_ID, &format!("memos/{MEMO_ID}.md"))
+            .expect("record path");
         assert!(
             !root.path().join(relative.as_str()).exists(),
             "refused Direct delete must not mint a trash marker"
@@ -114,7 +115,8 @@ mod tests {
             has_url: false,
         })
         .expect("trash record");
-        let relative = trash_record_relative_path(MEMO_ID).expect("record path");
+        let relative = trash_record_relative_path(MEMO_ID, &format!("memos/{MEMO_ID}.md"))
+            .expect("record path");
         let marker = root.path().join(relative.as_str());
         if let Some(parent) = marker.parent() {
             fs::create_dir_all(parent).expect("trash dir");

@@ -14,12 +14,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -29,12 +28,11 @@ import coil3.imageLoader
 import coil3.request.Disposable
 import com.lomo.app.feature.image.FeedImagePreloadSize
 import com.lomo.app.feature.image.ImageViewerRequest
-import com.lomo.app.feature.image.enqueueImagePreloadRequests
 import com.lomo.app.feature.image.createImageViewerRequest
+import com.lomo.app.feature.image.enqueueImagePreloadRequests
 import com.lomo.app.feature.memo.MemoCardEntry
-import com.lomo.domain.model.Memo
 import com.lomo.app.feature.memo.MemoMenuSelection
-import kotlinx.collections.immutable.ImmutableList
+import com.lomo.domain.model.Memo
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.roundToInt
@@ -44,22 +42,19 @@ private const val FEED_MARKDOWN_IMAGE_PRELOAD_RATIO = 16f / 9f
 private const val FEED_MARKDOWN_IMAGE_PRELOAD_MIN_WIDTH_PX = 96
 private const val FEED_MARKDOWN_IMAGE_PRELOAD_MAX_WIDTH_PX = 1080
 private const val FEED_STARTUP_PRELOAD_SIGNATURE_MEMO_COUNT = 6
-private val MEMO_CARD_HORIZONTAL_CONTENT_PADDING = 32.dp
+private val MEMO_CARD_HORIZONTAL_CONTENT_PADDING = 24.dp
 
 internal val MEMO_LIST_HORIZONTAL_PADDING = 16.dp
 internal val MEMO_LIST_TOP_PADDING = 16.dp
 internal val MEMO_LIST_BOTTOM_PADDING = 88.dp
-internal val MEMO_LIST_ITEM_SPACING = 12.dp
+internal val MEMO_LIST_ITEM_SPACING = 8.dp
 
-internal data class MemoListHorizontalContentPadding(
-    val start: Dp,
-    val end: Dp,
-    val scrollbarOverlaysContent: Boolean,
-)
+/** Memo cards keep a reading measure on wide windows; the list itself stays window-wide. */
+internal val MemoFeedMaxWidth = com.lomo.ui.theme.AdaptiveContentWidths.Reading
 
-internal fun resolveMemoListHorizontalContentPadding(
-    scrollbarEnabled: Boolean,
-): MemoListHorizontalContentPadding =
+internal data class MemoListHorizontalContentPadding(val start: Dp, val end: Dp, val scrollbarOverlaysContent: Boolean)
+
+internal fun resolveMemoListHorizontalContentPadding(scrollbarEnabled: Boolean): MemoListHorizontalContentPadding =
     MemoListHorizontalContentPadding(
         start = MEMO_LIST_HORIZONTAL_PADDING,
         end = MEMO_LIST_HORIZONTAL_PADDING,
@@ -67,12 +62,8 @@ internal fun resolveMemoListHorizontalContentPadding(
     )
 
 @Composable
-internal fun MemoListPreloadEffect(
-    loadedWindow: FeedImagePreloadWindow,
-    listState: LazyListState,
-) {
+internal fun MemoListPreloadEffect(loadedWindow: FeedImagePreloadWindow, listState: LazyListState) {
     val context = LocalContext.current
-    val imageLoader = context.imageLoader
     val density = LocalDensity.current
     val fallbackViewportWidthPx = LocalWindowInfo.current.containerSize.width
     val preloadHorizontalInsetPx =
@@ -91,7 +82,7 @@ internal fun MemoListPreloadEffect(
                 }
         }
 
-    DisposableEffect(imageLoader, activePreloads, preloadPlanner) {
+    DisposableEffect(activePreloads, preloadPlanner) {
         onDispose {
             activePreloads.values.forEach(Disposable::dispose)
             activePreloads.clear()
@@ -102,7 +93,6 @@ internal fun MemoListPreloadEffect(
     LaunchedEffect(
         listState,
         context,
-        imageLoader,
         preloadPlanner,
         fallbackViewportWidthPx,
         preloadHorizontalInsetPx,
@@ -139,7 +129,6 @@ internal fun MemoListPreloadEffect(
                     }
                 applyFeedImagePreloadPlan(
                     context = context,
-                    imageLoader = imageLoader,
                     activePreloads = activePreloads,
                     plan = plan,
                 )
@@ -147,16 +136,9 @@ internal fun MemoListPreloadEffect(
     }
 }
 
-private data class FeedImageViewport(
-    val firstVisible: Int,
-    val visibleCount: Int,
-    val viewportWidthPx: Int,
-)
+private data class FeedImageViewport(val firstVisible: Int, val visibleCount: Int, val viewportWidthPx: Int)
 
-private fun resolveFeedImagePreloadSize(
-    viewportWidthPx: Int,
-    horizontalInsetPx: Int,
-): FeedImagePreloadSize {
+private fun resolveFeedImagePreloadSize(viewportWidthPx: Int, horizontalInsetPx: Int): FeedImagePreloadSize {
     val contentWidthPx =
         (viewportWidthPx - horizontalInsetPx)
             .coerceIn(FEED_MARKDOWN_IMAGE_PRELOAD_MIN_WIDTH_PX, FEED_MARKDOWN_IMAGE_PRELOAD_MAX_WIDTH_PX)
@@ -168,7 +150,6 @@ private fun resolveFeedImagePreloadSize(
 
 private fun applyFeedImagePreloadPlan(
     context: android.content.Context,
-    imageLoader: coil3.ImageLoader,
     activePreloads: MutableMap<String, Disposable>,
     plan: FeedImagePreloadPlan,
 ) {
@@ -178,10 +159,12 @@ private fun applyFeedImagePreloadPlan(
     val specsToStart =
         plan.startRequests
             .filterNot { spec -> activePreloads[spec.url]?.isDisposed == false }
+    // Text-only windows and cancellation-only plans must not initialize Coil or its disk cache.
+    if (specsToStart.isEmpty()) return
     activePreloads +=
         enqueueImagePreloadRequests(
             context = context,
-            imageLoader = imageLoader,
+            imageLoader = context.imageLoader,
             specs = specsToStart,
         )
 }
@@ -190,7 +173,7 @@ private fun applyFeedImagePreloadPlan(
 internal fun MemoListItem(
     uiModel: MemoUiModel,
     bottomSpacing: androidx.compose.ui.unit.Dp,
-    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
+    onTodoClick: ((Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit)?,
     onReminderClick: (com.lomo.domain.model.ReminderMarker) -> Unit,
     dateFormat: String,
     timeFormat: String,
@@ -204,22 +187,22 @@ internal fun MemoListItem(
     isExpanded: Boolean? = null,
     onExpandedChange: ((Boolean) -> Unit)? = null,
     anchoredAfterKey: String? = null,
-    isExiting: Boolean = false,
 ) {
     val stableTodoClick =
         remember(uiModel.memo, onTodoClick) {
-            { actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan ->
-                onTodoClick(uiModel.memo, actionSpan)
+            onTodoClick?.let { action ->
+                { actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan ->
+                    action(uiModel.memo, actionSpan)
+                }
             }
         }
     val stableImageClick =
-        remember(uiModel.imageUrls, onImageClick) {
+        remember(uiModel, onImageClick) {
             { url: String ->
                 onImageClick(
                     createImageViewerRequest(
-                        imageUrls = uiModel.imageUrls,
+                        memo = uiModel,
                         clickedUrl = url,
-                        memoId = uiModel.memo.id,
                     ),
                 )
             }
@@ -227,7 +210,7 @@ internal fun MemoListItem(
 
     Box(
         modifier = modifier
-            .padding(bottom = bottomSpacing)
+            .padding(bottom = bottomSpacing),
     ) {
         key(uiModel.memo.id) {
             MemoCardEntry(
@@ -245,7 +228,6 @@ internal fun MemoListItem(
                 isExpanded = isExpanded,
                 onExpandedChange = onExpandedChange,
                 anchoredAfterKey = anchoredAfterKey,
-                isExiting = isExiting,
             )
         }
     }
@@ -253,10 +235,7 @@ internal fun MemoListItem(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun BoxScope.MemoListPullToRefreshIndicator(
-    state: PullToRefreshState,
-    isRefreshing: Boolean,
-) {
+internal fun BoxScope.MemoListPullToRefreshIndicator(state: PullToRefreshState, isRefreshing: Boolean) {
     PullToRefreshDefaults.LoadingIndicator(
         state = state,
         isRefreshing = isRefreshing,

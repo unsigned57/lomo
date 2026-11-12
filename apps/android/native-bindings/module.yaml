@@ -6,13 +6,16 @@ settings:
   android:
     namespace: com.lomo.nativebridge
     minSdk: 26
-    compileSdk: 37
+    compileSdk:
+      apiLevel: 37
+      minorApiLevel: 2
   jvm:
     release: 25
     jdk:
       version: 27
       selectionMode: javaHome
   kotlin:
+    version: 2.4.21
     allWarningsAsErrors: true
 
 dependencies: []

@@ -12,13 +12,9 @@ internal fun resolveSearchContentState(
     showLoading: Boolean,
     hasResults: Boolean,
     hasActiveExits: Boolean = false,
-): SearchContentState =
-    when {
-        query.isEmpty() -> SearchContentState.EmptyInitial
-        showLoading -> SearchContentState.Loading
-        !hasResults && !hasActiveExits -> SearchContentState.NoResults
-        else -> SearchContentState.Results
-    }
-
-
-
+): SearchContentState = when {
+    query.trim().isEmpty() -> SearchContentState.EmptyInitial
+    showLoading -> SearchContentState.Loading
+    !hasResults && !hasActiveExits -> SearchContentState.NoResults
+    else -> SearchContentState.Results
+}

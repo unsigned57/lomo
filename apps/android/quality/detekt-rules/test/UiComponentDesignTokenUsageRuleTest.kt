@@ -22,7 +22,7 @@ package com.lomo.detektrules
  *
  * Excludes:
  * - Full Toolchain static-analysis task wiring, type resolution, rendering output, and app-feature token policy.
- 
+
  * Test Change Justification:
  * - Reason category: mechanical layout path update.
  * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
@@ -45,18 +45,19 @@ import java.nio.file.Files
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 
-class UiComponentDesignTokenUsageRuleTest : FunSpec({
-    test("registers ui component design-token usage rule in the rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
+class UiComponentDesignTokenUsageRuleTest :
+    FunSpec({
+        test("registers ui component design-token usage rule in the rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
 
-        rules[RuleName("UiComponentDesignTokenUsage")].shouldNotBeNull()
-    }
+            rules[RuleName("UiComponentDesignTokenUsage")].shouldNotBeNull()
+        }
 
-    test("reports static shape and alpha bypasses in ui component source") {
-        val findings =
-            rule().findingsForSource(
-                relativePath = "ui-components/src/component/card/BadCard.kt",
-                code =
+        test("reports static shape and alpha bypasses in ui component source") {
+            val findings =
+                rule().findingsForSource(
+                    relativePath = "ui-components/src/component/card/BadCard.kt",
+                    code =
                     """
                     package com.lomo.ui.component.card
 
@@ -71,19 +72,19 @@ class UiComponentDesignTokenUsageRuleTest : FunSpec({
 
                     fun literalAlpha(color: Color): Color = color.copy(alpha = 0.3f)
                     """,
-            )
+                )
 
-        findings.shouldHaveSize(3)
-        findings[0].message shouldContain "semantic component token"
-        findings[1].message shouldContain "alpha"
-        findings[2].message shouldContain "alpha"
-    }
+            findings.shouldHaveSize(3)
+            findings[0].message shouldContain "semantic component token"
+            findings[1].message shouldContain "alpha"
+            findings[2].message shouldContain "alpha"
+        }
 
-    test("allows component token files to centralize static visual primitives") {
-        val findings =
-            rule().findingsForSource(
-                relativePath = "ui-components/src/component/card/MemoCardTokens.kt",
-                code =
+        test("allows component token files to centralize static visual primitives") {
+            val findings =
+                rule().findingsForSource(
+                    relativePath = "ui-components/src/component/card/MemoCardTokens.kt",
+                    code =
                     """
                     package com.lomo.ui.component.card
 
@@ -96,16 +97,16 @@ class UiComponentDesignTokenUsageRuleTest : FunSpec({
 
                     fun tokenColor(color: Color): Color = color.copy(alpha = TOKEN_ALPHA)
                     """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("allows runtime shape and alpha state in ui component source") {
-        val findings =
-            rule().findingsForSource(
-                relativePath = "ui-components/src/component/input/DynamicInputSheet.kt",
-                code =
+        test("allows runtime shape and alpha state in ui component source") {
+            val findings =
+                rule().findingsForSource(
+                    relativePath = "ui-components/src/component/input/DynamicInputSheet.kt",
+                    code =
                     """
                     package com.lomo.ui.component.input
 
@@ -117,23 +118,18 @@ class UiComponentDesignTokenUsageRuleTest : FunSpec({
 
                     fun runtimeAlpha(color: Color, animatedAlpha: Float): Color = color.copy(alpha = animatedAlpha)
                     """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
-})
+            findings shouldBe emptyList()
+        }
+    })
 
-private fun rule(
-    config: Config = Config.empty,
-): Rule =
+private fun rule(config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName("UiComponentDesignTokenUsage")]) {
         "Expected UiComponentDesignTokenUsage to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<dev.detekt.api.Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<dev.detekt.api.Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

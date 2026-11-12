@@ -138,32 +138,31 @@ class S3SyncSettingsUseCase(
     syncPolicyRepository: SyncPolicyRepository,
     syncAndRebuildUseCase: SyncAndRebuildUseCase,
 ) : S3SyncConnectionObservation by
-    S3SyncConnectionObservationImpl(s3SyncRepository),
+S3SyncConnectionObservationImpl(s3SyncRepository),
     S3SyncBehaviorObservation by
-        S3SyncBehaviorObservationImpl(s3SyncRepository),
+    S3SyncBehaviorObservationImpl(s3SyncRepository),
     S3SyncCredentialObservation by
-        S3SyncCredentialObservationImpl(s3SyncRepository),
+    S3SyncCredentialObservationImpl(s3SyncRepository),
     S3SyncConnectionMutation by
-        S3SyncConnectionMutationImpl(
-            s3SyncRepository = s3SyncRepository,
-            syncPolicyRepository = syncPolicyRepository,
-        ),
+    S3SyncConnectionMutationImpl(
+        s3SyncRepository = s3SyncRepository,
+        syncPolicyRepository = syncPolicyRepository,
+    ),
     S3SyncCredentialMutation by
-        S3SyncCredentialMutationImpl(s3SyncRepository),
+    S3SyncCredentialMutationImpl(s3SyncRepository),
     S3SyncBehaviorMutation by
-        S3SyncBehaviorMutationImpl(
-            s3SyncRepository = s3SyncRepository,
-            syncPolicyRepository = syncPolicyRepository,
-        ),
+    S3SyncBehaviorMutationImpl(
+        s3SyncRepository = s3SyncRepository,
+        syncPolicyRepository = syncPolicyRepository,
+    ),
     S3SyncSettingsActions by
-        S3SyncSettingsActionsImpl(
-            s3SyncRepository = s3SyncRepository,
-            syncAndRebuildUseCase = syncAndRebuildUseCase,
-        )
+    S3SyncSettingsActionsImpl(
+        s3SyncRepository = s3SyncRepository,
+        syncAndRebuildUseCase = syncAndRebuildUseCase,
+    )
 
-private class S3SyncConnectionObservationImpl(
-    private val s3SyncRepository: S3SyncRepository,
-) : S3SyncConnectionObservation {
+private class S3SyncConnectionObservationImpl(private val s3SyncRepository: S3SyncRepository) :
+    S3SyncConnectionObservation {
     private val shared =
         RemoteSyncSharedStateObservationImpl(
             enabled = s3SyncRepository::isS3SyncEnabled,
@@ -189,9 +188,8 @@ private class S3SyncConnectionObservationImpl(
     override fun observePathStyle(): Flow<S3PathStyle> = s3SyncRepository.getPathStyle()
 }
 
-private class S3SyncBehaviorObservationImpl(
-    private val s3SyncRepository: S3SyncRepository,
-) : S3SyncBehaviorObservation {
+private class S3SyncBehaviorObservationImpl(private val s3SyncRepository: S3SyncRepository) :
+    S3SyncBehaviorObservation {
     private val shared =
         RemoteSyncSharedStateObservationImpl(
             enabled = s3SyncRepository::isS3SyncEnabled,
@@ -213,11 +211,9 @@ private class S3SyncBehaviorObservationImpl(
     override fun observeRcloneDirectoryNameEncryption(): Flow<Boolean> =
         s3SyncRepository.getRcloneDirectoryNameEncryption()
 
-    override fun observeRcloneDataEncryptionEnabled(): Flow<Boolean> =
-        s3SyncRepository.getRcloneDataEncryptionEnabled()
+    override fun observeRcloneDataEncryptionEnabled(): Flow<Boolean> = s3SyncRepository.getRcloneDataEncryptionEnabled()
 
-    override fun observeRcloneEncryptedSuffix(): Flow<String> =
-        s3SyncRepository.getRcloneEncryptedSuffix()
+    override fun observeRcloneEncryptedSuffix(): Flow<String> = s3SyncRepository.getRcloneEncryptedSuffix()
 
     override fun observeAutoSyncEnabled(): Flow<Boolean> = shared.observeAutoSyncEnabled()
 
@@ -230,9 +226,8 @@ private class S3SyncBehaviorObservationImpl(
     override fun observeSyncState(): Flow<S3SyncState> = shared.observeSyncState()
 }
 
-private class S3SyncCredentialObservationImpl(
-    private val s3SyncRepository: S3SyncRepository,
-) : S3SyncCredentialObservation {
+private class S3SyncCredentialObservationImpl(private val s3SyncRepository: S3SyncRepository) :
+    S3SyncCredentialObservation {
     override suspend fun getAccessKeyStatus(): StoredCredentialStatus = s3SyncRepository.getAccessKeyStatus()
 
     override suspend fun getSecretAccessKeyStatus(): StoredCredentialStatus =
@@ -254,11 +249,9 @@ private class S3SyncCredentialObservationImpl(
 
     override suspend fun isSessionTokenConfigured(): Boolean = s3SyncRepository.isSessionTokenConfigured()
 
-    override suspend fun isEncryptionPasswordConfigured(): Boolean =
-        s3SyncRepository.isEncryptionPasswordConfigured()
+    override suspend fun isEncryptionPasswordConfigured(): Boolean = s3SyncRepository.isEncryptionPasswordConfigured()
 
-    override suspend fun isEncryptionPassword2Configured(): Boolean =
-        s3SyncRepository.isEncryptionPassword2Configured()
+    override suspend fun isEncryptionPassword2Configured(): Boolean = s3SyncRepository.isEncryptionPassword2Configured()
 }
 
 private class S3SyncConnectionMutationImpl(
@@ -307,9 +300,7 @@ private class S3SyncConnectionMutationImpl(
     }
 }
 
-private class S3SyncCredentialMutationImpl(
-    private val s3SyncRepository: S3SyncRepository,
-) : S3SyncCredentialMutation {
+private class S3SyncCredentialMutationImpl(private val s3SyncRepository: S3SyncRepository) : S3SyncCredentialMutation {
     override suspend fun updateAccessKeyId(accessKeyId: String) {
         s3SyncRepository.setAccessKeyId(accessKeyId)
     }

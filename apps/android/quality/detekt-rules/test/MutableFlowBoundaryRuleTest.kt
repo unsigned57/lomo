@@ -24,42 +24,53 @@ import kotlin.io.path.writeText
  * historical RED/GREEN evidence: audit/03-客户端与工程门禁修复计划.md#history-evidence.
  * Excludes: local variables, Compose rendering state, cross-file inferred return types.
  */
-class MutableFlowBoundaryRuleTest : FunSpec({
-    test("a state holder cannot expose an inferred mutable flow") {
-        mutableFlowFindings("class Holder { val changes = MutableStateFlow(0) }").shouldHaveSize(1)
-    }
-    test("a constructor property cannot expose a mutable flow") {
-        mutableFlowFindings("class Holder(val changes: MutableStateFlow<Int>)").shouldHaveSize(1)
-    }
-    test("internal visibility still exports the writer outside its class") {
-        mutableFlowFindings("class Holder { internal val changes = MutableSharedFlow<Int>() }").shouldHaveSize(1)
-    }
-    test("an import alias cannot hide mutable stream identity") {
-        mutableFlowFindings("import kotlinx.coroutines.flow.MutableStateFlow as Signal\nclass Holder { val changes = Signal(0) }")
-            .shouldHaveSize(1)
-    }
-    test("a same-file type alias cannot export the writer") {
-        mutableFlowFindings("typealias Signal = MutableStateFlow<Int>\nclass Holder(val changes: Signal)").shouldHaveSize(1)
-    }
-    test("an inferred getter cannot return private mutable backing state") {
-        mutableFlowFindings("class Holder { private val backing = MutableStateFlow(0); val changes get() = backing }")
-            .shouldHaveSize(1)
-    }
-    test("functions and interfaces cannot return an explicit mutable flow") {
-        mutableFlowFindings("interface Port { fun changes(): MutableStateFlow<Int> }").shouldHaveSize(1)
-    }
-    test("a facade exception never grants external write access") {
-        mutableFlowFindings("// behavior-contract: session-facade-ok: platform recording\nclass HolderViewModel { val changes = MutableStateFlow(0) }")
-            .shouldHaveSize(1)
-    }
-    test("private backing with a read-only wrapper preserves one writer") {
-        mutableFlowFindings("class Holder { private val backing = MutableStateFlow(0); val changes = backing.asStateFlow() }")
-            .shouldHaveSize(0)
-    }
-    test("local mutable streams do not escape by declaration") {
-        mutableFlowFindings("fun collect() { val local = MutableStateFlow(0); consume(local) }").shouldHaveSize(0)
-    }
-})
+class MutableFlowBoundaryRuleTest :
+    FunSpec({
+        test("a state holder cannot expose an inferred mutable flow") {
+            mutableFlowFindings("class Holder { val changes = MutableStateFlow(0) }").shouldHaveSize(1)
+        }
+        test("a constructor property cannot expose a mutable flow") {
+            mutableFlowFindings("class Holder(val changes: MutableStateFlow<Int>)").shouldHaveSize(1)
+        }
+        test("internal visibility still exports the writer outside its class") {
+            mutableFlowFindings("class Holder { internal val changes = MutableSharedFlow<Int>() }").shouldHaveSize(1)
+        }
+        test("an import alias cannot hide mutable stream identity") {
+            mutableFlowFindings(
+                "import kotlinx.coroutines.flow.MutableStateFlow as Signal\nclass Holder { val changes = Signal(0) }",
+            )
+                .shouldHaveSize(1)
+        }
+        test("a same-file type alias cannot export the writer") {
+            mutableFlowFindings(
+                "typealias Signal = MutableStateFlow<Int>\nclass Holder(val changes: Signal)",
+            ).shouldHaveSize(1)
+        }
+        test("an inferred getter cannot return private mutable backing state") {
+            mutableFlowFindings(
+                "class Holder { private val backing = MutableStateFlow(0); val changes get() = backing }",
+            )
+                .shouldHaveSize(1)
+        }
+        test("functions and interfaces cannot return an explicit mutable flow") {
+            mutableFlowFindings("interface Port { fun changes(): MutableStateFlow<Int> }").shouldHaveSize(1)
+        }
+        test("a facade exception never grants external write access") {
+            mutableFlowFindings(
+                "// behavior-contract: session-facade-ok: platform recording\nclass HolderViewModel { val changes = MutableStateFlow(0) }",
+            )
+                .shouldHaveSize(1)
+        }
+        test("private backing with a read-only wrapper preserves one writer") {
+            mutableFlowFindings(
+                "class Holder { private val backing = MutableStateFlow(0); val changes = backing.asStateFlow() }",
+            )
+                .shouldHaveSize(0)
+        }
+        test("local mutable streams do not escape by declaration") {
+            mutableFlowFindings("fun collect() { val local = MutableStateFlow(0); consume(local) }").shouldHaveSize(0)
+        }
+    })
 
 private fun mutableFlowFindings(source: String): List<dev.detekt.api.Finding> {
     val rule = checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName("NoMutableFlowExposure")]) {

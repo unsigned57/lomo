@@ -1,0 +1,51 @@
+# Given reminder capabilities are granted, insert a reminder as a cancellable editor capsule.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- runFlow: close_editor.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- inputText: "reminder capsule probe"
+- hideKeyboard
+- runFlow:
+    when:
+      notVisible: "Add reminder"
+    commands:
+      - tapOn:
+          text: "Expand"
+          below:
+            id: "benchmark_input_editor"
+      - waitForAnimationToEnd
+- tapOn: "Add reminder"
+- assertVisible: "Reminder"
+- tapOn: "Next"
+- tapOn: "Next"
+- tapOn: "Confirm"
+- assertVisible:
+    id: "benchmark_input_reminder_badge"
+- waitForAnimationToEnd
+- takeScreenshot: reminder-capsule
+- inputText: " continued"
+- hideKeyboard
+- assertVisible:
+    id: "benchmark_input_reminder_badge"
+- tapOn:
+    id: "benchmark_input_reminder_badge"
+- assertNotVisible:
+    id: "benchmark_input_reminder_badge"
+- assertVisible: "reminder capsule probe continued"
+- tapOn: "Undo"
+- assertVisible:
+    id: "benchmark_input_reminder_badge"
+- tapOn: "Redo"
+- assertNotVisible:
+    id: "benchmark_input_reminder_badge"
+- waitForAnimationToEnd
+- takeScreenshot: reminder-cancelled
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible:
+    id: "benchmark_main_root"

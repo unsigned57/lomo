@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -6,9 +6,11 @@ use crate::{
     android::{self, AndroidVariant},
     cache, deps,
     native::{self, Abi, NativeProfile},
-    perf,
+    perf, perf_device,
     quality::{self, CoverageMode, FormatMode},
     tools,
+    tui::{self, TuiProfile},
+    tui_uitest,
     workspace::Workspace,
 };
 
@@ -94,10 +96,10 @@ const COMMANDS: &[CommandSpec] = &[
         native_command,
     ),
     command(
-        "android",
-        "[debug|release|benchmark] [arm64|arm|x86_64|x86|all|startup|frame|scroll]",
-        "Build and validate APK; release requires signing; benchmark runs the device Macrobenchmark suite",
-        android_command,
+        "build",
+        "<android|tui> [debug|release|benchmark] [abi|scenario] [--redroid]",
+        "Build and validate an application: android APK (default debug arm64; benchmark runs the device Macrobenchmark suite, --redroid provisions the pinned container) or tui desktop binary",
+        build_command,
     ),
     command(
         "ci",
@@ -113,9 +115,33 @@ const COMMANDS: &[CommandSpec] = &[
     ),
     command(
         "perf",
-        "",
-        "Produce performance evidence; diagnostic, not a handoff gate",
-        |w, args| no_args(args, || perf::run_diagnostics(w)),
+        "[device [startup|cuj|engine|workspace|system|sync|profile|release|all]... [--corpus device] [--backend saf|direct] [--redroid] [--trace]]",
+        "Produce performance evidence; diagnostic, not a handoff gate. Bare `perf` runs the host diagnostics; `perf device` measures a debuggable device",
+        perf_command,
+    ),
+    command(
+        "uitest",
+        "[flow ...] [--redroid] [--skip-build] [--no-install] [--clear-data] [--peer=<serial> for lan_share]",
+        "Run committed Maestro UI flows on an attached device (or provision the redroid container via --redroid); diagnostic, not a gate",
+        uitest_command,
+    ),
+    command(
+        "uishot",
+        "[name] [--redroid]",
+        "Snapshot the current device screen: screenshot + view hierarchy + component index; diagnostic, not a gate",
+        uishot_command,
+    ),
+    command(
+        "redroid",
+        "<up|down|status>",
+        "Lifecycle for the pinned redroid container: provision and wait (`up`), report backend state (`status`), or stop it (`down`)",
+        android::redroid,
+    ),
+    command(
+        "tuitest",
+        "[flow ...] [--skip-build]",
+        "Run committed PTY interaction flows against the lomo TUI binary; diagnostic, not a gate",
+        tuitest_command,
     ),
     command(
         "cache",
@@ -255,32 +281,69 @@ fn native_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> 
     )
 }
 
+fn build_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
+    let Some((target, rest)) = arguments.split_first() else {
+        bail!("usage: just build <android|tui> [debug|release|benchmark] [abi|scenario]");
+    };
+    match target.as_str() {
+        "android" => android_command(workspace, rest),
+        "tui" => tui_command(workspace, rest),
+        _ => bail!(
+            "unknown build target: {target}; usage: just build <android|tui> [debug|release|benchmark] [abi|scenario]"
+        ),
+    }
+}
+
+fn tui_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
+    let profile = match arguments {
+        [] => TuiProfile::Debug,
+        [value] => TuiProfile::parse(value)?,
+        _ => bail!("usage: just build tui [debug|release]"),
+    };
+    let binary = tui::build(workspace, profile)?;
+    Ok(json!({"binary": binary}))
+}
+
 fn android_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
     if matches!(arguments.first().map(String::as_str), Some("benchmark")) {
-        // `just android benchmark` always forwards the recipe's default ABI token in the
-        // scenario slot; `benchmark_scenarios` maps it (and explicit scenario names) to the
-        // run set. The instrumented harness is ABI-universal, so the slot carries no target.
-        if arguments.len() > 2 {
-            bail!("usage: just android benchmark [startup|frame|scroll|all]");
+        // The scenario slot also accepts an ABI token so `just build android benchmark
+        // arm64` still resolves to the full run set; `benchmark_scenarios` maps it (and
+        // explicit scenario names) to the run set. The instrumented harness is
+        // ABI-universal, so the slot carries no target.
+        let mut scenario = None;
+        let mut boot = None;
+        for argument in arguments.iter().skip(1) {
+            match argument.as_str() {
+                "--redroid" => boot = Some(android::DeviceBoot::Redroid),
+                _ if argument.starts_with("--") => {
+                    bail!("unknown benchmark flag: {argument}")
+                }
+                _ if scenario.is_none() => scenario = Some(argument.clone()),
+                _ => bail!(
+                    "usage: just build android benchmark [startup|frame|scroll|create|expand|menu|search|all] [--redroid]"
+                ),
+            }
         }
-        let scenarios = android::benchmark_scenarios(arguments.get(1))?;
-        return android::benchmark(workspace, &scenarios);
+        let scenarios = android::benchmark_scenarios(scenario.as_ref())?;
+        return android::benchmark(workspace, &scenarios, boot);
     }
     let (variant, abis) = match arguments {
-        [] => (AndroidVariant::Debug, Abi::ALL.to_vec()),
+        // The Just entrypoint previously defaulted to debug arm64; `build android`
+        // keeps that single-ABI dev default (`all` remains explicit).
+        [] => (AndroidVariant::Debug, vec![Abi::Arm64]),
         [arg1] => {
             if let Ok(variant) = parse_variant(arg1) {
-                (variant, Abi::ALL.to_vec())
+                (variant, vec![Abi::Arm64])
             } else if let Ok(abis) = Abi::parse_selector(arg1) {
                 (AndroidVariant::Debug, abis)
             } else {
                 bail!(
-                    "invalid android argument: {arg1}; usage: just android [debug|release|benchmark] [abi|scenario]"
+                    "invalid android argument: {arg1}; usage: just build android [debug|release|benchmark] [abi|scenario]"
                 );
             }
         }
         [arg1, arg2] => (parse_variant(arg1)?, Abi::parse_selector(arg2)?),
-        _ => bail!("usage: just android [debug|release|benchmark] [abi|scenario]"),
+        _ => bail!("usage: just build android [debug|release|benchmark] [abi|scenario]"),
     };
     let apk = android::build(workspace, variant, &abis)?;
     Ok(json!({"apk": apk}))
@@ -309,6 +372,69 @@ fn parse_variant(value: &str) -> Result<AndroidVariant> {
         "debug" => Ok(AndroidVariant::Debug),
         "release" => Ok(AndroidVariant::Release),
         _ => bail!("unknown Android variant: {value}"),
+    }
+}
+
+fn uitest_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
+    let mut options = android::UitestOptions::default();
+    for argument in arguments {
+        match argument.as_str() {
+            "--redroid" => options.boot = Some(android::DeviceBoot::Redroid),
+            "--skip-build" => options.skip_build = true,
+            "--no-install" => options.no_install = true,
+            "--clear-data" => options.clear_data = true,
+            _ if argument.starts_with("--peer=") => {
+                ensure!(
+                    options.peer_serial.is_none(),
+                    "--peer must be specified once"
+                );
+                let peer = argument
+                    .strip_prefix("--peer=")
+                    .context("invalid --peer flag")?;
+                ensure!(!peer.is_empty(), "--peer requires a nonempty serial");
+                options.peer_serial = Some(peer.to_owned());
+            }
+            _ if argument.starts_with("--") => bail!("unknown uitest flag: {argument}"),
+            _ => options.flows.push(argument.clone()),
+        }
+    }
+    android::uitest(workspace, &options)
+}
+
+fn uishot_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
+    let mut options = android::UishotOptions::default();
+    for argument in arguments {
+        match argument.as_str() {
+            "--redroid" => options.boot = Some(android::DeviceBoot::Redroid),
+            _ if argument.starts_with("--") => bail!("unknown uishot flag: {argument}"),
+            _ if options.name.is_none() => options.name = Some(argument.clone()),
+            _ => bail!("usage: just uishot [name] [--redroid]"),
+        }
+    }
+    android::uishot(workspace, &options)
+}
+
+fn tuitest_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
+    let mut options = tui_uitest::TuiUitestOptions::default();
+    for argument in arguments {
+        match argument.as_str() {
+            "--skip-build" => options.skip_build = true,
+            _ if argument.starts_with("--") => bail!("unknown tuitest flag: {argument}"),
+            _ => options.flows.push(argument.clone()),
+        }
+    }
+    tui_uitest::tui_uitest(workspace, &options)
+}
+
+/// `perf` has exactly two surfaces: bare `just perf` = host diagnostics (unchanged
+/// methodology); `just perf device ...` = the debuggable device measurement planes.
+fn perf_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
+    match arguments.split_first() {
+        None => perf::run_diagnostics(workspace),
+        Some((token, rest)) if token == "device" => perf_device::run_device_perf(workspace, rest),
+        Some((token, _)) => bail!(
+            "unknown perf argument `{token}`; usage: just perf [device [startup|cuj|engine|workspace|system|sync|profile|release|all]... [--corpus device] [--backend saf|direct] [--redroid] [--trace] [--write]]"
+        ),
     }
 }
 

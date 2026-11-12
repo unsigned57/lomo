@@ -1,9 +1,9 @@
 package com.lomo.data.di
 
 import com.lomo.data.repository.FileBackedPendingSyncReviewStore
+import com.lomo.data.repository.PendingSyncReviewStore
 import com.lomo.data.sync.pendingreview.FileBackedPendingReviewTable
 import com.lomo.data.sync.pendingreview.PendingReviewTable
-import com.lomo.data.repository.PendingSyncReviewStore
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.bind

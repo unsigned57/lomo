@@ -90,11 +90,13 @@ private fun consumeProviderSyncConflictState(
                 onShowConflictDialog(syncState.conflicts)
             }
         }
+
         is UnifiedSyncState.ReviewRequired -> {
             if (syncState.provider == provider) {
                 onShowReviewDialog(syncState.review)
             }
         }
+
         UnifiedSyncState.Idle,
         is UnifiedSyncState.Error,
         is UnifiedSyncState.NotConfigured,

@@ -70,10 +70,7 @@ private fun extractionRulesFile(): File {
     }
 }
 
-private fun section(
-    xml: String,
-    tag: String,
-): String {
+private fun section(xml: String, tag: String): String {
     val match = Regex("""<$tag>(.*?)</$tag>""", setOf(RegexOption.DOT_MATCHES_ALL)).find(xml)
     return checkNotNull(match?.groupValues?.get(1)) { "missing <$tag> in extraction rules" }
 }

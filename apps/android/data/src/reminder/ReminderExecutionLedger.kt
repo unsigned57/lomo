@@ -3,9 +3,6 @@ package com.lomo.data.reminder
 import android.content.Context
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
-import java.io.File
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -13,6 +10,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Durable ledger of reminder occurrences currently scheduled with AlarmManager.
@@ -65,10 +65,7 @@ internal class ReminderExecutionLedger(
         return entries.toMap()
     }
 
-    suspend fun recordScheduled(
-        occurrenceId: String,
-        occurrence: ScheduledOccurrence,
-    ) {
+    suspend fun recordScheduled(occurrenceId: String, occurrence: ScheduledOccurrence) {
         require(occurrenceId.isNotBlank()) { "Reminder occurrence identity must not be blank" }
         ensureLoaded()
         entries[occurrenceId] = occurrence
@@ -83,10 +80,7 @@ internal class ReminderExecutionLedger(
     }
 
     /** Removes and returns every recorded occurrence for [memoId] limited to [reminderIds]. */
-    suspend fun removeForReminders(
-        memoId: String,
-        reminderIds: Set<String>,
-    ): Map<String, ScheduledOccurrence> {
+    suspend fun removeForReminders(memoId: String, reminderIds: Set<String>): Map<String, ScheduledOccurrence> {
         ensureLoaded()
         val matched =
             entries.filterValues { it.memoId == memoId && it.reminderId in reminderIds }
@@ -142,9 +136,7 @@ internal class ReminderExecutionLedger(
     }
 
     @Serializable
-    private data class LedgerEnvelope(
-        val entries: Map<String, ScheduledOccurrence>,
-    )
+    private data class LedgerEnvelope(val entries: Map<String, ScheduledOccurrence>)
 
     private companion object {
         const val FILE_NAME = "execution_ledger.v1.json"

@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 // adversarial-audit: per-keypress and per-open work must stay inside the visible
 // window; nothing below may scale with the number of LOADED cards, the total
 // library size, or the byte volume of attachments.
@@ -124,6 +133,7 @@ mod tests {
                             .push(path.as_str().to_owned());
                     }
                     PlatformAction::Stat { .. }
+                    | PlatformAction::Inspect { .. }
                     | PlatformAction::ListChildren { .. }
                     | PlatformAction::EnsureDirectory { .. } => {
                         self.metadata.fetch_add(1, Ordering::Relaxed);
@@ -612,14 +622,14 @@ mod tests {
             ]);
         }
         let png = lomo_tui::media::rgba_to_png(width, height, &rgba).expect("png");
-        let mut picker = ratatui_image::picker::Picker::from_fontsize((8, 16));
+        let mut picker = crate::support::picker_with_font_size((8, 16));
         picker.set_protocol_type(ratatui_image::picker::ProtocolType::Sixel);
         let image = graphics::prepare_image(&png, 78, 20, &picker, &CancelToken::live())
             .expect("sixel encode");
         let mut protocol = image.lock_protocol();
         assert!(
             protocol
-                .needs_resize(&Resize::Fit(None), image.area())
+                .needs_resize(&Resize::Fit(None), image.area().into())
                 .is_none(),
             "a prepared image must not re-encode when the draw path renders it"
         );

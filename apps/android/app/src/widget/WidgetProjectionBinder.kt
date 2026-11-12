@@ -2,16 +2,15 @@ package com.lomo.app.widget
 
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.SecuritySessionState
-import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MemoListQueryRepository
 import com.lomo.domain.repository.SecuritySessionPolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
@@ -80,13 +79,16 @@ internal class WidgetProjectionBinder(
             val availability =
                 when {
                     !mount.admitsProjectionReads -> WidgetSnapshotAvailability.UNAVAILABLE
+
                     securitySession.current() != SecuritySessionState.LockOff ->
                         WidgetSnapshotAvailability.REDACTED
+
                     else -> WidgetSnapshotAvailability.READY
                 }
             val items =
                 when (availability) {
                     WidgetSnapshotAvailability.UNAVAILABLE -> emptyList()
+
                     else ->
                         snapshotItems(redacted = availability == WidgetSnapshotAvailability.REDACTED)
                 }
@@ -117,11 +119,11 @@ internal class WidgetProjectionBinder(
                 id = memo.id,
                 timestampMillis = memo.timestamp,
                 previewText =
-                    if (redacted) {
-                        ""
-                    } else {
-                        resolveWidgetMemoItemPresentation(memo, nowMillis()).previewText
-                    },
+                if (redacted) {
+                    ""
+                } else {
+                    resolveWidgetMemoItemPresentation(memo, nowMillis()).previewText
+                },
             )
         }
 

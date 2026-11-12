@@ -1,10 +1,7 @@
 package com.lomo.app.navigation
 
 internal object MainForegroundEntryRoutingPolicy {
-    data class State(
-        val evaluatedForegroundEntryId: Long,
-        val mainForegroundEntryId: Long,
-    )
+    data class State(val evaluatedForegroundEntryId: Long, val mainForegroundEntryId: Long)
 
     fun resolve(
         foregroundEntryId: Long,
@@ -31,11 +28,11 @@ internal object MainForegroundEntryRoutingPolicy {
         return State(
             evaluatedForegroundEntryId = foregroundEntryId,
             mainForegroundEntryId =
-                if (isMainVisible && !suppressForegroundAutoInput) {
-                    foregroundEntryId
-                } else {
-                    0L
-                },
+            if (isMainVisible && !suppressForegroundAutoInput) {
+                foregroundEntryId
+            } else {
+                0L
+            },
         )
     }
 }

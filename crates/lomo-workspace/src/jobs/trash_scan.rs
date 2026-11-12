@@ -310,11 +310,11 @@ fn advance_after_read(
     })?;
     let record_bytes = read_exchange_bytes(ctx.exchange_root, &token)?;
     let record = decode_trash_record(&record_bytes)?;
-    let canonical_path = trash_record_relative_path(&record.memo_id)?;
+    let canonical_path = trash_record_relative_path(&record.memo_id, &record.source_path)?;
     if canonical_path.as_str() != path {
         return Err(validation(
             "trash_record_path_mismatch",
-            "trash record filename does not match its hashed memo identity",
+            "trash record filename does not match its source and memo identity",
         ));
     }
     let ordinal = state
@@ -514,11 +514,11 @@ fn decode_state(state_json: &str) -> Result<TrashScanState, LomoError> {
 
 fn is_record_file(path: &str) -> bool {
     path.rsplit('/').next().is_some_and(|name| {
-        name.len() > 4
+        name.len() > 3
             && name
                 .as_bytes()
-                .get(name.len() - 4..)
-                .is_some_and(|suffix| suffix.eq_ignore_ascii_case(b".rec"))
+                .get(name.len() - 3..)
+                .is_some_and(|suffix| suffix.eq_ignore_ascii_case(b".md"))
     })
 }
 

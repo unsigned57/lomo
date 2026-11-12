@@ -69,21 +69,21 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
                 FakeRemoteSyncCenterRepository(
                     backend = RemoteSyncBackendLabel.S3,
                     pages =
-                        listOf(
-                            page(
-                                revision = 7,
-                                items =
-                                    listOf(
-                                        openMarkdown("memos/a.md"),
-                                        openBinary("images/p.jpg"),
-                                        resolvedMarkdown("memos/done.md"),
-                                    ),
+                    listOf(
+                        page(
+                            revision = 7,
+                            items =
+                            listOf(
+                                openMarkdown("memos/a.md"),
+                                openBinary("images/p.jpg"),
+                                resolvedMarkdown("memos/done.md"),
                             ),
                         ),
+                    ),
                     markdownBodies =
-                        mapOf(
-                            "memos/a.md" to ("local-a" to "remote-a"),
-                        ),
+                    mapOf(
+                        "memos/a.md" to ("local-a" to "remote-a"),
+                    ),
                 )
             val useCase = RemoteSyncConflictDialogUseCase(repo, RecordingMemoMutationRepository())
 
@@ -132,17 +132,17 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
                 FakeRemoteSyncCenterRepository(
                     backend = RemoteSyncBackendLabel.Git,
                     pages =
-                        listOf(
-                            page(
-                                revision = 3,
-                                items = listOf(openMarkdown("memos/a.md"), openMarkdown("memos/b.md")),
-                            ),
+                    listOf(
+                        page(
+                            revision = 3,
+                            items = listOf(openMarkdown("memos/a.md"), openMarkdown("memos/b.md")),
                         ),
+                    ),
                     markdownBodies =
-                        mapOf(
-                            "memos/a.md" to ("L" to "R"),
-                            "memos/b.md" to ("L2" to "R2"),
-                        ),
+                    mapOf(
+                        "memos/a.md" to ("L" to "R"),
+                        "memos/b.md" to ("L2" to "R2"),
+                    ),
                     postResolvePages = listOf(page(revision = 4, items = emptyList())),
                 )
             val memos = RecordingMemoMutationRepository()
@@ -154,12 +154,12 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
                     useCase.resolveSuspending(
                         session = session,
                         resolution =
-                            SyncConflictResolution(
-                                mapOf(
-                                    "memos/a.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
-                                    "memos/b.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                                ),
+                        SyncConflictResolution(
+                            mapOf(
+                                "memos/a.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
+                                "memos/b.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
                             ),
+                        ),
                     )
                 }
 
@@ -185,21 +185,21 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
                 FakeRemoteSyncCenterRepository(
                     backend = RemoteSyncBackendLabel.S3,
                     pages =
-                        listOf(
-                            page(
-                                revision = 2,
-                                items = listOf(openMarkdown("memos/a.md"), remainingPath),
-                            ),
+                    listOf(
+                        page(
+                            revision = 2,
+                            items = listOf(openMarkdown("memos/a.md"), remainingPath),
                         ),
+                    ),
                     markdownBodies =
-                        mapOf(
-                            "memos/a.md" to ("alpha" to "alpha\ngamma"),
-                            "memos/b.md" to ("start\nlocal only\nend" to "start\nremote only\nend"),
-                        ),
+                    mapOf(
+                        "memos/a.md" to ("alpha" to "alpha\ngamma"),
+                        "memos/b.md" to ("start\nlocal only\nend" to "start\nremote only\nend"),
+                    ),
                     postResolvePages =
-                        listOf(
-                            page(revision = 3, items = listOf(remainingPath)),
-                        ),
+                    listOf(
+                        page(revision = 3, items = listOf(remainingPath)),
+                    ),
                 )
             val memos = RecordingMemoMutationRepository()
             val useCase = RemoteSyncConflictDialogUseCase(repo, memos)
@@ -210,12 +210,12 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
                     useCase.resolveSuspending(
                         session = session,
                         resolution =
-                            SyncConflictResolution(
-                                mapOf(
-                                    "memos/a.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                                    "memos/b.md" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
-                                ),
+                        SyncConflictResolution(
+                            mapOf(
+                                "memos/a.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
+                                "memos/b.md" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
                             ),
+                        ),
                     )
                 }
 
@@ -231,26 +231,26 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
                 FakeRemoteSyncCenterRepository(
                     backend = RemoteSyncBackendLabel.S3,
                     pages =
-                        listOf(
-                            page(
-                                revision = 1,
-                                items = listOf(openMarkdown("memos/m.md")),
-                            ),
+                    listOf(
+                        page(
+                            revision = 1,
+                            items = listOf(openMarkdown("memos/m.md")),
                         ),
+                    ),
                     markdownBodies =
-                        mapOf(
-                            // Mergeable anchor insertion; merged bytes come from the owner suggestion.
-                            "memos/m.md" to ("start\nlocal\nmiddle\nend" to "start\nmiddle\nremote\nend"),
-                        ),
+                    mapOf(
+                        // Mergeable anchor insertion; merged bytes come from the owner suggestion.
+                        "memos/m.md" to ("start\nlocal\nmiddle\nend" to "start\nmiddle\nremote\nend"),
+                    ),
                     suggestions =
-                        mapOf(
-                            "memos/m.md" to
-                                SyncMergeSuggestion(
-                                    suggested = SyncMergeChoice.MERGE_TEXT,
-                                    safe = SyncMergeChoice.MERGE_TEXT,
-                                    mergedText = "start\nlocal\nmiddle\nremote\nend",
-                                ),
-                        ),
+                    mapOf(
+                        "memos/m.md" to
+                            SyncMergeSuggestion(
+                                suggested = SyncMergeChoice.MERGE_TEXT,
+                                safe = SyncMergeChoice.MERGE_TEXT,
+                                mergedText = "start\nlocal\nmiddle\nremote\nend",
+                            ),
+                    ),
                     postResolvePages = listOf(page(revision = 2, items = emptyList())),
                 )
             val useCase = RemoteSyncConflictDialogUseCase(repo, RecordingMemoMutationRepository())
@@ -259,9 +259,9 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
             useCase.resolve(
                 session = session,
                 resolution =
-                    SyncConflictResolution(
-                        mapOf("memos/m.md" to SyncConflictResolutionChoice.MERGE_TEXT),
-                    ),
+                SyncConflictResolution(
+                    mapOf("memos/m.md" to SyncConflictResolutionChoice.MERGE_TEXT),
+                ),
             )
 
             val submitted = repo.lastResolutions!!.single()
@@ -272,32 +272,30 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
     }
 }
 
-private fun openMarkdown(path: String): RemoteSyncConflictPath =
-    RemoteSyncConflictPath(
-        path = path,
-        kind = "markdown",
-        localDigest = "l",
-        remoteDigest = "r",
-        baselineDigest = "b",
-        remoteTokenPresent = true,
-        localArtifactRef = "art-l",
-        remoteArtifactRef = "art-r",
-        baselineArtifactRef = "art-b",
-        status = RemoteSyncConflictPathStatus.Open,
-    )
+private fun openMarkdown(path: String): RemoteSyncConflictPath = RemoteSyncConflictPath(
+    path = path,
+    kind = "markdown",
+    localDigest = "l",
+    remoteDigest = "r",
+    baselineDigest = "b",
+    remoteTokenPresent = true,
+    localArtifactRef = "art-l",
+    remoteArtifactRef = "art-r",
+    baselineArtifactRef = "art-b",
+    status = RemoteSyncConflictPathStatus.Open,
+)
 
-private fun openBinary(path: String): RemoteSyncConflictPath =
-    RemoteSyncConflictPath(
-        path = path,
-        kind = "binary",
-        localDigest = "l",
-        remoteDigest = "r",
-        baselineDigest = "b",
-        remoteTokenPresent = true,
-        localArtifactRef = null,
-        remoteArtifactRef = null,
-        status = RemoteSyncConflictPathStatus.Open,
-    )
+private fun openBinary(path: String): RemoteSyncConflictPath = RemoteSyncConflictPath(
+    path = path,
+    kind = "binary",
+    localDigest = "l",
+    remoteDigest = "r",
+    baselineDigest = "b",
+    remoteTokenPresent = true,
+    localArtifactRef = null,
+    remoteArtifactRef = null,
+    status = RemoteSyncConflictPathStatus.Open,
+)
 
 private fun resolvedMarkdown(path: String): RemoteSyncConflictPath =
     openMarkdown(path).copy(status = RemoteSyncConflictPathStatus.ResolvedKeepLocal)
@@ -306,14 +304,13 @@ private fun page(
     revision: Long,
     items: List<RemoteSyncConflictPath>,
     nextCursor: Int? = null,
-): RemoteSyncConflictPage =
-    RemoteSyncConflictPage(
-        session = RemoteSyncConflictSessionState.Present,
-        sessionId = "sess-1",
-        conflictRevision = revision,
-        items = items,
-        nextCursor = nextCursor,
-    )
+): RemoteSyncConflictPage = RemoteSyncConflictPage(
+    session = RemoteSyncConflictSessionState.Present,
+    sessionId = "sess-1",
+    conflictRevision = revision,
+    items = items,
+    nextCursor = nextCursor,
+)
 
 private class RecordingMemoMutationRepository : MemoMutationRepository {
     var refreshCount: Int = 0
@@ -323,17 +320,12 @@ private class RecordingMemoMutationRepository : MemoMutationRepository {
         refreshCount += 1
     }
 
-    override suspend fun commitDocumentMutation(
-        mutation: com.lomo.domain.model.MemoDocumentMutation,
-    ) = error("unused")
-
     override suspend fun saveMemo(
         attempt: com.lomo.domain.model.MemoCreateAttempt,
+        onAccepted: (String) -> Unit,
     ): com.lomo.domain.model.Memo = error("unused")
 
-    override suspend fun updateMemo(
-        attempt: com.lomo.domain.model.MemoUpdateAttempt,
-    ) = error("unused")
+    override suspend fun updateMemo(attempt: com.lomo.domain.model.MemoUpdateAttempt) = error("unused")
 
     override suspend fun deleteMemo(
         memo: com.lomo.domain.model.Memo,
@@ -367,30 +359,24 @@ private class FakeRemoteSyncCenterRepository(
 
     private var listPhase: ListPhase = ListPhase.Initial
 
-    override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
-        RemoteSyncConfigSummary(
-            backend = backend,
-            attentionCount = pages.firstOrNull()?.items?.count { it.status == RemoteSyncConflictPathStatus.Open } ?: 0,
-            lastVerifiedAtEpochMillis = null,
-            schedulePolicyLabel = null,
-        )
+    override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary = RemoteSyncConfigSummary(
+        backend = backend,
+        attentionCount = pages.firstOrNull()?.items?.count { it.status == RemoteSyncConflictPathStatus.Open } ?: 0,
+        lastVerifiedAtEpochMillis = null,
+        schedulePolicyLabel = null,
+    )
 
-    override suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
-        RemoteSyncSessionProgress(
-            phase = RemoteSyncSessionPhase.ConflictOpen,
-            completedActions = 0,
-            totalActions = null,
-            canCancel = false,
-        )
+    override suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress = RemoteSyncSessionProgress(
+        phase = RemoteSyncSessionPhase.ConflictOpen,
+        completedActions = 0,
+        totalActions = null,
+        canCancel = false,
+    )
 
     override suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress =
         sessionProgress(workspaceRoot)
 
-    override fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage {
+    override fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage {
         val source =
             when (listPhase) {
                 ListPhase.Initial -> pages
@@ -444,16 +430,15 @@ private class FakeRemoteSyncCenterRepository(
     override fun binaryConflictFacts(
         workspaceRoot: String,
         path: RemoteSyncConflictPath,
-    ): RemoteSyncBinaryConflictFacts =
-        RemoteSyncBinaryConflictFacts(
-            path = path.path,
-            mimeType = null,
-            sizeBytes = null,
-            localDigest = path.localDigest,
-            remoteDigest = path.remoteDigest,
-            baselineDigest = path.baselineDigest,
-            sourceLabel = "test",
-        )
+    ): RemoteSyncBinaryConflictFacts = RemoteSyncBinaryConflictFacts(
+        path = path.path,
+        mimeType = null,
+        sizeBytes = null,
+        localDigest = path.localDigest,
+        remoteDigest = path.remoteDigest,
+        baselineDigest = path.baselineDigest,
+        sourceLabel = "test",
+    )
 
     private enum class ListPhase {
         Initial,

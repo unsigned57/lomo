@@ -12,16 +12,15 @@ import timber.log.Timber
 
 private const val TAG = "ReminderActionReceiver"
 
-class ReminderActionReceiver : BroadcastReceiver(), KoinComponent {
+class ReminderActionReceiver :
+    BroadcastReceiver(),
+    KoinComponent {
     private val asyncRunner: ReminderAsyncRunner by inject()
     private val reminderCoordinator: ReminderCoordinator by inject()
     private val reminderNotifier: ReminderNotifier by inject()
     private val engineReadiness: EngineReadinessRepository by inject()
 
-    override fun onReceive(
-        context: Context,
-        intent: Intent,
-    ) {
+    override fun onReceive(context: Context, intent: Intent) {
         val memoId = intent.getStringExtra(ReminderIntents.EXTRA_MEMO_ID) ?: return
         val reminderId = intent.getStringExtra(ReminderIntents.EXTRA_REMINDER_ID) ?: return
         val action = intent.action ?: return
@@ -52,10 +51,12 @@ class ReminderActionReceiver : BroadcastReceiver(), KoinComponent {
                     reminderCoordinator.snooze(memoId, reminderId)
                     reminderNotifier.cancel(notificationId, occurrenceId)
                 }
+
                 ReminderIntents.ACTION_DONE -> {
                     reminderCoordinator.markDone(memoId, reminderId)
                     reminderNotifier.cancel(notificationId, occurrenceId)
                 }
+
                 else -> Unit
             }
         }

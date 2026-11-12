@@ -47,11 +47,13 @@ internal class SyncPolicyRepositoryImpl(
             SyncBackendType.NONE,
             SyncBackendType.INBOX,
             -> rustSyncScheduler.cancel()
+
             SyncBackendType.UNKNOWN -> {
                 // The stored selection is unparseable — we cannot tell which backend the user
                 // meant, so we neither schedule nor destroy the existing schedule.
                 Timber.w("applyRemoteSyncPolicy: unrecognized stored backend; leaving schedule untouched")
             }
+
             SyncBackendType.GIT,
             SyncBackendType.WEBDAV,
             SyncBackendType.S3,

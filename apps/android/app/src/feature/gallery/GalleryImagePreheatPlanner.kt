@@ -36,10 +36,7 @@ internal class GalleryImagePreheatPlanner(
         require(maxActiveRequests > 0) { "maxActiveRequests must be positive." }
     }
 
-    fun planStartup(
-        bands: List<GalleryMosaicLayout>,
-        tileSize: FeedImagePreloadSize,
-    ): GalleryImagePreheatPlan =
+    fun planStartup(bands: List<GalleryMosaicLayout>, tileSize: FeedImagePreloadSize): GalleryImagePreheatPlan =
         planForBands(
             bands = bands.asSequence().take(startupBandCount),
             tileSize = tileSize,
@@ -55,10 +52,10 @@ internal class GalleryImagePreheatPlanner(
         val safeVisibleCount = visibleBandCount.coerceAtLeast(0)
         return planForBands(
             bands =
-                bands
-                    .asSequence()
-                    .drop(safeFirstVisible)
-                    .take(safeVisibleCount + lookaheadBandCount),
+            bands
+                .asSequence()
+                .drop(safeFirstVisible)
+                .take(safeVisibleCount + lookaheadBandCount),
             tileSize = tileSize,
         )
     }
@@ -125,11 +122,10 @@ internal class GalleryImagePreheatPlanner(
  */
 internal const val GALLERY_ENTRY_TILE_COUNT = 24
 
-internal fun galleryEntryWindowUrls(layoutInputs: List<GalleryLayoutInput>): List<String> =
-    layoutInputs
-        .asSequence()
-        .map { input -> input.firstImageUrl.trim() }
-        .filter { url -> url.isNotEmpty() }
-        .distinct()
-        .take(GALLERY_ENTRY_TILE_COUNT)
-        .toList()
+internal fun galleryEntryWindowUrls(layoutInputs: List<GalleryLayoutInput>): List<String> = layoutInputs
+    .asSequence()
+    .map { input -> input.firstImageUrl.trim() }
+    .filter { url -> url.isNotEmpty() }
+    .distinct()
+    .take(GALLERY_ENTRY_TILE_COUNT)
+    .toList()

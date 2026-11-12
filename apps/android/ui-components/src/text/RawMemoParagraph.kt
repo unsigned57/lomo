@@ -7,9 +7,7 @@ import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
 
-data class RawMemoParagraph(
-    val text: String,
-)
+data class RawMemoParagraph(val text: String)
 
 private val RawMemoParagraphGapRegex = Regex("""(?:\r?\n[ \t]*){2,}""")
 
@@ -43,13 +41,10 @@ fun resolveRawMemoPlainTextStyle(
 ): TextStyle = typography.memoBodyTextStyle(scales).scriptAwareFor(text)
 
 @Composable
-fun resolveRawMemoPlainTextStyle(
-    typography: Typography,
-    text: CharSequence,
-): TextStyle = typography.memoBodyTextStyle().scriptAwareFor(text)
+fun resolveRawMemoPlainTextStyle(typography: Typography, text: CharSequence): TextStyle =
+    typography.memoBodyTextStyle().scriptAwareFor(text)
 
-fun rawMemoParagraphSpacing(scales: TypographyScales = TypographyScales()) =
-    memoParagraphBlockSpacing(scales)
+fun rawMemoParagraphSpacing(scales: TypographyScales = TypographyScales()) = memoParagraphBlockSpacing(scales)
 
 @Composable
 fun rawMemoParagraphSpacing() = memoParagraphBlockSpacing()

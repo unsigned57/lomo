@@ -7,9 +7,24 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
+use sha2::{Digest, Sha256};
 use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::workspace::Workspace;
+
+pub fn file_sha256(path: &Path) -> Result<String> {
+    let mut file = fs::File::open(path).with_context(|| format!("hash {}", path.display()))?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 16 * 1024];
+    loop {
+        let count = io::Read::read(&mut file, &mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        digest.update(buffer.get(..count).context("hash buffer length")?);
+    }
+    Ok(lomo_core::hex_encode(&digest.finalize()))
+}
 
 /// Parses a single-document YAML mapping file; anything else fails closed.
 ///

@@ -40,9 +40,8 @@ internal fun lomoImageFetcherCoroutineContext(ioDispatcher: CoroutineDispatcher)
  * file. Sized at [LOMO_IMAGE_DISK_CACHE_BYTES] (64 MB) so the cache itself
  * stays bounded and predictable.
  */
-internal fun lomoImageDiskCache(cacheDir: File): DiskCache =
-    DiskCache
-        .Builder()
-        .directory(cacheDir.resolve(LOMO_IMAGE_DISK_CACHE_DIRECTORY_NAME).toOkioPath())
-        .maxSizeBytes(LOMO_IMAGE_DISK_CACHE_BYTES)
-        .build()
+internal fun lomoImageDiskCache(cacheDir: File): DiskCache = DiskCache
+    .Builder()
+    .directory(cacheDir.resolve(LOMO_IMAGE_DISK_CACHE_DIRECTORY_NAME).toOkioPath())
+    .maxSizeBytes(LOMO_IMAGE_DISK_CACHE_BYTES)
+    .build()

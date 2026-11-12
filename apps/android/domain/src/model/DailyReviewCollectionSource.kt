@@ -2,59 +2,42 @@ package com.lomo.domain.model
 
 import java.time.LocalDate
 
-data class DailyReviewCollectionSource(
-    val sessionDate: LocalDate,
-    val seed: Long,
-    val excludeIds: Set<String> = emptySet(),
-    val randomIndexCursor: Int = 0,
-    val randomIndexSwaps: Map<Int, Int> = emptyMap(),
-    val observedMemoCount: Int = 0,
-    val candidateBoundary: DailyReviewCandidateBoundary? = null,
-    val candidateCursor: DailyReviewCandidateCursor? = null,
-    /** Continuation for the bounded post-snapshot unseen pass; never an integer offset. */
-    val visibleUnseenCursor: DailyReviewCandidateCursor? = null,
-    val randomCandidateChunkIds: List<String> = emptyList(),
-    val randomCandidateChunkOffset: Int = 0,
-    val candidatePageOffset: Int = 0,
-    val pageSize: Int = DEFAULT_PAGE_SIZE,
-) {
-    companion object {
-        const val DEFAULT_PAGE_SIZE = 20
+/** Month order is followed by seeded random order inside each month; RANDOM ignores months. */
+enum class DailyReviewSort { RECENT, PAST, RANDOM }
 
-        fun fromSession(
-            session: DailyReviewSession,
-            pageSize: Int = DEFAULT_PAGE_SIZE,
-        ): DailyReviewCollectionSource =
-            DailyReviewCollectionSource(
-                sessionDate = session.date,
-                seed = session.seed,
-                pageSize = pageSize,
-            )
+data class DailyReviewOptions(
+    val sort: DailyReviewSort = DailyReviewSort.RECENT,
+    val filter: MemoListFilter = MemoListFilter(),
+) {
+    init {
+        require(!filter.hasSortOverride) { "Review ordering is owned by DailyReviewSort" }
+        require(filter.startDate == null || filter.endDate == null || filter.startDate <= filter.endDate) {
+            "Review start date must not follow end date"
+        }
     }
 }
 
-data class DailyReviewCollectionPage(
-    val memos: List<Memo>,
-    val nextSource: DailyReviewCollectionSource,
-)
+/** One bounded continuation under a single native query identity. */
+data class DailyReviewCollectionSource(
+    val sessionDate: LocalDate,
+    val seed: Long,
+    val options: DailyReviewOptions = DailyReviewOptions(),
+    val excludeIds: Set<String> = emptySet(),
+    val cursor: String? = null,
+    val exhausted: Boolean = false,
+    val pageSize: Int = DEFAULT_PAGE_SIZE,
+) {
+    init {
+        require(pageSize in 1..MAX_PAGE_SIZE) { "Review page size must be between 1 and 200" }
+    }
+    companion object {
+        const val DEFAULT_PAGE_SIZE = 20
+        const val MAX_PAGE_SIZE = 200
+        fun fromSession(session: DailyReviewSession, pageSize: Int = DEFAULT_PAGE_SIZE): DailyReviewCollectionSource =
+            DailyReviewCollectionSource(session.date, session.seed, session.options, pageSize = pageSize)
+    }
+}
 
-data class DailyReviewCandidateBoundary(
-    val isPinned: Boolean,
-    val timestamp: Long,
-    val id: String,
-    val token: String = "",
-    val observedCount: Int = 0,
-)
+data class DailyReviewCollectionPage(val memos: List<Memo>, val nextSource: DailyReviewCollectionSource)
 
-data class DailyReviewCandidateCursor(
-    val isPinned: Boolean,
-    val timestamp: Long,
-    val id: String,
-    val token: String = "",
-    val position: Int = 0,
-)
-
-data class DailyReviewCandidatePage(
-    val ids: List<String>,
-    val nextCursor: DailyReviewCandidateCursor?,
-)
+data class DailyReviewCandidatePage(val ids: List<String>, val nextCursor: String?)

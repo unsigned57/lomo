@@ -8,11 +8,7 @@ import java.io.IOException
  * and creating the leaf file with [leafMimeType] if it does not exist. Returns the existing or
  * freshly-created leaf DocumentFile, or throws if creation fails at any step.
  */
-internal fun safResolveOrCreateRelative(
-    root: DocumentFile,
-    relativePath: String,
-    leafMimeType: String,
-): DocumentFile {
+internal fun safResolveOrCreateRelative(root: DocumentFile, relativePath: String, leafMimeType: String): DocumentFile {
     val segments = relativePath.split('/').filter(String::isNotEmpty)
     require(segments.isNotEmpty()) { "relativePath must not be empty" }
     var current = root

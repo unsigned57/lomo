@@ -21,10 +21,7 @@ internal suspend fun ensureInboxDirectoryStructure(
     }
 }
 
-private suspend fun ensureDirectInboxDirectoryStructure(
-    inboxRoot: String,
-    dispatcherProvider: DispatcherProvider,
-) {
+private suspend fun ensureDirectInboxDirectoryStructure(inboxRoot: String, dispatcherProvider: DispatcherProvider) {
     withContext(dispatcherProvider.io) {
         requiredInboxDirectories().forEach { name ->
             val directory = File(inboxRoot, name)
@@ -55,9 +52,8 @@ private suspend fun ensureSafInboxDirectoryStructure(
     }
 }
 
-private fun requiredInboxDirectories(): List<String> =
-    listOf(
-        INBOX_MEMO_DIRECTORY,
-        "images",
-        "voice",
-    )
+private fun requiredInboxDirectories(): List<String> = listOf(
+    INBOX_MEMO_DIRECTORY,
+    "images",
+    "voice",
+)

@@ -53,7 +53,7 @@ import kotlin.io.path.writeText
  * - Test source — `@Deprecated` is acceptable in test fixtures that exercise legacy APIs.
  * - `@Deprecated` retained intentionally for a published SDK API (this repo has none today;
  *   add a path allowlist in the rule config if the future need arises).
- 
+
  * Test Change Justification:
  * - Reason category: mechanical layout path update.
  * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
@@ -61,115 +61,108 @@ import kotlin.io.path.writeText
  * - Coverage preserved by: same Detekt finding contracts and assertion messages.
  * - Why this is not fitting the test to the implementation: only path fixtures changed; rule behavior is unchanged.
 */
-class NoDeprecatedKeptRuleTest : FunSpec({
-    test("registers NoDeprecatedKept in the rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoDeprecatedKept")].shouldNotBeNull()
-    }
+class NoDeprecatedKeptRuleTest :
+    FunSpec({
+        test("registers NoDeprecatedKept in the rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoDeprecatedKept")].shouldNotBeNull()
+        }
 
-    test("flags @Deprecated on a top-level function in production source") {
-        val findings =
-            rule("NoDeprecatedKept").findingsForMainSource(
-                """
+        test("flags @Deprecated on a top-level function in production source") {
+            val findings =
+                rule("NoDeprecatedKept").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 @Deprecated("use newApi")
                 fun oldApi(): Int = 1
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "@Deprecated"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "@Deprecated"
+        }
 
-    test("flags @Deprecated on a class declaration in production source") {
-        val findings =
-            rule("NoDeprecatedKept").findingsForMainSource(
-                """
+        test("flags @Deprecated on a class declaration in production source") {
+            val findings =
+                rule("NoDeprecatedKept").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 @Deprecated("use NewWidget")
                 class OldWidget
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("flags @Deprecated on a property in production source") {
-        val findings =
-            rule("NoDeprecatedKept").findingsForMainSource(
-                """
+        test("flags @Deprecated on a property in production source") {
+            val findings =
+                rule("NoDeprecatedKept").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 @Deprecated("use newValue")
                 val oldValue: Int = 1
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("flags fully qualified @kotlin.Deprecated in production source") {
-        val findings =
-            rule("NoDeprecatedKept").findingsForMainSource(
-                """
+        test("flags fully qualified @kotlin.Deprecated in production source") {
+            val findings =
+                rule("NoDeprecatedKept").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 @kotlin.Deprecated("legacy")
                 fun legacy(): Int = 0
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("does not flag production source without @Deprecated") {
-        val findings =
-            rule("NoDeprecatedKept").findingsForMainSource(
-                """
+        test("does not flag production source without @Deprecated") {
+            val findings =
+                rule("NoDeprecatedKept").findingsForMainSource(
+                    """
                 package com.lomo.sample
 
                 fun fresh(): Int = 1
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("does not flag @Deprecated in test source") {
-        val findings =
-            rule("NoDeprecatedKept").findingsForTestSource(
-                """
+        test("does not flag @Deprecated in test source") {
+            val findings =
+                rule("NoDeprecatedKept").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 @Deprecated("used by legacy fixture")
                 fun legacyFixture(): Int = 0
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
-})
+            findings shouldBe emptyList()
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForMainSource(code: String) =
-    findingsForSource("src/sample/Fixture.kt", code)
+private fun Rule.findingsForMainSource(code: String) = findingsForSource("src/sample/Fixture.kt", code)
 
-private fun Rule.findingsForTestSource(code: String) =
-    findingsForSource("test/sample/Fixture.kt", code)
+private fun Rule.findingsForTestSource(code: String) = findingsForSource("test/sample/Fixture.kt", code)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<dev.detekt.api.Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<dev.detekt.api.Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

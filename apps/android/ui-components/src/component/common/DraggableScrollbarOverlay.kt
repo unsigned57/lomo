@@ -1,7 +1,5 @@
 package com.lomo.ui.component.common
 
-import androidx.compose.material3.MotionScheme
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -19,9 +17,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -33,13 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.AppHapticFeedback
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.delay
@@ -85,7 +86,7 @@ internal fun BoxScope.DraggableScrollbarOverlay(
     onThumbFractionChanged: (Float) -> Unit,
     onDragStateChanged: (Boolean) -> Unit,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
+    val motionScheme = LocalLomoMotion.current.component
     var trackHeightPx by remember { mutableFloatStateOf(0f) }
     var draggedThumbOffsetPx by remember { mutableFloatStateOf(0f) }
     val visualState =
@@ -94,20 +95,21 @@ internal fun BoxScope.DraggableScrollbarOverlay(
             isScrollInProgress = isScrollInProgress,
             recentlyScrolled = recentlyScrolled,
         )
-    val thumbWidthPx = rememberAnimatedThumbWidthPx(isThumbDragged = isThumbDragged)
-    val thumbColor = rememberDraggableScrollbarThumbColor(visualState = visualState)
+    val thumbWidth by rememberAnimatedThumbWidth(isThumbDragged = isThumbDragged)
+    val thumbAlpha by rememberDraggableScrollbarThumbAlpha(visualState = visualState)
+    val thumbColor = MaterialTheme.colorScheme.onSurface
     val haptics = LocalAppHapticFeedback.current
 
     AnimatedVisibility(
         visible = visible,
         modifier =
-            Modifier
-                .align(Alignment.CenterEnd)
-                .padding(
-                    top = DraggableScrollbarTokens.TrackPadding,
-                    bottom = DraggableScrollbarTokens.TrackPadding,
-                    end = DraggableScrollbarTokens.EndPadding,
-                ),
+        Modifier
+            .align(Alignment.CenterEnd)
+            .padding(
+                top = DraggableScrollbarTokens.TrackPadding,
+                bottom = DraggableScrollbarTokens.TrackPadding,
+                end = DraggableScrollbarTokens.EndPadding,
+            ),
         enter = draggableScrollbarFadeInTransition(motionScheme),
         exit = draggableScrollbarFadeOutTransition(motionScheme),
     ) {
@@ -127,26 +129,29 @@ internal fun BoxScope.DraggableScrollbarOverlay(
                 draggedThumbOffsetPx = thumbMetrics.thumbOffsetPx
             }
         }
-        val displayedThumbOffsetPx =
+        // Read each animation sample in draw/layout so thumb motion does not recompose the overlay.
+        val displayedThumbOffsetPx = {
             resolveDisplayedThumbOffsetPx(
                 isThumbDragged = isThumbDragged,
                 draggedThumbOffsetPx = draggedThumbOffsetPx,
                 settledThumbOffsetPx = animatedSettledOffsetPx,
             )
+        }
         Box(
             modifier =
-                Modifier.draggableScrollbarTrackModifier(
-                    onTrackHeightChanged = { trackHeightPx = it },
-                ),
+            Modifier.draggableScrollbarTrackModifier(
+                onTrackHeightChanged = { trackHeightPx = it },
+            ),
         ) {
             Canvas(modifier = Modifier.matchParentSize()) {
                 if (size.height <= 0f || size.width <= 0f) {
                     return@Canvas
                 }
+                val thumbWidthPx = thumbWidth.toPx()
                 val cornerPx = thumbWidthPx / 2f
                 drawRoundRect(
-                    color = thumbColor,
-                    topLeft = Offset(size.width - thumbWidthPx, displayedThumbOffsetPx),
+                    color = thumbColor.copy(alpha = thumbAlpha),
+                    topLeft = Offset(size.width - thumbWidthPx, displayedThumbOffsetPx()),
                     size = Size(thumbWidthPx, thumbMetrics.thumbExtentPx.coerceAtMost(size.height)),
                     cornerRadius = CornerRadius(cornerPx, cornerPx),
                 )
@@ -154,17 +159,17 @@ internal fun BoxScope.DraggableScrollbarOverlay(
             if (trackHeightPx > 0f && thumbMetrics.thumbExtentPx > 0f) {
                 Box(
                     modifier =
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .draggableScrollbarThumbDragModifier(
-                                thumbOffsetPx = displayedThumbOffsetPx,
-                                trackHeightPx = trackHeightPx,
-                                thumbExtentPx = thumbMetrics.thumbExtentPx,
-                                onDraggedThumbOffsetChanged = { draggedThumbOffsetPx = it },
-                                onThumbFractionChanged = onThumbFractionChanged,
-                                onDragStateChanged = onDragStateChanged,
-                                haptics = haptics,
-                            ),
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .draggableScrollbarThumbDragModifier(
+                            thumbOffsetPx = displayedThumbOffsetPx,
+                            trackHeightPx = trackHeightPx,
+                            thumbExtentPx = thumbMetrics.thumbExtentPx,
+                            onDraggedThumbOffsetChanged = { draggedThumbOffsetPx = it },
+                            onThumbFractionChanged = onThumbFractionChanged,
+                            onDragStateChanged = onDragStateChanged,
+                            haptics = haptics,
+                        ),
                 )
             }
         }
@@ -172,18 +177,15 @@ internal fun BoxScope.DraggableScrollbarOverlay(
 }
 
 @Composable
-private fun Modifier.draggableScrollbarTrackModifier(
-    onTrackHeightChanged: (Float) -> Unit,
-): Modifier =
-    this
-        .fillMaxHeight()
-        .width(DraggableScrollbarTokens.TouchTargetWidth)
-        .systemGestureExclusion()
-        .onSizeChanged { size -> onTrackHeightChanged(size.height.toFloat()) }
+private fun Modifier.draggableScrollbarTrackModifier(onTrackHeightChanged: (Float) -> Unit): Modifier = this
+    .fillMaxHeight()
+    .width(DraggableScrollbarTokens.TouchTargetWidth)
+    .systemGestureExclusion()
+    .onSizeChanged { size -> onTrackHeightChanged(size.height.toFloat()) }
 
 @Composable
 private fun Modifier.draggableScrollbarThumbDragModifier(
-    thumbOffsetPx: Float,
+    thumbOffsetPx: () -> Float,
     trackHeightPx: Float,
     thumbExtentPx: Float,
     onDraggedThumbOffsetChanged: (Float) -> Unit,
@@ -200,7 +202,7 @@ private fun Modifier.draggableScrollbarThumbDragModifier(
     val onDragStateChangedRef = rememberUpdatedState(onDragStateChanged)
     val hapticsRef = rememberUpdatedState(haptics)
     return this
-        .offset { IntOffset(x = 0, y = thumbOffsetRef.value.roundToInt()) }
+        .offset { IntOffset(x = 0, y = thumbOffsetRef.value().roundToInt()) }
         .width(DraggableScrollbarTokens.TouchTargetWidth)
         .height(thumbHeight)
         .pointerInput(Unit) {
@@ -211,8 +213,8 @@ private fun Modifier.draggableScrollbarThumbDragModifier(
                 if (trackPx <= 0f) return@awaitEachGesture
                 var currentOffset =
                     resolveThumbDragStartOffsetFromPress(
-                        pressY = thumbOffsetRef.value + down.position.y,
-                        currentThumbOffsetPx = thumbOffsetRef.value,
+                        pressY = thumbOffsetRef.value() + down.position.y,
+                        currentThumbOffsetPx = thumbOffsetRef.value(),
                         thumbExtentPx = thumbPx,
                         trackHeightPx = trackPx,
                     ) ?: return@awaitEachGesture
@@ -269,38 +271,34 @@ private fun Modifier.draggableScrollbarThumbDragModifier(
 }
 
 @Composable
-private fun rememberAnimatedThumbWidthPx(isThumbDragged: Boolean): Float {
-    val motionScheme = MaterialTheme.motionScheme
-    val animatedThumbWidth by animateDpAsState(
+private fun rememberAnimatedThumbWidth(isThumbDragged: Boolean): State<Dp> {
+    val motionScheme = LocalLomoMotion.current.component
+    return animateDpAsState(
         targetValue = if (isThumbDragged) DraggableScrollbarTokens.DragWidth else DraggableScrollbarTokens.IdleWidth,
         animationSpec = motionScheme.defaultSpatialSpec(),
         label = "ScrollbarThumbWidth",
     )
-    return with(LocalDensity.current) { animatedThumbWidth.toPx() }
 }
 
 @Composable
-private fun rememberDraggableScrollbarThumbColor(visualState: ScrollbarThumbVisualState): Color {
-    val motionScheme = MaterialTheme.motionScheme
-    val animatedAlpha by animateFloatAsState(
+private fun rememberDraggableScrollbarThumbAlpha(visualState: ScrollbarThumbVisualState): State<Float> {
+    val motionScheme = LocalLomoMotion.current.component
+    return animateFloatAsState(
         targetValue = resolveScrollbarThumbAlpha(visualState),
         animationSpec = motionScheme.defaultEffectsSpec(),
         label = "ScrollbarThumbAlpha",
     )
-    return MaterialTheme.colorScheme.onSurface.copy(alpha = animatedAlpha)
 }
 
-private fun draggableScrollbarFadeInTransition(motionScheme: MotionScheme) =
-    fadeIn(
-        animationSpec =
-            motionScheme.defaultEffectsSpec(),
-    )
+private fun draggableScrollbarFadeInTransition(motionScheme: MotionScheme) = fadeIn(
+    animationSpec =
+    motionScheme.defaultEffectsSpec(),
+)
 
-private fun draggableScrollbarFadeOutTransition(motionScheme: MotionScheme) =
-    fadeOut(
-        animationSpec =
-            motionScheme.defaultEffectsSpec(),
-    )
+private fun draggableScrollbarFadeOutTransition(motionScheme: MotionScheme) = fadeOut(
+    animationSpec =
+    motionScheme.defaultEffectsSpec(),
+)
 
 private fun resolveDraggedThumbOffsetPx(
     currentOffsetPx: Float,

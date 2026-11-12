@@ -37,29 +37,30 @@ object RustSyncRetryPolicy {
         hint: RemoteSyncRetryHint,
         runAttemptCount: Int = 0,
         maxAttempts: Int? = null,
-    ): ListenableWorker.Result =
-        when (hint.disposition) {
-            RemoteSyncRetryDisposition.Never -> ListenableWorker.Result.failure()
-            RemoteSyncRetryDisposition.AfterUserAction -> ListenableWorker.Result.success()
-            RemoteSyncRetryDisposition.Transient ->
-                if (maxAttempts != null && maxAttempts > 0 && runAttemptCount < maxAttempts) {
-                    ListenableWorker.Result.retry()
-                } else {
-                    ListenableWorker.Result.failure()
-                }
-        }
+    ): ListenableWorker.Result = when (hint.disposition) {
+        RemoteSyncRetryDisposition.Never -> ListenableWorker.Result.failure()
+
+        RemoteSyncRetryDisposition.AfterUserAction -> ListenableWorker.Result.success()
+
+        RemoteSyncRetryDisposition.Transient ->
+            if (maxAttempts != null && maxAttempts > 0 && runAttemptCount < maxAttempts) {
+                ListenableWorker.Result.retry()
+            } else {
+                ListenableWorker.Result.failure()
+            }
+    }
 
     /**
      * Optional delay from the hint for enqueue-time / one-shot backoff composition.
      * Transient-only; Never / AfterUserAction always return null.
      */
-    fun retryAfterMillis(hint: RemoteSyncRetryHint): Long? =
-        when (hint.disposition) {
-            RemoteSyncRetryDisposition.Transient -> hint.retryAfterMillis?.takeIf { it > 0 }
-            RemoteSyncRetryDisposition.Never,
-            RemoteSyncRetryDisposition.AfterUserAction,
-            -> null
-        }
+    fun retryAfterMillis(hint: RemoteSyncRetryHint): Long? = when (hint.disposition) {
+        RemoteSyncRetryDisposition.Transient -> hint.retryAfterMillis?.takeIf { it > 0 }
+
+        RemoteSyncRetryDisposition.Never,
+        RemoteSyncRetryDisposition.AfterUserAction,
+        -> null
+    }
 
     /**
      * Maps a structured boundary failure's disposition **name** into a hint.
@@ -109,6 +110,7 @@ class RustSyncWorker(
                 deferredLockStore.save(inputData)
                 return Result.success()
             }
+
             CredentialReadAuthorization.Authorized -> Unit
         }
 
@@ -141,10 +143,7 @@ class RustSyncWorker(
         }
     }
 
-    private suspend fun runLeasedWork(
-        request: RustSyncWorkRequest,
-        onLeaseIssued: (String?) -> Unit,
-    ): Result {
+    private suspend fun runLeasedWork(request: RustSyncWorkRequest, onLeaseIssued: (String?) -> Unit): Result {
         if (workIsStopped()) {
             return Result.success()
         }
@@ -211,8 +210,7 @@ class RustSyncWorker(
             }
     }
 
-    private fun neverResult(): Result =
-        resultFor(RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Never))
+    private fun neverResult(): Result = resultFor(RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Never))
 
     private fun resultFor(hint: RemoteSyncRetryHint): Result {
         val maxAttempts =
@@ -236,12 +234,11 @@ class RustSyncWorker(
             hint: RemoteSyncRetryHint,
             runAttemptCount: Int = 0,
             maxAttempts: Int = com.lomo.data.sync.REMOTE_AUTO_SYNC_RETRY_POLICY.maxAttempts,
-        ): ListenableWorker.Result =
-            RustSyncRetryPolicy.workResult(
-                hint = hint,
-                runAttemptCount = runAttemptCount,
-                maxAttempts = maxAttempts,
-            )
+        ): ListenableWorker.Result = RustSyncRetryPolicy.workResult(
+            hint = hint,
+            runAttemptCount = runAttemptCount,
+            maxAttempts = maxAttempts,
+        )
 
         fun inputData(
             workspaceRoot: String,

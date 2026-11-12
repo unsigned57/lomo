@@ -10,7 +10,6 @@ import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
 import com.lomo.domain.model.StoredCredentialStatus
-import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
@@ -124,17 +123,13 @@ class FakeGitSyncRepository : GitSyncRepository {
         this.token = token
     }
 
-    override suspend fun getTokenStatus(): StoredCredentialStatus =
-        if (token.isNullOrBlank()) {
-            StoredCredentialStatus.Missing
-        } else {
-            StoredCredentialStatus.Present
-        }
+    override suspend fun getTokenStatus(): StoredCredentialStatus = if (token.isNullOrBlank()) {
+        StoredCredentialStatus.Missing
+    } else {
+        StoredCredentialStatus.Present
+    }
 
-    override suspend fun setAuthorInfo(
-        name: String,
-        email: String,
-    ) {
+    override suspend fun setAuthorInfo(name: String, email: String) {
         authorInfoWrites += name to email
         authorName.value = name
         authorEmail.value = email

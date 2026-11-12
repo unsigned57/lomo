@@ -13,12 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,8 +26,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
+import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.component.common.LomoButton
+import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 
 @Composable
 fun LanShareSettingsCard(
@@ -53,7 +56,11 @@ fun LanShareSettingsCard(
             OutlinedTextField(
                 value = deviceNameInput,
                 onValueChange = onDeviceNameInputChange,
-                modifier = Modifier.fillMaxWidth().onFocusChanged { onNameFieldFocusChanged(it.isFocused) },
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .benchmarkAnchor(BenchmarkAnchorContract.LAN_DEVICE_NAME_INPUT)
+                    .onFocusChanged { onNameFieldFocusChanged(it.isFocused) },
                 singleLine = true,
                 label = { Text(stringResource(R.string.share_device_name_label)) },
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -67,11 +74,15 @@ fun LanShareSettingsCard(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onUseSystemDeviceName) {
+                LomoTextButton(onClick = onUseSystemDeviceName) {
                     Text(stringResource(R.string.share_device_name_use_system))
                 }
                 Spacer(Modifier.width(AppSpacing.Small))
-                Button(onClick = onSaveDeviceName, enabled = saveNameEnabled) {
+                LomoButton(
+                    modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.LAN_DEVICE_NAME_SAVE),
+                    onClick = onSaveDeviceName,
+                    enabled = saveNameEnabled,
+                ) {
                     Text(stringResource(R.string.action_save))
                 }
             }
@@ -83,7 +94,7 @@ fun LanShareSettingsCard(
 fun MemoPreviewCard(content: String, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
         shape = AppShapes.Large,
     ) {
         Column(modifier = Modifier.padding(AppSpacing.Medium)) {
@@ -104,19 +115,16 @@ fun MemoPreviewCard(content: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun DeviceNameActionsVisibility(
-    visible: Boolean,
-    content: @Composable () -> Unit,
-) {
-    val motionScheme = MaterialTheme.motionScheme
+internal fun DeviceNameActionsVisibility(visible: Boolean, content: @Composable () -> Unit) {
+    val motionScheme = LocalLomoMotion.current.layout
     AnimatedVisibility(
         visible = visible,
         enter =
-            fadeIn(motionScheme.defaultEffectsSpec()) +
-                slideInVertically(initialOffsetY = { -it / 2 }),
+        fadeIn(motionScheme.defaultEffectsSpec()) +
+            slideInVertically(initialOffsetY = { -it / 2 }),
         exit =
-            fadeOut(motionScheme.defaultEffectsSpec()) +
-                slideOutVertically(targetOffsetY = { -it / 3 }),
+        fadeOut(motionScheme.defaultEffectsSpec()) +
+            slideOutVertically(targetOffsetY = { -it / 3 }),
         content = { content() },
     )
 }

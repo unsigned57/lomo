@@ -1,0 +1,128 @@
+# Behavior Contract:
+# Given the gesture-ball settings, choosing a binding persists across app restart;
+# trying gestures in the preview never opens an editor or starts recording.
+# Given default bindings on the feed, left/up/down swipes never also trigger a tap.
+# Restores the feature defaults before and after the scenario; never clears workspace data.
+# TDD proof: device RED reached the feed but a left swipe never opened the editor;
+# evidence: target/lomo/reports/manual/quick-ball/device-failure-before-final.
+# GREEN: just uitest quick_ball, after the unified detector owns Initial-pass touch events.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_settings"
+- scrollUntilVisible:
+    element:
+      id: "benchmark_settings_interaction_security"
+- tapOn:
+    id: "benchmark_settings_interaction_security"
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_settings_quick_ball"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_quick_ball_root"
+- scrollUntilVisible:
+    element:
+      id: "benchmark_quick_ball_reset"
+- tapOn:
+    id: "benchmark_quick_ball_reset"
+- tapOn:
+    id: "benchmark_quick_ball_reset_confirm"
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      text: "Swipe up|向上滑动"
+    direction: UP
+- tapOn: "Swipe up|向上滑动"
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      text: "No action|不执行动作"
+- tapOn: "No action|不执行动作"
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      text: "↑ No action|↑ 不执行动作"
+    direction: UP
+- assertVisible: "↑ No action|↑ 不执行动作"
+- stopApp
+- launchApp
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_settings"
+- scrollUntilVisible:
+    element:
+      id: "benchmark_settings_interaction_security"
+- tapOn:
+    id: "benchmark_settings_interaction_security"
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_settings_quick_ball"
+- waitForAnimationToEnd
+- assertVisible: "↑ No action|↑ 不执行动作"
+- tapOn:
+    id: "benchmark_quick_ball_preview"
+- assertVisible: "Recognized: New memo|已识别：新建记录"
+- assertNotVisible:
+    id: "benchmark_input_editor"
+- longPressOn:
+    id: "benchmark_quick_ball_preview"
+- assertVisible: "Recognized: Long press: Start recording|已识别：长按：开始录音"
+- assertNotVisible:
+    id: "benchmark_input_editor"
+- takeScreenshot: quick-ball-settings
+- scrollUntilVisible:
+    element:
+      id: "benchmark_quick_ball_reset"
+- tapOn:
+    id: "benchmark_quick_ball_reset"
+- tapOn:
+    id: "benchmark_quick_ball_reset_confirm"
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      text: "↑ Back to top|↑ 回到顶部"
+    direction: UP
+- assertVisible: "↑ Back to top|↑ 回到顶部"
+- takeScreenshot: quick-ball-defaults
+- back
+- back
+- back
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_main_create_fab"
+- swipe:
+    from:
+      id: "benchmark_main_create_fab"
+    direction: LEFT
+    duration: 250
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_input_editor"
+- assertVisible: "Preview|预览"
+- takeScreenshot: quick-ball-long-text
+- hideKeyboard
+- tapOn: "Collapse|收起"
+- waitForAnimationToEnd
+- back
+- waitForAnimationToEnd
+- swipe:
+    from:
+      id: "benchmark_main_create_fab"
+    direction: UP
+    duration: 250
+- assertNotVisible:
+    id: "benchmark_input_editor"
+- swipe:
+    from:
+      id: "benchmark_main_create_fab"
+    direction: DOWN
+    duration: 250
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_search_root"

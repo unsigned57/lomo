@@ -7,13 +7,9 @@ import com.lomo.domain.model.SettingDescriptor
 import com.lomo.domain.model.SettingValue
 
 internal sealed interface OrdinarySettingsRestorePlan {
-    data class Restore(
-        val transaction: LomoOrdinarySettingsRestoreTransaction,
-    ) : OrdinarySettingsRestorePlan
+    data class Restore(val transaction: LomoOrdinarySettingsRestoreTransaction) : OrdinarySettingsRestorePlan
 
-    data class Skip(
-        val clearsLegacyWebDavUsername: Boolean,
-    ) : OrdinarySettingsRestorePlan
+    data class Skip(val clearsLegacyWebDavUsername: Boolean) : OrdinarySettingsRestorePlan
 }
 
 internal fun MigrationSettingsSnapshot.toValidationReport(): MigrationSettingsValidationReport {
@@ -42,55 +38,55 @@ internal fun MigrationSettingsSnapshot.toValidationReport(): MigrationSettingsVa
 
     return MigrationSettingsValidationReport(
         manifest =
-            MigrationSettingsManifest(
-                schemaVersion = DataStoreMigrationSettingsStore.migrationSettingsSchemaVersion,
-                destructiveActions =
-                    buildSet {
-                        if (providedOrdinaryKeys.isNotEmpty()) {
-                            add(MigrationSettingsRestoreAction.ORDINARY_SETTINGS_TRANSACTION)
-                        }
-                        if (sensitiveKeys.isNotEmpty() || SettingsKey.WEBDAV_USERNAME in preferenceKeys) {
-                            add(MigrationSettingsRestoreAction.CREDENTIAL_IMPORT)
-                        }
-                        if (sensitiveKeys != DataStoreMigrationSettingsStore.supportedSensitiveKeys) {
-                            add(MigrationSettingsRestoreAction.CREDENTIAL_CLEAR)
-                        }
-                        if (SettingsKey.WEBDAV_USERNAME in preferenceKeys) {
-                            add(MigrationSettingsRestoreAction.LEGACY_WEBDAV_USERNAME_DRAIN)
-                        }
-                    },
-                restartRequiredActions = emptySet(),
-                reAuthRequiredActions =
-                    if (requiredSensitiveKeys.isEmpty()) {
-                        emptySet()
-                    } else {
-                        setOf(MigrationSettingsRestoreAction.CREDENTIAL_IMPORT)
-                    },
-                unsupportedPreferenceKeys = unsupportedPreferenceKeys,
-                unsupportedSensitiveKeys = unsupportedSensitiveKeys,
-            ),
+        MigrationSettingsManifest(
+            schemaVersion = DataStoreMigrationSettingsStore.migrationSettingsSchemaVersion,
+            destructiveActions =
+            buildSet {
+                if (providedOrdinaryKeys.isNotEmpty()) {
+                    add(MigrationSettingsRestoreAction.ORDINARY_SETTINGS_TRANSACTION)
+                }
+                if (sensitiveKeys.isNotEmpty() || SettingsKey.WEBDAV_USERNAME in preferenceKeys) {
+                    add(MigrationSettingsRestoreAction.CREDENTIAL_IMPORT)
+                }
+                if (sensitiveKeys != DataStoreMigrationSettingsStore.supportedSensitiveKeys) {
+                    add(MigrationSettingsRestoreAction.CREDENTIAL_CLEAR)
+                }
+                if (SettingsKey.WEBDAV_USERNAME in preferenceKeys) {
+                    add(MigrationSettingsRestoreAction.LEGACY_WEBDAV_USERNAME_DRAIN)
+                }
+            },
+            restartRequiredActions = emptySet(),
+            reAuthRequiredActions =
+            if (requiredSensitiveKeys.isEmpty()) {
+                emptySet()
+            } else {
+                setOf(MigrationSettingsRestoreAction.CREDENTIAL_IMPORT)
+            },
+            unsupportedPreferenceKeys = unsupportedPreferenceKeys,
+            unsupportedSensitiveKeys = unsupportedSensitiveKeys,
+        ),
         ordinary =
-            MigrationOrdinarySettingsCoverage(
-                expectedCatalogKeys = DataStoreMigrationSettingsStore.catalogAppPreferenceKeys,
-                providedCatalogKeys = providedCatalogKeys,
-                missingCatalogKeys = missingCatalogKeys,
-                expectedOrdinaryKeys =
-                    DataStoreMigrationSettingsStore.supportedPreferenceKeys -
-                        DataStoreMigrationSettingsStore.legacyDrainPreferenceKeys,
-                providedOrdinaryKeys = providedOrdinaryKeys,
-                missingOrdinaryKeys = missingOrdinaryKeys,
-                missingRequiredKeys = missingRequiredKeys,
-            ),
+        MigrationOrdinarySettingsCoverage(
+            expectedCatalogKeys = DataStoreMigrationSettingsStore.catalogAppPreferenceKeys,
+            providedCatalogKeys = providedCatalogKeys,
+            missingCatalogKeys = missingCatalogKeys,
+            expectedOrdinaryKeys =
+            DataStoreMigrationSettingsStore.supportedPreferenceKeys -
+                DataStoreMigrationSettingsStore.legacyDrainPreferenceKeys,
+            providedOrdinaryKeys = providedOrdinaryKeys,
+            missingOrdinaryKeys = missingOrdinaryKeys,
+            missingRequiredKeys = missingRequiredKeys,
+        ),
         sensitive =
-            MigrationSensitiveSettingsCoverage(
-                expectedSensitiveKeys = DataStoreMigrationSettingsStore.supportedSensitiveKeys,
-                providedSensitiveKeys = sensitiveKeys,
-                missingSensitiveKeys = DataStoreMigrationSettingsStore.supportedSensitiveKeys - sensitiveKeys,
-                requiredSensitiveKeys = requiredSensitiveKeys,
-                providedRequiredKeys = providedRequiredKeys,
-                missingRequiredKeys = requiredSensitiveKeys - sensitiveKeys,
-                invalidRequiredKeys = invalidRequiredKeys,
-            ),
+        MigrationSensitiveSettingsCoverage(
+            expectedSensitiveKeys = DataStoreMigrationSettingsStore.supportedSensitiveKeys,
+            providedSensitiveKeys = sensitiveKeys,
+            missingSensitiveKeys = DataStoreMigrationSettingsStore.supportedSensitiveKeys - sensitiveKeys,
+            requiredSensitiveKeys = requiredSensitiveKeys,
+            providedRequiredKeys = providedRequiredKeys,
+            missingRequiredKeys = requiredSensitiveKeys - sensitiveKeys,
+            invalidRequiredKeys = invalidRequiredKeys,
+        ),
     )
 }
 
@@ -112,15 +108,15 @@ internal fun Map<String, String>.toOrdinaryRestorePlan(
     val nullableStringValues = nullableStringPreferenceValues()
     return OrdinarySettingsRestorePlan.Restore(
         transaction =
-            LomoOrdinarySettingsRestoreTransaction(
-                catalogValues = catalogValues,
-                stringValues = stringValues,
-                nullableStringValues =
-                    nullableStringValues +
-                        (LomoDataStoreKeys.WEBDAV_USERNAME to null),
-                booleanValues = booleanValues,
-                intValues = intValues,
-            ),
+        LomoOrdinarySettingsRestoreTransaction(
+            catalogValues = catalogValues,
+            stringValues = stringValues,
+            nullableStringValues =
+            nullableStringValues +
+                (LomoDataStoreKeys.WEBDAV_USERNAME to null),
+            booleanValues = booleanValues,
+            intValues = intValues,
+        ),
     )
 }
 
@@ -131,44 +127,41 @@ private fun Map<String, String>.catalogAppPreferenceValues(): Map<SettingDescrip
         }
     }.toMap()
 
-private fun Map<String, String>.booleanPreferenceValues(): Map<Preferences.Key<Boolean>, Boolean> =
-    buildMap {
-        MigrationOrdinarySettings.booleans.forEach { setting ->
-            this@booleanPreferenceValues[setting.wireKey]?.let { value ->
-                put(
-                    setting.dataStoreKey,
-                    requireNotNull(value.toBooleanStrictOrNull()) {
-                        "Migration setting ${setting.wireKey} must be a boolean"
-                    },
-                )
-            }
+private fun Map<String, String>.booleanPreferenceValues(): Map<Preferences.Key<Boolean>, Boolean> = buildMap {
+    MigrationOrdinarySettings.booleans.forEach { setting ->
+        this@booleanPreferenceValues[setting.wireKey]?.let { value ->
+            put(
+                setting.dataStoreKey,
+                requireNotNull(value.toBooleanStrictOrNull()) {
+                    "Migration setting ${setting.wireKey} must be a boolean"
+                },
+            )
         }
     }
+}
 
-private fun Map<String, String>.intPreferenceValues(): Map<Preferences.Key<Int>, Int> =
-    buildMap {
-        MigrationOrdinarySettings.ints.forEach { setting ->
-            this@intPreferenceValues[setting.wireKey]?.let { value ->
-                put(
-                    setting.dataStoreKey,
-                    requireNotNull(value.toIntOrNull()) {
-                        "Migration setting ${setting.wireKey} must be an integer"
-                    },
-                )
-            }
+private fun Map<String, String>.intPreferenceValues(): Map<Preferences.Key<Int>, Int> = buildMap {
+    MigrationOrdinarySettings.ints.forEach { setting ->
+        this@intPreferenceValues[setting.wireKey]?.let { value ->
+            put(
+                setting.dataStoreKey,
+                requireNotNull(value.toIntOrNull()) {
+                    "Migration setting ${setting.wireKey} must be an integer"
+                },
+            )
         }
     }
+}
 
-private fun Map<String, String>.requiredStringPreferenceValues(): Map<Preferences.Key<String>, String> =
-    buildMap {
-        MigrationOrdinarySettings.strings
-            .filterNot { setting -> setting.nullable }
-            .forEach { setting ->
-                this@requiredStringPreferenceValues[setting.wireKey]?.let { value ->
-                    put(setting.dataStoreKey, value)
-                }
+private fun Map<String, String>.requiredStringPreferenceValues(): Map<Preferences.Key<String>, String> = buildMap {
+    MigrationOrdinarySettings.strings
+        .filterNot { setting -> setting.nullable }
+        .forEach { setting ->
+            this@requiredStringPreferenceValues[setting.wireKey]?.let { value ->
+                put(setting.dataStoreKey, value)
             }
-    }
+        }
+}
 
 private fun Map<String, String>.nullableStringPreferenceValues(): Map<Preferences.Key<String>, String?> =
     MigrationOrdinarySettings.strings

@@ -1,27 +1,20 @@
 package com.lomo.app.testing.fakes
 
-import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.model.MemoSidebarStatistics
-import com.lomo.domain.model.StorageFilenameFormats
+import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.model.MemoTagCount
+import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.repository.MemoStatisticsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import java.time.LocalDate
 import java.time.ZoneId
 
-class FakeMemoStatisticsRepository(
-    private val store: FakeMemoStore,
-) : MemoStatisticsRepository {
-    override suspend fun getMemoStatistics(
-        zone: ZoneId,
-        today: LocalDate,
-    ): MemoStatistics = store.computeMemoStatistics(zone = zone, today = today)
+class FakeMemoStatisticsRepository(private val store: FakeMemoStore) : MemoStatisticsRepository {
+    override suspend fun getMemoStatistics(zone: ZoneId, today: LocalDate): MemoStatistics =
+        store.computeMemoStatistics(zone = zone, today = today)
 
-    override fun observeMemoStatistics(
-        zone: ZoneId,
-        today: LocalDate,
-    ): Flow<MemoStatistics> =
+    override fun observeMemoStatistics(zone: ZoneId, today: LocalDate): Flow<MemoStatistics> =
         combine(store.observeMemoCount(), store.observeMemoCountByDate(), store.observeTagCounts()) { _, _, _ ->
             store.computeMemoStatistics(zone = zone, today = today)
         }

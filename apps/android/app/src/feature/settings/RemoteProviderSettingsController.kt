@@ -5,8 +5,8 @@ import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -17,15 +17,10 @@ sealed interface RemoteProviderConnectionTestState {
 
     data object Testing : RemoteProviderConnectionTestState
 
-    data class Success(
-        val message: String,
-    ) : RemoteProviderConnectionTestState
+    data class Success(val message: String) : RemoteProviderConnectionTestState
 
-    data class Error(
-        val provider: SyncBackendType,
-        val providerCode: String?,
-        val detail: String?,
-    ) : RemoteProviderConnectionTestState
+    data class Error(val provider: SyncBackendType, val providerCode: String?, val detail: String?) :
+        RemoteProviderConnectionTestState
 }
 
 data class RemoteProviderCredentialFieldState(
@@ -80,9 +75,8 @@ data class ProviderSettingsControllerDependencies<RawSyncState>(
     val mapConnectionFailure: (Throwable) -> RemoteProviderConnectionTestState.Error,
 )
 
-class ProviderSettingsController<RawSyncState>(
-    dependencies: ProviderSettingsControllerDependencies<RawSyncState>,
-) : RemoteProviderSettingsActionTarget {
+class ProviderSettingsController<RawSyncState>(dependencies: ProviderSettingsControllerDependencies<RawSyncState>) :
+    RemoteProviderSettingsActionTarget {
     private val provider = dependencies.provider
     private val scope = dependencies.scope
     private val enabled = dependencies.enabled
@@ -132,12 +126,12 @@ class ProviderSettingsController<RawSyncState>(
         }.settingsStateIn(
             scope = scope,
             initialValue =
-                BehaviorState(
-                    enabled = enabled.value,
-                    autoSyncEnabled = autoSyncEnabled.value,
-                    autoSyncInterval = autoSyncInterval.value,
-                    syncOnRefreshEnabled = syncOnRefreshEnabled.value,
-                ),
+            BehaviorState(
+                enabled = enabled.value,
+                autoSyncEnabled = autoSyncEnabled.value,
+                autoSyncInterval = autoSyncInterval.value,
+                syncOnRefreshEnabled = syncOnRefreshEnabled.value,
+            ),
         )
 
     val model: StateFlow<RemoteProviderSettingsModel> =
@@ -162,17 +156,17 @@ class ProviderSettingsController<RawSyncState>(
         }.settingsStateIn(
             scope = scope,
             initialValue =
-                RemoteProviderSettingsModel(
-                    provider = provider,
-                    enabled = behaviorState.value.enabled,
-                    autoSyncEnabled = behaviorState.value.autoSyncEnabled,
-                    autoSyncInterval = behaviorState.value.autoSyncInterval,
-                    syncOnRefreshEnabled = behaviorState.value.syncOnRefreshEnabled,
-                    lastSyncTime = lastSyncTime.value,
-                    syncState = syncState.value,
-                    connectionTestState = connectionTestState.value,
-                    credentialFields = credentialFields.value,
-                ),
+            RemoteProviderSettingsModel(
+                provider = provider,
+                enabled = behaviorState.value.enabled,
+                autoSyncEnabled = behaviorState.value.autoSyncEnabled,
+                autoSyncInterval = behaviorState.value.autoSyncInterval,
+                syncOnRefreshEnabled = behaviorState.value.syncOnRefreshEnabled,
+                lastSyncTime = lastSyncTime.value,
+                syncState = syncState.value,
+                connectionTestState = connectionTestState.value,
+                credentialFields = credentialFields.value,
+            ),
         )
 
     override suspend fun updateEnabled(value: Boolean): SettingsOperationError? = updateEnabledAction(value)

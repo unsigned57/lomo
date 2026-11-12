@@ -1,43 +1,34 @@
 /*
  * Behavior Contract:
- * - Unit under test: FileMediaStorageDataSourceDelegate.
- * - Owning layer: data.
- * - Priority tier: P1.
- * - Capability: resolve the configured image root for read-only image location surfaces.
- *
+ * Capability: dedicated images expose canonical mounted paths and bare display aliases; owner: data; P1.
  * Scenarios:
- * - Given a configured image root, when files are listed, then the resolved backend result returns.
- * - Given a configured image root, when one filename is resolved, then its backend location returns.
- *
- * Observable outcomes:
- * - returned image listing and location.
- *
- * TDD proof:
- * - RED: Stage-7 architecture failed while the interface retained retired save/delete/voice
- *   operations represented by unsupported sentinels.
- *
- * Excludes:
- * - Rust-owned image import/delete, Rust-owned recording allocation/finalize, and SAF traversal.
- *
+ * - Given a dedicated image root without notes, when listed, then images/cover.jpg and its bare alias name the observed file.
+ * Observable outcomes: logical-path listing and exact location.
+ * TDD proof: target/lomo/reports/manual/directory-layout/data-red.log (MixedDirectoryImageInventoryTest) exposes the former selected-only inventory;
+ * GREEN: target/lomo/reports/manual/directory-layout/data-green.log.
  * Test Change Justification:
- * - Reason category: Stage-7 tail deletion after the P4-10A media cutover.
- * - Old behavior/assertion being replaced: Kotlin save/delete methods failed closed after cutover.
- * - Why old assertion is no longer correct: an unavailable operation must be absent from the type,
- *   not shipped as a method that always throws.
- * - Coverage preserved by: this test locks retained read surfaces; MediaEdge/Rust tests own import,
- *   recording and media-trash behavior.
- * - Why this is not fitting the test to the implementation: the production owner contract changed
- *   from transitional fail-closed methods to a capability-minimal interface.
+ * Reason category: directory identity contract correction.
+ * Old behavior/assertion being replaced: selected-only listings and a source filename lookup with no production callers.
+ * Why old assertion is no longer correct: inventory carries the engine namespace; the unused source lookup is removed while backend/provider lookups remain covered.
+ * Coverage preserved by: original bare-file location plus canonical mounted location and the independent/shared-root scenarios.
+ * Why this is not fitting the test to the implementation: the expected path matches the existing native images/ mount and authored Markdown.
+ * Test Change Justification:
+ * Reason category: immutable scan input migration.
+ * Old behavior/assertion being replaced: settings were read through resolvedMediaRoot during I/O.
+ * Why old assertion is no longer correct: the scan is now bound to its captured selection.
+ * Coverage preserved by: both mounted and bare alias assertions are retained verbatim.
+ * Why this is not fitting the test to the implementation: directory identity cannot change halfway through loading.
+ * Excludes: native media mutation, provider traversal and decoding.
  */
 
 package com.lomo.data.source
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
-import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
-import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 
 class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
     init {
@@ -46,26 +37,13 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                 val root = Files.createTempDirectory("file-media-storage-list").toFile()
                 val backend = fakeBackend(imageFiles = listOf("cover.jpg" to "file:///images/cover.jpg"))
                 val resolver = mockk<FileStorageBackendResolver>()
-                coEvery { resolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
-                    ResolvedMediaRoot(backend, WorkspaceVfs.Direct(root), configuredUriMarker = null)
+                every { resolver.mediaRootAt(root.path) } returns
+                    ResolvedMediaRoot(backend, WorkspaceVfs.Direct(root))
 
-                FileMediaStorageDataSourceDelegate(resolver).listImageFiles() shouldBe
-                    listOf("cover.jpg" to "file:///images/cover.jpg")
-
-                root.deleteRecursively()
-            }
-        }
-
-        test("given configured image root when filename is resolved then backend location returns") {
-            runTest {
-                val root = Files.createTempDirectory("file-media-storage-location").toFile()
-                val backend = fakeBackend(location = "file:///images/cover.jpg")
-                val resolver = mockk<FileStorageBackendResolver>()
-                coEvery { resolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
-                    ResolvedMediaRoot(backend, WorkspaceVfs.Direct(root), configuredUriMarker = null)
-
-                FileMediaStorageDataSourceDelegate(resolver).getImageLocation("cover.jpg") shouldBe
-                    "file:///images/cover.jpg"
+                FileMediaStorageDataSourceDelegate(
+                    resolver,
+                ).listImageFiles(MediaStorageSelection(null, root.path, null)) shouldBe
+                    listOf("images/cover.jpg" to "file:///images/cover.jpg", "cover.jpg" to "file:///images/cover.jpg")
 
                 root.deleteRecursively()
             }
@@ -73,12 +51,9 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
     }
 }
 
-private fun fakeBackend(
-    imageFiles: List<Pair<String, String>> = emptyList(),
-    location: String? = null,
-): MediaStorageBackend =
+private fun fakeBackend(imageFiles: List<Pair<String, String>> = emptyList()): MediaStorageBackend =
     object : MediaStorageBackend {
         override suspend fun listImageFiles(): List<Pair<String, String>> = imageFiles
 
-        override suspend fun getImageLocation(filename: String): String? = location
+        override suspend fun getImageLocation(filename: String): String? = imageFiles.toMap()[filename]
     }

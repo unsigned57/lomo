@@ -1,3 +1,11 @@
+/*
+ * Test Change Justification:
+ * Reason category: stage destination checks now use the mounted session capability.
+ * Old behavior/assertion being replaced: fixture methods accepted a nullable Direct-only workspace root.
+ * Why old assertion is no longer correct: that input cannot represent the selected SAF or independent attachment directory.
+ * Coverage preserved by: every existing result assertion; only the lease API and fixture signatures change.
+ * Why this is not fitting the test to the implementation: one authoritative session now supplies destination evidence.
+ */
 package com.lomo.data.engine
 
 /*
@@ -24,6 +32,9 @@ package com.lomo.data.engine
  * - Given two callers receive the same deduplicated job id, when both drive it concurrently, then
  *   platform execution is coalesced into a single flight, the second caller observes the first caller's
  *   completed step without driving again, and subsequent callers after flight completion can re-drive.
+ * - Given the native media sweep refuses, when the adapter sweeps, then the message-less
+ *   EngineError carrier converts into the typed EngineCommandFailureException before it can reach
+ *   a user-facing error surface.
  * - Given SAF provider facts disagree with an empty memo projection, when a source document
  *   fingerprint is requested, then the provider probe is authoritative, including verified absence.
  * - Given native LAN ingest returns a store commit, when the adapter commits the received item,
@@ -74,38 +85,32 @@ package com.lomo.data.engine
 
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
-import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.engine.lan.LanChunkSend
 import com.lomo.data.engine.lan.LanDeviceIdentity
-import com.lomo.data.engine.lan.LanBatchPreview
 import com.lomo.data.engine.lan.LanDiscoveredPeer
 import com.lomo.data.engine.lan.LanDiscoveryFacts
+import com.lomo.data.engine.lan.LanInboxWait
 import com.lomo.data.engine.lan.LanLocalIdentity
 import com.lomo.data.engine.lan.LanNetworkFacts
 import com.lomo.data.engine.lan.LanPairingChallenge
 import com.lomo.data.engine.lan.LanPeerPage
-import com.lomo.data.engine.lan.LanRuntimeInbox
-import com.lomo.data.engine.lan.LanInboxWait
-import com.lomo.data.engine.lan.LanServiceState
+import com.lomo.data.engine.lan.LanProtocolLimits
 import com.lomo.data.engine.lan.LanSendItemPlan
+import com.lomo.data.engine.lan.LanServiceState
 import com.lomo.data.engine.lan.LanSessionChallenge
 import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
-import com.lomo.data.engine.lan.LanProtocolLimits
 import com.lomo.data.engine.store.StoreInvalidationScope
 import com.lomo.data.repository.StoreInvalidationBus
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
-import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.nativebridge.PlatformBatchResult
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 class RustEngineAdapterTest : DataFunSpec() {
     init {
@@ -220,13 +225,13 @@ class RustEngineAdapterTest : DataFunSpec() {
                 PlatformBatchRunner(
                     native = native,
                     executor =
-                        AndroidPlatformActionExecutor(
-                            access = PlatformActionAccess {
-                                error("no platform actions expected for completed job")
-                            },
-                            currentTimeMillis = { 0L },
-                            readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
-                        ),
+                    AndroidPlatformActionExecutor(
+                        access = PlatformActionAccess {
+                            error("no platform actions expected for completed job")
+                        },
+                        currentTimeMillis = { 0L },
+                        readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
+                    ),
                 )
 
             val adapter =
@@ -285,6 +290,36 @@ class RustEngineAdapterTest : DataFunSpec() {
             adapter.close()
         }
 
+        test("given the native media sweep refuses when the adapter sweeps then the rejection stays typed") {
+            val native = FakeNativeEnginePort(NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL))
+            native.mediaSweepFailure =
+                com.lomo.nativebridge.EngineError.Failure(
+                    com.lomo.nativebridge.EngineFailure(
+                        category = "storage",
+                        code = "media_sweep_io",
+                        retryDisposition = "never",
+                        operationId = null,
+                        jobId = null,
+                        diagnostic = "sweep stat failed",
+                    ),
+                )
+            val adapter = testRustEngineAdapter(native)
+
+            val error =
+                io.kotest.assertions.throwables.shouldThrow<com.lomo.domain.model.EngineCommandFailureException> {
+                    adapter.sessionMediaOrphanSweep(
+                        nowMs = null,
+                        recoveryWindowMs = 0uL,
+                        externalDrafts = emptyList(),
+                    )
+                }
+
+            error.failure.code shouldBe "media_sweep_io"
+            error.failure.category shouldBe EngineFailureCategory.STORAGE
+            error.message.orEmpty() shouldContain "media_sweep_io"
+            adapter.close()
+        }
+
         test("given an unknown failure category when the snapshot decodes then readiness fails closed") {
             val native = FakeNativeEnginePort(NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL))
             val adapter = testRustEngineAdapter(native)
@@ -305,13 +340,10 @@ class RustEngineAdapterTest : DataFunSpec() {
             recovery.diagnostic shouldContain "quantum_flux"
             adapter.close()
         }
-
     }
 }
 
-private class FakeNativeEnginePort(
-    initialSnapshot: NativeEngineSnapshot,
-) : WorkspaceNativeEnginePort {
+private class FakeNativeEnginePort(initialSnapshot: NativeEngineSnapshot) : WorkspaceNativeEnginePort {
     var lanReceivedItemCommit: com.lomo.nativebridge.StoreMemoCommit? = null
     var toggleTaskCommit: com.lomo.nativebridge.StoreMemoCommit? = null
     val polledJobIds = mutableListOf<String>()
@@ -330,81 +362,46 @@ private class FakeNativeEnginePort(
 
     override fun lanProtocolLimits(): LanProtocolLimits = error("LAN not expected")
 
-    override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity =
+    override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity = error("LAN not expected")
+
+    override fun beginLanPairing(peerDeviceId: String, nowMs: Long, ttlMs: Long): LanPairingChallenge =
         error("LAN not expected")
 
-    override fun beginLanPairing(
-        peerDeviceId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ): LanPairingChallenge = error("LAN not expected")
-
-    override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
-        error("LAN not expected")
+    override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait = error("LAN not expected")
 
     override fun lanPairingChallenge(pairingId: String): LanPairingChallenge = error("LAN not expected")
 
-    override fun confirmLanPairing(
-        pairingId: String,
-        signature: ByteArray,
-        nowMs: Long,
-    ) = error("LAN not expected")
+    override fun confirmLanPairing(pairingId: String, signature: ByteArray, nowMs: Long) = error("LAN not expected")
 
     override fun declineLanPairing(pairingId: String) = error("LAN not expected")
 
-    override fun beginLanSession(
-        peerDeviceId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ): LanSessionChallenge = error("LAN not expected")
+    override fun beginLanSession(peerDeviceId: String, nowMs: Long, ttlMs: Long): LanSessionChallenge =
+        error("LAN not expected")
 
-    override fun confirmLanSession(
-        sessionId: String,
-        signature: ByteArray,
-        nowMs: Long,
-    ) = error("LAN not expected")
+    override fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long) = error("LAN not expected")
 
     override fun lanSessionState(sessionId: String): LanSessionState = error("LAN not expected")
 
-    override fun prepareLanBatch(
-        sessionId: String,
-        batchId: String,
-        items: List<LanSendItemPlan>,
-    ) = error("LAN not expected")
+    override fun prepareLanBatch(sessionId: String, batchId: String, items: List<LanSendItemPlan>) =
+        error("LAN not expected")
 
-    override fun approveLanBatch(
-        sessionId: String,
-        batchId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ) = error("LAN not expected")
+    override fun approveLanBatch(sessionId: String, batchId: String, nowMs: Long, ttlMs: Long) =
+        error("LAN not expected")
 
-    override fun rejectLanBatch(
-        sessionId: String,
-        batchId: String,
-        rejectedAtMs: Long,
-    ) = error("LAN not expected")
+    override fun rejectLanBatch(sessionId: String, batchId: String, rejectedAtMs: Long) = error("LAN not expected")
 
     override fun sendLanBatchChunks(chunks: List<LanChunkSend>) = error("LAN not expected")
 
-    override fun lanUnconfirmedBatchChunks(
-        batchId: String,
-        itemIndex: UInt,
-        attachmentSlot: UInt,
-    ): List<UInt> = error("LAN not expected")
+    override fun lanUnconfirmedBatchChunks(batchId: String, itemIndex: UInt, attachmentSlot: UInt): List<UInt> =
+        error("LAN not expected")
 
     override fun commitReceivedLanItem(
         batchId: String,
         itemIndex: UInt,
         nowMs: Long,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        lanReceivedItemCommit ?: error("LAN not expected")
+    ): com.lomo.nativebridge.StoreMemoCommit = lanReceivedItemCommit ?: error("LAN not expected")
 
-    override fun failReceivedLanItem(
-        batchId: String,
-        itemIndex: UInt,
-        code: String,
-    ) = Unit
+    override fun failReceivedLanItem(batchId: String, itemIndex: UInt, code: String) = Unit
 
     override fun sessionToggleTask(
         request: com.lomo.nativebridge.SessionToggleTaskRequest,
@@ -412,43 +409,37 @@ private class FakeNativeEnginePort(
 
     override fun listLanPeers(): LanPeerPage = error("LAN not expected")
 
-    override fun revokeLanPeer(
-        deviceId: String,
-        revokedAtMs: Long,
-    ): LanPeerPage = error("LAN not expected")
+    override fun revokeLanPeer(deviceId: String, revokedAtMs: Long): LanPeerPage = error("LAN not expected")
 
     override fun stageMedia(
         mediaRoot: String,
         sourceKind: com.lomo.nativebridge.MediaSourceKind,
         sourcePath: String,
         humanNameHint: String,
-    ): com.lomo.nativebridge.MediaStagedDto =
-        com.lomo.nativebridge.MediaStagedDto(
-            digest = "0".repeat(64),
-            size = 0uL,
-            mime = "application/octet-stream",
-            stagingPath = "$mediaRoot/stage",
-            humanNameHint = humanNameHint,
-            suggestedFinalRelativePath = "media/attachment.bin",
-        )
+    ): com.lomo.nativebridge.MediaStagedDto = com.lomo.nativebridge.MediaStagedDto(
+        digest = "0".repeat(64),
+        size = 0uL,
+        mime = "application/octet-stream",
+        stagingPath = "$mediaRoot/stage",
+        humanNameHint = humanNameHint,
+        suggestedFinalRelativePath = "media/attachment.bin",
+    )
 
     override fun recordStageLease(
-        workspaceRoot: String?,
         staged: com.lomo.nativebridge.MediaStagedDto,
         ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
         ownerId: String,
-    ): com.lomo.nativebridge.MediaStageRecordDto =
-        com.lomo.nativebridge.MediaStageRecordDto(
-            artifactId = staged.digest,
-            digest = staged.digest,
-            size = staged.size,
-            mime = staged.mime,
-            stagingPath = staged.stagingPath,
-            humanNameHint = staged.humanNameHint,
-            suggestedFinalRelativePath = staged.suggestedFinalRelativePath,
-            leases = listOf(com.lomo.nativebridge.MediaStageLeaseDto(staged.digest, ownerKind, ownerId)),
-            stagedBytesPresent = true,
-        )
+    ): com.lomo.nativebridge.MediaStageRecordDto = com.lomo.nativebridge.MediaStageRecordDto(
+        artifactId = staged.digest,
+        digest = staged.digest,
+        size = staged.size,
+        mime = staged.mime,
+        stagingPath = staged.stagingPath,
+        humanNameHint = staged.humanNameHint,
+        suggestedFinalRelativePath = staged.suggestedFinalRelativePath,
+        leases = listOf(com.lomo.nativebridge.MediaStageLeaseDto(staged.digest, ownerKind, ownerId)),
+        stagedBytesPresent = true,
+    )
 
     override fun stageRecordsForOwner(
         mediaRoot: String,
@@ -469,10 +460,8 @@ private class FakeNativeEnginePort(
     ): com.lomo.nativebridge.MediaStageReleaseDto =
         com.lomo.nativebridge.MediaStageReleaseDto(lease.artifactId, 0uL, false)
 
-    override fun allocateRecordingTarget(
-        mediaRoot: String,
-        extension: String,
-    ): String = "$mediaRoot/recording.$extension"
+    override fun allocateRecordingTarget(mediaRoot: String, extension: String): String =
+        "$mediaRoot/recording.$extension"
 
     override fun finalizeRecording(
         mediaRoot: String,
@@ -487,12 +476,15 @@ private class FakeNativeEnginePort(
     ): com.lomo.nativebridge.MediaManifestDto =
         com.lomo.nativebridge.MediaManifestDto(stageDirName = "stage", entries = emptyList())
 
+    var mediaSweepFailure: com.lomo.nativebridge.EngineError.Failure? = null
+
     override fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
         externalDrafts: List<com.lomo.nativebridge.SessionDraftGuardDto>,
-    ): com.lomo.nativebridge.SessionMediaSweepReportDto =
-        com.lomo.nativebridge.SessionMediaSweepReportDto(
+    ): com.lomo.nativebridge.SessionMediaSweepReportDto {
+        mediaSweepFailure?.let { throw it }
+        return com.lomo.nativebridge.SessionMediaSweepReportDto(
             candidates = 0uL,
             protections = emptyList(),
             movedToTrash = emptyList(),
@@ -500,32 +492,31 @@ private class FakeNativeEnginePort(
             keptLive = 0uL,
             failures = emptyList(),
         )
+    }
 
     override fun sessionExportArchive(
-        workspaceRoot: String,
         fileNameHint: String?,
-    ): com.lomo.nativebridge.ArchiveExportResultDto =
-        com.lomo.nativebridge.ArchiveExportResultDto(
-            archivePath = "exchange/exports/${fileNameHint?.removeSuffix(".zip") ?: "lomo-archive-test"}.zip",
-            schemaVersion = 2u,
-            entryCount = 0uL,
-        )
+        mediaCapabilities: List<String>,
+    ): com.lomo.nativebridge.ArchiveExportResultDto = com.lomo.nativebridge.ArchiveExportResultDto(
+        archivePath = "exchange/exports/${fileNameHint?.removeSuffix(".zip") ?: "lomo-archive-test"}.zip",
+        schemaVersion = 2u,
+        entryCount = 0uL,
+    )
 
     override fun sessionImportArchive(
         workspaceRoot: String,
         archivePath: String,
         stagingRoot: String,
-    ): com.lomo.nativebridge.StoreRebuildResult =
-        com.lomo.nativebridge.StoreRebuildResult(
-            memosIndexed = 0uL,
-            fileCount = 0uL,
-            attachmentCount = 0uL,
-            workspaceDigest = "",
-            storeDigest = "",
-            corruptLomoIsolated = 0uL,
-            highWaterRevision = 0uL,
-            rewritten = false,
-        )
+    ): com.lomo.nativebridge.StoreRebuildResult = com.lomo.nativebridge.StoreRebuildResult(
+        memosIndexed = 0uL,
+        fileCount = 0uL,
+        attachmentCount = 0uL,
+        workspaceDigest = "",
+        storeDigest = "",
+        corruptLomoIsolated = 0uL,
+        highWaterRevision = 0uL,
+        rewritten = false,
+    )
 
     var snapshot: NativeEngineSnapshot = initialSnapshot
     var stateReads: Int = 0
@@ -548,10 +539,7 @@ private class FakeNativeEnginePort(
         return queue?.removeFirstOrNull() ?: NativeJobStep.Running
     }
 
-    override fun submitPlatformResult(
-        jobId: String,
-        result: PlatformBatchResult,
-    ): NativeJobStep {
+    override fun submitPlatformResult(jobId: String, result: PlatformBatchResult): NativeJobStep {
         afterSubmitSnapshot?.let { snapshot = it }
         val queue = pollResults[jobId]
         return queue?.removeFirstOrNull() ?: NativeJobStep.Completed
@@ -561,9 +549,6 @@ private class FakeNativeEnginePort(
         content: String,
         schemaVersion: UInt,
     ): com.lomo.domain.model.markdown.MarkdownRenderDocument = error("render not expected")
-
-
-
 
     override fun startWorkspaceDocumentCommand(
         path: String,
@@ -583,14 +568,12 @@ private class FakeNativeEnginePort(
         backward: Boolean,
     ): com.lomo.nativebridge.StoreMemoPage = error("store query not expected")
 
-    override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong =
-        error("store count not expected")
+    override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong = error("store count not expected")
 
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =
         error("reminder plan not expected")
 
-    override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
-        error("store get not expected")
+    override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? = error("store get not expected")
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
         error("sidebar projection not expected")
@@ -612,21 +595,20 @@ private fun testRustEngineAdapter(
     native: FakeNativeEnginePort,
     platformBatchRunner: PlatformBatchRunner? = null,
     invalidation: StoreInvalidationBus = StoreInvalidationBus(),
-): RustEngineAdapter =
-    RustEngineAdapter.acquire(
+): RustEngineAdapter = RustEngineAdapter.acquire(
+    native = native,
+    platformBatchRunner = platformBatchRunner ?: PlatformBatchRunner(
         native = native,
-        platformBatchRunner = platformBatchRunner ?: PlatformBatchRunner(
-                native = native,
-                executor =
-                    AndroidPlatformActionExecutor(
-                        access = PlatformActionAccess { error("platform action not expected") },
-                        currentTimeMillis = { 0L },
-                        readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
-                    ),
-            ),
-        invalidation = invalidation,
-        sessionOpenResult = null,
-    )
+        executor =
+        AndroidPlatformActionExecutor(
+            access = PlatformActionAccess { error("platform action not expected") },
+            currentTimeMillis = { 0L },
+            readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
+        ),
+    ),
+    invalidation = invalidation,
+    sessionOpenResult = null,
+)
 
 private class AdapterProjectionPagingSource : PagingSource<Int, String>() {
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, String> =

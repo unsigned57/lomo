@@ -19,23 +19,24 @@ just bootstrap
 just ci
 ```
 
-The release boundary requires all four signing values, either in `apps/android/app/keystore.properties` using
-camelCase or uppercase keys, or as environment variables:
+Release signing is owned by the Kotlin toolchain: `settings.android.signing` in
+`apps/android/app/module.yaml` signs the release APK during the build. Its single input is
+`apps/android/app/keystore.properties` with the camelCase keys:
 
 ```text
-KEYSTORE_FILE
-KEYSTORE_PASSWORD
-KEY_ALIAS
-KEY_PASSWORD
+storeFile=<path>        # relative paths resolve from apps/android/app/
+storePassword=<password>
+keyAlias=<alias>
+keyPassword=<password>
 ```
 
 Partial or missing configuration fails before the release build. No default key, interactive guess,
-or debug signing fallback exists.
+or debug signing fallback exists; the release workflow materializes the same file from secrets.
 
 ## Build
 
 ```bash
-just android release all
+just build android release all
 ```
 
 Use an explicit ABI for split builds. Omission selects arm64 at the Just entrypoint.
@@ -43,25 +44,56 @@ A JSON result is successful only after artifact validation and signature verific
 
 xtask performs the following as one graph:
 
-1. validates baseline profile sources and signing configuration;
+1. validates measured Baseline/Startup Profile receipt hashes and SDK grammar, plus the `keystore.properties` signing configuration;
 2. builds `lomo-native` for the target ABI(s) with the pinned NDK/API and release-android profile;
 3. generates BoltFFI Kotlin/JNI into `native-bindings` / `com.lomo.nativebridge` and packages
    only `liblomo_native_jni.so` per ABI;
-4. builds the Kotlin Toolchain release APK with non-destructive ABI stashing isolation;
+4. builds the Kotlin Toolchain release APK — signed in-build by `android.signing` — with
+   non-destructive ABI stashing isolation;
 5. verifies the single native library for every targeted ABI, absence of unselected ABIs or JNA/`libjnidispatch`/old
    `liblomo_native.so`, ELF architecture and dependencies, and embedded baseline profile assets;
-6. signs with `apksigner` using environment-backed passwords and verifies the signature.
+6. verifies the toolchain-applied signature with `apksigner verify` before publishing.
 
-The final artifacts are `target/lomo/apk/release/Lomo-<version>-<abi>.apk` for release and
-`target/lomo/apk/debug/Lomo-<version>-<abi>.apk` for debug, where `<version>` is the app `versionName`
+The universal release artifact is
+`target/lomo/artifacts/android/release/lomo-v<version>-vc<versionCode>.apk`.
+Its name is the installed Android updater's metadata contract: both version fields come from
+`app/module.yaml`. Split release artifacts use
+`target/lomo/artifacts/android/release/Lomo-<version>-<abi>.apk`. Debug artifacts use
+`target/lomo/artifacts/android/debug/Lomo-<version>-<abi>.apk`, where `<version>` is the app `versionName`
 from `app/module.yaml` and `<abi>` is the ABI tag (`all` for universal packages), as reported by `data.apk` in the command result. Build intermediates stay in the single configured shared
 Kotlin build directory.
 
-Tag workflow `.github/workflows/android_release.yml` invokes the same commands and publishes all split and universal release artifacts (`target/lomo/apk/release/Lomo-*.apk`). It must not grow a second native, Kotlin, signing, or APK validation implementation.
+Tag workflow `.github/workflows/android_release.yml` invokes the same commands and publishes both
+split and universal release artifacts. The universal package alone is discoverable by the in-app
+updater; split packages remain available for manual installation. It must not grow a second native,
+Kotlin, signing, or APK validation implementation.
+
+### Android 1.6.2 → 2.0.0
+
+The released 1.6.2 package is `com.lomo.app`, version code 46. The 2.0.0 manifest uses the same
+package and version code 47. Updating in place requires the original release signing certificate;
+a debug or newly generated key cannot update the installed release.
+
+1. Run the release gates and `just build android release all` with the original signing key.
+   Compare `apksigner verify --print-certs` output for the released 1.6.2 APK and the built APK.
+2. Publish the verified `lomo-v2.0.0-vc47.apk` in the Android `v2.0.0` GitHub release. The old
+   updater reads `/releases/latest`, so this must be a published stable release, not a draft or
+   prerelease. Remote publication requires task authorization.
+3. In 1.6.2, use Settings → Check for updates, download the update, allow installation from Lomo
+   if Android requests it, and confirm the system update dialog. Cancellation leaves 1.6.2 installed.
+   A manual download of the same universal APK uses the same Android package update checks.
+4. Launch 2.0.0 and verify the installed version and a usable editor. This upgrade does not promise
+   migration of old application state. The user may configure the workspace and preferences again;
+   there is no automatic deletion of user workspace documents or app data.
+
+For device evidence, install the released 1.6.2 APK on a dedicated test device, launch it, then use
+`adb install -r <2.0.0 APK>` and launch again. Record the signer digests, install result, installed
+version, launch outcome and whether app data was retained or explicitly cleared. This proves package
+replacement and startup; it does not prove GitHub download or system installer consent UI.
 
 ## Resource Review
 
-`just ci` includes string-resource key parity. `just android release` additionally validates the selected
+`just ci` includes string-resource key parity. `just build android release` additionally validates the selected
 native ABIs, ELF metadata, BoltFFI-only packaging (`liblomo_native_jni.so`), baseline profile
 assets, signing, and the final APK signature.
 
@@ -117,12 +149,12 @@ release bump `pkgver` and refresh `sha256sums` with `updpkgsums` (pacman-contrib
 to AUR.
 
 `apps/tui/packaging/arch/lomo-local/PKGBUILD` (`lomo-local`) packages the worktree build at
-`target/release/lomo` for local iteration — `pkgver()` tracks `HEAD`, no network fetch:
+`target/lomo/artifacts/tui/release/lomo` for local iteration — `pkgver()` tracks `HEAD`, no network fetch:
 
 Build/package explicitly when local packaging is requested:
 
 ```bash
-cargo build -p lomo-tui --release --locked
+just build tui release
 (cd apps/tui/packaging/arch/lomo-local && makepkg -f)
 ```
 

@@ -43,8 +43,8 @@ class EngineRecoveryDiagnosticReportTest : DomainFunSpec() {
                     code = "journal_checksum_mismatch",
                     retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                     diagnostic =
-                        "secret=remote-password body=private memo token=capability-123 " +
-                            "path=/storage/emulated/0/Notes",
+                    "secret=remote-password body=private memo token=capability-123 " +
+                        "path=/storage/emulated/0/Notes",
                 )
 
             val report = recovery.toDiagnosticReport(RecoveryWorkspaceKind.SAF)

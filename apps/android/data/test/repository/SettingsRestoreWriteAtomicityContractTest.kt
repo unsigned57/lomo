@@ -11,11 +11,10 @@ package com.lomo.data.repository
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
 import androidx.work.Data
+import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.datastore.LomoOrdinarySettingsRestoreTransaction
-import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.security.DefaultCredentialRepository
 import com.lomo.data.security.SecureStringReadResult
@@ -28,9 +27,8 @@ import com.lomo.data.worker.RustSyncScheduler
 import com.lomo.domain.model.AppPreferenceSnapshotField
 import com.lomo.domain.model.ColorPresetId
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.CredentialField
-import com.lomo.domain.model.CredentialProvider
-import com.lomo.domain.model.CredentialReadAuthorization
 import com.lomo.domain.model.CredentialSecretReadResult
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.SettingsCatalog
@@ -44,11 +42,18 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 
 /*
+
+ * Test Change Justification:
+ * Reason category: Preference schema expansion.
+ * Old behavior/assertion being replaced: the exhaustive catalog sample omitted quick-ball bindings.
+ * Why old assertion is no longer correct: the catalog now includes this persisted preference.
+ * Coverage preserved by: all existing snapshot/restore assertions remain, with a non-default gesture mapping.
+ * Why this is not fitting the test to the implementation: the fixture extends exhaustive field coverage;
+ * malformed values, atomicity and prior field expectations remain enforced.
  * Behavior Contract:
  * - Unit under test: DefaultCredentialRepository.writeSecrets + DataStoreMigrationSettingsStore
  *   + RestoreSyncIdentityPreflight
@@ -76,10 +81,22 @@ import java.nio.file.Files
  * - The partial-commit pin would fail if writeSecrets wrapped entries in per-entry rollback;
  *   the denial pins would fail if the baseline collapsed denial to "" (F-3 regression).
  * Excludes: Android Keystore cryptography, WorkManager, UI import flow.
+ *
+ * Test Change Justification:
+ * - Reason category: product feature removal (usage-based memo menu auto-reorder).
+ * - Old behavior/assertion being replaced: the sample restore payload included the three memo action settings.
+ * - Why old assertion is no longer correct: the memo_action_auto_reorder_enabled, memo_action_order
+ *   and memo_action_orders_by_scope settings were deleted from the settings catalog, DataStore and
+ *   snapshot; the redesigned memo menu has a fixed layout.
+ * - Coverage preserved by: the atomic write scenarios over every remaining catalog field.
+ * - Why this is not fitting the test to the implementation: only sample values and assertions for
+ *   deleted settings were removed; the scenario and every remaining setting are unchanged.
  */
 class SettingsRestoreWriteAtomicityContractTest : DataFunSpec() {
     init {
-        test("a mid-batch store-layer failure commits earlier entries and propagates — cancellation is atomic, failure is not") {
+        test(
+            "a mid-batch store-layer failure commits earlier entries and propagates — cancellation is atomic, failure is not",
+        ) {
             runTest {
                 val s3Store =
                     FailOnceSecureStringStore(failOnKey = "s3_secret_access_key")
@@ -131,14 +148,14 @@ class SettingsRestoreWriteAtomicityContractTest : DataFunSpec() {
                 // prove the stored secret already equals it, so the fence moves anyway.
                 preflight.movesSyncIdentity(
                     snapshot =
-                        MigrationSettingsSnapshot(
-                            preferences =
-                                mapOf(
-                                    SettingsKey.SYNC_BACKEND_TYPE to "webdav",
-                                    SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
-                                ),
-                            sensitive = mapOf(SettingsKey.WEBDAV_STORED_USERNAME to "alice"),
+                    MigrationSettingsSnapshot(
+                        preferences =
+                        mapOf(
+                            SettingsKey.SYNC_BACKEND_TYPE to "webdav",
+                            SettingsKey.WEBDAV_ENDPOINT_URL to "https://dav.example/endpoint",
                         ),
+                        sensitive = mapOf(SettingsKey.WEBDAV_STORED_USERNAME to "alice"),
+                    ),
                     sensitiveSettings = mapOf(SettingsKey.WEBDAV_STORED_USERNAME to "alice"),
                     ordinaryPlan = emptyOrdinaryPlan(),
                 ) shouldBe true
@@ -157,28 +174,28 @@ class SettingsRestoreWriteAtomicityContractTest : DataFunSpec() {
                         credentialRepository = credentials,
                         securitySessionPolicy = LockedCredentialReadSessionPolicy,
                         identityReset =
-                            SyncIdentityResetPolicy(
-                                scheduler =
-                                    mockk<RustSyncScheduler>().also {
-                                        every { it.cancel() } answers { identityResetEvents += "cancel" }
-                                    },
-                                deferredLockStore =
-                                    object : DeferredLockWorkStore {
-                                        override fun save(input: Data) = error("not used")
+                        SyncIdentityResetPolicy(
+                            scheduler =
+                            mockk<RustSyncScheduler>().also {
+                                every { it.cancel() } answers { identityResetEvents += "cancel" }
+                            },
+                            deferredLockStore =
+                            object : DeferredLockWorkStore {
+                                override fun save(input: Data) = error("not used")
 
-                                        override fun take(): Data? = null
+                                override fun take(): Data? = null
 
-                                        override fun clear() {
-                                            identityResetEvents += "deferred-clear"
-                                        }
-                                    },
-                                syncStateReset =
-                                    object : SyncStateResetRepository {
-                                        override suspend fun resetWorkspaceScopedSyncState() {
-                                            identityResetEvents += "reset"
-                                        }
-                                    },
-                            ),
+                                override fun clear() {
+                                    identityResetEvents += "deferred-clear"
+                                }
+                            },
+                            syncStateReset =
+                            object : SyncStateResetRepository {
+                                override suspend fun resetWorkspaceScopedSyncState() {
+                                    identityResetEvents += "reset"
+                                }
+                            },
+                        ),
                     )
 
                 val failure =
@@ -201,16 +218,15 @@ class SettingsRestoreWriteAtomicityContractTest : DataFunSpec() {
         }
     }
 
-    private fun emptyOrdinaryPlan() =
-        OrdinarySettingsRestorePlan.Restore(
-            LomoOrdinarySettingsRestoreTransaction(
-                catalogValues = emptyMap(),
-                stringValues = emptyMap(),
-                nullableStringValues = emptyMap(),
-                booleanValues = emptyMap(),
-                intValues = emptyMap(),
-            ),
-        )
+    private fun emptyOrdinaryPlan() = OrdinarySettingsRestorePlan.Restore(
+        LomoOrdinarySettingsRestoreTransaction(
+            catalogValues = emptyMap(),
+            stringValues = emptyMap(),
+            nullableStringValues = emptyMap(),
+            booleanValues = emptyMap(),
+            intValues = emptyMap(),
+        ),
+    )
 
     private fun newLomoDataStore(scope: CoroutineScope): LomoDataStore {
         val backingFile =
@@ -228,37 +244,34 @@ class SettingsRestoreWriteAtomicityContractTest : DataFunSpec() {
         return constructor.newInstance(realDataStore)
     }
 
-    private fun com.lomo.domain.model.SettingDescriptor.restoreValue(): String =
-        when (snapshotField) {
-            AppPreferenceSnapshotField.DATE_FORMAT -> "yyyy/MM/dd"
-            AppPreferenceSnapshotField.TIME_FORMAT -> "HH:mm"
-            AppPreferenceSnapshotField.THEME_MODE -> ThemeMode.DARK.value
-            AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> "2,5,9"
-            AppPreferenceSnapshotField.COLOR_SOURCE -> ColorSource.Preset(ColorPresetId.OCEAN).storageValue
-            AppPreferenceSnapshotField.FONT_PREFERENCE -> FontPreference.UserImported("serif.ttf").storageValue
-            AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.SHOW_INPUT_HINTS -> false.toString()
-            AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> true.toString()
-            AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED -> true.toString()
-            AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> true.toString()
-            AppPreferenceSnapshotField.MEMO_ACTION_ORDER -> "copy,edit,delete"
-            AppPreferenceSnapshotField.MEMO_ACTION_ORDERS_BY_SCOPE -> "main=edit,copy"
-            AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> "text,image,voice"
-            AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.SCROLLBAR_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.SHARE_CARD_SHOW_TIME -> false.toString()
-            AppPreferenceSnapshotField.SHARE_CARD_SHOW_BRAND -> false.toString()
-            AppPreferenceSnapshotField.SHARE_CARD_SIGNATURE_TEXT -> "Imported"
-            AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE -> "1.25"
-            AppPreferenceSnapshotField.TYPOGRAPHY_LINE_HEIGHT_SCALE -> "1.35"
-            AppPreferenceSnapshotField.TYPOGRAPHY_LETTER_SPACING_SCALE -> "0.95"
-            AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE -> "1.45"
-        }
+    private fun com.lomo.domain.model.SettingDescriptor.restoreValue(): String = when (snapshotField) {
+        AppPreferenceSnapshotField.DATE_FORMAT -> "yyyy/MM/dd"
+        AppPreferenceSnapshotField.TIME_FORMAT -> "HH:mm"
+        AppPreferenceSnapshotField.THEME_MODE -> ThemeMode.DARK.value
+        AppPreferenceSnapshotField.PURE_BLACK_DARK -> true.toString()
+        AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> "2,5,9"
+        AppPreferenceSnapshotField.COLOR_SOURCE -> ColorSource.Preset(ColorPresetId.OCEAN).storageValue
+        AppPreferenceSnapshotField.CONTRAST_LEVEL -> ContrastLevel.HIGH.value
+        AppPreferenceSnapshotField.FONT_PREFERENCE -> FontPreference.UserImported("serif.ttf").storageValue
+        AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.SHOW_INPUT_HINTS -> false.toString()
+        AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> true.toString()
+        AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> true.toString()
+        AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> "text,image,voice"
+        AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.SCROLLBAR_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.QUICK_BALL_CONFIG -> "v1|SEARCH|FILTER|LONG_TEXT|NONE|RECORD"
+        AppPreferenceSnapshotField.SHARE_CARD_SHOW_TIME -> false.toString()
+        AppPreferenceSnapshotField.SHARE_CARD_SHOW_BRAND -> false.toString()
+        AppPreferenceSnapshotField.SHARE_CARD_SIGNATURE_TEXT -> "Imported"
+        AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE -> "1.25"
+        AppPreferenceSnapshotField.TYPOGRAPHY_LINE_HEIGHT_SCALE -> "1.35"
+        AppPreferenceSnapshotField.TYPOGRAPHY_LETTER_SPACING_SCALE -> "0.95"
+        AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE -> "1.45"
+    }
 
-    private fun fullValidPreferencePayload(
-        overrides: Map<String, String> = emptyMap(),
-    ): Map<String, String> {
+    private fun fullValidPreferencePayload(overrides: Map<String, String> = emptyMap()): Map<String, String> {
         val catalogPreferences =
             SettingsCatalog
                 .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
@@ -307,19 +320,14 @@ class SettingsRestoreWriteAtomicityContractTest : DataFunSpec() {
  * A [SecureStringStore] that records writes and throws once on [failOnKey] — modeling a
  * Keystore-layer failure that lands inside a [DefaultCredentialRepository.writeSecrets] batch.
  */
-private class FailOnceSecureStringStore(
-    private val failOnKey: String? = null,
-) : SecureStringStore {
+private class FailOnceSecureStringStore(private val failOnKey: String? = null) : SecureStringStore {
     val written: MutableMap<String, String?> = mutableMapOf()
     private var failed = false
 
     override fun readString(key: String): SecureStringReadResult =
         written[key]?.let(SecureStringReadResult::Present) ?: SecureStringReadResult.Missing
 
-    override fun putString(
-        key: String,
-        value: String?,
-    ) {
+    override fun putString(key: String, value: String?) {
         if (key == failOnKey && !failed) {
             failed = true
             throw IllegalStateException("keystore write failed for $key")

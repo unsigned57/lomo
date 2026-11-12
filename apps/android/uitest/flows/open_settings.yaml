@@ -1,0 +1,16 @@
+# Navigates main feed -> drawer -> settings -> back, proving the anchored
+# navigation surfaces respond to interaction.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_settings"
+- assertVisible:
+    id: "benchmark_settings_root"
+- tapOn:
+    id: "benchmark_settings_back_button"
+- assertVisible:
+    id: "benchmark_main_root"

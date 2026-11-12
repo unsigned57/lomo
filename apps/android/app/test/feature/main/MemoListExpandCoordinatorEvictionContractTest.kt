@@ -45,10 +45,10 @@ import kotlinx.coroutines.test.runTest
  * Excludes:
  * - Compose effects and pixel rendering of loading/failure affordances.
  */
-class MemoListExpandCoordinatorEvictionContractTest : FunSpec({
+class MemoListExpandCoordinatorEvictionContractTest :
+    FunSpec({
 
-    fun memo(id: String, revision: Long, body: String = "body-$id"): Memo =
-        Memo(
+        fun memo(id: String, revision: Long, body: String = "body-$id"): Memo = Memo(
             id = id,
             timestamp = 1L,
             updatedAt = revision,
@@ -58,8 +58,7 @@ class MemoListExpandCoordinatorEvictionContractTest : FunSpec({
             contentKind = MemoContentKind.Full,
         )
 
-    fun uiModel(memo: Memo): MemoUiModel =
-        MemoUiModel(
+        fun uiModel(memo: Memo): MemoUiModel = MemoUiModel(
             memo = memo,
             processedContent = memo.content,
             renderDocument = emptyRenderDocument(),
@@ -70,81 +69,81 @@ class MemoListExpandCoordinatorEvictionContractTest : FunSpec({
             reminders = persistentListOf(),
         )
 
-    fun coordinator(
-        scope: kotlinx.coroutines.CoroutineScope,
-        maxExpandedBodyBytes: Long = 4 * 1024 * 1024,
-        loadFullMemo: suspend (String) -> Memo?,
-    ) = MemoListExpandCoordinator(
-        scope = scope,
-        loadFullMemo = loadFullMemo,
-        mapFullMemo = { loaded -> uiModel(loaded) },
-        maxExpandedBodyBytes = maxExpandedBodyBytes,
-    )
+        fun coordinator(
+            scope: kotlinx.coroutines.CoroutineScope,
+            maxExpandedBodyBytes: Long = 4 * 1024 * 1024,
+            loadFullMemo: suspend (String) -> Memo?,
+        ) = MemoListExpandCoordinator(
+            scope = scope,
+            loadFullMemo = loadFullMemo,
+            mapFullMemo = { loaded -> uiModel(loaded) },
+            maxExpandedBodyBytes = maxExpandedBodyBytes,
+        )
 
-    test("an over-budget expanded row that is still requested must not drop into a spinner-only void") {
-        runTest {
-            val coordinator =
-                coordinator(this, maxExpandedBodyBytes = 64) { id ->
-                    memo(id, revision = 1, body = "x".repeat(100))
-                }
+        test("an over-budget expanded row that is still requested must not drop into a spinner-only void") {
+            runTest {
+                val coordinator =
+                    coordinator(this, maxExpandedBodyBytes = 64) { id ->
+                        memo(id, revision = 1, body = "x".repeat(100))
+                    }
 
-            coordinator.sync("ws-a", mapOf("m1" to 1L))
-            testScheduler.advanceUntilIdle()
+                coordinator.sync("ws-a", mapOf("m1" to 1L))
+                testScheduler.advanceUntilIdle()
 
-            // Desired outcome: the still-expanded row keeps its snapshot (or at least fails
-            // loudly). Actual: evictOverflow removes the only desired Expanded entry, publish()
-            // drops the key entirely, and the UI renders a bare LinearProgressIndicator with no
-            // load in flight — a permanently stuck expand.
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                // Desired outcome: the still-expanded row keeps its snapshot (or at least fails
+                // loudly). Actual: evictOverflow removes the only desired Expanded entry, publish()
+                // drops the key entirely, and the UI renders a bare LinearProgressIndicator with no
+                // load in flight — a permanently stuck expand.
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+            }
         }
-    }
 
-    test("content changed under an identical observed revision republishes a fresh snapshot") {
-        runTest {
-            var body = "first-body"
-            val loads = mutableListOf<String>()
-            val coordinator =
-                coordinator(this) { id ->
-                    loads += id
-                    memo(id, revision = 7, body = body)
-                }
+        test("content changed under an identical observed revision republishes a fresh snapshot") {
+            runTest {
+                var body = "first-body"
+                val loads = mutableListOf<String>()
+                val coordinator =
+                    coordinator(this) { id ->
+                        loads += id
+                        memo(id, revision = 7, body = body)
+                    }
 
-            coordinator.sync("ws-a", mapOf("m1" to 7L))
-            testScheduler.advanceUntilIdle()
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
-                .model.memo.content shouldBe "first-body"
+                coordinator.sync("ws-a", mapOf("m1" to 7L))
+                testScheduler.advanceUntilIdle()
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                    .model.memo.content shouldBe "first-body"
 
-            // External writer (sync apply / restore) changes the body while the row-visible
-            // revision field (updatedAt, what rememberMemoListExpandStates feeds in) stays equal.
-            body = "second-body"
-            coordinator.sync("ws-a", mapOf("m1" to 7L))
-            testScheduler.advanceUntilIdle()
+                // External writer (sync apply / restore) changes the body while the row-visible
+                // revision field (updatedAt, what rememberMemoListExpandStates feeds in) stays equal.
+                body = "second-body"
+                coordinator.sync("ws-a", mapOf("m1" to 7L))
+                testScheduler.advanceUntilIdle()
 
-            // Desired: the expanded row republishes the new content. Actual: want == request so
-            // the stale Expanded snapshot is kept and no reload runs — contentRevision exists on
-            // Memo precisely because updatedAt is not a reliable content identity.
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
-                .model.memo.content shouldBe "second-body"
-            loads.size shouldBe 2
+                // Desired: the expanded row republishes the new content. Actual: want == request so
+                // the stale Expanded snapshot is kept and no reload runs — contentRevision exists on
+                // Memo precisely because updatedAt is not a reliable content identity.
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                    .model.memo.content shouldBe "second-body"
+                loads.size shouldBe 2
+            }
         }
-    }
 
-    test("a failed expansion for a collapsed row is released instead of retained in states") {
-        runTest {
-            val coordinator =
-                coordinator(this) { throw IllegalStateException("read failed") }
+        test("a failed expansion for a collapsed row is released instead of retained in states") {
+            runTest {
+                val coordinator =
+                    coordinator(this) { throw IllegalStateException("read failed") }
 
-            coordinator.sync("ws-a", mapOf("m1" to 1L))
-            testScheduler.advanceUntilIdle()
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Failed>()
+                coordinator.sync("ws-a", mapOf("m1" to 1L))
+                testScheduler.advanceUntilIdle()
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Failed>()
 
-            coordinator.sync("ws-a", emptyMap())
-            testScheduler.advanceUntilIdle()
+                coordinator.sync("ws-a", emptyMap())
+                testScheduler.advanceUntilIdle()
 
-            // Desired: collapsing releases the terminal failure like it cancels a Loading.
-            // Actual: sync only removes Loading entries on collapse; Failed (and Expanded) stay
-            // tracked and keep publishing into the states map for the rest of the session.
-            coordinator.states.value["m1"] shouldBe null
+                // Desired: collapsing releases the terminal failure like it cancels a Loading.
+                // Actual: sync only removes Loading entries on collapse; Failed (and Expanded) stay
+                // tracked and keep publishing into the states map for the rest of the session.
+                coordinator.states.value["m1"] shouldBe null
+            }
         }
-    }
-})
+    })

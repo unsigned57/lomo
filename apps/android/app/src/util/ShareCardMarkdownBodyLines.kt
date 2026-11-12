@@ -1,10 +1,12 @@
 package com.lomo.app.util
 
 import com.lomo.domain.model.MediaClass
+import com.lomo.domain.model.markdown.MarkdownInlineMediaRun
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
 import com.lomo.domain.model.markdown.MarkdownRenderListItem
+import com.lomo.domain.model.markdown.splitMarkdownInlineMedia
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 
 internal fun buildMarkdownShareBodyLines(
@@ -31,14 +33,13 @@ internal fun buildMarkdownShareBodyLines(
     return lines.ifEmpty { listOf(defaultMarkdownParagraphLine()) }
 }
 
-internal fun shareBodyLinesTextLengthWithoutMarkers(lines: List<ShareBodyLine>): Int =
-    lines.sumOf { line ->
-        if (line.type == ShareBodyLineType.Image) {
-            0
-        } else {
-            line.text.length
-        }
+internal fun shareBodyLinesTextLengthWithoutMarkers(lines: List<ShareBodyLine>): Int = lines.sumOf { line ->
+    if (line.type == ShareBodyLineType.Image) {
+        0
+    } else {
+        line.text.length
     }
+}
 
 private fun defaultMarkdownParagraphLine(): ShareBodyLine =
     ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Paragraph)
@@ -48,75 +49,80 @@ private fun MarkdownRenderBlock.toShareBodyLines(
     audioPlaceholder: String,
     quoteDepth: Int,
     nextImageIndex: () -> Int,
-): List<ShareBodyLine> =
-    when (this) {
-        is MarkdownRenderBlock.Heading ->
-            listOf(
-                ShareBodyLine(
-                    text = inlines.toStyledShareText(imagePlaceholder).text.normalizeCjkMixedSpacingForDisplay(),
-                    type = if (quoteDepth > 0) ShareBodyLineType.Quote else ShareBodyLineType.Heading,
-                    headingLevel = level.toInt(),
-                    inlineStyles = inlines.toStyledShareText(imagePlaceholder).styles,
-                ),
+): List<ShareBodyLine> = when (this) {
+    is MarkdownRenderBlock.Heading ->
+        listOf(
+            ShareBodyLine(
+                text = inlines.toStyledShareText(imagePlaceholder).text.normalizeCjkMixedSpacingForDisplay(),
+                type = if (quoteDepth > 0) ShareBodyLineType.Quote else ShareBodyLineType.Heading,
+                headingLevel = level.toInt(),
+                inlineStyles = inlines.toStyledShareText(imagePlaceholder).styles,
+            ),
+        )
+
+    is MarkdownRenderBlock.Paragraph ->
+        paragraphToShareBodyLines(
+            inlines = inlines,
+            imagePlaceholder = imagePlaceholder,
+            audioPlaceholder = audioPlaceholder,
+            quoteDepth = quoteDepth,
+            nextImageIndex = nextImageIndex,
+        )
+
+    is MarkdownRenderBlock.BlockQuote ->
+        blocks.flatMap { block ->
+            block.toShareBodyLines(
+                imagePlaceholder = imagePlaceholder,
+                audioPlaceholder = audioPlaceholder,
+                quoteDepth = quoteDepth + 1,
+                nextImageIndex = nextImageIndex,
             )
-        is MarkdownRenderBlock.Paragraph ->
-            paragraphToShareBodyLines(
-                inlines = inlines,
+        }.map { line -> line.withQuoteMarker() }
+
+    is MarkdownRenderBlock.ListBlock ->
+        items.flatMapIndexed { index, item ->
+            item.toShareBodyLines(
+                marker = resolveListMarker(index),
                 imagePlaceholder = imagePlaceholder,
                 audioPlaceholder = audioPlaceholder,
                 quoteDepth = quoteDepth,
                 nextImageIndex = nextImageIndex,
             )
-        is MarkdownRenderBlock.BlockQuote ->
-            blocks.flatMap { block ->
-                block.toShareBodyLines(
-                    imagePlaceholder = imagePlaceholder,
-                    audioPlaceholder = audioPlaceholder,
-                    quoteDepth = quoteDepth + 1,
-                    nextImageIndex = nextImageIndex,
-                )
-            }.map { line -> line.withQuoteMarker() }
-        is MarkdownRenderBlock.ListBlock ->
-            items.flatMapIndexed { index, item ->
-                item.toShareBodyLines(
-                    marker = resolveListMarker(index),
-                    imagePlaceholder = imagePlaceholder,
-                    audioPlaceholder = audioPlaceholder,
-                    quoteDepth = quoteDepth,
-                    nextImageIndex = nextImageIndex,
-                )
-            }
-        is MarkdownRenderBlock.CodeBlock ->
-            literal
-                .lineSequence()
-                .filter { it.isNotBlank() }
-                .map { line -> ShareBodyLine(line, ShareBodyLineType.Code) }
-                .toList()
-        is MarkdownRenderBlock.Table -> toShareBodyTableLines()
-        is MarkdownRenderBlock.ThematicBreak -> emptyList()
-        is MarkdownRenderBlock.HtmlBlock -> {
-            val styledText = literal.toStyledShareTextFromHtmlFragment(imagePlaceholder)
-            val text = styledText.text.trim()
-            if (text.isBlank()) {
-                emptyList()
-            } else {
-                listOf(
-                    ShareBodyLine(
-                        text = text.normalizeCjkMixedSpacingForDisplay(),
-                        type = if (quoteDepth > 0) ShareBodyLineType.Quote else ShareBodyLineType.Paragraph,
-                        inlineStyles = styledText.styles,
-                    ),
-                )
-            }
+        }
+
+    is MarkdownRenderBlock.CodeBlock ->
+        literal
+            .lineSequence()
+            .filter { it.isNotBlank() }
+            .map { line -> ShareBodyLine(line, ShareBodyLineType.Code) }
+            .toList()
+
+    is MarkdownRenderBlock.Table -> toShareBodyTableLines()
+
+    is MarkdownRenderBlock.ThematicBreak -> emptyList()
+
+    is MarkdownRenderBlock.HtmlBlock -> {
+        val styledText = literal.toStyledShareTextFromHtmlFragment(imagePlaceholder)
+        val text = styledText.text.trim()
+        if (text.isBlank()) {
+            emptyList()
+        } else {
+            listOf(
+                ShareBodyLine(
+                    text = text.normalizeCjkMixedSpacingForDisplay(),
+                    type = if (quoteDepth > 0) ShareBodyLineType.Quote else ShareBodyLineType.Paragraph,
+                    inlineStyles = styledText.styles,
+                ),
+            )
         }
     }
+}
 
-private fun MarkdownRenderBlock.ListBlock.resolveListMarker(index: Int): String =
-    if (ordered) {
-        "${startNumber + index.toULong()}. "
-    } else {
-        BULLET_PREFIX
-    }
+private fun MarkdownRenderBlock.ListBlock.resolveListMarker(index: Int): String = if (ordered) {
+    "${startNumber + index.toULong()}. "
+} else {
+    BULLET_PREFIX
+}
 
 private fun MarkdownRenderListItem.toShareBodyLines(
     marker: String,
@@ -173,91 +179,98 @@ private fun paragraphToShareBodyLines(
     audioPlaceholder: String,
     quoteDepth: Int,
     nextImageIndex: () -> Int,
-): List<ShareBodyLine> {
-    val singleInline = inlines.singleOrNull()
-    if (singleInline is MarkdownRenderInline.Image) {
-        return listOf(singleInline.toMediaLine(audioPlaceholder, nextImageIndex))
-    }
+): List<ShareBodyLine> = splitMarkdownInlineMedia(inlines).mapNotNull { run ->
+    when (run) {
+        is MarkdownInlineMediaRun.Media -> run.image.toMediaLine(audioPlaceholder, nextImageIndex)
 
-    // Mixed paragraph: emit standalone image lines for IR Image nodes, then residual text.
-    val imageOnly =
-        inlines.filterIsInstance<MarkdownRenderInline.Image>().map { image ->
-            image.toMediaLine(audioPlaceholder, nextImageIndex)
+        is MarkdownInlineMediaRun.Text -> {
+            val styledText = run.inlines.toStyledShareText(imagePlaceholder)
+            if (styledText.text.isBlank()) {
+                null
+            } else {
+                ShareBodyLine(
+                    text = styledText.text.normalizeCjkMixedSpacingForDisplay(),
+                    type = if (quoteDepth > 0) ShareBodyLineType.Quote else ShareBodyLineType.Paragraph,
+                    inlineStyles = styledText.styles,
+                )
+            }
         }
-    if (imageOnly.isNotEmpty() && inlines.all { it is MarkdownRenderInline.Image }) {
-        return imageOnly
     }
-
-    val styledText = inlines.toStyledShareText(imagePlaceholder)
-    val text = IMAGE_MARKER_PATTERN.replace(styledText.text, imagePlaceholder).trim()
-    if (text.isBlank()) {
-        return imageOnly.ifEmpty { emptyList() }
-    }
-
-    return imageOnly +
-        listOf(
-            ShareBodyLine(
-                text = text.normalizeCjkMixedSpacingForDisplay(),
-                type = if (quoteDepth > 0) ShareBodyLineType.Quote else ShareBodyLineType.Paragraph,
-                inlineStyles = styledText.styles,
-            ),
-        )
 }
 
 private fun MarkdownRenderInline.Image.toMediaLine(
     audioPlaceholder: String,
     nextImageIndex: () -> Int,
-): ShareBodyLine =
-    when (mediaClass) {
-        MediaClass.IMAGE ->
-            ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Image, imageIndex = nextImageIndex())
-        MediaClass.AUDIO -> ShareBodyLine(audioPlaceholder, ShareBodyLineType.Paragraph)
-        MediaClass.VIDEO,
-        MediaClass.FILE,
-        -> ShareBodyLine(altText.ifBlank { destination }, ShareBodyLineType.Paragraph)
+): ShareBodyLine = when (mediaClass) {
+    MediaClass.IMAGE ->
+        ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Image, imageIndex = nextImageIndex())
+
+    MediaClass.AUDIO -> ShareBodyLine(audioPlaceholder, ShareBodyLineType.Paragraph)
+
+    MediaClass.VIDEO,
+    MediaClass.FILE,
+    -> ShareBodyLine(altText.ifBlank { destination }, ShareBodyLineType.Paragraph)
+}
+
+private fun MarkdownRenderBlock.Table.toShareBodyTableLines(): List<ShareBodyLine> = (listOf(header) + rows)
+    .filter { row -> row.isNotEmpty() }
+    .map { row ->
+        ShareBodyLine(
+            text = row.joinToString(separator = " | ") { cell -> cell.toStyledShareText().text },
+            type = ShareBodyLineType.Table,
+        )
     }
 
-private fun MarkdownRenderBlock.Table.toShareBodyTableLines(): List<ShareBodyLine> =
-    (listOf(header) + rows)
-        .filter { row -> row.isNotEmpty() }
-        .map { row ->
-            ShareBodyLine(
-                text = row.joinToString(separator = " | ") { cell -> cell.toStyledShareText().text },
-                type = ShareBodyLineType.Table,
-            )
-        }
+private fun MarkdownRenderBlock.toPlainText(): String = when (this) {
+    is MarkdownRenderBlock.Paragraph -> inlines.toPlainText()
 
-private fun MarkdownRenderBlock.toPlainText(): String =
-    when (this) {
-        is MarkdownRenderBlock.Paragraph -> inlines.toPlainText()
-        is MarkdownRenderBlock.Heading -> inlines.toPlainText()
-        is MarkdownRenderBlock.BlockQuote -> blocks.joinToString(" ") { it.toPlainText() }
-        is MarkdownRenderBlock.ListBlock ->
-            items.joinToString(" ") { item -> item.blocks.joinToString(" ") { it.toPlainText() } }
-        is MarkdownRenderBlock.CodeBlock -> literal
-        is MarkdownRenderBlock.ThematicBreak -> ""
-        is MarkdownRenderBlock.Table ->
-            (listOf(header) + rows).joinToString(" ") { row -> row.joinToString(" ") { it.inlines.toPlainText() } }
-        is MarkdownRenderBlock.HtmlBlock -> literal
-    }
+    is MarkdownRenderBlock.Heading -> inlines.toPlainText()
 
-private fun List<MarkdownRenderInline>.toPlainText(): String =
-    joinToString(separator = "") { inline ->
-        when (inline) {
-            is MarkdownRenderInline.Text -> inline.text
-            is MarkdownRenderInline.Strong -> inline.inlines.toPlainText()
-            is MarkdownRenderInline.Emphasis -> inline.inlines.toPlainText()
-            is MarkdownRenderInline.Strikethrough -> inline.inlines.toPlainText()
-            is MarkdownRenderInline.Highlight -> inline.inlines.toPlainText()
-            is MarkdownRenderInline.Code -> inline.text
-            is MarkdownRenderInline.Link -> inline.inlines.toPlainText()
-            is MarkdownRenderInline.Image -> inline.altText
-            is MarkdownRenderInline.Tag -> "#${inline.name}"
-            is MarkdownRenderInline.Reminder -> inline.token
-            is MarkdownRenderInline.WikiReference -> inline.inlines.toPlainText().ifBlank { inline.target }
-            is MarkdownRenderInline.SoftBreak,
-            is MarkdownRenderInline.HardBreak,
-            -> "\n"
-            is MarkdownRenderInline.HtmlInline -> inline.literal
-        }
+    is MarkdownRenderBlock.BlockQuote -> blocks.joinToString(" ") { it.toPlainText() }
+
+    is MarkdownRenderBlock.ListBlock ->
+        items.joinToString(" ") { item -> item.blocks.joinToString(" ") { it.toPlainText() } }
+
+    is MarkdownRenderBlock.CodeBlock -> literal
+
+    is MarkdownRenderBlock.ThematicBreak -> ""
+
+    is MarkdownRenderBlock.Table ->
+        (listOf(header) + rows).joinToString(" ") { row -> row.joinToString(" ") { it.inlines.toPlainText() } }
+
+    is MarkdownRenderBlock.HtmlBlock -> literal
+}
+
+private fun List<MarkdownRenderInline>.toPlainText(): String = joinToString(separator = "") { inline ->
+    when (inline) {
+        is MarkdownRenderInline.Text -> inline.text
+
+        is MarkdownRenderInline.Strong -> inline.inlines.toPlainText()
+
+        is MarkdownRenderInline.Emphasis -> inline.inlines.toPlainText()
+
+        is MarkdownRenderInline.Strikethrough -> inline.inlines.toPlainText()
+
+        is MarkdownRenderInline.Underline -> inline.inlines.toPlainText()
+
+        is MarkdownRenderInline.Highlight -> inline.inlines.toPlainText()
+
+        is MarkdownRenderInline.Code -> inline.text
+
+        is MarkdownRenderInline.Link -> inline.inlines.toPlainText()
+
+        is MarkdownRenderInline.Image -> inline.altText
+
+        is MarkdownRenderInline.Tag -> "#${inline.name}"
+
+        is MarkdownRenderInline.Reminder -> inline.token
+
+        is MarkdownRenderInline.WikiReference -> inline.inlines.toPlainText().ifBlank { inline.target }
+
+        is MarkdownRenderInline.SoftBreak,
+        is MarkdownRenderInline.HardBreak,
+        -> "\n"
+
+        is MarkdownRenderInline.HtmlInline -> inline.literal
     }
+}

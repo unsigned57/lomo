@@ -56,11 +56,11 @@ class RemoteSyncConflictDialogUseCase(
         return OpenSession(
             workspaceRoot = root,
             conflictSet =
-                SyncConflictSet(
-                    source = backend,
-                    files = files,
-                    timestamp = nowEpochMillis(),
-                ),
+            SyncConflictSet(
+                source = backend,
+                files = files,
+                timestamp = nowEpochMillis(),
+            ),
             conflictRevision = pageWalk.conflictRevision,
             sessionId = pageWalk.sessionId,
         )
@@ -108,9 +108,7 @@ class RemoteSyncConflictDialogUseCase(
     sealed interface DialogResolveResult {
         data object Resolved : DialogResolveResult
 
-        data class Pending(
-            val session: OpenSession,
-        ) : DialogResolveResult
+        data class Pending(val session: OpenSession) : DialogResolveResult
     }
 
     /**
@@ -119,10 +117,7 @@ class RemoteSyncConflictDialogUseCase(
      * Pending returns remaining open files only (SkipForNow is durable Rust status, not re-shown
      * as Open). Empty open set after apply → Resolved (+ memo refresh in [resolveSuspending]).
      */
-    suspend fun resolve(
-        session: OpenSession,
-        resolution: SyncConflictResolution,
-    ): DialogResolveResult {
+    suspend fun resolve(session: OpenSession, resolution: SyncConflictResolution): DialogResolveResult {
         val resolutions =
             session.conflictSet.files.mapNotNull { file ->
                 val choice = resolution.perFileChoices[file.relativePath] ?: return@mapNotNull null
@@ -144,10 +139,7 @@ class RemoteSyncConflictDialogUseCase(
         }
     }
 
-    suspend fun resolveSuspending(
-        session: OpenSession,
-        resolution: SyncConflictResolution,
-    ): DialogResolveResult {
+    suspend fun resolveSuspending(session: OpenSession, resolution: SyncConflictResolution): DialogResolveResult {
         val result = resolve(session, resolution)
         if (result is DialogResolveResult.Resolved) {
             memoRepository.refreshMemos()
@@ -160,14 +152,13 @@ class RemoteSyncConflictDialogUseCase(
     }
 }
 
-internal fun RemoteSyncBackendLabel.toSyncBackendType(): SyncBackendType =
-    when (this) {
-        RemoteSyncBackendLabel.None -> SyncBackendType.NONE
-        RemoteSyncBackendLabel.Git -> SyncBackendType.GIT
-        RemoteSyncBackendLabel.WebDav -> SyncBackendType.WEBDAV
-        RemoteSyncBackendLabel.S3 -> SyncBackendType.S3
-        RemoteSyncBackendLabel.Unknown -> SyncBackendType.UNKNOWN
-    }
+internal fun RemoteSyncBackendLabel.toSyncBackendType(): SyncBackendType = when (this) {
+    RemoteSyncBackendLabel.None -> SyncBackendType.NONE
+    RemoteSyncBackendLabel.Git -> SyncBackendType.GIT
+    RemoteSyncBackendLabel.WebDav -> SyncBackendType.WEBDAV
+    RemoteSyncBackendLabel.S3 -> SyncBackendType.S3
+    RemoteSyncBackendLabel.Unknown -> SyncBackendType.UNKNOWN
+}
 
 internal fun RemoteSyncConflictPath.toSyncConflictFile(
     workspaceRoot: String,
@@ -196,9 +187,7 @@ internal fun RemoteSyncConflictPath.toSyncConflictFile(
     )
 }
 
-internal fun SyncConflictResolutionChoice.toRemoteResolution(
-    file: SyncConflictFile,
-): RemoteSyncConflictResolution =
+internal fun SyncConflictResolutionChoice.toRemoteResolution(file: SyncConflictFile): RemoteSyncConflictResolution =
     when (this) {
         SyncConflictResolutionChoice.KEEP_LOCAL ->
             RemoteSyncConflictResolution(

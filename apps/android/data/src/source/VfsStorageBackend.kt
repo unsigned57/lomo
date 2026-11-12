@@ -36,21 +36,20 @@ private fun createVfsStorageDelegateBundle(
     context: Context,
     rootVfs: WorkspaceVfs,
     dispatcherProvider: DispatcherProvider,
-): VfsStorageDelegateBundle =
-    when (rootVfs) {
-        is WorkspaceVfs.Direct ->
-            VfsStorageDelegateBundle(
-                markdownDelegate = DirectMarkdownStorageBackendDelegate(rootVfs.rootDir, dispatcherProvider),
-                workspaceDelegate = DirectWorkspaceConfigBackendDelegate(rootVfs.rootDir, dispatcherProvider),
-                mediaDelegate = DirectMediaStorageBackendDelegate(rootVfs.rootDir, dispatcherProvider),
-            )
+): VfsStorageDelegateBundle = when (rootVfs) {
+    is WorkspaceVfs.Direct ->
+        VfsStorageDelegateBundle(
+            markdownDelegate = DirectMarkdownStorageBackendDelegate(rootVfs.rootDir, dispatcherProvider),
+            workspaceDelegate = DirectWorkspaceConfigBackendDelegate(rootVfs.rootDir, dispatcherProvider),
+            mediaDelegate = DirectMediaStorageBackendDelegate(rootVfs.rootDir, dispatcherProvider),
+        )
 
-        is WorkspaceVfs.Saf -> {
-            val documentAccess = SafDocumentAccess(context, rootVfs.rootUri, dispatcherProvider = dispatcherProvider)
-            VfsStorageDelegateBundle(
-                markdownDelegate = SafMarkdownStorageBackendDelegate(context, rootVfs.rootUri, documentAccess),
-                workspaceDelegate = SafWorkspaceConfigBackendDelegate(documentAccess),
-                mediaDelegate = SafMediaStorageBackendDelegate(documentAccess),
-            )
-        }
+    is WorkspaceVfs.Saf -> {
+        val documentAccess = SafDocumentAccess(context, rootVfs.rootUri, dispatcherProvider = dispatcherProvider)
+        VfsStorageDelegateBundle(
+            markdownDelegate = SafMarkdownStorageBackendDelegate(context, rootVfs.rootUri, documentAccess),
+            workspaceDelegate = SafWorkspaceConfigBackendDelegate(documentAccess),
+            mediaDelegate = SafMediaStorageBackendDelegate(documentAccess),
+        )
     }
+}

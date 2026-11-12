@@ -2,14 +2,11 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.repository.MemoStatisticsRepository
+import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 import java.time.ZoneId
-import kotlinx.coroutines.flow.Flow
 
-data class MemoStatisticsDateSnapshot(
-    val zone: ZoneId,
-    val asOfDate: LocalDate,
-)
+data class MemoStatisticsDateSnapshot(val zone: ZoneId, val asOfDate: LocalDate)
 
 class MemoStatisticsUseCase(
     private val memoStatisticsRepository: MemoStatisticsRepository,

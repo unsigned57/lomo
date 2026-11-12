@@ -7,46 +7,45 @@ settings:
   android:
     namespace: com.lomo.data
     minSdk: 26
-    compileSdk: 37
+    compileSdk:
+      apiLevel: 37
+      minorApiLevel: 2
   jvm:
     release: 25
     jdk:
       version: 27
       selectionMode: javaHome
   kotlin:
+    version: 2.4.21
     allWarningsAsErrors: true
-    freeCompilerArgs:
-      - -Xannotation-default-target=param-property
     serialization:
       enabled: true
-      version: 1.11.0
-repositories:
-  - https://jitpack.io
+      version: 1.13.0
 
 dependencies:
   - //domain: exported
   - //native-bindings
-  - androidx.core:core-ktx:1.18.0
-  - androidx.paging:paging-common:3.5.0
+  - androidx.core:core-ktx:1.19.1
+  - androidx.paging:paging-common:3.5.3
   - org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0: runtime-only
-  - io.insert-koin:koin-android:4.0.0: exported
-  - io.insert-koin:koin-androidx-workmanager:4.0.0: exported
+  - io.insert-koin:koin-android:4.2.2: exported
+  - io.insert-koin:koin-androidx-workmanager:4.2.2: exported
   - androidx.documentfile:documentfile:1.1.0
-  - androidx.datastore:datastore-preferences:1.2.1
-  - androidx.work:work-runtime-ktx:2.11.2: exported
-  - io.ktor:ktor-client-okhttp:3.5.0
-  - io.ktor:ktor-client-content-negotiation:3.5.0
-  - org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0
-  - com.squareup.okio:okio:3.17.0
+  - androidx.datastore:datastore-preferences:1.3.0
+  - androidx.work:work-runtime-ktx:2.12.0: exported
+  - io.ktor:ktor-client-okhttp:3.6.1
+  - io.ktor:ktor-client-content-negotiation:3.6.1
+  - org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0
+  - com.squareup.okio:okio:3.18.2
   - com.jakewharton.timber:timber:5.0.1
 
 test-dependencies:
-  - io.kotest:kotest-runner-junit5:6.1.11
-  - io.kotest:kotest-assertions-core:6.1.11
-  - io.kotest:kotest-property:6.1.11
-  - io.kotest:kotest-framework-engine:6.1.11
-  - io.mockk:mockk:1.14.9
+  - io.kotest:kotest-runner-junit5:6.2.7
+  - io.kotest:kotest-assertions-core:6.2.7
+  - io.kotest:kotest-property:6.2.7
+  - io.kotest:kotest-framework-engine:6.2.7
+  - io.mockk:mockk:1.14.12
   - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0
   - app.cash.turbine:turbine:1.2.1
-  - io.ktor:ktor-client-mock:3.5.0
+  - io.ktor:ktor-client-mock:3.6.1
   - androidx.test.ext:junit:1.3.0

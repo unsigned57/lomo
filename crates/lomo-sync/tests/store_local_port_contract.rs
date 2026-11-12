@@ -15,7 +15,10 @@
 //!   `LocalSyncMutationBatch`.
 //!
 //! Observable outcomes: plan intents, store body after apply, error codes, write-authority string.
-//! Excludes: production DI, WebDAV/S3/Git, Kotlin SAF executor device wiring.
+//! - Given S3 before its first cycle, when its adapter is constructed, then no session
+//!   is required or minted, while an existing corrupt session remains rejected.
+//!
+//! Excludes: production DI, remote network responses, Kotlin SAF executor device wiring.
 
 #[cfg(test)]
 #[expect(
@@ -126,6 +129,43 @@ mod tests {
                 .body,
             "seed"
         );
+    }
+
+    /// Given a new indexed workspace, connecting S3 before any cycle must not require
+    /// session.rec or create one. A corrupt existing session remains an error.
+    #[test]
+    fn s3_connection_before_first_cycle_does_not_require_or_create_session() {
+        let temporary = tempdir().expect("temp");
+        let root = temporary.path();
+        let _store = seed_indexed(root, "probe", "probe-body");
+        let paths = lomo_sync::SyncPaths::for_control_root(root);
+        let config = lomo_sync::SyncBackendConfig::S3 {
+            endpoint_url: "http://127.0.0.1:9".into(),
+            access_key_id: "fixture-access".into(),
+            bucket: "fixture-bucket".into(),
+            prefix: String::new(),
+            region: "us-east-1".into(),
+            remote_dataset_id: "probe-dataset".into(),
+        };
+        let remote =
+            lomo_sync::connect_sync_remote_port(root, &paths, &config, Some(b"fixture-secret"))
+                .expect("construct S3 before first cycle");
+        assert!(
+            !paths.session.exists(),
+            "probe construction must not mint a session"
+        );
+        assert!(
+            remote
+                .remote_capabilities()
+                .expect("capabilities")
+                .conditional_write
+        );
+        std::fs::write(&paths.session, b"corrupt-session").expect("corrupt existing session");
+        let error =
+            lomo_sync::connect_sync_remote_port(root, &paths, &config, Some(b"fixture-secret"))
+                .err()
+                .expect("corrupt session must remain rejected");
+        assert_ne!(error.code(), "sync_record_open_failed");
     }
 
     #[test]

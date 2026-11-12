@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract:
 //! Capability: one JDK/SDK/NDK/serialization declaration site with every copy verified;
 //! owning layer: lomo-xtask; priority: P0.
@@ -43,11 +52,16 @@ mod tests {
 product: android/app
 
 settings:
+  compose:
+    enabled: true
+    version: 1.12.2
   junit: junit-5
   android:
     namespace: com.lomo.app
     minSdk: 26
-    compileSdk: 37
+    compileSdk:
+      apiLevel: 37
+      minorApiLevel: 2
     targetSdk: 37
   jvm:
     release: 25
@@ -55,6 +69,7 @@ settings:
       version: 27
       selectionMode: javaHome
   kotlin:
+    version: 2.4.21
     allWarningsAsErrors: true
     serialization:
       enabled: true
@@ -71,17 +86,23 @@ product:
   platforms: [ android ]
 
 settings:
+  compose:
+    enabled: true
+    version: 1.12.2
   junit: junit-5
   android:
     namespace: com.lomo.data
     minSdk: 26
-    compileSdk: 37
+    compileSdk:
+      apiLevel: 37
+      minorApiLevel: 2
   jvm:
     release: 25
     jdk:
       version: 27
       selectionMode: javaHome
   kotlin:
+    version: 2.4.21
     allWarningsAsErrors: true
     serialization:
       enabled: true
@@ -107,8 +128,8 @@ jobs:
           java-version: '27'
       - uses: actions/cache@v4
         with:
-          path: ndk/29.0.14206865
-          key: android-ndk29-cache
+          path: ndk/30.0.16248370
+          key: android-ndk30-cache
 ";
 
     fn fixture(files: &[(&str, &str)]) -> tempfile::TempDir {
@@ -151,13 +172,13 @@ jobs:
                 .is_some_and(|v| v == "javaHome")
         );
         ensure!(parity.pins.get("minSdk").is_some_and(|v| v == "26"));
-        ensure!(parity.pins.get("compileSdk").is_some_and(|v| v == "37"));
+        ensure!(parity.pins.get("compileSdk").is_some_and(|v| v == "37.2"));
         ensure!(parity.pins.get("targetSdk").is_some_and(|v| v == "37"));
         ensure!(
             parity
                 .pins
                 .get("serialization.version")
-                .is_some_and(|v| v == "1.11.0")
+                .is_some_and(|v| v == "1.13.0")
         );
         ensure!(
             parity
@@ -234,12 +255,44 @@ jobs:
         Ok(())
     }
 
+    /// Compile SDK identity is an explicit major/minor pair; malformed or unsupported
+    /// shapes must fail before pin comparison instead of silently becoming a major API.
+    #[test]
+    fn compile_sdk_rejects_ambiguous_or_invalid_api_identities() -> Result<()> {
+        let declaration = "compileSdk:\n      apiLevel: 37\n      minorApiLevel: 2";
+        for invalid in [
+            "37",
+            "37.2",
+            "{ apiLevel: 37 }",
+            "{ apiLevel: 0, minorApiLevel: 2 }",
+            "{ apiLevel: 37, minorApiLevel: -1 }",
+            "{ apiLevel: 37, minorApiLevel: 0.2 }",
+            "{ apiLevel: 37, minorApiLevel: 2, sdkExtension: 1 }",
+        ] {
+            let dir = parity_fixture();
+            fs::write(
+                dir.path().join("apps/android/app/module.yaml"),
+                APP_MANIFEST.replace(declaration, &format!("compileSdk: {invalid}")),
+            )?;
+            let error = lomo_xtask::check_kotlin_toolchain_parity(dir.path())
+                .expect_err("invalid compile API must fail closed");
+            ensure!(
+                message(&error).contains("compileSdk"),
+                "{invalid}: {error:#}"
+            );
+        }
+        Ok(())
+    }
+
     #[test]
     fn drifted_android_sdk_and_jdk_and_serialization_each_violate() -> Result<()> {
         for (before, after, pin) in [
             ("minSdk: 26", "minSdk: 24", "minSdk"),
-            ("compileSdk: 37", "compileSdk: 36", "compileSdk"),
+            ("apiLevel: 37", "apiLevel: 36", "compileSdk"),
+            ("minorApiLevel: 2", "minorApiLevel: 1", "compileSdk"),
             ("version: 27", "version: 26", "jdk.version"),
+            ("version: 2.4.21", "version: 2.4.20", "kotlin.version"),
+            ("version: 1.12.2", "version: 1.12.1", "compose.version"),
             (
                 "selectionMode: javaHome",
                 "selectionMode: auto",
@@ -391,8 +444,8 @@ jobs:
         for (before, after) in [
             // A synthetic version, not a historical pin — the shell contract scans the
             // worktree for retired NDK literals.
-            ("ndk/29.0.14206865", "ndk/99.0.0"),
-            ("ndk29-cache", "ndk28-cache"),
+            ("ndk/30.0.16248370", "ndk/99.0.0"),
+            ("ndk30-cache", "ndk99-cache"),
         ] {
             let dir = parity_fixture();
             fs::write(

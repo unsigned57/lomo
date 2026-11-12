@@ -14,11 +14,10 @@ internal fun lomoSharedKeyImageRequest(
     context: Context,
     url: String,
     configure: ImageRequest.Builder.() -> Unit = {},
-): ImageRequest =
-    ImageRequest
-        .Builder(context)
-        .data(url)
-        .memoryCacheKey(url)
-        .placeholderMemoryCacheKey(url)
-        .apply(configure)
-        .build()
+): ImageRequest = ImageRequest
+    .Builder(context)
+    .data(url)
+    .memoryCacheKey(url)
+    .placeholderMemoryCacheKey(url)
+    .apply(configure)
+    .build()

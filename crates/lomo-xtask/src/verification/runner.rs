@@ -182,11 +182,10 @@ fn execute_task(task: &Task, expected: &str, runner: &impl CommandRunner) -> Tas
 pub(super) struct RepositoryRunner<'a> {
     workspace: &'a Workspace,
     report_dir: PathBuf,
-    mutation_diff: Option<PathBuf>,
 }
 
 impl<'a> RepositoryRunner<'a> {
-    pub(super) fn new(workspace: &'a Workspace, mutation_diff: Option<&str>) -> Result<Self> {
+    pub(super) fn new(workspace: &'a Workspace) -> Result<Self> {
         let run_id = format!(
             "{}-{}",
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),
@@ -194,17 +193,9 @@ impl<'a> RepositoryRunner<'a> {
         );
         let report_dir = workspace.reports_dir().join("verification").join(run_id);
         fs::create_dir_all(&report_dir)?;
-        let mutation_diff = mutation_diff
-            .map(|text| -> Result<PathBuf> {
-                let path = report_dir.join("mutants.diff");
-                fs::write(&path, text)?;
-                Ok(path)
-            })
-            .transpose()?;
         Ok(Self {
             workspace,
             report_dir,
-            mutation_diff,
         })
     }
 
@@ -233,6 +224,7 @@ impl<'a> RepositoryRunner<'a> {
     fn command(&self, task: &Task) -> Result<Command> {
         match &task.action {
             TaskAction::KotlinRules
+            | TaskAction::KotlinFormat
             | TaskAction::KotlinTests { .. }
             | TaskAction::KotlinLight { .. }
             | TaskAction::KotlinFull { .. }
@@ -242,41 +234,17 @@ impl<'a> RepositoryRunner<'a> {
             | TaskAction::RustFmt
             | TaskAction::RustClippy { .. }
             | TaskAction::RustTests { .. }
-            | TaskAction::RustMutants { .. }
             | TaskAction::RustDocs
             | TaskAction::Machete => self.rust_command(task),
-            TaskAction::BaselineProfile => self.baseline_profile_command(),
             TaskAction::AndroidLint
             | TaskAction::Bindings
             | TaskAction::ShellContracts
             | TaskAction::UseCaseReachability
-            | TaskAction::KotlinToolchainCheck => {
+            | TaskAction::KotlinToolchainCheck
+            | TaskAction::BaselineProfile => {
                 anyhow::bail!("task uses an owned executor")
             }
         }
-    }
-
-    /// Regenerates the Android baseline profile from the shared Kotlin build into this run's
-    /// evidence directory. The committed `baselineProfiles/generated.txt` is a release-packaging
-    /// input rather than a hand-maintained fact, so the gate proves the generator still works
-    /// against the current app classes instead of only requiring the file to exist.
-    fn baseline_profile_command(&self) -> Result<Command> {
-        let evidence = self.report_dir.join("baseline-profile");
-        fs::create_dir_all(&evidence)?;
-        let mut command = util::repository_command(self.workspace, "python3");
-        command
-            .arg(
-                self.workspace
-                    .root
-                    .join("quality/scripts/generate_static_baseline_profile.py"),
-            )
-            .arg("--build-dir")
-            .arg(&self.workspace.kotlin_build)
-            .arg("--output")
-            .arg(evidence.join("generated.txt"))
-            .arg("--report")
-            .arg(evidence.join("report.txt"));
-        Ok(command)
     }
 
     fn rust_command(&self, task: &Task) -> Result<Command> {
@@ -339,7 +307,6 @@ impl<'a> RepositoryRunner<'a> {
                     "--no-tests=fail",
                 ]);
             }
-            TaskAction::RustMutants { package } => return self.mutants_command(package),
             TaskAction::RustDocs => {
                 cargo.args([
                     "doc",
@@ -356,6 +323,7 @@ impl<'a> RepositoryRunner<'a> {
                 ));
             }
             TaskAction::KotlinRules
+            | TaskAction::KotlinFormat
             | TaskAction::KotlinTests { .. }
             | TaskAction::KotlinLight { .. }
             | TaskAction::KotlinFull { .. }
@@ -374,41 +342,6 @@ impl<'a> RepositoryRunner<'a> {
         Ok(cargo)
     }
 
-    /// Diff-scoped incremental mutation testing. Copy mode (no `--in-place`) with `-j`
-    /// parallelism: each mutant gets its own source copy, so jobs run concurrently instead
-    /// of serializing on a single live tree. The baseline is skipped because this task
-    /// runs strictly after `rust-tests:<package>` proved the suite green.
-    fn mutants_command(&self, package: &str) -> Result<Command> {
-        let mut cargo = util::cargo(self.workspace);
-        cargo
-            .args([
-                "mutants",
-                "--baseline",
-                "skip",
-                "--test-tool",
-                "nextest",
-                "--all-features",
-                "--colors",
-                "never",
-                "--minimum-test-timeout",
-                "120",
-                "-j",
-                "8",
-                "--package",
-                package,
-                "--in-diff",
-            ])
-            .arg(
-                self.mutation_diff
-                    .as_ref()
-                    .context("rust-mutants task has no change diff")?,
-            )
-            .arg("--output")
-            .arg(self.report_dir.join("mutants").join(package));
-        fs::create_dir_all(self.report_dir.join("mutants"))?;
-        Ok(cargo)
-    }
-
     fn kotlin_command(&self, task: &Task) -> Result<Command> {
         let workspace = self.workspace;
         match &task.action {
@@ -417,6 +350,12 @@ impl<'a> RepositoryRunner<'a> {
                 command
                     .args(["build", "--module", "detekt-rules", "--build-dir"])
                     .arg(&workspace.kotlin_build);
+                Ok(command)
+            }
+            TaskAction::KotlinFormat => {
+                let mut command =
+                    util::policy_script(workspace, "quality/scripts/kotlin_detekt_format.sh");
+                command.arg("check");
                 Ok(command)
             }
             TaskAction::KotlinTests { module } => {
@@ -460,7 +399,6 @@ impl<'a> RepositoryRunner<'a> {
             | TaskAction::RustFmt
             | TaskAction::RustClippy { .. }
             | TaskAction::RustTests { .. }
-            | TaskAction::RustMutants { .. }
             | TaskAction::RustDocs
             | TaskAction::Machete
             | TaskAction::Bindings
@@ -522,7 +460,7 @@ impl CommandRunner for RepositoryRunner<'_> {
                 Err(error) => return Err(error.into()),
             }
         }
-        Ok(format!("{:x}", hash.finalize()))
+        Ok(lomo_core::hex_encode(&hash.finalize()))
     }
 
     fn run(&self, task: &Task) -> Result<TaskOutcome> {
@@ -531,6 +469,22 @@ impl CommandRunner for RepositoryRunner<'_> {
         match task.action {
             TaskAction::Bindings => {
                 native::generate_bindings(self.workspace)?;
+                return Ok(TaskOutcome::Success { tests: None });
+            }
+            TaskAction::BaselineProfile => {
+                let report = crate::profiles::validate_measured_profiles(
+                    &self.workspace.root,
+                    &self
+                        .workspace
+                        .android_sdk
+                        .join("cmdline-tools/latest/bin/profgen"),
+                )?;
+                let directory = self.report_dir.join("baseline-profile");
+                fs::create_dir_all(&directory)?;
+                fs::write(
+                    directory.join("report.json"),
+                    serde_json::to_vec_pretty(&report)?,
+                )?;
                 return Ok(TaskOutcome::Success { tests: None });
             }
             TaskAction::AndroidLint => {
@@ -554,15 +508,14 @@ impl CommandRunner for RepositoryRunner<'_> {
             | TaskAction::RustFmt
             | TaskAction::RustClippy { .. }
             | TaskAction::RustTests { .. }
-            | TaskAction::RustMutants { .. }
             | TaskAction::RustDocs
             | TaskAction::Machete
             | TaskAction::KotlinRules
+            | TaskAction::KotlinFormat
             | TaskAction::KotlinLight { .. }
             | TaskAction::AnalysisInput { .. }
             | TaskAction::KotlinFull { .. }
-            | TaskAction::KotlinTests { .. }
-            | TaskAction::BaselineProfile => {}
+            | TaskAction::KotlinTests { .. } => {}
         }
         let mut command = self.command(task)?;
         let description = format!(
@@ -633,32 +586,11 @@ impl CommandRunner for RepositoryRunner<'_> {
                 output.display()
             );
             if matches!(artifact, Artifact::BaselineProfile) {
-                // Existence is not freshness: the committed profile is only valid while it is
-                // byte-identical to what the generator just produced from the compiled
-                // classes. A mismatch means the committed file is stale or hand-edited.
-                let regenerated = self.report_dir.join("baseline-profile/generated.txt");
-                let regenerated_bytes = fs::read(&regenerated).with_context(|| {
-                    format!(
-                        "baseline task declared its output but produced no regenerated \
-                         evidence at {}",
-                        regenerated.display()
-                    )
-                })?;
+                let evidence = self.report_dir.join("baseline-profile/report.json");
+                let report: serde_json::Value = serde_json::from_slice(&fs::read(&evidence)?)?;
                 ensure!(
-                    !regenerated_bytes.is_empty(),
-                    "generator produced an empty baseline profile: {}",
-                    regenerated.display()
-                );
-                let committed_bytes = fs::read(&output)
-                    .with_context(|| format!("read committed {}", output.display()))?;
-                ensure!(
-                    regenerated_bytes == committed_bytes,
-                    "committed baseline profile is stale or hand-edited: {} does not match \
-                     the profile regenerated from the current classes at {}; refresh it via \
-                     `quality/scripts/generate_static_baseline_profile.py --build-dir \
-                     <shared kotlin build dir>`",
-                    output.display(),
-                    regenerated.display()
+                    report.get("status").and_then(serde_json::Value::as_str) == Some("validated"),
+                    "measured profile validation evidence is missing"
                 );
             }
         }

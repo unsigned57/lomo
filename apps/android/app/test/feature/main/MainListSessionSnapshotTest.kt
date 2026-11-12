@@ -36,13 +36,14 @@ import java.time.LocalDate
  * Excludes:
  * - Compose effects, LazyListState scrolling, and process recreation.
  */
-class MainListSessionSnapshotTest : FunSpec({
-    test("saver round-trips a session bound to a workspace identity") {
-        val snapshot =
-            MainListSessionSnapshot(
-                workspacePath = "/workspace/a",
-                searchQuery = "design notes",
-                filter =
+class MainListSessionSnapshotTest :
+    FunSpec({
+        test("saver round-trips a session bound to a workspace identity") {
+            val snapshot =
+                MainListSessionSnapshot(
+                    workspacePath = "/workspace/a",
+                    searchQuery = "design notes",
+                    filter =
                     MemoListFilter(
                         sortOption = MemoSortOption.UPDATED_TIME,
                         sortAscending = true,
@@ -52,66 +53,66 @@ class MainListSessionSnapshotTest : FunSpec({
                         hasAttachment = false,
                         hasUrl = true,
                     ),
-                anchorIndex = 42,
-                anchorOffset = 7,
-            )
+                    anchorIndex = 42,
+                    anchorOffset = 7,
+                )
 
-        val saved =
-            with(mainListSessionSnapshotSaver) { SaverScope { true }.save(snapshot) }!!
-        mainListSessionSnapshotSaver.restore(saved) shouldBe snapshot
-    }
+            val saved =
+                with(mainListSessionSnapshotSaver) { SaverScope { true }.save(snapshot) }!!
+            mainListSessionSnapshotSaver.restore(saved) shouldBe snapshot
+        }
 
-    test("an unbound session round-trips without a workspace identity") {
-        val saved =
-            with(mainListSessionSnapshotSaver) {
-                SaverScope { true }.save(MainListSessionSnapshot.Empty)
-            }!!
-        mainListSessionSnapshotSaver.restore(saved) shouldBe MainListSessionSnapshot.Empty
-    }
+        test("an unbound session round-trips without a workspace identity") {
+            val saved =
+                with(mainListSessionSnapshotSaver) {
+                    SaverScope { true }.save(MainListSessionSnapshot.Empty)
+                }!!
+            mainListSessionSnapshotSaver.restore(saved) shouldBe MainListSessionSnapshot.Empty
+        }
 
-    test("restore on the same workspace applies the saved query, filter, and anchor as one session") {
-        val snapshot =
-            MainListSessionSnapshot(
-                workspacePath = "/workspace/a",
-                searchQuery = "design",
-                filter = MemoListFilter(hasTodo = true),
-                anchorIndex = 5,
-                anchorOffset = 3,
-            )
+        test("restore on the same workspace applies the saved query, filter, and anchor as one session") {
+            val snapshot =
+                MainListSessionSnapshot(
+                    workspacePath = "/workspace/a",
+                    searchQuery = "design",
+                    filter = MemoListFilter(hasTodo = true),
+                    anchorIndex = 5,
+                    anchorOffset = 3,
+                )
 
-        resolveMainListSessionRestore(snapshot, "/workspace/a") shouldBe
-            MainListSessionRestoreAction.Apply(snapshot)
-    }
+            resolveMainListSessionRestore(snapshot, "/workspace/a") shouldBe
+                MainListSessionRestoreAction.Apply(snapshot)
+        }
 
-    test("restore on a different workspace resets instead of showing the stale page") {
-        val snapshot =
-            MainListSessionSnapshot(
-                workspacePath = "/workspace/a",
-                searchQuery = "design",
-                filter = MemoListFilter(hasTodo = true),
-                anchorIndex = 5,
-                anchorOffset = 3,
-            )
+        test("restore on a different workspace resets instead of showing the stale page") {
+            val snapshot =
+                MainListSessionSnapshot(
+                    workspacePath = "/workspace/a",
+                    searchQuery = "design",
+                    filter = MemoListFilter(hasTodo = true),
+                    anchorIndex = 5,
+                    anchorOffset = 3,
+                )
 
-        resolveMainListSessionRestore(snapshot, "/workspace/b") shouldBe
-            MainListSessionRestoreAction.Reset
-    }
+            resolveMainListSessionRestore(snapshot, "/workspace/b") shouldBe
+                MainListSessionRestoreAction.Reset
+        }
 
-    test("restore waits while the mount has no workspace location") {
-        resolveMainListSessionRestore(
-            MainListSessionSnapshot(
-                workspacePath = "/workspace/a",
-                searchQuery = "design",
-                filter = MemoListFilter(),
-                anchorIndex = 5,
-                anchorOffset = 0,
-            ),
-            workspacePath = null,
-        ) shouldBe MainListSessionRestoreAction.Wait
-    }
+        test("restore waits while the mount has no workspace location") {
+            resolveMainListSessionRestore(
+                MainListSessionSnapshot(
+                    workspacePath = "/workspace/a",
+                    searchQuery = "design",
+                    filter = MemoListFilter(),
+                    anchorIndex = 5,
+                    anchorOffset = 0,
+                ),
+                workspacePath = null,
+            ) shouldBe MainListSessionRestoreAction.Wait
+        }
 
-    test("a session saved without workspace identity binds the mounted workspace as a reset") {
-        resolveMainListSessionRestore(MainListSessionSnapshot.Empty, "/workspace/a") shouldBe
-            MainListSessionRestoreAction.Reset
-    }
-})
+        test("a session saved without workspace identity binds the mounted workspace as a reset") {
+            resolveMainListSessionRestore(MainListSessionSnapshot.Empty, "/workspace/a") shouldBe
+                MainListSessionRestoreAction.Reset
+        }
+    })

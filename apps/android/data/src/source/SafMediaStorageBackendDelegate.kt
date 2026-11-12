@@ -1,37 +1,71 @@
 package com.lomo.data.source
 
+import android.provider.DocumentsContract
+import com.lomo.data.engine.ContentResolverPlatformDocumentsGateway
+import com.lomo.data.engine.PlatformActionAccessException
+import com.lomo.data.engine.PlatformDocumentSnapshot
+import com.lomo.data.engine.SnapshotDigestMode
+import com.lomo.nativebridge.DocumentKind
+import com.lomo.nativebridge.WorkspaceTarget
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-internal class SafMediaStorageBackendDelegate(
-    private val documentAccess: SafDocumentAccess,
-) : MediaStorageBackend {
-    override suspend fun listImageFiles(): List<Pair<String, String>> = safListImageFiles(documentAccess)
+/** Uses the same selected-document root as the session's SAF read/write capability. */
+internal class SafMediaStorageBackendDelegate(private val documentAccess: SafDocumentAccess) : MediaStorageBackend {
+    private val documents = ContentResolverPlatformDocumentsGateway(documentAccess.contentResolver)
 
-    override suspend fun getImageLocation(filename: String): String? = safGetImageLocation(documentAccess, filename)
-}
+    override suspend fun listImageFiles(): List<Pair<String, String>> = withContext(documentAccess.ioDispatcher) {
+        val root = documentAccess.treeUri.toString()
+        val directories = ArrayDeque<WorkspaceTarget>().apply { add(WorkspaceTarget.Root) }
+        val images = mutableListOf<Pair<String, String>>()
+        while (directories.isNotEmpty()) {
+            currentCoroutineContext().ensureActive()
+            val directory = directories.removeFirst()
+            var cursor: String? = null
+            do {
+                val page = documents.listChildren(root, directory, cursor, MEDIA_PAGE_SIZE)
+                if (page.incomplete) {
+                    throw PlatformActionAccessException(
+                        category = "storage",
+                        code = "metadata_enumeration_incomplete",
+                        diagnostic = "Cannot completely enumerate selected image directory: $directory",
+                    )
+                }
+                currentCoroutineContext().ensureActive()
+                for (entry in page.items) {
+                    val path = (entry.target as WorkspaceTarget.Relative).path
+                    when (entry.kind) {
+                        DocumentKind.DIRECTORY -> if (path.substringAfterLast('/') !in MEDIA_PRIVATE_LANES) {
+                            directories.add(entry.target)
+                        }
 
-private suspend fun safListImageFiles(
-    documentAccess: SafDocumentAccess,
-): List<Pair<String, String>> =
-    withContext(documentAccess.ioDispatcher) {
-        val root = documentAccess.root() ?: return@withContext emptyList()
-        root.listFiles().mapNotNull { file ->
-            val name = file.name
-            if (name == null || !file.isFile) {
-                return@mapNotNull null
-            }
-            if (isImageAttachmentFileName(name)) {
-                name to file.uri.toString()
-            } else {
-                null
-            }
+                        DocumentKind.FILE -> if (isImageAttachmentFileName(path)) {
+                            images += path to location(entry)
+                        }
+                    }
+                }
+                cursor = page.nextCursor
+            } while (cursor != null)
         }
+        images
     }
 
-private suspend fun safGetImageLocation(
-    documentAccess: SafDocumentAccess,
-    filename: String,
-): String? =
-    withContext(documentAccess.ioDispatcher) {
-        documentAccess.root()?.findFile(filename)?.takeIf { it.isFile }?.run { uri.toString() }
+    override suspend fun getImageLocation(filename: String): String? = withContext(documentAccess.ioDispatcher) {
+        val snapshot = documents.stat(
+            documentAccess.treeUri.toString(),
+            WorkspaceTarget.Relative(filename),
+            SnapshotDigestMode.METADATA_ONLY,
+        )
+        snapshot?.takeIf { it.kind == DocumentKind.FILE }?.let(::location)
     }
+
+    private fun location(snapshot: PlatformDocumentSnapshot): String =
+        DocumentsContract.buildDocumentUriUsingTree(documentAccess.treeUri, snapshot.documentId).toString()
+
+    private companion object {
+        const val MEDIA_PAGE_SIZE = 256u
+        val MEDIA_PRIVATE_LANES =
+            setOf(".git", ".lomo", ".lomo-media-stage", ".lomo-media-trash", ".lomo-media-delete-intents")
+    }
+}

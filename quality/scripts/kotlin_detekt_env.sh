@@ -16,6 +16,7 @@ DETEKT_CLI_SHA1="543c524afee8f40330b4bf66e760cb141accb87a"
 # `quality/detekt/config/` activates `coroutines:` rules, so an absent plugin
 # silently unenforces GlobalCoroutineUsage/InjectDispatcher — resolution must
 # succeed (verified cache copy or verified download) or fail the gate.
+DETEKT_KTLINT_SHA1="3ae178f7b18c5aefea6d4c78ac3d548694ff5d5c"
 DETEKT_COROUTINES_SHA1="056cb5c33cd41775e374474fac1964c1b080380b"
 DETEKT_CLI_CACHE_DIR_DEFAULT=""
 
@@ -98,10 +99,34 @@ lomo_detekt_verify_plugin_jar() {
   done
 }
 
+# Formatting is reproducible after deleting project-local Gradle state. Resolve the
+# official fat wrapper into the same standard cache as the CLI and verify every load.
+lomo_detekt_ktlint_jar() {
+  local cache_root cache_dir jar_path url
+  cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
+  cache_dir="${LOMO_DETEKT_CACHE_DIR:-$cache_root/lomo/detekt}"
+  jar_path="$cache_dir/detekt-rules-ktlint-wrapper-${DETEKT_VERSION}.jar"
+  mkdir -p "$cache_dir"
+  if [ ! -f "$jar_path" ]; then
+    url="https://repo1.maven.org/maven2/dev/detekt/detekt-rules-ktlint-wrapper/${DETEKT_VERSION}/detekt-rules-ktlint-wrapper-${DETEKT_VERSION}.jar"
+    echo "kotlin-detekt: downloading ktlint wrapper ${DETEKT_VERSION}" >&2
+    curl -fsSL -o "$jar_path.partial" "$url"
+    lomo_detekt_verify_plugin_jar "$jar_path.partial" "$DETEKT_KTLINT_SHA1" \
+      '^META-INF/services/dev\.detekt\.api\.RuleSetProvider$' \
+      '^com/pinterest/ktlint/rule/engine/core/api/Rule\.class$' || return 1
+    mv "$jar_path.partial" "$jar_path"
+  fi
+  lomo_detekt_verify_plugin_jar "$jar_path" "$DETEKT_KTLINT_SHA1" \
+    '^META-INF/services/dev\.detekt\.api\.RuleSetProvider$' \
+    '^dev/detekt/rules/ktlintwrapper/KtlintWrapperProvider\.class$' \
+    '^com/pinterest/ktlint/rule/engine/core/api/Rule\.class$' || return 1
+  printf '%s\n' "$jar_path"
+}
+
 lomo_detekt_rules_jar() {
   local repo_root build_dir jar_path
   repo_root="$(lomo_detekt_repo_root)"
-  build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}"
+  build_dir="${LOMO_KOTLIN_BUILD_DIR:-${LOMO_GENERATED_ROOT:-$repo_root/target/lomo}/build/kotlin}"
   jar_path="$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar"
   if [ ! -f "$jar_path" ]; then
     echo "kotlin-detekt: detekt-rules jar missing at $jar_path; build detekt-rules first" >&2

@@ -2,7 +2,6 @@ package com.lomo.app.feature.settings
 
 import android.content.ContentResolver
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.assertions.throwables.shouldThrow

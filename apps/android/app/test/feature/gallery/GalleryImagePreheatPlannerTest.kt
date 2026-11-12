@@ -38,9 +38,15 @@ import kotlinx.collections.immutable.toImmutableList
  */
 class GalleryImagePreheatPlannerTest : AppFunSpec() {
     init {
-        test("given a deep layout when a viewport window is planned then only visible plus lookahead bands contribute") {
+        test(
+            "given a deep layout when a viewport window is planned then only visible plus lookahead bands contribute",
+        ) {
             val tileSize = FeedImagePreloadSize(widthPx = 540, heightPx = 540)
-            val planner = GalleryImagePreheatPlanner(lookaheadBandCount = 1, startupBandCount = 1, maxActiveRequests = 24)
+            val planner = GalleryImagePreheatPlanner(
+                lookaheadBandCount = 1,
+                startupBandCount = 1,
+                maxActiveRequests = 24,
+            )
             val bands = (0 until 10).map { index -> band("b$index", "u-$index-a", "u-$index-b") }
 
             val plan =
@@ -59,7 +65,11 @@ class GalleryImagePreheatPlannerTest : AppFunSpec() {
 
         test("given more in-window urls than the bound when planned then requests are capped") {
             val tileSize = FeedImagePreloadSize(widthPx = 540, heightPx = 540)
-            val planner = GalleryImagePreheatPlanner(lookaheadBandCount = 4, startupBandCount = 1, maxActiveRequests = 3)
+            val planner = GalleryImagePreheatPlanner(
+                lookaheadBandCount = 4,
+                startupBandCount = 1,
+                maxActiveRequests = 3,
+            )
             val bands = (0 until 6).map { index -> band("b$index", "u-$index-a", "u-$index-b") }
 
             val plan =
@@ -77,7 +87,11 @@ class GalleryImagePreheatPlannerTest : AppFunSpec() {
 
         test("given the window slides when replanned then stale urls cancel and kept urls do not restart") {
             val tileSize = FeedImagePreloadSize(widthPx = 540, heightPx = 540)
-            val planner = GalleryImagePreheatPlanner(lookaheadBandCount = 1, startupBandCount = 1, maxActiveRequests = 24)
+            val planner = GalleryImagePreheatPlanner(
+                lookaheadBandCount = 1,
+                startupBandCount = 1,
+                maxActiveRequests = 24,
+            )
             val bands = (0 until 10).map { index -> band("b$index", "u-$index") }
 
             planner.planViewport(bands = bands, firstVisibleBand = 0, visibleBandCount = 2, tileSize = tileSize)
@@ -95,7 +109,11 @@ class GalleryImagePreheatPlannerTest : AppFunSpec() {
         }
 
         test("given the tile size changes when replanned then size-stale urls are re-requested") {
-            val planner = GalleryImagePreheatPlanner(lookaheadBandCount = 1, startupBandCount = 1, maxActiveRequests = 24)
+            val planner = GalleryImagePreheatPlanner(
+                lookaheadBandCount = 1,
+                startupBandCount = 1,
+                maxActiveRequests = 24,
+            )
             val bands = listOf(band("b0", "u-0", "u-1"))
             val oldSize = FeedImagePreloadSize(widthPx = 360, heightPx = 360)
             val newSize = FeedImagePreloadSize(widthPx = 720, heightPx = 720)
@@ -111,7 +129,11 @@ class GalleryImagePreheatPlannerTest : AppFunSpec() {
 
         test("given an unsettled viewport when planned then the startup window applies") {
             val tileSize = FeedImagePreloadSize(widthPx = 540, heightPx = 540)
-            val planner = GalleryImagePreheatPlanner(lookaheadBandCount = 1, startupBandCount = 2, maxActiveRequests = 24)
+            val planner = GalleryImagePreheatPlanner(
+                lookaheadBandCount = 1,
+                startupBandCount = 2,
+                maxActiveRequests = 24,
+            )
             val bands = (0 until 6).map { index -> band("b$index", "u-$index") }
 
             val plan = planner.planStartup(bands = bands, tileSize = tileSize)
@@ -120,25 +142,21 @@ class GalleryImagePreheatPlannerTest : AppFunSpec() {
         }
     }
 
-    private fun band(
-        key: String,
-        vararg urls: String,
-    ): GalleryMosaicLayout =
-        GalleryMosaicLayout(
-            tiles =
-                urls
-                    .mapIndexed { index, url ->
-                        GalleryMosaicTile(
-                            memoId = "$key-$index",
-                            firstImageUrl = url,
-                            aspectKind = GalleryAspectKind.Square,
-                            aspectRatio = 1f,
-                            column = index,
-                            row = 0,
-                            columnSpan = 4,
-                            rowSpan = 4,
-                        )
-                    }.toImmutableList(),
-            rowCount = 4,
-        )
+    private fun band(key: String, vararg urls: String): GalleryMosaicLayout = GalleryMosaicLayout(
+        tiles =
+        urls
+            .mapIndexed { index, url ->
+                GalleryMosaicTile(
+                    memoId = "$key-$index",
+                    firstImageUrl = url,
+                    aspectKind = GalleryAspectKind.Square,
+                    aspectRatio = 1f,
+                    column = index,
+                    row = 0,
+                    columnSpan = 4,
+                    rowSpan = 4,
+                )
+            }.toImmutableList(),
+        rowCount = 4,
+    )
 }

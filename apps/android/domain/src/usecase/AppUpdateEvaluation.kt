@@ -1,8 +1,8 @@
 package com.lomo.domain.usecase
 
-import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.model.AppUpdateAssetCandidate
 import com.lomo.domain.model.AppUpdateAssetVerification
+import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.model.LatestAppRelease
 
 internal fun evaluateAppUpdate(
@@ -24,9 +24,7 @@ internal fun evaluateAppUpdate(
 internal fun LatestAppRelease.toAppUpdateInfo(): AppUpdateInfo =
     toAppUpdateInfo(verifiedInstallableCandidate(versionName()))
 
-private fun LatestAppRelease.toAppUpdateInfo(
-    installableCandidate: AppUpdateAssetCandidate?,
-): AppUpdateInfo {
+private fun LatestAppRelease.toAppUpdateInfo(installableCandidate: AppUpdateAssetCandidate?): AppUpdateInfo {
     val verified = installableCandidate?.verifiedOrNull()
     return AppUpdateInfo(
         url = htmlUrl,
@@ -69,16 +67,10 @@ private fun isCandidateNewer(
     )
 }
 
-private fun isRemoteVersionNewer(
-    localVersion: String,
-    remoteVersion: String,
-): Boolean =
+private fun isRemoteVersionNewer(localVersion: String, remoteVersion: String): Boolean =
     compareVersionParts(localVersion = localVersion, remoteVersion = remoteVersion) > 0
 
-private fun compareVersionParts(
-    localVersion: String,
-    remoteVersion: String,
-): Int {
+private fun compareVersionParts(localVersion: String, remoteVersion: String): Int {
     val localParts = localVersion.split('.').map { it.toIntOrNull() ?: 0 }
     val remoteParts = remoteVersion.split('.').map { it.toIntOrNull() ?: 0 }
     val length = maxOf(localParts.size, remoteParts.size)

@@ -64,16 +64,16 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                     attempt = 1u,
                     deadlineEpochMillis = 9_000uL,
                     actions =
-                        listOf(
-                            PlatformAction.Stat("action-1", "cap", WorkspaceTarget.Root),
-                        ),
+                    listOf(
+                        PlatformAction.Stat("action-1", "cap", WorkspaceTarget.Root),
+                    ),
                 )
             val native =
                 RecordingNativePort(
                     pollQueue =
-                        ArrayDeque(
-                            listOf(NativeJobStep.NeedsPlatformBatch(batch)),
-                        ),
+                    ArrayDeque(
+                        listOf(NativeJobStep.NeedsPlatformBatch(batch)),
+                    ),
                     submitResult = NativeJobStep.Completed,
                 )
             var executed = 0
@@ -81,30 +81,30 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                 PlatformBatchRunner(
                     native = native,
                     executor =
-                        AndroidPlatformActionExecutor(
-                            access =
-                                PlatformActionAccess {
-                                    executed += 1
-                                    ActionOutcome.Applied(
-                                        PlatformActionOutput.Stat(
-                                            DocumentMetadata(
-                                                target = WorkspaceTarget.Root,
-                                                documentHandle = "root",
-                                                kind = DocumentKind.DIRECTORY,
-                                                mimeType = null,
-                                                evidence =
-                                                    ActionEvidence(
-                                                        length = 0uL,
-                                                        digest = ContentDigest.Unknown,
-                                                        fingerprint = "root-fingerprint",
-                                                    ),
-                                            ),
+                    AndroidPlatformActionExecutor(
+                        access =
+                        PlatformActionAccess {
+                            executed += 1
+                            ActionOutcome.Applied(
+                                PlatformActionOutput.Stat(
+                                    DocumentMetadata(
+                                        target = WorkspaceTarget.Root,
+                                        documentHandle = "root",
+                                        kind = DocumentKind.DIRECTORY,
+                                        mimeType = null,
+                                        evidence =
+                                        ActionEvidence(
+                                            length = 0uL,
+                                            digest = ContentDigest.Unknown,
+                                            fingerprint = "root-fingerprint",
                                         ),
-                                    )
-                                },
-                            currentTimeMillis = { 1_000L },
-                            readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
-                        ),
+                                    ),
+                                ),
+                            )
+                        },
+                        currentTimeMillis = { 1_000L },
+                        readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
+                    ),
                 )
 
             val terminal = runner.drive("job-1")
@@ -123,9 +123,9 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                     attempt = 1u,
                     deadlineEpochMillis = 9_000uL,
                     actions =
-                        listOf(
-                            PlatformAction.Stat("action-1", "cap", WorkspaceTarget.Root),
-                        ),
+                    listOf(
+                        PlatformAction.Stat("action-1", "cap", WorkspaceTarget.Root),
+                    ),
                 )
             val failure =
                 EngineFailureSnapshot(
@@ -137,38 +137,38 @@ class PlatformBatchRunnerTest : DataFunSpec() {
             val native =
                 RecordingNativePort(
                     pollQueue =
-                        ArrayDeque(
-                            listOf(NativeJobStep.NeedsPlatformBatch(batch)),
-                        ),
+                    ArrayDeque(
+                        listOf(NativeJobStep.NeedsPlatformBatch(batch)),
+                    ),
                     submitResult = NativeJobStep.Failed(failure),
                 )
             val runner =
                 PlatformBatchRunner(
                     native = native,
                     executor =
-                        AndroidPlatformActionExecutor(
-                            access =
-                                PlatformActionAccess {
-                                    ActionOutcome.Applied(
-                                        PlatformActionOutput.Stat(
-                                            DocumentMetadata(
-                                                target = WorkspaceTarget.Root,
-                                                documentHandle = "root",
-                                                kind = DocumentKind.DIRECTORY,
-                                                mimeType = null,
-                                                evidence =
-                                                    ActionEvidence(
-                                                        length = 0uL,
-                                                        digest = ContentDigest.Unknown,
-                                                        fingerprint = "root-fingerprint",
-                                                    ),
-                                            ),
+                    AndroidPlatformActionExecutor(
+                        access =
+                        PlatformActionAccess {
+                            ActionOutcome.Applied(
+                                PlatformActionOutput.Stat(
+                                    DocumentMetadata(
+                                        target = WorkspaceTarget.Root,
+                                        documentHandle = "root",
+                                        kind = DocumentKind.DIRECTORY,
+                                        mimeType = null,
+                                        evidence =
+                                        ActionEvidence(
+                                            length = 0uL,
+                                            digest = ContentDigest.Unknown,
+                                            fingerprint = "root-fingerprint",
                                         ),
-                                    )
-                                },
-                            currentTimeMillis = { 1_000L },
-                            readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
-                        ),
+                                    ),
+                                ),
+                            )
+                        },
+                        currentTimeMillis = { 1_000L },
+                        readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
+                    ),
                 )
 
             val terminal = runner.drive("job-2")
@@ -208,11 +208,11 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                     pollQueue = ArrayDeque(),
                     submitResult = NativeJobStep.Completed,
                     fallbackPoll =
-                        NativeJobStep.RunningNative(
-                            taskKind = "remote-sync",
-                            attempt = 3u,
-                            dispatchGeneration = 7uL,
-                        ),
+                    NativeJobStep.RunningNative(
+                        taskKind = "remote-sync",
+                        attempt = 3u,
+                        dispatchGeneration = 7uL,
+                    ),
                 )
             val clock = FakeDriverClock()
             val runner = waitingRunner(native, clock)
@@ -254,21 +254,17 @@ private class FakeDriverClock {
     }
 }
 
-private fun waitingRunner(
-    native: NativeEnginePort,
-    clock: FakeDriverClock,
-): PlatformBatchRunner =
-    PlatformBatchRunner(
-        native = native,
-        executor =
-            AndroidPlatformActionExecutor(
-                access = PlatformActionAccess { error("no platform action expected") },
-                currentTimeMillis = { 0L },
-                readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
-            ),
-        nowMillis = clock::nowMillis,
-        sleepMillis = clock::sleep,
-    )
+private fun waitingRunner(native: NativeEnginePort, clock: FakeDriverClock): PlatformBatchRunner = PlatformBatchRunner(
+    native = native,
+    executor =
+    AndroidPlatformActionExecutor(
+        access = PlatformActionAccess { error("no platform action expected") },
+        currentTimeMillis = { 0L },
+        readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
+    ),
+    nowMillis = clock::nowMillis,
+    sleepMillis = clock::sleep,
+)
 
 private class RecordingNativePort(
     private val pollQueue: ArrayDeque<NativeJobStep>,
@@ -282,10 +278,7 @@ private class RecordingNativePort(
 
     override fun pollJob(jobId: String): NativeJobStep = pollQueue.removeFirstOrNull() ?: fallbackPoll
 
-    override fun submitPlatformResult(
-        jobId: String,
-        result: PlatformBatchResult,
-    ): NativeJobStep {
+    override fun submitPlatformResult(jobId: String, result: PlatformBatchResult): NativeJobStep {
         submitCount += 1
         return submitResult
     }

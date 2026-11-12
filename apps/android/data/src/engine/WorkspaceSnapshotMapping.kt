@@ -14,8 +14,7 @@ internal fun com.lomo.nativebridge.WorkspaceDocumentCommandResult.toSnapshot(): 
         affectedMemo = affectedMemo?.toSnapshot(),
     )
 
-private fun com.lomo.nativebridge.WorkspaceDocumentMemoFacts.toSnapshot():
-    WorkspaceDocumentMemoFactsSnapshot =
+private fun com.lomo.nativebridge.WorkspaceDocumentMemoFacts.toSnapshot(): WorkspaceDocumentMemoFactsSnapshot =
     WorkspaceDocumentMemoFactsSnapshot(
         path = path,
         identity = identity,

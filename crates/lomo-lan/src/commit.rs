@@ -77,10 +77,8 @@ impl ReceivedItem {
     ///
     /// Validation when the body digest does not match the plan.
     pub fn verified(plan: &LanItemPlan, content: String) -> Result<Self, LomoError> {
-        let digest = format!(
-            "{:x}",
-            <sha2::Sha256 as sha2::Digest>::digest(content.as_bytes())
-        );
+        let digest =
+            lomo_core::hex_encode(&<sha2::Sha256 as sha2::Digest>::digest(content.as_bytes()));
         if digest != plan.content_digest() {
             return Err(validation(
                 "lan_item_digest_mismatch",

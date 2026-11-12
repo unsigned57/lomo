@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -58,7 +59,7 @@ internal class JsonFileAppUpdateInstallAttemptStore(
         }
         return try {
             val stored: StoredAppUpdateInstallAttempt =
-                json.decodeFromString(StoredAppUpdateInstallAttempt.serializer(), text)
+                json.decodeFromString<StoredAppUpdateInstallAttempt>(text)
             stored.toDomain()
         } catch (error: SerializationException) {
             throw IllegalStateException("Stored app update install attempt is unreadable", error)
@@ -72,81 +73,75 @@ internal class JsonFileAppUpdateInstallAttemptStore(
         // behavior-contract: blocking-io-ok: install-attempt JSON is written from the download IO worker
         stateFile.writeText(
             json.encodeToString(
-                StoredAppUpdateInstallAttempt.serializer(),
                 attempt.toStored(),
             ),
         )
     }
 }
 
-internal fun AppUpdateInstallPhase.isTerminal(): Boolean =
-    when (this) {
-        AppUpdateInstallPhase.Completed,
-        AppUpdateInstallPhase.Failed,
-        AppUpdateInstallPhase.Cancelled,
-        -> true
+internal fun AppUpdateInstallPhase.isTerminal(): Boolean = when (this) {
+    AppUpdateInstallPhase.Completed,
+    AppUpdateInstallPhase.Failed,
+    AppUpdateInstallPhase.Cancelled,
+    -> true
 
-        AppUpdateInstallPhase.Recorded,
-        AppUpdateInstallPhase.WaitingForInstallPermission,
-        AppUpdateInstallPhase.Preparing,
-        AppUpdateInstallPhase.Downloading,
-        AppUpdateInstallPhase.Downloaded,
-        AppUpdateInstallPhase.Installing,
-        AppUpdateInstallPhase.WaitingForInstallerResult,
-        -> false
-    }
+    AppUpdateInstallPhase.Recorded,
+    AppUpdateInstallPhase.WaitingForInstallPermission,
+    AppUpdateInstallPhase.Preparing,
+    AppUpdateInstallPhase.Downloading,
+    AppUpdateInstallPhase.Downloaded,
+    AppUpdateInstallPhase.Installing,
+    AppUpdateInstallPhase.WaitingForInstallerResult,
+    -> false
+}
 
-private fun AppUpdateInstallAttempt.toStored(): StoredAppUpdateInstallAttempt =
-    StoredAppUpdateInstallAttempt(
-        updateInfo = updateInfo.toStored(),
-        phase = phase.name,
-        progress = progress,
-        permissionMessage = permissionMessage,
-        downloadedFilePath = downloadedFilePath,
-        verifiedPackageMetadata = verifiedPackageMetadata?.toStored(),
-        installerOutcome = installerOutcome?.toStored(),
-        failureMessage = failureMessage,
-    )
+private fun AppUpdateInstallAttempt.toStored(): StoredAppUpdateInstallAttempt = StoredAppUpdateInstallAttempt(
+    updateInfo = updateInfo.toStored(),
+    phase = phase.name,
+    progress = progress,
+    permissionMessage = permissionMessage,
+    downloadedFilePath = downloadedFilePath,
+    verifiedPackageMetadata = verifiedPackageMetadata?.toStored(),
+    installerOutcome = installerOutcome?.toStored(),
+    failureMessage = failureMessage,
+)
 
 // Called on the generic result of `decodeFromString`, which the static unused-symbol check cannot
 // resolve; the call site is `readAttempt()`.
-private fun StoredAppUpdateInstallAttempt.toDomain(): AppUpdateInstallAttempt =
-    AppUpdateInstallAttempt(
-        updateInfo = updateInfo.toDomain(),
-        phase = AppUpdateInstallPhase.valueOf(phase),
-        progress = progress,
-        permissionMessage = permissionMessage,
-        downloadedFilePath = downloadedFilePath,
-        verifiedPackageMetadata = verifiedPackageMetadata?.toDomain(),
-        installerOutcome = installerOutcome?.toDomain(),
-        failureMessage = failureMessage,
-    )
+private fun StoredAppUpdateInstallAttempt.toDomain(): AppUpdateInstallAttempt = AppUpdateInstallAttempt(
+    updateInfo = updateInfo.toDomain(),
+    phase = AppUpdateInstallPhase.valueOf(phase),
+    progress = progress,
+    permissionMessage = permissionMessage,
+    downloadedFilePath = downloadedFilePath,
+    verifiedPackageMetadata = verifiedPackageMetadata?.toDomain(),
+    installerOutcome = installerOutcome?.toDomain(),
+    failureMessage = failureMessage,
+)
 
-private fun AppUpdateInfo.toStored(): StoredAppUpdateInfo =
-    StoredAppUpdateInfo(
-        url = url,
-        version = version,
-        releaseNotes = releaseNotes,
-        apkDownloadUrl = apkDownloadUrl,
-        apkFileName = apkFileName,
-        apkSizeBytes = apkSizeBytes,
-        expectedPackageName = expectedPackageName,
-        expectedVersionName = expectedVersionName,
-        expectedVersionCode = expectedVersionCode,
-    )
+private fun AppUpdateInfo.toStored(): StoredAppUpdateInfo = StoredAppUpdateInfo(
+    url = url,
+    version = version,
+    releaseNotes = releaseNotes,
+    apkDownloadUrl = apkDownloadUrl,
+    apkFileName = apkFileName,
+    apkSizeBytes = apkSizeBytes,
+    expectedPackageName = expectedPackageName,
+    expectedVersionName = expectedVersionName,
+    expectedVersionCode = expectedVersionCode,
+)
 
-private fun StoredAppUpdateInfo.toDomain(): AppUpdateInfo =
-    AppUpdateInfo(
-        url = url,
-        version = version,
-        releaseNotes = releaseNotes,
-        apkDownloadUrl = apkDownloadUrl,
-        apkFileName = apkFileName,
-        apkSizeBytes = apkSizeBytes,
-        expectedPackageName = expectedPackageName,
-        expectedVersionName = expectedVersionName,
-        expectedVersionCode = expectedVersionCode,
-    )
+private fun StoredAppUpdateInfo.toDomain(): AppUpdateInfo = AppUpdateInfo(
+    url = url,
+    version = version,
+    releaseNotes = releaseNotes,
+    apkDownloadUrl = apkDownloadUrl,
+    apkFileName = apkFileName,
+    apkSizeBytes = apkSizeBytes,
+    expectedPackageName = expectedPackageName,
+    expectedVersionName = expectedVersionName,
+    expectedVersionCode = expectedVersionCode,
+)
 
 private fun AppUpdateVerifiedPackageMetadata.toStored(): StoredAppUpdateVerifiedPackageMetadata =
     StoredAppUpdateVerifiedPackageMetadata(
@@ -164,29 +159,28 @@ private fun StoredAppUpdateVerifiedPackageMetadata.toDomain(): AppUpdateVerified
         signerCertificateSha256Digests = signerCertificateSha256Digests,
     )
 
-private fun AppUpdateInstallerOutcome.toStored(): StoredAppUpdateInstallerOutcome =
-    when (this) {
-        AppUpdateInstallerOutcome.Installed ->
-            StoredAppUpdateInstallerOutcome(
-                type = StoredInstallerOutcomeType.INSTALLED,
-                message = null,
-            )
+private fun AppUpdateInstallerOutcome.toStored(): StoredAppUpdateInstallerOutcome = when (this) {
+    AppUpdateInstallerOutcome.Installed ->
+        StoredAppUpdateInstallerOutcome(
+            type = StoredInstallerOutcomeType.INSTALLED,
+            message = null,
+        )
 
-        is AppUpdateInstallerOutcome.Failed ->
-            StoredAppUpdateInstallerOutcome(
-                type = StoredInstallerOutcomeType.FAILED,
-                message = message,
-            )
-    }
+    is AppUpdateInstallerOutcome.Failed ->
+        StoredAppUpdateInstallerOutcome(
+            type = StoredInstallerOutcomeType.FAILED,
+            message = message,
+        )
+}
 
-private fun StoredAppUpdateInstallerOutcome.toDomain(): AppUpdateInstallerOutcome =
-    when (type) {
-        StoredInstallerOutcomeType.INSTALLED -> AppUpdateInstallerOutcome.Installed
-        StoredInstallerOutcomeType.FAILED ->
-            AppUpdateInstallerOutcome.Failed(
-                message = requireNotNull(message) { "Failed installer outcome requires a message" },
-            )
-    }
+private fun StoredAppUpdateInstallerOutcome.toDomain(): AppUpdateInstallerOutcome = when (type) {
+    StoredInstallerOutcomeType.INSTALLED -> AppUpdateInstallerOutcome.Installed
+
+    StoredInstallerOutcomeType.FAILED ->
+        AppUpdateInstallerOutcome.Failed(
+            message = requireNotNull(message) { "Failed installer outcome requires a message" },
+        )
+}
 
 @Serializable
 private data class StoredAppUpdateInstallAttempt(
@@ -222,10 +216,7 @@ private data class StoredAppUpdateVerifiedPackageMetadata(
 )
 
 @Serializable
-private data class StoredAppUpdateInstallerOutcome(
-    val type: StoredInstallerOutcomeType,
-    val message: String? = null,
-)
+private data class StoredAppUpdateInstallerOutcome(val type: StoredInstallerOutcomeType, val message: String? = null)
 
 private enum class StoredInstallerOutcomeType {
     INSTALLED,

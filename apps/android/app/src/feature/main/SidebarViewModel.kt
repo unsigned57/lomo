@@ -10,7 +10,6 @@ import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.ObserveSidebarStatisticsUseCase
 import com.lomo.ui.component.navigation.SidebarStats
 import com.lomo.ui.component.navigation.SidebarTag
-
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
@@ -18,49 +17,48 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-
 class SidebarViewModel(
     observeSidebarStatisticsUseCase: ObserveSidebarStatisticsUseCase,
     private val stateHolder: MainSidebarStateHolder,
     private val appConfigCoordinator: AppConfigUiCoordinator,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : ViewModel() {
-        data class SidebarUiState(
-            val stats: SidebarStats = SidebarStats(),
-            val memoCountByDate: Map<LocalDate, Int> = emptyMap(),
-            val tags: List<SidebarTag> = emptyList(),
-            val rootTagOrder: List<String> = emptyList(),
-        )
+    data class SidebarUiState(
+        val stats: SidebarStats = SidebarStats(),
+        val memoCountByDate: Map<LocalDate, Int> = emptyMap(),
+        val tags: List<SidebarTag> = emptyList(),
+        val rootTagOrder: List<String> = emptyList(),
+    )
 
-        val searchQuery: StateFlow<String> = stateHolder.searchQuery
+    val searchQuery: StateFlow<String> = stateHolder.searchQuery
 
-        val sidebarUiState: StateFlow<SidebarUiState> =
-            combine(
-                observeSidebarStatisticsUseCase(),
-                appConfigCoordinator.sidebarTagOrder(),
-            ) { statistics, tagOrder ->
-                SidebarUiState(
-                    stats =
-                        SidebarStats(
-                            memoCount = statistics.memoCount,
-                            tagCount = statistics.tagCounts.size,
-                            dayCount = statistics.memoCountByDate.size,
-                        ),
-                    memoCountByDate = statistics.memoCountByDate,
-                    tags =
-                        statistics.tagCounts
-                            .sortedWith(compareByDescending<MemoTagCount> { it.count }.thenBy { it.name })
-                            .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) },
-                    rootTagOrder = tagOrder,
-                )
-                }.flowOn(dispatcherProvider.default)
-                .stateIn(viewModelScope, appWhileSubscribed(), SidebarUiState())
+    val sidebarUiState: StateFlow<SidebarUiState> =
+        combine(
+            observeSidebarStatisticsUseCase(),
+            appConfigCoordinator.sidebarTagOrder(),
+        ) { statistics, tagOrder ->
+            SidebarUiState(
+                stats =
+                SidebarStats(
+                    memoCount = statistics.memoCount,
+                    tagCount = statistics.tagCounts.size,
+                    dayCount = statistics.memoCountByDate.size,
+                ),
+                memoCountByDate = statistics.memoCountByDate,
+                tags =
+                statistics.tagCounts
+                    .sortedWith(compareByDescending<MemoTagCount> { it.count }.thenBy { it.name })
+                    .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) },
+                rootTagOrder = tagOrder,
+            )
+        }.flowOn(dispatcherProvider.default)
+            .stateIn(viewModelScope, appWhileSubscribed(), SidebarUiState())
 
-        fun onSearch(query: String) {
-            stateHolder.updateSearchQuery(query)
-        }
-
-        fun updateTagOrder(order: List<String>) {
-            viewModelScope.launch { appConfigCoordinator.updateSidebarTagOrder(order) }
-        }
+    fun onSearch(query: String) {
+        stateHolder.updateSearchQuery(query)
     }
+
+    fun updateTagOrder(order: List<String>) {
+        viewModelScope.launch { appConfigCoordinator.updateSidebarTagOrder(order) }
+    }
+}

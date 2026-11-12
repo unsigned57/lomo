@@ -1,6 +1,6 @@
 //! Durable permanent-delete tombstones.
 //!
-//! Soft delete writes `.lomo/trash/v1/<sha256(memo_id)>.rec`; permanent delete removes that record
+//! Soft delete writes `.trash/<sha256(memo_id)>.md`; permanent delete removes that record
 //! but must leave durable evidence that the memo identity was purged, or a stray/peer-delivered
 //! copy of the trash record resurrects the memo on the next rebuild. The tombstone is one framed
 //! `.lomo` record per memo under `.lomo/purged/v1/`, hash-addressed exactly like the trash record
@@ -106,7 +106,10 @@ impl PurgeRecordV1 {
 /// invalid.
 pub fn purge_record_relative_path(memo_id: &str) -> Result<WorkspaceRelativePath, LomoError> {
     let digest = Sha256::digest(memo_id.as_bytes());
-    WorkspaceRelativePath::parse(&format!("{PURGE_RECORD_DIRECTORY}/{digest:x}.rec"))
+    WorkspaceRelativePath::parse(&format!(
+        "{PURGE_RECORD_DIRECTORY}/{}.rec",
+        lomo_core::hex_encode(&digest)
+    ))
 }
 
 /// Encodes one tombstone into the workspace's framed checksum envelope.

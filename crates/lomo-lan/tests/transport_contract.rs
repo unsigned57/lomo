@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract (Stage-6 P6-07 blocking transport + hermetic two-endpoint matrix)
 //!
 //! Capability: two `lomo-lan` endpoints complete a real pairing, session authentication, sealed
@@ -141,7 +149,7 @@ mod tests {
     }
 
     fn digest_hex(bytes: &[u8]) -> String {
-        format!("{:x}", Sha256::digest(bytes))
+        lomo_core::hex_encode(&Sha256::digest(bytes))
     }
 
     /// Binds a loopback listener and returns it with its actual address.

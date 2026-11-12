@@ -1,5 +1,8 @@
 package com.lomo.ui.component.card
 
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -16,12 +19,55 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import org.jetbrains.compose.resources.stringResource
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import com.lomo.domain.model.ReminderMarker
+import com.lomo.ui.component.common.lomoCompactInteractiveHeight
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.reminder_done
 import kotlinx.collections.immutable.ImmutableList
+import org.jetbrains.compose.resources.stringResource
 import java.time.format.DateTimeFormatter
+
+/**
+ * Renders a visually compact metadata pill ([MemoCardTokens.MetadataPillVisualHeight]) while
+ * extending only the vertical touch bounds to 48dp so horizontal pill spacing in a [FlowRow]
+ * is never inflated to 48dp minimum widths.
+ */
+@Composable
+private fun MemoMetadataPillCell(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    colors: MemoMetadataPillColors,
+    content: @Composable () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Surface(
+        color = colors.containerColor,
+        shape = MemoCardTokens.MetadataPillShape,
+        modifier =
+        Modifier
+            .lomoCompactInteractiveHeight(MemoCardTokens.MetadataPillVisualHeight)
+            .clip(MemoCardTokens.MetadataPillShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier =
+            Modifier
+                .height(MemoCardTokens.MetadataPillVisualHeight)
+                .padding(horizontal = MemoCardTokens.MetadataPillHorizontalPadding),
+        ) {
+            content()
+        }
+    }
+}
 
 @Composable
 internal fun MemoCardTagPills(
@@ -31,25 +77,19 @@ internal fun MemoCardTagPills(
 ) {
     tags.forEach { tag ->
         val colors = memoTagPillColors(MaterialTheme.colorScheme)
-        Surface(
+        MemoMetadataPillCell(
             onClick = {
                 haptic.medium()
                 onTagClick(tag)
             },
-            shape = MemoCardTokens.PinnedBadgeShape,
-            color = colors.containerColor,
-            modifier = Modifier.height(MemoCardTokens.ExpandButtonInteractiveSize),
+            enabled = true,
+            colors = colors,
         ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.padding(horizontal = MemoCardTokens.PinnedBadgeHorizontalPadding),
-            ) {
-                Text(
-                    text = "#$tag",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = colors.contentColor,
-                )
-            }
+            Text(
+                text = "#$tag",
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.contentColor,
+            )
         }
     }
 }
@@ -65,23 +105,17 @@ internal fun MemoCardReminderPills(
     reminders.forEach { reminder ->
         val isExhausted = reminder.isExhausted
         val colors = memoReminderPillColors(isExhausted = isExhausted, colorScheme = MaterialTheme.colorScheme)
-
-        Surface(
+        MemoMetadataPillCell(
             onClick = {
-                if (!isExhausted) {
-                    haptic.medium()
-                    onReminderClick(reminder)
-                }
+                haptic.medium()
+                onReminderClick(reminder)
             },
             enabled = !isExhausted,
-            shape = MemoCardTokens.PinnedBadgeShape,
-            color = colors.containerColor,
-            modifier = Modifier.height(MemoCardTokens.ExpandButtonInteractiveSize),
+            colors = colors,
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(MemoCardTokens.PinnedBadgeSpacing),
-                modifier = Modifier.padding(horizontal = MemoCardTokens.PinnedBadgeHorizontalPadding),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Notifications,

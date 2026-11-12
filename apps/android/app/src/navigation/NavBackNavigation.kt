@@ -35,7 +35,5 @@ internal fun NavHostController.popBackStackOrNavigateMain() {
     }
 }
 
-internal fun shouldNavigateToMain(
-    currentRoute: String?,
-    popBackStackSucceeded: Boolean,
-): Boolean = currentRoute != NavRouteSerialNames.MAIN && !popBackStackSucceeded
+internal fun shouldNavigateToMain(currentRoute: String?, popBackStackSucceeded: Boolean): Boolean =
+    currentRoute != NavRouteSerialNames.MAIN && !popBackStackSucceeded

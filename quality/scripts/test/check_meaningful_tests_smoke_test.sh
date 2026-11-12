@@ -165,9 +165,54 @@ run_working_tree_case() {
   rm -rf "$temp_dir"
 }
 
+# Diff-range resolution: the check must select the same files through every supported base
+# and fail closed when no base can be resolved (never a silent "no changed test files").
+run_range_case() {
+  local case_name="$1"
+  local expected_status="$2"
+  local expected_message="$3"
+  shift 3
+  local fixture_dir="$fixtures_root/$case_name"
+  local temp_dir
+  temp_dir="$(mktemp -d "$fixture_temp_root/case.XXXXXX")"
+  local repo_dir="$temp_dir/repo"
+  local base_sha
+  base_sha="$(create_fixture_repo "$fixture_dir" "$repo_dir")"
+  git -C "$repo_dir" update-ref refs/remotes/origin/main "$base_sha"
+  prepare_fixture_head "$fixture_dir" "$repo_dir"
+  git -C "$repo_dir" add -A
+  git -C "$repo_dir" commit -qm "head"
+
+  local output
+  local status
+  set +e
+  output="$(cd "$repo_dir" && env -u MEANINGFUL_TEST_DIFF_BASE -u MEANINGFUL_TEST_DEFAULT_BRANCH \
+    -u GITHUB_BASE_REF -u CI "$@" "$script_path" 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -ne "$expected_status" ]; then
+    echo "[$case_name range: $*] expected exit $expected_status but got $status" >&2
+    echo "$output" >&2
+    exit 1
+  fi
+  assert_contains "$output" "$expected_message" "$case_name range: $*"
+  rm -rf "$temp_dir"
+}
+
+zero_sha="0000000000000000000000000000000000000000"
+run_range_case "missing_scenario_matrix" 1 "is not a commit in this clone" MEANINGFUL_TEST_DIFF_BASE=deadbeef
+run_range_case "missing_scenario_matrix" 1 "set MEANINGFUL_TEST_DEFAULT_BRANCH" MEANINGFUL_TEST_DIFF_BASE="$zero_sha"
+run_range_case "missing_scenario_matrix" 1 "Behavior Contract scenarios must use Given/When/Then." \
+  MEANINGFUL_TEST_DIFF_BASE="$zero_sha" MEANINGFUL_TEST_DEFAULT_BRANCH=main
+run_range_case "missing_scenario_matrix" 1 "set MEANINGFUL_TEST_DEFAULT_BRANCH" CI=true
+run_range_case "missing_scenario_matrix" 1 "Behavior Contract scenarios must use Given/When/Then." \
+  CI=true MEANINGFUL_TEST_DEFAULT_BRANCH=main
+
 run_case "prod_diff_not_applicable" 1 "TDD proof cannot be 'Not applicable' when production code changed."
 run_case "missing_scenario_matrix" 1 "Behavior Contract scenarios must use Given/When/Then."
 run_case "source_string_new_test" 1 "Source-string assertion test forbidden."
+run_case "persisted_json_assertion" 0 "validated 1 changed test file(s)"
 run_case "boundary_marker_allowed" 0 "validated 1 changed test file(s)"
 run_case "architecture_path_allowed" 0 "validated 1 changed test file(s)"
 run_case "testing_support_helper" 0 "no changed test files to validate"

@@ -1,17 +1,13 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.common.appWhileSubscribed
-
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.repository.LanShareService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 
-class SettingsLanShareCoordinator(
-    private val shareServiceManager: LanShareService,
-    scope: CoroutineScope,
-) {
+class SettingsLanShareCoordinator(private val shareServiceManager: LanShareService, scope: CoroutineScope) {
     val lanShareEnabled: StateFlow<Boolean> =
         shareServiceManager
             .lanShareEnabled

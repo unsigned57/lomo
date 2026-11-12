@@ -33,7 +33,7 @@ data class RemoteSyncConflictPath(
     val localArtifactRef: String?,
     val remoteArtifactRef: String?,
     val baselineArtifactRef: String? = null,
-    val     status: RemoteSyncConflictPathStatus,
+    val status: RemoteSyncConflictPathStatus,
 )
 
 /** Proven presence of a durable conflict session head. Absent ≠ Present with zero items. */
@@ -56,11 +56,7 @@ data class RemoteSyncConflictPage(
  * [kind] is a named wire string: `keep_local` | `keep_remote` | `merged_body` | `skip_for_now`.
  * [mergedBody] is required only for `merged_body`.
  */
-data class RemoteSyncConflictResolution(
-    val path: String,
-    val kind: String,
-    val mergedBody: String? = null,
-)
+data class RemoteSyncConflictResolution(val path: String, val kind: String, val mergedBody: String? = null)
 
 data class RemoteSyncConflictResolveResult(
     val sessionId: String,
@@ -69,9 +65,7 @@ data class RemoteSyncConflictResolveResult(
 )
 
 /** Opaque secret lease id wire — never plaintext secret material. */
-data class RemoteSyncSecretLease(
-    val leaseId: String,
-)
+data class RemoteSyncSecretLease(val leaseId: String)
 
 enum class RemoteSyncRetryDisposition {
     Never,
@@ -84,13 +78,12 @@ enum class RemoteSyncRetryDisposition {
          * Unique typed map from a Rust-owned disposition name. Unknown wires fail closed as
          * [Never] (no fixed three-retry policy).
          */
-        fun fromWire(name: String): RemoteSyncRetryDisposition =
-            when (name.trim().lowercase(java.util.Locale.ROOT)) {
-                "never" -> Never
-                "after_user_action" -> AfterUserAction
-                "transient" -> Transient
-                else -> Never
-            }
+        fun fromWire(name: String): RemoteSyncRetryDisposition = when (name.trim().lowercase(java.util.Locale.ROOT)) {
+            "never" -> Never
+            "after_user_action" -> AfterUserAction
+            "transient" -> Transient
+            else -> Never
+        }
     }
 }
 
@@ -100,10 +93,7 @@ enum class RemoteSyncRetryDisposition {
  * [retryAfterMillis] is optional host policy input; free-function mapping may leave it null
  * (scheduler owns concrete delay).
  */
-data class RemoteSyncRetryHint(
-    val disposition: RemoteSyncRetryDisposition,
-    val retryAfterMillis: Long? = null,
-)
+data class RemoteSyncRetryHint(val disposition: RemoteSyncRetryDisposition, val retryAfterMillis: Long? = null)
 
 /**
  * Coarse plan/readiness cycle summary from Rust-owned `sync_inspect_cycle_plan`.

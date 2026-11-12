@@ -9,11 +9,7 @@ import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
-internal data class ExchangeArtifactReference(
-    val token: String,
-    val length: ULong,
-    val digest: String,
-)
+internal data class ExchangeArtifactReference(val token: String, val length: ULong, val digest: String)
 
 /**
  * Resolves opaque exchange tokens onto application-private files under [exchangeRoot].
@@ -21,9 +17,7 @@ internal data class ExchangeArtifactReference(
  * Tokens are not workspace paths. Absolute segments, parent traversal, blanks, and backslashes are
  * rejected before any I/O so SAF content can stream into a bounded private file only.
  */
-internal class ExchangeResolver(
-    exchangeRoot: File,
-) {
+internal class ExchangeResolver(exchangeRoot: File) {
     private val root: File = exchangeRoot.canonicalFile
 
     init {
@@ -52,10 +46,7 @@ internal class ExchangeResolver(
         return ExchangeArtifact(token = token, length = length, digest = digest)
     }
 
-    private fun requireArtifactMatch(
-        condition: Boolean,
-        diagnostic: String,
-    ) {
+    private fun requireArtifactMatch(condition: Boolean, diagnostic: String) {
         if (!condition) {
             throw artifactMismatch(diagnostic)
         }
@@ -113,10 +104,7 @@ internal class ExchangeResolver(
         return content
     }
 
-    fun writeStreaming(
-        token: String,
-        source: InputStream,
-    ): ExchangeArtifact {
+    fun writeStreaming(token: String, source: InputStream): ExchangeArtifact {
         val file = resolveFile(token)
         file.parentFile?.mkdirs()
         val digest = MessageDigest.getInstance("SHA-256")
@@ -166,12 +154,11 @@ internal class ExchangeResolver(
         }
     }
 
-    private fun artifactMismatch(diagnostic: String): ExchangeResolverException =
-        ExchangeResolverException(
-            category = "corruption",
-            code = "exchange_artifact_mismatch",
-            diagnostic = diagnostic,
-        )
+    private fun artifactMismatch(diagnostic: String): ExchangeResolverException = ExchangeResolverException(
+        category = "corruption",
+        code = "exchange_artifact_mismatch",
+        diagnostic = diagnostic,
+    )
 
     private fun isValidExchangeToken(token: String): Boolean {
         if (token.isEmpty() || token.length > MAX_TOKEN_BYTES) return false
@@ -189,11 +176,8 @@ internal class ExchangeResolver(
     }
 }
 
-internal class ExchangeResolverException(
-    val category: String,
-    val code: String,
-    val diagnostic: String,
-) : RuntimeException("$code: $diagnostic")
+internal class ExchangeResolverException(val category: String, val code: String, val diagnostic: String) :
+    RuntimeException("$code: $diagnostic")
 
 internal fun InputStream.sha256Hex(): String {
     val digest = MessageDigest.getInstance("SHA-256")
@@ -206,8 +190,7 @@ internal fun InputStream.sha256Hex(): String {
     return digest.finishSha256Hex()
 }
 
-internal fun ByteArray.sha256Hex(): String =
-    MessageDigest.getInstance("SHA-256").digest(this).toHexLower()
+internal fun ByteArray.sha256Hex(): String = MessageDigest.getInstance("SHA-256").digest(this).toHexLower()
 
 /**
  * Finishes a streaming hash and encodes it.

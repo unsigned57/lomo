@@ -2,8 +2,7 @@ package com.lomo.data.util
 
 import kotlinx.coroutines.CancellationException
 
-internal inline fun <T> runNonFatalCatching(block: () -> T): Result<T> =
-    runCatching(block).onFailure(::throwIfFatal)
+internal inline fun <T> runNonFatalCatching(block: () -> T): Result<T> = runCatching(block).onFailure(::throwIfFatal)
 
 internal fun throwIfFatal(error: Throwable) {
     when (error) {

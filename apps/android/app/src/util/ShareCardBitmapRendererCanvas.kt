@@ -10,14 +10,15 @@ import android.graphics.RectF
 import android.graphics.Shader
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.withClip
-import android.text.Layout
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 internal fun createShareCardLayoutSpec(resources: Resources): ShareCardLayoutSpec {
     val canvasWidth =
-        (resources.displayMetrics.widthPixels.coerceAtLeast(MIN_SHARE_CARD_CANVAS_WIDTH_PX) *
-            SHARE_CARD_CANVAS_WIDTH_RATIO).roundToInt()
+        (
+            resources.displayMetrics.widthPixels.coerceAtLeast(MIN_SHARE_CARD_CANVAS_WIDTH_PX) *
+                SHARE_CARD_CANVAS_WIDTH_RATIO
+            ).roundToInt()
     val outerPadding = dp(resources, OUTER_PADDING_DP)
     val cardPadding = dp(resources, CARD_PADDING_DP)
     val contentWidth =
@@ -119,9 +120,9 @@ internal fun buildShareCardComposition(input: ShareCardCompositionInput): ShareC
         bodyContentHeight = bodyContentHeight,
         footerBlockHeight = footerBlockHeight,
         bitmapHeight =
-            (spec.outerPadding * 2 + cardHeight)
-                .roundToInt()
-                .coerceIn(MIN_RENDER_DIMENSION_PX, MAX_SHARE_BITMAP_HEIGHT_PX),
+        (spec.outerPadding * 2 + cardHeight)
+            .roundToInt()
+            .coerceIn(MIN_RENDER_DIMENSION_PX, MAX_SHARE_BITMAP_HEIGHT_PX),
     )
 }
 
@@ -166,54 +167,60 @@ private fun createRenderLine(
     paintSet: ShareCardPaintSet,
     loadedImages: Map<Int, Bitmap>,
     shouldUseCenteredBody: Boolean,
-): ShareCardRenderLine =
-    when (bodyLine.type) {
-        ShareBodyLineType.Blank -> createBlankRenderLine(bodyLine, spec, paintSet)
-        ShareBodyLineType.Heading ->
-            createTextRenderLine(
-                bodyLine = bodyLine,
-                paint = paintSet.headingPaint,
-                spec = spec,
-                linkColor = paintSet.linkColor,
-            )
-        ShareBodyLineType.Code -> createCodeRenderLine(bodyLine, spec, paintSet)
-        ShareBodyLineType.Table ->
-            createTextRenderLine(
-                bodyLine = bodyLine,
-                paint = paintSet.tablePaint,
-                spec = spec,
-                linkColor = paintSet.linkColor,
-            )
-        ShareBodyLineType.Quote ->
-            createQuoteRenderLine(
-                bodyLine = bodyLine,
-                spec = spec,
-                paintSet = paintSet,
-            )
-        ShareBodyLineType.Bullet ->
-            createTextRenderLine(
-                bodyLine = bodyLine,
-                paint = paintSet.bulletPaint,
-                spec = spec,
-                linkColor = paintSet.linkColor,
-            )
-        ShareBodyLineType.Image ->
-            createImageRenderLine(
-                bodyLine = bodyLine,
-                imagePlaceholder = imagePlaceholder,
-                spec = spec,
-                paintSet = paintSet,
-                loadedImages = loadedImages,
-            )
-        ShareBodyLineType.Paragraph ->
-            createTextRenderLine(
-                bodyLine = bodyLine,
-                paint = paintSet.paragraphPaint,
-                spec = spec,
-                shouldUseCenteredBody = shouldUseCenteredBody,
-                linkColor = paintSet.linkColor,
-            )
-    }
+): ShareCardRenderLine = when (bodyLine.type) {
+    ShareBodyLineType.Blank -> createBlankRenderLine(bodyLine, spec, paintSet)
+
+    ShareBodyLineType.Heading ->
+        createTextRenderLine(
+            bodyLine = bodyLine,
+            paint = paintSet.headingPaint,
+            spec = spec,
+            linkColor = paintSet.linkColor,
+        )
+
+    ShareBodyLineType.Code -> createCodeRenderLine(bodyLine, spec, paintSet)
+
+    ShareBodyLineType.Table ->
+        createTextRenderLine(
+            bodyLine = bodyLine,
+            paint = paintSet.tablePaint,
+            spec = spec,
+            linkColor = paintSet.linkColor,
+        )
+
+    ShareBodyLineType.Quote ->
+        createQuoteRenderLine(
+            bodyLine = bodyLine,
+            spec = spec,
+            paintSet = paintSet,
+        )
+
+    ShareBodyLineType.Bullet ->
+        createTextRenderLine(
+            bodyLine = bodyLine,
+            paint = paintSet.bulletPaint,
+            spec = spec,
+            linkColor = paintSet.linkColor,
+        )
+
+    ShareBodyLineType.Image ->
+        createImageRenderLine(
+            bodyLine = bodyLine,
+            imagePlaceholder = imagePlaceholder,
+            spec = spec,
+            paintSet = paintSet,
+            loadedImages = loadedImages,
+        )
+
+    ShareBodyLineType.Paragraph ->
+        createTextRenderLine(
+            bodyLine = bodyLine,
+            paint = paintSet.paragraphPaint,
+            spec = spec,
+            shouldUseCenteredBody = shouldUseCenteredBody,
+            linkColor = paintSet.linkColor,
+        )
+}
 
 private fun measureFooterBlockHeight(
     footerPaint: android.text.TextPaint,
@@ -232,7 +239,7 @@ private fun measureFooterBlockHeight(
             spec.dividerStrokeWidth +
             spec.footerRowTopSpacing +
             footerTextHeight
-    )
+        )
 }
 
 private fun drawBackgroundAndCard(
@@ -317,18 +324,22 @@ private fun drawBodyLines(
         bodyRenderLines.forEachIndexed { index, line ->
             when (line.type) {
                 ShareBodyLineType.Blank -> cursorY += line.height
+
                 ShareBodyLineType.Code -> {
                     drawCodeLine(this, line, spec, contentLeft, cursorY, codeBackgroundPaint)
                     cursorY += line.height
                 }
+
                 ShareBodyLineType.Image -> {
                     drawImageLine(this, line, spec, contentLeft, cursorY, imagePaint)
                     cursorY += line.height
                 }
+
                 ShareBodyLineType.Quote -> {
                     drawQuoteLine(this, line, spec, contentLeft, cursorY, palette)
                     cursorY += line.height
                 }
+
                 else -> {
                     drawLayout(this, line.layout, contentLeft, cursorY)
                     cursorY += line.height

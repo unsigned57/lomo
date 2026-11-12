@@ -8,16 +8,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class SyncConflictBackupManager(
-    private val context: Context,
-) : SyncConflictBackupRepository {
+class SyncConflictBackupManager(private val context: Context) : SyncConflictBackupRepository {
     private val backupRoot: File
         get() = File(context.filesDir, "sync_conflict_backups")
 
-    override suspend fun backupFiles(
-        files: List<SyncConflictFile>,
-        localFileReader: suspend (String) -> ByteArray?,
-    ) {
+    override suspend fun backupFiles(files: List<SyncConflictFile>, localFileReader: suspend (String) -> ByteArray?) {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val sessionDir = File(backupRoot, timestamp)
         sessionDir.mkdirs()

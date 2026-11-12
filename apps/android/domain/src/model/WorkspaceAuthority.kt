@@ -10,11 +10,7 @@ package com.lomo.domain.model
  * may represent a newly promoted workspace whose first derived projection is still Unavailable;
  * [ProjectionFreshness] decides whether that projection can admit writes.
  */
-data class WorkspaceAuthority(
-    val workspaceId: String,
-    val generation: Long,
-    val projectionRevision: ULong,
-) {
+data class WorkspaceAuthority(val workspaceId: String, val generation: Long, val projectionRevision: ULong) {
     init {
         require(workspaceId.isNotBlank()) { "Workspace authority id must be non-blank" }
         require(generation >= 0) { "Workspace authority generation must be non-negative" }

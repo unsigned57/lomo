@@ -17,11 +17,7 @@ import kotlinx.collections.immutable.toImmutableList
  * contains the item, so the caller must keep the row zero-height/transparent until source
  * absence is observed.
  */
-data class LomoListExitRenderEntry<T>(
-    val item: T,
-    val snapshotMemo: T,
-    val exitPhase: LomoListExitPhase?,
-) {
+data class LomoListExitRenderEntry<T>(val item: T, val snapshotMemo: T, val exitPhase: LomoListExitPhase?) {
     val isExiting: Boolean
         get() = exitPhase != null
 }
@@ -38,9 +34,7 @@ fun <T> resolveExitRenderList(
     allItems: List<T>,
     itemKey: (T) -> String,
     activeExits: Map<String, ExitAnimationRegistry.ExitEntry<T>>,
-): List<LomoListExitRenderEntry<T>> {
-    return resolveExitRenderList(allItems, itemKey, activeExits, { it })
-}
+): List<LomoListExitRenderEntry<T>> = resolveExitRenderList(allItems, itemKey, activeExits, { it })
 
 /**
  * Builds the render list by merging [allItems] with active exits from the registry.
@@ -81,7 +75,7 @@ fun <T, R> resolveExitRenderList(
                         item = mappedItem,
                         snapshotMemo = mappedItem,
                         exitPhase = entry.exitPhase,
-                    )
+                    ),
                 )
                 iterator.remove()
                 progress = true
@@ -94,7 +88,7 @@ fun <T, R> resolveExitRenderList(
                             item = mappedItem,
                             snapshotMemo = mappedItem,
                             exitPhase = entry.exitPhase,
-                        )
+                        ),
                     )
                     iterator.remove()
                     progress = true
@@ -103,17 +97,8 @@ fun <T, R> resolveExitRenderList(
         }
     }
 
-    for (entry in pending) {
-        val mappedItem = mapExitToItem(entry.item)
-        renderList.add(
-            LomoListExitRenderEntry(
-                item = mappedItem,
-                snapshotMemo = mappedItem,
-                exitPhase = entry.exitPhase,
-            )
-        )
-    }
-
+    // A missing predecessor means this exit has no position in the current window.
+    // Moving it to the tail would invent a new position for an already-deleted row.
     return renderList
 }
 
@@ -123,11 +108,7 @@ fun <T, R> resolveExitRenderList(
  * Refresh and middle edits fall back to a full scan. Paging's common append (stable prefix) and
  * prepend (stable suffix) only map the new page.
  */
-fun <T> incrementalSourceKeys(
-    previousKeys: List<String>?,
-    nextItems: List<T>,
-    itemKey: (T) -> String,
-): List<String> {
+fun <T> incrementalSourceKeys(previousKeys: List<String>?, nextItems: List<T>, itemKey: (T) -> String): List<String> {
     if (nextItems.isEmpty()) {
         return emptyList()
     }
@@ -137,39 +118,23 @@ fun <T> incrementalSourceKeys(
     }
     val nextSize = nextItems.size
     val previousSize = previous.size
-    val firstMatches = itemKey(nextItems.first()) == previous.first()
-    if (
-        nextSize == previousSize &&
-        firstMatches &&
-        itemKey(nextItems.last()) == previous.last()
-    ) {
-        val unchanged =
-            nextItems.indices.all { index -> itemKey(nextItems[index]) == previous[index] }
-        if (unchanged) {
-            return previous
+    // Reuse requires equality of the entire retained segment. Matching only its endpoints
+    // misses a deletion/replacement racing an append or prepend and retains a hidden exit.
+    if (nextSize >= previousSize && previous.indices.all { itemKey(nextItems[it]) == previous[it] }) {
+        return if (nextSize == previousSize) {
+            previous
+        } else {
+            previous + nextItems.subList(previousSize, nextSize).map(itemKey)
         }
     }
-    if (
-        nextSize > previousSize &&
-        firstMatches &&
-        itemKey(nextItems[previousSize - 1]) == previous.last()
-    ) {
-        return previous + nextItems.subList(previousSize, nextSize).map(itemKey)
-    }
     val prependCount = nextSize - previousSize
-    if (
-        nextSize > previousSize &&
-        itemKey(nextItems.last()) == previous.last() &&
-        itemKey(nextItems[prependCount]) == previous.first()
-    ) {
+    if (prependCount > 0 && previous.indices.all { itemKey(nextItems[prependCount + it]) == previous[it] }) {
         return nextItems.subList(0, prependCount).map(itemKey) + previous
     }
     return nextItems.map(itemKey)
 }
 
-internal class IncrementalSourceKeyTracker<T>(
-    private val itemKey: (T) -> String,
-) {
+internal class IncrementalSourceKeyTracker<T>(private val itemKey: (T) -> String) {
     private var previousKeys: List<String>? = null
 
     fun keysFor(nextItems: List<T>): Set<String> {
@@ -193,9 +158,7 @@ fun <T> rememberLomoListExitState(
     registry: ExitAnimationRegistry<T>,
     allItems: List<T>,
     itemKey: (T) -> String,
-): LomoListExitState<T> {
-    return rememberLomoListExitState(registry, allItems, itemKey, { it })
-}
+): LomoListExitState<T> = rememberLomoListExitState(registry, allItems, itemKey, { it })
 
 @Composable
 fun <T, R> rememberLomoListExitState(
@@ -227,6 +190,17 @@ fun <T, R> rememberLomoListExitState(
             }
         }
 
+    LaunchedEffect(renderList, activeExits) {
+        if (!overlayIdle) {
+            val renderedKeys = renderList.mapTo(mutableSetOf()) { itemKey(it.item) }
+            activeExits.forEach { (id, entry) ->
+                if (id !in renderedKeys && !entry.animationSettled) {
+                    registry.markExitAnimationSettled(id)
+                }
+            }
+        }
+    }
+
     return remember(renderList, overlayIdle) {
         LomoListExitState(
             renderList = renderList,
@@ -238,41 +212,31 @@ fun <T, R> rememberLomoListExitState(
     }
 }
 
-
-
 private const val DUPLICATE_RENDER_KEY_MARKER = "\u0000dup-"
 
-fun uniqueMemoListRenderKeys(baseKeys: List<String>): List<String> =
-    HashSet<String>(baseKeys.size).let { seen ->
-        baseKeys.mapIndexed { index, base ->
-            if (seen.add(base)) {
-                base
-            } else {
-                var candidate = "$base$DUPLICATE_RENDER_KEY_MARKER$index"
-                while (!seen.add(candidate)) {
-                    candidate += DUPLICATE_RENDER_KEY_MARKER
-                }
-                candidate
+fun uniqueMemoListRenderKeys(baseKeys: List<String>): List<String> = HashSet<String>(baseKeys.size).let { seen ->
+    baseKeys.mapIndexed { index, base ->
+        if (seen.add(base)) {
+            base
+        } else {
+            var candidate = "$base$DUPLICATE_RENDER_KEY_MARKER$index"
+            while (!seen.add(candidate)) {
+                candidate += DUPLICATE_RENDER_KEY_MARKER
             }
+            candidate
         }
     }
+}
 
 /**
  * Unique LazyColumn keys for the materialized window only. Unloaded ranks use a formula keyed by
  * absolute index, so placeholder-backed `itemCount` never allocates an O(library) key list.
  */
-data class ExitRenderKeyWindow(
-    val startIndex: Int,
-    val keys: ImmutableList<String>,
-) {
-    fun keyAt(index: Int): String =
-        keys.getOrNull(index - startIndex) ?: "placeholder-$index"
+data class ExitRenderKeyWindow(val startIndex: Int, val keys: ImmutableList<String>) {
+    fun keyAt(index: Int): String = keys.getOrNull(index - startIndex) ?: "placeholder-$index"
 }
 
-fun computeItemKeyWindow(
-    snapshotStartIndex: Int,
-    keys: List<String>,
-): ExitRenderKeyWindow {
+fun computeItemKeyWindow(snapshotStartIndex: Int, keys: List<String>): ExitRenderKeyWindow {
     require(snapshotStartIndex >= 0) { "snapshotStartIndex must be non-negative" }
     return ExitRenderKeyWindow(
         startIndex = snapshotStartIndex,
@@ -284,11 +248,10 @@ fun <T> computeExitRenderKeyWindow(
     snapshotStartIndex: Int,
     renderList: ImmutableList<LomoListExitRenderEntry<T>>,
     itemKey: (T) -> String,
-): ExitRenderKeyWindow =
-    computeItemKeyWindow(
-        snapshotStartIndex = snapshotStartIndex,
-        keys = List(renderList.size) { offset -> itemKey(renderList[offset].snapshotMemo) },
-    )
+): ExitRenderKeyWindow = computeItemKeyWindow(
+    snapshotStartIndex = snapshotStartIndex,
+    keys = List(renderList.size) { offset -> itemKey(renderList[offset].snapshotMemo) },
+)
 
 @Composable
 fun <T> rememberUniqueExitRenderListKeys(
@@ -296,11 +259,10 @@ fun <T> rememberUniqueExitRenderListKeys(
     renderList: ImmutableList<LomoListExitRenderEntry<T>>,
     itemKey: (T) -> String,
     itemSnapshotList: Any?,
-): ExitRenderKeyWindow =
-    remember(snapshotStartIndex, renderList, itemSnapshotList) {
-        computeExitRenderKeyWindow(
-            snapshotStartIndex = snapshotStartIndex,
-            renderList = renderList,
-            itemKey = itemKey,
-        )
-    }
+): ExitRenderKeyWindow = remember(snapshotStartIndex, renderList, itemSnapshotList) {
+    computeExitRenderKeyWindow(
+        snapshotStartIndex = snapshotStartIndex,
+        renderList = renderList,
+        itemKey = itemKey,
+    )
+}

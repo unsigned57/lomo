@@ -9,24 +9,27 @@ import com.lomo.data.engine.lan.LanLocalIdentity
 import com.lomo.data.engine.lan.LanNetworkFacts
 import com.lomo.data.engine.lan.LanPairingChallenge
 import com.lomo.data.engine.lan.LanPeerPage
+import com.lomo.data.engine.lan.LanProtocolLimits
 import com.lomo.data.engine.lan.LanSendItemPlan
+import com.lomo.data.engine.lan.LanServicePhase
 import com.lomo.data.engine.lan.LanServiceState
 import com.lomo.data.engine.lan.LanSessionChallenge
 import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
-import com.lomo.data.engine.lan.LanProtocolLimits
+import com.lomo.data.engine.store.toStoreLong
+import com.lomo.data.reminder.REMINDER_DUE_AT_FORMATTER
+import com.lomo.data.reminder.toDomainRecurrence
 import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
-import com.lomo.data.reminder.REMINDER_DUE_AT_FORMATTER
-import com.lomo.data.reminder.toDomainRecurrence
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.ReminderReference
-import com.lomo.domain.model.MemoDocumentMutation
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.repository.MarkdownReminderRepository
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 
 /** Routes capability calls through the lifecycle owner's read leases. */
@@ -34,66 +37,58 @@ internal abstract class ManagedEngineCapabilities :
     WorkspaceNativeAdapter,
     MarkdownWorkspaceRepository,
     MarkdownReminderRepository {
+    protected abstract val engineDispatcher: CoroutineDispatcher
+
     protected abstract fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T
 
     protected abstract fun <T> withActiveEngineAdapter(block: (RustEngineAdapter) -> T): T
 
-    protected abstract fun rebuildActiveStore(
-        batchSize: UInt,
-    ): com.lomo.nativebridge.StoreRebuildResult
+    /**
+     * Capabilities whose answer is defined without a native owner. The installed adapter is
+     * captured in one step under the routing lock — no presence probe followed by a second
+     * call that retirement can race — and [unhosted] is the domain answer when none exists
+     * (cold start, recovery that never installed bootstrap, the reopen retirement window).
+     */
+    protected abstract fun <T> withInstalledEngineAdapter(unhosted: () -> T, block: (RustEngineAdapter) -> T): T
+
+    protected abstract fun rebuildActiveStore(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult
 
     override fun renderMarkdown(content: String) =
         renderMarkdown(content = content, schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION)
 
-    override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter
-                .requireMemoSnapshot(memoIdentity)
-                .summary
-                .reminders
-                .map(com.lomo.nativebridge.WorkspaceReminderReference::toSnapshot)
-                .map(WorkspaceReminderReferenceSnapshot::toDomainMarker)
-        }
+    override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> = withActiveWorkspaceAdapter { adapter ->
+        adapter
+            .requireMemoSnapshot(memoIdentity)
+            .summary
+            .reminders
+            .map(com.lomo.nativebridge.WorkspaceReminderReference::toSnapshot)
+            .map(WorkspaceReminderReferenceSnapshot::toDomainMarker)
+    }
 
-    // behavior-contract: in-situ-read-ok: id-only command; engine snapshot is the mutation baseline
-    override suspend fun rewriteReminder(
-        reference: ReminderReference,
+    override suspend fun planReminderRewrite(
+        memoId: String,
+        reminderId: String,
+        expectedToken: String,
         replacement: String,
-    ): MemoDocumentMutation =
-        withActiveWorkspaceAdapter { adapter ->
-            val before = adapter.requireMemoSnapshot(reference.memoIdentity)
-            val reminder =
-                before.summary.reminders
-                    .map(com.lomo.nativebridge.WorkspaceReminderReference::toSnapshot)
-                    .singleOrNull { candidate -> candidate.matches(reference) }
-                    ?: throw engineCommandFailure(
-                        category = EngineFailureCategory.CONFLICT,
-                        code = "stale_snapshot",
-                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-                        diagnostic = "Reminder reference is not present in the current memo revision",
-                    )
-            val jobId =
-                adapter.startWorkspaceDocumentCommand(
-                    path = before.summary.sourcePath,
-                    expectedState = WorkspaceNativeExpectedState.Match(before.summary.fileFingerprint),
-                    command = WorkspaceNativeCommandSpec.RewriteReminder(reminder, replacement),
-                )
-            adapter.driveToCompletion(jobId)
-            val result = adapter.readWorkspaceDocumentCommandResult(jobId)
-            result.toMemoDocumentMutation(
-                before = before,
-                identity = reference.memoIdentity,
-                operationId = jobId,
-            )
-        }
+    ): com.lomo.domain.model.ReminderRewritePlan = withActiveWorkspaceAdapter { adapter ->
+        val plan = adapter.sessionPlanReminderRewrite(
+            com.lomo.nativebridge.SessionReminderRewriteRequest(memoId, reminderId, expectedToken, replacement),
+        )
+        com.lomo.domain.model.ReminderRewritePlan(
+            memoId = plan.memoId,
+            expectedRevision = plan.expectedRevision.toStoreLong("reminder rewrite revision"),
+            expectedFingerprint = plan.expectedFingerprint,
+            content = plan.content,
+        )
+    }
 
-    // behavior-contract: in-situ-read-ok: id-only command; engine snapshot is the mutation baseline
+    // The owner commits source and projection together before this read returns the body.
     override suspend fun toggleTask(
+        operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,
         actionSpan: MarkdownSourceSpan,
-    ): MemoDocumentMutation =
+    ): String = withContext(engineDispatcher) {
         withActiveWorkspaceAdapter { adapter ->
-            val before = adapter.requireMemoSnapshot(memoIdentity)
             val relativeStart = actionSpan.startByte
             val relativeEnd = actionSpan.endByte
             if (relativeStart >= relativeEnd) {
@@ -104,43 +99,32 @@ internal abstract class ManagedEngineCapabilities :
                     diagnostic = "Task action span is outside the rendered memo body",
                 )
             }
-            val jobId =
-                adapter.startWorkspaceDocumentCommand(
-                    path = before.summary.sourcePath,
-                    expectedState = WorkspaceNativeExpectedState.Match(before.summary.fileFingerprint),
-                    command =
-                        WorkspaceNativeCommandSpec.ToggleTask(
-                            identity = memoIdentity,
-                            bodyStart = relativeStart,
-                            bodyEnd = relativeEnd,
-                        ),
-                )
-            adapter.driveToCompletion(jobId)
-            val result = adapter.readWorkspaceDocumentCommandResult(jobId)
-            result.toMemoDocumentMutation(
-                before = before,
-                identity = memoIdentity,
-                operationId = jobId,
-            )
+            adapter.sessionToggleTaskMarker(operationId.value, memoIdentity, relativeStart, relativeEnd)
+            adapter.requireMemoSnapshot(memoIdentity).body
         }
+    }
 
     override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) =
         withActiveEngineAdapter { adapter -> adapter.updateLanNetworkSnapshot(snapshot) }
 
-    override fun lanTransferShape(): LanTransferShape =
-        withActiveEngineAdapter(RustEngineAdapter::lanTransferShape)
+    override fun lanTransferShape(): LanTransferShape = withActiveEngineAdapter(RustEngineAdapter::lanTransferShape)
 
-    override fun lanProtocolLimits(): LanProtocolLimits =
-        withActiveEngineAdapter(RustEngineAdapter::lanProtocolLimits)
+    override fun lanProtocolLimits(): LanProtocolLimits = withActiveEngineAdapter(RustEngineAdapter::lanProtocolLimits)
 
     override fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts) =
         withActiveEngineAdapter { adapter -> adapter.updateLanDiscoverySnapshot(snapshot) }
 
-    override fun startLanService(): LanServiceState =
-        withActiveEngineAdapter(RustEngineAdapter::startLanService)
+    override fun startLanService(): LanServiceState = withActiveEngineAdapter(RustEngineAdapter::startLanService)
 
-    override fun stopLanService(): LanServiceState =
-        withActiveEngineAdapter(RustEngineAdapter::stopLanService)
+    /**
+     * Idempotent teardown. The listener lives inside its native adapter and dies with it, so
+     * with no adapter installed the postcondition already holds: Stopped. LAN failure handlers
+     * call this from process-scope catch blocks; demanding an adapter here was process-fatal.
+     */
+    override fun stopLanService(): LanServiceState = withInstalledEngineAdapter(
+        unhosted = { LanServiceState(LanServicePhase.Stopped, listenAddress = null) },
+        block = RustEngineAdapter::stopLanService,
+    )
 
     override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
         withActiveEngineAdapter { adapter -> adapter.awaitLanInbox(lastGeneration, timeoutMs) }
@@ -184,11 +168,7 @@ internal abstract class ManagedEngineCapabilities :
     override fun sendLanBatchChunks(chunks: List<LanChunkSend>) =
         withActiveEngineAdapter { adapter -> adapter.sendLanBatchChunks(chunks) }
 
-    override fun lanUnconfirmedBatchChunks(
-        batchId: String,
-        itemIndex: UInt,
-        attachmentSlot: UInt,
-    ): List<UInt> =
+    override fun lanUnconfirmedBatchChunks(batchId: String, itemIndex: UInt, attachmentSlot: UInt): List<UInt> =
         withActiveEngineAdapter { adapter ->
             adapter.lanUnconfirmedBatchChunks(batchId, itemIndex, attachmentSlot)
         }
@@ -200,19 +180,24 @@ internal abstract class ManagedEngineCapabilities :
     ): com.lomo.nativebridge.StoreMemoCommit =
         withActiveEngineAdapter { adapter -> adapter.commitReceivedLanItem(batchId, itemIndex, nowMs) }
 
-    override fun failReceivedLanItem(
-        batchId: String,
-        itemIndex: UInt,
-        code: String,
-    ) = withActiveEngineAdapter { adapter -> adapter.failReceivedLanItem(batchId, itemIndex, code) }
+    override fun failReceivedLanItem(batchId: String, itemIndex: UInt, code: String) =
+        withActiveEngineAdapter { adapter -> adapter.failReceivedLanItem(batchId, itemIndex, code) }
 
-    override fun listLanPeers(): LanPeerPage = withActiveEngineAdapter(RustEngineAdapter::listLanPeers)
+    /**
+     * Passive projection of engine-durable trust. Before any adapter exists, or while one is
+     * being retired, no peer can be authenticated, so the honest page is empty; the next
+     * post-attach inbox generation repopulates it. Pairing/session commands stay fail-closed.
+     */
+    override fun listLanPeers(): LanPeerPage = withInstalledEngineAdapter(
+        unhosted = { LanPeerPage(peers = emptyList(), total = 0u) },
+        block = RustEngineAdapter::listLanPeers,
+    )
 
     override fun revokeLanPeer(deviceId: String, revokedAtMs: Long): LanPeerPage =
         withActiveEngineAdapter { adapter -> adapter.revokeLanPeer(deviceId, revokedAtMs) }
 
     override fun renderMarkdown(content: String, schemaVersion: UInt) =
-        withActiveWorkspaceAdapter { adapter -> adapter.renderMarkdown(content, schemaVersion) }
+        withActiveEngineAdapter { adapter -> adapter.renderMarkdown(content, schemaVersion) }
 
     override fun driveJob(jobId: String): NativeJobStep =
         withActiveWorkspaceAdapter { adapter -> adapter.driveJob(jobId) }
@@ -222,10 +207,9 @@ internal abstract class ManagedEngineCapabilities :
         expectedState: WorkspaceNativeExpectedState,
         command: WorkspaceNativeCommandSpec,
         deadlineMillis: ULong,
-    ): String =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.startWorkspaceDocumentCommand(path, expectedState, command, deadlineMillis)
-        }
+    ): String = withActiveWorkspaceAdapter { adapter ->
+        adapter.startWorkspaceDocumentCommand(path, expectedState, command, deadlineMillis)
+    }
 
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceDocumentCommandResult(jobId) }
@@ -236,10 +220,9 @@ internal abstract class ManagedEngineCapabilities :
         pageSize: UInt,
         startMemoId: String?,
         backward: Boolean,
-    ): com.lomo.nativebridge.StoreMemoPage =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.queryMemos(query, cursor, pageSize, startMemoId, backward)
-        }
+    ): com.lomo.nativebridge.StoreMemoPage = withActiveWorkspaceAdapter { adapter ->
+        adapter.queryMemos(query, cursor, pageSize, startMemoId, backward)
+    }
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withActiveWorkspaceAdapter { adapter -> adapter.getMemo(memoId) }
@@ -255,15 +238,15 @@ internal abstract class ManagedEngineCapabilities :
         timeZone: String,
         dateFormat: String,
         mediaStageRoot: String,
-    ): com.lomo.nativebridge.SessionOpenResult =
-        withActiveEngineAdapter { adapter ->
-            adapter.openWorkspaceSession(host, timeZone, dateFormat, mediaStageRoot)
-        }
+    ): com.lomo.nativebridge.SessionOpenResult = withActiveEngineAdapter { adapter ->
+        adapter.openWorkspaceSession(host, timeZone, dateFormat, mediaStageRoot)
+    }
 
     override fun sessionCreateMemo(
         request: com.lomo.nativebridge.SessionCreateMemoRequest,
+        observer: com.lomo.nativebridge.MemoCreateObserver,
     ): com.lomo.nativebridge.StoreMemoCommit =
-        withActiveWorkspaceAdapter { adapter -> adapter.sessionCreateMemo(request) }
+        withActiveWorkspaceAdapter { adapter -> adapter.sessionCreateMemo(request, observer) }
 
     override fun sessionUpdateMemo(
         request: com.lomo.nativebridge.SessionUpdateMemoRequest,
@@ -277,8 +260,7 @@ internal abstract class ManagedEngineCapabilities :
 
     override fun sessionPinMemo(
         request: com.lomo.nativebridge.SessionPinMemoRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withActiveWorkspaceAdapter { adapter -> adapter.sessionPinMemo(request) }
+    ): com.lomo.nativebridge.StoreMemoCommit = withActiveWorkspaceAdapter { adapter -> adapter.sessionPinMemo(request) }
 
     override fun sessionSearch(
         request: com.lomo.nativebridge.SessionSearchRequest,
@@ -325,31 +307,36 @@ internal abstract class ManagedEngineCapabilities :
     ): com.lomo.nativebridge.StoreMemoBatchCommit =
         withActiveWorkspaceAdapter { adapter -> adapter.sessionPermanentlyDeleteMany(request) }
 
+    override fun sessionPlanReminderRewrite(
+        request: com.lomo.nativebridge.SessionReminderRewriteRequest,
+    ): com.lomo.nativebridge.SessionReminderRewritePlan =
+        withActiveWorkspaceAdapter { adapter -> adapter.sessionPlanReminderRewrite(request) }
+
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =
         withActiveWorkspaceAdapter { adapter -> adapter.sessionReminderPlan(nowUtcMs) }
 
-    override fun sessionSnoozeReminder(
-        opaqueId: String,
-        interval: com.lomo.nativebridge.ReminderSnoozeInterval,
-    ) = withActiveWorkspaceAdapter { adapter -> adapter.sessionSnoozeReminder(opaqueId, interval) }
+    override fun sessionSnoozeReminder(opaqueId: String, interval: com.lomo.nativebridge.ReminderSnoozeInterval) =
+        withActiveWorkspaceAdapter { adapter -> adapter.sessionSnoozeReminder(opaqueId, interval) }
 
     override fun sessionRecoverReminderSnooze() =
         withActiveWorkspaceAdapter { adapter -> adapter.sessionRecoverReminderSnooze() }
+
+    override fun syncPrivateStateRoot(workspaceRoot: String): String =
+        withActiveWorkspaceAdapter { adapter -> adapter.syncPrivateStateRoot(workspaceRoot) }
 
     override fun syncRunCycle(
         workspaceRoot: String,
         config: com.lomo.nativebridge.SyncBackendConfigDto,
         secretLeaseId: String,
         applyRemote: Boolean,
-    ): com.lomo.nativebridge.SyncCyclePlanSummaryDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.syncRunCycle(
-                workspaceRoot,
-                config,
-                secretLeaseId,
-                applyRemote,
-            )
-        }
+    ): com.lomo.nativebridge.SyncCyclePlanSummaryDto = withActiveWorkspaceAdapter { adapter ->
+        adapter.syncRunCycle(
+            workspaceRoot,
+            config,
+            secretLeaseId,
+            applyRemote,
+        )
+    }
 
     override fun commitWorkspaceDocumentFacts(
         command: com.lomo.nativebridge.StoreMemoCommand,
@@ -357,37 +344,32 @@ internal abstract class ManagedEngineCapabilities :
     ): com.lomo.nativebridge.StoreMemoCommit =
         withActiveWorkspaceAdapter { adapter -> adapter.commitWorkspaceDocumentFacts(command, projection) }
 
-    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
-        rebuildActiveStore(batchSize)
+    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult = rebuildActiveStore(batchSize)
 
     override fun stageMedia(
         mediaRoot: String,
         sourceKind: com.lomo.nativebridge.MediaSourceKind,
         sourcePath: String,
         humanNameHint: String,
-    ): com.lomo.nativebridge.MediaStagedDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint)
-        }
+    ): com.lomo.nativebridge.MediaStagedDto = withActiveWorkspaceAdapter { adapter ->
+        adapter.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint)
+    }
 
     override fun recordStageLease(
-        workspaceRoot: String?,
         staged: com.lomo.nativebridge.MediaStagedDto,
         ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
         ownerId: String,
-    ): com.lomo.nativebridge.MediaStageRecordDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.recordStageLease(workspaceRoot, staged, ownerKind, ownerId)
-        }
+    ): com.lomo.nativebridge.MediaStageRecordDto = withActiveWorkspaceAdapter { adapter ->
+        adapter.recordStageLease(staged, ownerKind, ownerId)
+    }
 
     override fun stageRecordsForOwner(
         mediaRoot: String,
         ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
         ownerId: String,
-    ): List<com.lomo.nativebridge.MediaStageRecordDto> =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.stageRecordsForOwner(mediaRoot, ownerKind, ownerId)
-        }
+    ): List<com.lomo.nativebridge.MediaStageRecordDto> = withActiveWorkspaceAdapter { adapter ->
+        adapter.stageRecordsForOwner(mediaRoot, ownerKind, ownerId)
+    }
 
     override fun transferStageLease(
         mediaRoot: String,
@@ -409,55 +391,53 @@ internal abstract class ManagedEngineCapabilities :
         mediaRoot: String,
         recordingPath: String,
         humanNameHint: String,
-    ): com.lomo.nativebridge.MediaStagedDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.finalizeRecording(mediaRoot, recordingPath, humanNameHint)
-        }
+    ): com.lomo.nativebridge.MediaStagedDto = withActiveWorkspaceAdapter { adapter ->
+        adapter.finalizeRecording(mediaRoot, recordingPath, humanNameHint)
+    }
 
     override fun queryMediaManifest(
         workspaceRoot: String,
         verifiedEntries: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
-    ): com.lomo.nativebridge.MediaManifestDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.queryMediaManifest(workspaceRoot, verifiedEntries)
-        }
+    ): com.lomo.nativebridge.MediaManifestDto = withActiveWorkspaceAdapter { adapter ->
+        adapter.queryMediaManifest(workspaceRoot, verifiedEntries)
+    }
 
     override fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
         externalDrafts: List<com.lomo.nativebridge.SessionDraftGuardDto>,
-    ): com.lomo.nativebridge.SessionMediaSweepReportDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.sessionMediaOrphanSweep(nowMs, recoveryWindowMs, externalDrafts)
-        }
+    ): com.lomo.nativebridge.SessionMediaSweepReportDto = withActiveWorkspaceAdapter { adapter ->
+        adapter.sessionMediaOrphanSweep(nowMs, recoveryWindowMs, externalDrafts)
+    }
 
     override fun sessionExportArchive(
-        workspaceRoot: String,
         fileNameHint: String?,
-    ): com.lomo.nativebridge.ArchiveExportResultDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.sessionExportArchive(workspaceRoot, fileNameHint)
-        }
+        mediaCapabilities: List<String>,
+    ): com.lomo.nativebridge.ArchiveExportResultDto = withActiveWorkspaceAdapter { adapter ->
+        adapter.sessionExportArchive(fileNameHint, mediaCapabilities)
+    }
 
     override fun sessionImportArchive(
         workspaceRoot: String,
         archivePath: String,
         stagingRoot: String,
-    ): com.lomo.nativebridge.StoreRebuildResult =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.sessionImportArchive(
-                workspaceRoot,
-                archivePath,
-                stagingRoot,
-            )
-        }
+    ): com.lomo.nativebridge.StoreRebuildResult = withActiveWorkspaceAdapter { adapter ->
+        adapter.sessionImportArchive(
+            workspaceRoot,
+            archivePath,
+            stagingRoot,
+        )
+    }
 }
 
 internal fun WorkspaceNativeAdapter.driveToCompletion(jobId: String) {
     val failure = when (val terminal = driveJob(jobId)) {
         NativeJobStep.Completed -> null
+
         is NativeJobStep.Failed -> terminal.failure.toWorkspaceCommandException()
+
         is NativeJobStep.BlockedByConflict -> terminal.failure.toWorkspaceCommandException()
+
         else -> engineCommandFailure(
             category = EngineFailureCategory.INTERNAL,
             code = "workspace_job_not_terminal",
@@ -472,9 +452,7 @@ internal fun WorkspaceNativeAdapter.driveToCompletion(jobId: String) {
 private fun EngineFailureSnapshot.toWorkspaceCommandException(): EngineCommandFailureException =
     EngineCommandFailureException(toEngineCommandFailure())
 
-private fun WorkspaceNativeAdapter.requireMemoSnapshot(
-    identity: String,
-): com.lomo.nativebridge.StoreMemoSnapshot {
+private fun WorkspaceNativeAdapter.requireMemoSnapshot(identity: String): com.lomo.nativebridge.StoreMemoSnapshot {
     require(identity.isNotBlank()) { "Memo identity must be non-blank" }
     return getMemo(identity)
         ?: throw engineCommandFailure(
@@ -485,78 +463,35 @@ private fun WorkspaceNativeAdapter.requireMemoSnapshot(
         )
 }
 
-private fun WorkspaceNativeCommandResultSnapshot.toMemoDocumentMutation(
-    before: com.lomo.nativebridge.StoreMemoSnapshot,
-    identity: String,
-    operationId: String,
-): MemoDocumentMutation {
-    val affected = requireAffectedMemo(path = before.summary.sourcePath, identity = identity)
-    val content = affected.content
-        ?: throw engineCommandFailure(
-            category = EngineFailureCategory.CORRUPTION,
-            code = "document_result_content_missing",
-            retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-            diagnostic = "Rust document command completed without the affected memo body",
-            jobId = operationId,
+private fun WorkspaceReminderReferenceSnapshot.toDomainMarker(): ReminderMarker = ReminderMarker(
+    dueAtLocal = dueAtLocal,
+    dueAt =
+    try {
+        LocalDateTime.parse(dueAtLocal, REMINDER_DUE_AT_FORMATTER)
+    } catch (error: java.time.format.DateTimeParseException) {
+        throw WorkspaceRenderBoundaryException(
+            code = "invalid_reminder_due_at",
+            message = "Rust reminder due-at fact is invalid: ${error.message}",
+            cause = error,
         )
-    return MemoDocumentMutation(
-        operationId = operationId,
-        expectedRevision = before.summary.contentRevision.toLong(),
-        expectedFingerprint = before.summary.fileFingerprint,
-        facts =
-            com.lomo.domain.model.MemoDocumentFacts(
-                memoId = affected.identity,
-                sourcePath = affected.path,
-                fileFingerprint = affected.fingerprint,
-                chronologyEpochMs = before.summary.createdAtMs,
-                content = content,
-                tags = affected.tags,
-                attachmentPaths = affected.attachments,
-                reminders = affected.reminders.map(WorkspaceReminderReferenceSnapshot::toDomainMarker),
-                hasTodo = affected.hasTodo,
-                hasUrl = affected.hasUrl,
-            ),
-    )
-}
-
-private fun WorkspaceReminderReferenceSnapshot.matches(reference: ReminderReference): Boolean =
-    opaqueId == reference.opaqueId &&
-        revision == reference.revision &&
-        memoIdentity == reference.memoIdentity &&
-        sourceStart == reference.sourceSpan.startByte &&
-        sourceEnd == reference.sourceSpan.endByte &&
-        tokenFingerprint == reference.tokenFingerprint
-
-private fun WorkspaceReminderReferenceSnapshot.toDomainMarker(): ReminderMarker =
-    ReminderMarker(
-        dueAtLocal = dueAtLocal,
-        dueAt =
-            try {
-                LocalDateTime.parse(dueAtLocal, REMINDER_DUE_AT_FORMATTER)
-            } catch (error: java.time.format.DateTimeParseException) {
-                throw WorkspaceRenderBoundaryException(
-                    code = "invalid_reminder_due_at",
-                    message = "Rust reminder due-at fact is invalid: ${error.message}",
-                    cause = error,
-                )
-            },
-        repeatCount = repeatCount.toIntExact("repeat_count"),
-        firedCount = firedCount.toIntExact("fired_count"),
-        done = done,
-        intervalMinutes = intervalMinutes.toIntExact("interval_minutes"),
-        recurrence = recurrence.toDomainRecurrence(),
-        reference =
-            ReminderReference(
-                opaqueId = opaqueId,
-                revision = revision,
-                memoIdentity = memoIdentity,
-                sourceSpan = MarkdownSourceSpan(startByte = sourceStart, endByte = sourceEnd),
-                tokenFingerprint = tokenFingerprint,
-                fingerprintOrdinal = fingerprintOrdinal,
-                embeddedId = embeddedId,
-            ),
-        token = token,
-    )
+    },
+    repeatCount = repeatCount.toIntExact("repeat_count"),
+    firedCount = firedCount.toIntExact("fired_count"),
+    done = done,
+    intervalMinutes = intervalMinutes.toIntExact("interval_minutes"),
+    recurrence = recurrence.toDomainRecurrence(),
+    reference =
+    ReminderReference(
+        opaqueId = opaqueId,
+        revision = revision,
+        memoIdentity = memoIdentity,
+        sourceSpan = MarkdownSourceSpan(startByte = sourceStart, endByte = sourceEnd),
+        tokenFingerprint = tokenFingerprint,
+        fingerprintOrdinal = fingerprintOrdinal,
+        embeddedId = embeddedId,
+    ),
+    token = token,
+)
 
 private fun UInt.toIntExact(field: String): Int {
     if (this > Int.MAX_VALUE.toUInt()) {

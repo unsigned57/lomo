@@ -1,4 +1,4 @@
-//! Bounded projection walks used by search, tasks, review, reminders and
+//! Bounded projection walks used by search, tasks, review and
 //! statistics, plus the revision-keyed projection those walks feed.
 //!
 //! Every cached entry is a pure function of `(query fingerprint,
@@ -18,7 +18,7 @@ use lomo_store::{MemoQuery, MemoSummary, PageCursor, ReminderSessionInput};
 use crate::{
     error::{cancelled, storage, validation},
     session::WorkspaceSession,
-    tasks::TaskItem,
+    tasks::{TaskItem, TaskMemoProjection},
 };
 
 /// Cancellation source for collectors that carry no supersede epoch of their
@@ -45,6 +45,8 @@ pub struct ProjectionQueryStats {
     pub summary_walk_micros: u64,
     /// Task-list hydrate+parse builds performed.
     pub task_builds: u64,
+    /// Memo bodies hydrated while deriving task rows.
+    pub task_memos_hydrated: usize,
     /// Task lists served at an unchanged revision.
     pub task_hits: u64,
     /// Microseconds spent building task views.
@@ -71,7 +73,7 @@ pub struct SummaryWalk {
 /// never be cached — the walk fails closed before install.
 pub struct QueryProjection {
     summaries: lru::LruCache<(String, u64), Arc<[MemoSummary]>>,
-    tasks: Option<(u64, Arc<[TaskItem]>)>,
+    tasks: Option<(u64, Vec<Arc<TaskMemoProjection>>)>,
     reminder_sessions: Option<(u64, Arc<[ReminderSessionInput]>)>,
     pub stats: ProjectionQueryStats,
 }
@@ -98,19 +100,37 @@ impl QueryProjection {
         let _evicted = self.summaries.put(key, items);
     }
 
-    pub fn tasks_at(&mut self, revision: u64) -> Option<Arc<[TaskItem]>> {
-        let (cached_revision, items) = self.tasks.as_ref()?;
+    pub fn tasks_at(&mut self, revision: u64) -> Option<Vec<TaskItem>> {
+        let (cached_revision, memos) = self.tasks.as_ref()?;
         if *cached_revision != revision {
             return None;
         }
         self.stats.task_hits += 1;
-        Some(Arc::clone(items))
+        Some(
+            memos
+                .iter()
+                .flat_map(|memo| memo.items.iter().cloned())
+                .collect(),
+        )
     }
 
-    pub fn record_tasks(&mut self, revision: u64, items: Arc<[TaskItem]>, micros: u64) {
+    pub fn previous_task_memos(&self) -> impl Iterator<Item = Arc<TaskMemoProjection>> + '_ {
+        self.tasks
+            .iter()
+            .flat_map(|(_, memos)| memos.iter().cloned())
+    }
+
+    pub fn record_tasks(
+        &mut self,
+        revision: u64,
+        memos: Vec<Arc<TaskMemoProjection>>,
+        micros: u64,
+        hydrated: usize,
+    ) {
         self.stats.task_builds += 1;
+        self.stats.task_memos_hydrated += hydrated;
         self.stats.task_build_micros += micros;
-        self.tasks = Some((revision, items));
+        self.tasks = Some((revision, memos));
     }
 
     pub fn reminder_sessions_at(&mut self, revision: u64) -> Option<Arc<[ReminderSessionInput]>> {
@@ -225,12 +245,4 @@ pub fn verify_summary_version(
         ));
     }
     Ok(())
-}
-
-pub fn default_query() -> MemoQuery {
-    MemoQuery {
-        search_text: None,
-        filters: lomo_store::MemoFilters::default(),
-        sort: lomo_store::MemoSort::default(),
-    }
 }

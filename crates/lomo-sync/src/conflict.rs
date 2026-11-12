@@ -329,7 +329,7 @@ pub fn write_conflict_artifact(
             "conflict artifact side must be local|remote|baseline|merged",
         ));
     }
-    let digest = format!("{:x}", Sha256::digest(bytes));
+    let digest = lomo_core::hex_encode(&Sha256::digest(bytes));
     let safe_name = path.replace(['/', '\\'], "_");
     let relative = format!("{session_id}/{side}/{safe_name}-{digest}");
     let full = paths.conflict_artifacts.join(&relative);
@@ -631,7 +631,7 @@ fn apply_one_resolution(
                 ));
             }
             validate_merged_markdown_body(body)?;
-            let merged_digest = format!("{:x}", Sha256::digest(body.as_bytes()));
+            let merged_digest = lomo_core::hex_encode(&Sha256::digest(body.as_bytes()));
             let artifact = write_conflict_artifact(
                 paths,
                 &session.session_id,
@@ -713,7 +713,7 @@ pub fn encode_conflict_session(session: &ConflictSession) -> Result<Vec<u8>, Lom
 /// Resolves conflict artifact directory for a workspace (test/inspect).
 #[must_use]
 pub fn conflict_artifacts_dir(workspace_root: &Path) -> std::path::PathBuf {
-    SyncPaths::for_workspace(workspace_root).conflict_artifacts
+    SyncPaths::for_control_root(workspace_root).conflict_artifacts
 }
 
 /// Candidate body bytes for materializing durable conflict artifacts (local/remote/baseline).
@@ -863,7 +863,7 @@ fn load_workspace_conflict_candidate(
     let absolute = workspace_root.join(path.as_str());
     match lomo_core::read_bounded(&absolute, MAX_CONFLICT_ARTIFACT_BYTES as u64) {
         Ok(bytes) => {
-            let actual = format!("{:x}", Sha256::digest(&bytes));
+            let actual = lomo_core::hex_encode(&Sha256::digest(&bytes));
             if actual != expected.as_str() {
                 return Err(validation(
                     "conflict_candidate_body_digest_mismatch",
@@ -1100,7 +1100,7 @@ fn assert_body_matches_digest(
     expected: &ContentDigest,
     side: &str,
 ) -> Result<(), LomoError> {
-    let actual = format!("{:x}", Sha256::digest(bytes));
+    let actual = lomo_core::hex_encode(&Sha256::digest(bytes));
     if actual != expected.as_str() {
         return Err(validation(
             "conflict_candidate_body_digest_mismatch",
@@ -1383,7 +1383,7 @@ pub fn collect_resolved_present_bodies(
                     )
                 })?;
                 let bytes = read_conflict_artifact(paths, artifact_ref)?;
-                let actual = format!("{:x}", Sha256::digest(&bytes));
+                let actual = lomo_core::hex_encode(&Sha256::digest(&bytes));
                 if actual != digest_hex {
                     return Err(validation(
                         "conflict_apply_body_digest_mismatch",
@@ -1623,7 +1623,7 @@ pub fn collect_resolved_local_pull_mutations(
                     )
                 })?;
                 let bytes = read_conflict_artifact(paths, artifact_ref)?;
-                let actual = format!("{:x}", Sha256::digest(&bytes));
+                let actual = lomo_core::hex_encode(&Sha256::digest(&bytes));
                 if actual != digest_hex {
                     return Err(validation(
                         "conflict_apply_body_digest_mismatch",
@@ -1654,7 +1654,7 @@ pub fn collect_resolved_local_pull_mutations(
                     )
                 })?;
                 let bytes = read_conflict_artifact(paths, artifact_ref)?;
-                let actual = format!("{:x}", Sha256::digest(&bytes));
+                let actual = lomo_core::hex_encode(&Sha256::digest(&bytes));
                 if actual != digest_hex {
                     return Err(validation(
                         "conflict_apply_body_digest_mismatch",

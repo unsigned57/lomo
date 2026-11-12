@@ -18,10 +18,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,20 +31,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.cd_audio_playback_failed
 import com.lomo.ui.generated.resources.cd_pause_audio
 import com.lomo.ui.generated.resources.cd_play_audio
 import com.lomo.ui.media.AudioPlayerController
 import com.lomo.ui.media.LocalAudioPlayerManager
+import com.lomo.ui.theme.LocalLomoMotion
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import org.jetbrains.compose.resources.stringResource
 
 private const val AUDIO_TIME_MILLIS_PER_SECOND = 1000
 private const val AUDIO_TIME_SECONDS_PER_MINUTE = 60
@@ -53,11 +54,8 @@ private const val AUDIO_PLAYBACK_PROGRESS_TAG = "audio_playback_progress"
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Composable
-fun AudioPlayerCard(
-    relativeFilePath: String,
-    modifier: Modifier = Modifier,
-) {
-    val motionScheme = MaterialTheme.motionScheme
+fun AudioPlayerCard(relativeFilePath: String, modifier: Modifier = Modifier) {
+    val motionScheme = LocalLomoMotion.current.layout
     val playerManager = LocalAudioPlayerManager.current
     val playDescription = stringResource(Res.string.cd_play_audio)
     val pauseDescription = stringResource(Res.string.cd_pause_audio)
@@ -79,9 +77,9 @@ fun AudioPlayerCard(
 
     Surface(
         modifier =
-            modifier
-                .fillMaxWidth()
-                .height(AudioPlayerCardTokens.ContainerHeight),
+        modifier
+            .fillMaxWidth()
+            .height(AudioPlayerCardTokens.ContainerHeight),
         color = AudioPlayerCardTokens.containerColor(MaterialTheme.colorScheme),
         shape = AudioPlayerCardTokens.ContainerShape,
     ) {
@@ -131,6 +129,7 @@ private fun rememberAudioPlaybackState(
                 when {
                     failure?.source == relativeFilePath ->
                         flowOf(AudioPlaybackState(failed = true))
+
                     currentUri == relativeFilePath ->
                         combine(
                             playerManager.isPlaying,
@@ -144,6 +143,7 @@ private fun rememberAudioPlaybackState(
                                 durationMs = duration,
                             )
                         }
+
                     else -> flowOf(AudioPlaybackState())
                 }
             }.distinctUntilChanged()
@@ -160,45 +160,45 @@ private fun PlaybackControlButton(
     failedDescription: String,
     onClick: () -> Unit,
 ) {
-    IconButton(
+    LomoIconButton(
         onClick = onClick,
         modifier = Modifier.size(AudioPlayerCardTokens.ControlButtonSize),
     ) {
         Box(
             modifier =
-                Modifier
-                    .size(AudioPlayerCardTokens.ControlContainerSize)
-                    .background(
-                        if (failed) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondary,
-                        AudioPlayerCardTokens.ControlContainerShape,
-                    ),
+            Modifier
+                .size(AudioPlayerCardTokens.ControlContainerSize)
+                .background(
+                    if (failed) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondary,
+                    AudioPlayerCardTokens.ControlContainerShape,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             com.lomo.ui.component.common.LomoStateContent(
                 state = isPlaying to failed,
                 contentKey = { it },
             ) { (playing, error) ->
-            Icon(
-                imageVector =
+                Icon(
+                    imageVector =
                     when {
                         error -> Icons.Rounded.ErrorOutline
                         playing -> Icons.Rounded.Pause
                         else -> Icons.Rounded.PlayArrow
                     },
-                contentDescription =
+                    contentDescription =
                     when {
                         error -> failedDescription
                         playing -> pauseDescription
                         else -> playDescription
                     },
-                tint =
+                    tint =
                     if (error) {
                         MaterialTheme.colorScheme.onErrorContainer
                     } else {
                         MaterialTheme.colorScheme.onSecondary
                     },
-                modifier = Modifier.size(AudioPlayerCardTokens.ControlIconSize),
-            )
+                    modifier = Modifier.size(AudioPlayerCardTokens.ControlIconSize),
+                )
             }
         }
     }
@@ -206,10 +206,7 @@ private fun PlaybackControlButton(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun RowScope.PlaybackProgressIndicator(
-    progress: Float,
-    active: Boolean,
-) {
+private fun RowScope.PlaybackProgressIndicator(progress: Float, active: Boolean) {
     Column(
         modifier = Modifier.weight(1f),
         verticalArrangement = Arrangement.Center,
@@ -217,34 +214,31 @@ private fun RowScope.PlaybackProgressIndicator(
         LinearWavyProgressIndicator(
             progress = { progress },
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(AudioPlayerCardTokens.ProgressHeight)
-                    .testTag(AUDIO_PLAYBACK_PROGRESS_TAG),
+            Modifier
+                .fillMaxWidth()
+                .height(AudioPlayerCardTokens.ProgressHeight)
+                .testTag(AUDIO_PLAYBACK_PROGRESS_TAG),
             amplitude = { 0.12f + (it * 0.08f) },
             wavelength = AudioPlayerCardTokens.ProgressWavelength,
             waveSpeed = AudioPlayerCardTokens.ProgressWaveSpeed,
             color =
-                if (active) {
-                    MaterialTheme.colorScheme.secondary
-                } else {
-                    MaterialTheme.colorScheme.outlineVariant
-                },
+            if (active) {
+                MaterialTheme.colorScheme.secondary
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            },
             trackColor =
-                if (active) {
-                    AudioPlayerCardTokens.progressTrackColor(MaterialTheme.colorScheme, active = true)
-                } else {
-                    AudioPlayerCardTokens.progressTrackColor(MaterialTheme.colorScheme, active = false)
-                },
+            if (active) {
+                AudioPlayerCardTokens.progressTrackColor(MaterialTheme.colorScheme, active = true)
+            } else {
+                AudioPlayerCardTokens.progressTrackColor(MaterialTheme.colorScheme, active = false)
+            },
         )
     }
 }
 
 @Composable
-private fun PlaybackTimestamp(
-    positionMs: Long,
-    durationMs: Long,
-) {
+private fun PlaybackTimestamp(positionMs: Long, durationMs: Long) {
     val locale = LocalLocale.current.platformLocale
 
     Text(
@@ -256,10 +250,7 @@ private fun PlaybackTimestamp(
     )
 }
 
-private fun formatAudioTimestamp(
-    positionMs: Long,
-    locale: java.util.Locale,
-): String {
+private fun formatAudioTimestamp(positionMs: Long, locale: java.util.Locale): String {
     val totalSeconds = positionMs / AUDIO_TIME_MILLIS_PER_SECOND
     val minutes = totalSeconds / AUDIO_TIME_SECONDS_PER_MINUTE
     val seconds = totalSeconds % AUDIO_TIME_SECONDS_PER_MINUTE

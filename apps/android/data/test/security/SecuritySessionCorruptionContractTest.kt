@@ -105,7 +105,7 @@ class SecuritySessionCorruptionContractTest : DataFunSpec() {
                 val policy =
                     DataStoreSecuritySessionPolicy(
                         preferenceSource =
-                            DataStoreAppLockPreferenceSource(AppSecurityStoreImpl(store)),
+                        DataStoreAppLockPreferenceSource(AppSecurityStoreImpl(store)),
                         authorizedWorkResume = AuthorizedWorkResume { },
                         appScope = backgroundScope,
                     )
@@ -121,24 +121,18 @@ class SecuritySessionCorruptionContractTest : DataFunSpec() {
             writeBytes("%%% not a serialized preferences file %%%".toByteArray())
         }
 
-    private fun newStore(
-        backing: File,
-        scope: CoroutineScope,
-        registry: PreferencesCorruptionRegistry,
-    ) = PreferenceDataStoreFactory.create(
-        scope = scope,
-        corruptionHandler =
+    private fun newStore(backing: File, scope: CoroutineScope, registry: PreferencesCorruptionRegistry) =
+        PreferenceDataStoreFactory.create(
+            scope = scope,
+            corruptionHandler =
             lomoPreferencesCorruptionHandler(
                 corruptionFile = { backing },
                 registry = registry,
             ),
-        produceFile = { backing },
-    )
+            produceFile = { backing },
+        )
 
-    private fun appLockSource(
-        backing: File,
-        scope: CoroutineScope,
-    ): DataStoreAppLockPreferenceSource {
+    private fun appLockSource(backing: File, scope: CoroutineScope): DataStoreAppLockPreferenceSource {
         val registry = PreferencesCorruptionRegistry()
         return DataStoreAppLockPreferenceSource(
             AppSecurityStoreImpl(newStore(backing, scope, registry)),

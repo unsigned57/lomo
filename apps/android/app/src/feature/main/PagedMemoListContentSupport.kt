@@ -3,65 +3,53 @@ package com.lomo.app.feature.main
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.paging.compose.LazyPagingItems
+import com.lomo.ui.component.common.uniqueMemoListRenderKeys
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toPersistentList
-import com.lomo.ui.component.common.uniqueMemoListRenderKeys
 
 private const val MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER = 31
 private const val MEMO_LIST_SCROLLBAR_CONTENT_HASH_SAMPLE_COUNT = 20
-
-
 
 internal fun memoListItemKey(
     index: Int,
     visiblePagedMemoStartIndex: Int,
     visiblePagedMemos: List<MemoUiModel>,
     pagedMemos: LazyPagingItems<MemoUiModel>,
-): String =
-    memoListItemAt(
-        index = index,
-        visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
-        visiblePagedMemos = visiblePagedMemos,
-        pagedMemos = pagedMemos,
-    )?.run { memo.id }
-        ?: "$PAGING_PLACEHOLDER_KEY_PREFIX$index"
+): String = memoListItemAt(
+    index = index,
+    visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+    visiblePagedMemos = visiblePagedMemos,
+    pagedMemos = pagedMemos,
+)?.run { memo.id }
+    ?: "$PAGING_PLACEHOLDER_KEY_PREFIX$index"
 
 internal fun memoListItemContentType(
     index: Int,
     visiblePagedMemoStartIndex: Int,
     visiblePagedMemos: List<MemoUiModel>,
     pagedMemos: LazyPagingItems<MemoUiModel>,
-): String =
-    memoListItemAt(
-        index = index,
-        visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
-        visiblePagedMemos = visiblePagedMemos,
-        pagedMemos = pagedMemos,
-    )?.memoListItemContentBucket
-        ?: "memo-placeholder"
+): String = memoListItemAt(
+    index = index,
+    visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+    visiblePagedMemos = visiblePagedMemos,
+    pagedMemos = pagedMemos,
+)?.memoListItemContentBucket
+    ?: "memo-placeholder"
 
 internal fun memoListItemAt(
     index: Int,
     visiblePagedMemoStartIndex: Int,
     visiblePagedMemos: List<MemoUiModel>,
     pagedMemos: LazyPagingItems<MemoUiModel>,
-): MemoUiModel? =
-    visiblePagedMemos.getOrNull(index - visiblePagedMemoStartIndex)
-        ?: if (index < pagedMemos.itemCount) pagedMemos.peek(index) else null
+): MemoUiModel? = visiblePagedMemos.getOrNull(index - visiblePagedMemoStartIndex)
+    ?: if (index < pagedMemos.itemCount) pagedMemos.peek(index) else null
 
-internal data class MemoListRenderKeyWindow(
-    val startIndex: Int,
-    val keys: ImmutableList<String>,
-) {
-    fun keyAt(index: Int): String =
-        keys.getOrNull(index - startIndex) ?: "$PAGING_PLACEHOLDER_KEY_PREFIX$index"
+internal data class MemoListRenderKeyWindow(val startIndex: Int, val keys: ImmutableList<String>) {
+    fun keyAt(index: Int): String = keys.getOrNull(index - startIndex) ?: "$PAGING_PLACEHOLDER_KEY_PREFIX$index"
 }
 
-internal fun memoListRenderKeyWindow(
-    startIndex: Int,
-    windowItemKeys: List<String>,
-): MemoListRenderKeyWindow {
+internal fun memoListRenderKeyWindow(startIndex: Int, windowItemKeys: List<String>): MemoListRenderKeyWindow {
     require(startIndex >= 0) { "startIndex must be non-negative" }
     return MemoListRenderKeyWindow(
         startIndex = startIndex,
@@ -69,10 +57,7 @@ internal fun memoListRenderKeyWindow(
     )
 }
 
-internal fun materializedMemoListItemCount(
-    placeholdersBefore: Int,
-    loadedCount: Int,
-): Int {
+internal fun materializedMemoListItemCount(placeholdersBefore: Int, loadedCount: Int): Int {
     require(placeholdersBefore >= 0) { "placeholdersBefore must be non-negative" }
     require(loadedCount >= 0) { "loadedCount must be non-negative" }
     return placeholdersBefore + loadedCount
@@ -87,35 +72,33 @@ internal fun rememberMemoListRenderKeys(
     visiblePagedMemoStartIndex: Int,
     visiblePagedMemos: List<MemoUiModel>,
     pagedMemos: LazyPagingItems<MemoUiModel>,
-): MemoListRenderKeyWindow =
-    remember(visiblePagedMemos, visiblePagedMemoStartIndex, pagedMemos.itemSnapshotList) {
-        memoListRenderKeyWindow(
-            startIndex = visiblePagedMemoStartIndex,
-            windowItemKeys =
-                List(visiblePagedMemos.size) { offset ->
-                    memoListItemKey(
-                        index = visiblePagedMemoStartIndex + offset,
-                        visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
-                        visiblePagedMemos = visiblePagedMemos,
-                        pagedMemos = pagedMemos,
-                    )
-                },
-        )
-    }
+): MemoListRenderKeyWindow = remember(visiblePagedMemos, visiblePagedMemoStartIndex, pagedMemos.itemSnapshotList) {
+    memoListRenderKeyWindow(
+        startIndex = visiblePagedMemoStartIndex,
+        windowItemKeys =
+        List(visiblePagedMemos.size) { offset ->
+            memoListItemKey(
+                index = visiblePagedMemoStartIndex + offset,
+                visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+                visiblePagedMemos = visiblePagedMemos,
+                pagedMemos = pagedMemos,
+            )
+        },
+    )
+}
 
 @Composable
 internal fun rememberMemoListScrollbarContentGeneration(
     snapshotMemos: List<MemoUiModel>,
     deletingIds: ImmutableSet<String>,
     scrollbarItemCount: Int,
-): MemoListScrollbarContentGeneration =
-    remember(snapshotMemos, deletingIds, scrollbarItemCount) {
-        buildMemoListScrollbarContentGeneration(
-            snapshotMemos = snapshotMemos,
-            deletingIds = deletingIds,
-            scrollbarItemCount = scrollbarItemCount,
-        )
-    }
+): MemoListScrollbarContentGeneration = remember(snapshotMemos, deletingIds, scrollbarItemCount) {
+    buildMemoListScrollbarContentGeneration(
+        snapshotMemos = snapshotMemos,
+        deletingIds = deletingIds,
+        scrollbarItemCount = scrollbarItemCount,
+    )
+}
 
 internal data class MemoListScrollbarContentGeneration(
     val itemCount: Int,
@@ -144,32 +127,9 @@ private fun buildMemoListScrollbarContentGeneration(
     )
 }
 
-
-internal fun computeRetainedExitsCount(
-    deletingIds: Set<String>,
-    snapshotMemoIds: Set<String>,
-): Int {
-    return deletingIds.count { it !in snapshotMemoIds }
-}
-
-internal fun pagingAccessIndexForRenderedRow(
-    index: Int,
-    pagedItemCount: Int,
-    renderedItemCount: Int,
-): Int? {
-    if (pagedItemCount <= 0 || index !in 0 until renderedItemCount) {
-        return null
-    }
-    return minOf(index, pagedItemCount - 1)
-}
-
 /**
  * Materialized paging window handed to the list. The item list is consumed as a read-only view —
  * Paging's snapshot list is already a detached copy, so copying it again per generation would make
  * every page append O(loaded).
  */
-internal data class MemoListLoadedSnapshot<T>(
-    val startIndex: Int,
-    val memos: List<T>,
-)
-
+internal data class MemoListLoadedSnapshot<T>(val startIndex: Int, val memos: List<T>)

@@ -1,13 +1,13 @@
 package com.lomo.app.feature.settings
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,17 +16,26 @@ package com.lomo.app.feature.settings
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
+import android.content.Context
+import com.lomo.app.feature.update.AppUpdateChecker
+import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeAppRuntimeInfoRepository
+import com.lomo.app.testing.fakes.FakeAppUpdateDownloadRepository
 import com.lomo.app.testing.fakes.FakeCredentialRepository
-import com.lomo.app.testing.fakes.FakeLanShareService
 import com.lomo.app.testing.fakes.FakeCustomFontStore
 import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
+import com.lomo.app.testing.fakes.FakeLanShareService
+import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
+import com.lomo.app.testing.fakes.FakeSyncInboxRepository
+import com.lomo.domain.model.AppUpdateFetchException
+import com.lomo.domain.model.AppUpdateFetchFailure
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
+import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
@@ -39,27 +48,17 @@ import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
-import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
-import com.lomo.app.testing.fakes.FakeSyncInboxRepository
-import android.content.Context
-import com.lomo.app.feature.update.AppUpdateChecker
-import com.lomo.app.feature.update.AppUpdateDownloadManager
-import com.lomo.app.testing.fakes.FakeAppRuntimeInfoRepository
-import com.lomo.app.testing.fakes.FakeAppUpdateDownloadRepository
-import com.lomo.domain.model.AppUpdateFetchException
-import com.lomo.domain.model.AppUpdateFetchFailure
-import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.repository.AppUpdateRepository
+import com.lomo.domain.repository.MigrationArchiveRepository
+import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
 import com.lomo.domain.usecase.CheckAppUpdateUseCase
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
-import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
-import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
-import com.lomo.domain.repository.MigrationArchiveRepository
-import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.usecase.ExportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
+import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
+import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
@@ -75,17 +74,14 @@ import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import java.io.InputStream
-import java.io.OutputStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import java.io.InputStream
+import java.io.OutputStream
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest : AppFunSpec() {
@@ -107,13 +103,20 @@ class SettingsViewModelTest : AppFunSpec() {
 
     // Helper functions to avoid excessive mock stubbing detekt counts
     private fun <T> mockEvery(block: MockKMatcherScope.() -> T): MockKStubScope<T, T> = every(stubBlock = block)
-    private fun <T> mockCoEvery(block: suspend MockKMatcherScope.() -> T): MockKStubScope<T, T> = coEvery(stubBlock = block)
+    private fun <T> mockCoEvery(block: suspend MockKMatcherScope.() -> T): MockKStubScope<T, T> = coEvery(
+        stubBlock = block,
+    )
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
 
         beforeTest {
-            clearMocks(gitSyncSettingsUseCase, webDavSyncSettingsUseCase, s3SyncSettingsUseCase, switchRootStorageUseCase)
+            clearMocks(
+                gitSyncSettingsUseCase,
+                webDavSyncSettingsUseCase,
+                s3SyncSettingsUseCase,
+                switchRootStorageUseCase,
+            )
 
             shareServiceManager.lanShareEnabledValue = false
             shareServiceManager.lanShareDeviceNameValue = "Local"
@@ -154,11 +157,21 @@ class SettingsViewModelTest : AppFunSpec() {
             mockEvery { s3SyncSettingsUseCase.observeLocalSyncDirectory() } returns flowOf("")
             mockEvery { s3SyncSettingsUseCase.observePathStyle() } returns flowOf(S3PathStyle.AUTO)
             mockEvery { s3SyncSettingsUseCase.observeEncryptionMode() } returns flowOf(S3EncryptionMode.NONE)
-            mockEvery { s3SyncSettingsUseCase.observeRcloneFilenameEncryption() } returns flowOf(S3RcloneFilenameEncryption.STANDARD)
-            mockEvery { s3SyncSettingsUseCase.observeRcloneFilenameEncoding() } returns flowOf(S3RcloneFilenameEncoding.BASE64)
-            mockEvery { s3SyncSettingsUseCase.observeRcloneDirectoryNameEncryption() } returns flowOf(PreferenceDefaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION)
-            mockEvery { s3SyncSettingsUseCase.observeRcloneDataEncryptionEnabled() } returns flowOf(PreferenceDefaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED)
-            mockEvery { s3SyncSettingsUseCase.observeRcloneEncryptedSuffix() } returns flowOf(PreferenceDefaults.S3_RCLONE_ENCRYPTED_SUFFIX)
+            mockEvery { s3SyncSettingsUseCase.observeRcloneFilenameEncryption() } returns flowOf(
+                S3RcloneFilenameEncryption.STANDARD,
+            )
+            mockEvery { s3SyncSettingsUseCase.observeRcloneFilenameEncoding() } returns flowOf(
+                S3RcloneFilenameEncoding.BASE64,
+            )
+            mockEvery { s3SyncSettingsUseCase.observeRcloneDirectoryNameEncryption() } returns flowOf(
+                PreferenceDefaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION,
+            )
+            mockEvery { s3SyncSettingsUseCase.observeRcloneDataEncryptionEnabled() } returns flowOf(
+                PreferenceDefaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED,
+            )
+            mockEvery { s3SyncSettingsUseCase.observeRcloneEncryptedSuffix() } returns flowOf(
+                PreferenceDefaults.S3_RCLONE_ENCRYPTED_SUFFIX,
+            )
             mockEvery { s3SyncSettingsUseCase.observeAutoSyncEnabled() } returns flowOf(false)
             mockEvery { s3SyncSettingsUseCase.observeAutoSyncInterval() } returns flowOf("1h")
             mockEvery { s3SyncSettingsUseCase.observeSyncOnRefreshEnabled() } returns flowOf(false)
@@ -194,7 +207,9 @@ class SettingsViewModelTest : AppFunSpec() {
                 viewModel.gitFeature.provider.triggerSyncNow()
                 testDispatcher.scheduler.advanceUntilIdle()
 
-                viewModel.operationError.value shouldBe SettingsOperationError.Message("Failed to run Git sync: sync failed")
+                viewModel.operationError.value shouldBe SettingsOperationError.Message(
+                    "Failed to run Git sync: sync failed",
+                )
             }
         }
 
@@ -265,7 +280,9 @@ class SettingsViewModelTest : AppFunSpec() {
                 mockEvery { s3SyncSettingsUseCase.observeLocalSyncDirectory() } returns
                     flowOf("content://tree/primary%3AObsidian")
                 mockEvery { s3SyncSettingsUseCase.observePathStyle() } returns flowOf(S3PathStyle.PATH_STYLE)
-                mockEvery { s3SyncSettingsUseCase.observeEncryptionMode() } returns flowOf(S3EncryptionMode.RCLONE_CRYPT)
+                mockEvery { s3SyncSettingsUseCase.observeEncryptionMode() } returns flowOf(
+                    S3EncryptionMode.RCLONE_CRYPT,
+                )
                 mockEvery { s3SyncSettingsUseCase.observeRcloneFilenameEncryption() } returns
                     flowOf(S3RcloneFilenameEncryption.OFF)
                 mockEvery { s3SyncSettingsUseCase.observeRcloneFilenameEncoding() } returns
@@ -307,64 +324,66 @@ class SettingsViewModelTest : AppFunSpec() {
         }
     }
 
-    private fun createViewModel(): SettingsViewModel =
-        SettingsViewModel(
-            coordinatorFactory =
-                SettingsCoordinatorFactory(
-                    SettingsCoordinatorDependencies(
-                        appConfigRepository = appConfigRepository,
-                        credentialRepository = credentialRepository,
-                        lanShareService = shareServiceManager,
-                        gitSyncSettingsUseCase = gitSyncSettingsUseCase,
-                        webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,
-                        s3SyncSettingsUseCase = s3SyncSettingsUseCase,
-                        switchRootStorageUseCase = switchRootStorageUseCase,
-                        memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
-                        customFontStore = FakeCustomFontStore(),
-                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(FakeCustomFontStore()),
-                        engineReadinessRepository = FakeEngineReadinessRepository(),
-                        syncInboxRepository = FakeSyncInboxRepository(),
-                    ),
-                ),
-            exportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(migrationRepository),
-            importAllNotesArchiveUseCase =
-                ImportAllNotesArchiveUseCase(
-                    repository = migrationRepository,
-                    workspaceStateResolver = migrationWorkspaceStateResolver,
-                ),
-            exportEncryptedSettingsUseCase = ExportEncryptedSettingsUseCase(migrationRepository),
-            importEncryptedSettingsUseCase = ImportEncryptedSettingsUseCase(migrationRepository),
-            appUpdateChecker =
-                AppUpdateChecker(
-                    checkAppUpdateUseCase = CheckAppUpdateUseCase(appUpdateRepository, appRuntimeInfoRepository),
-                    checkStartupAppUpdateUseCase =
-                        CheckStartupAppUpdateUseCase(appConfigRepository, appUpdateRepository, appRuntimeInfoRepository),
-                    getLatestAppReleaseUseCase = GetLatestAppReleaseUseCase(appUpdateRepository),
-                ),
-            getCurrentAppVersionUseCase = GetCurrentAppVersionUseCase(appRuntimeInfoRepository),
-            appUpdateDownloadManager =
-                AppUpdateDownloadManager(
-                    context = mockk<Context>(),
-                    downloadAndInstallAppUpdateUseCase = DownloadAndInstallAppUpdateUseCase(appUpdateDownloadRepository),
-                    cancelAppUpdateDownloadUseCase = CancelAppUpdateDownloadUseCase(appUpdateDownloadRepository),
-                ),
-        )
+    private fun createViewModel(): SettingsViewModel = SettingsViewModel(
+        coordinatorFactory =
+        SettingsCoordinatorFactory(
+            SettingsCoordinatorDependencies(
+                appConfigRepository = appConfigRepository,
+                credentialRepository = credentialRepository,
+                lanShareService = shareServiceManager,
+                gitSyncSettingsUseCase = gitSyncSettingsUseCase,
+                webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,
+                s3SyncSettingsUseCase = s3SyncSettingsUseCase,
+                switchRootStorageUseCase = switchRootStorageUseCase,
+                memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
+                customFontStore = FakeCustomFontStore(),
+                customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(FakeCustomFontStore()),
+                engineReadinessRepository = FakeEngineReadinessRepository(),
+                syncInboxRepository = FakeSyncInboxRepository(),
+            ),
+        ),
+        exportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(migrationRepository),
+        importAllNotesArchiveUseCase =
+        ImportAllNotesArchiveUseCase(
+            repository = migrationRepository,
+            workspaceStateResolver = migrationWorkspaceStateResolver,
+        ),
+        exportEncryptedSettingsUseCase = ExportEncryptedSettingsUseCase(migrationRepository),
+        importEncryptedSettingsUseCase = ImportEncryptedSettingsUseCase(migrationRepository),
+        appUpdateChecker =
+        AppUpdateChecker(
+            checkAppUpdateUseCase = CheckAppUpdateUseCase(appUpdateRepository, appRuntimeInfoRepository),
+            checkStartupAppUpdateUseCase =
+            CheckStartupAppUpdateUseCase(
+                appConfigRepository,
+                appUpdateRepository,
+                appRuntimeInfoRepository,
+            ),
+            getLatestAppReleaseUseCase = GetLatestAppReleaseUseCase(appUpdateRepository),
+        ),
+        getCurrentAppVersionUseCase = GetCurrentAppVersionUseCase(appRuntimeInfoRepository),
+        appUpdateDownloadManager =
+        AppUpdateDownloadManager(
+            context = mockk<Context>(),
+            downloadAndInstallAppUpdateUseCase = DownloadAndInstallAppUpdateUseCase(
+                appUpdateDownloadRepository,
+            ),
+            cancelAppUpdateDownloadUseCase = CancelAppUpdateDownloadUseCase(appUpdateDownloadRepository),
+        ),
+    )
 }
 
 private class NoOpMigrationArchiveRepository : MigrationArchiveRepository {
-    override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary = MigrationArchiveSummary()
+    override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary =
+        MigrationArchiveSummary()
 
     override suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary = MigrationArchiveSummary()
 
-    override suspend fun exportEncryptedSettings(
-        output: OutputStream,
-        password: String,
-    ): MigrationSettingsSummary = MigrationSettingsSummary()
+    override suspend fun exportEncryptedSettings(output: OutputStream, password: String): MigrationSettingsSummary =
+        MigrationSettingsSummary()
 
-    override suspend fun importEncryptedSettings(
-        input: InputStream,
-        password: String,
-    ): MigrationSettingsSummary = MigrationSettingsSummary()
+    override suspend fun importEncryptedSettings(input: InputStream, password: String): MigrationSettingsSummary =
+        MigrationSettingsSummary()
 }
 
 private class NoOpWorkspaceStateResolver : WorkspaceStateResolver {
@@ -372,7 +391,6 @@ private class NoOpWorkspaceStateResolver : WorkspaceStateResolver {
 }
 
 private class FakeAppUpdateRepository(var latestRelease: LatestAppRelease? = null) : AppUpdateRepository {
-    override suspend fun fetchLatestRelease(): LatestAppRelease =
-        latestRelease
-            ?: throw AppUpdateFetchException(AppUpdateFetchFailure.Network("no release staged"))
+    override suspend fun fetchLatestRelease(): LatestAppRelease = latestRelease
+        ?: throw AppUpdateFetchException(AppUpdateFetchFailure.Network("no release staged"))
 }

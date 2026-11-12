@@ -18,16 +18,13 @@ import kotlinx.serialization.json.Json
  * The retired plain-text key is imported once and then removed: the migration copies only the text
  * the old track actually owned, and never invents an attachment or a baseline.
  */
-class MemoCreateDraftRepositoryImpl(
-    private val dataStore: LomoDataStore,
-) : MemoCreateDraftRepository {
+class MemoCreateDraftRepositoryImpl(private val dataStore: LomoDataStore) : MemoCreateDraftRepository {
     private val operationLock = Mutex()
     private val json = Json { ignoreUnknownKeys = false }
 
-    override suspend fun read(): MemoCreateDraft? =
-        operationLock.withLock {
-            decode(dataStore.memoCreateDraft.first()) ?: importRetiredDraftText()
-        }
+    override suspend fun read(): MemoCreateDraft? = operationLock.withLock {
+        decode(dataStore.memoCreateDraft.first()) ?: importRetiredDraftText()
+    }
 
     override suspend fun write(draft: MemoCreateDraft) {
         operationLock.withLock {
@@ -84,6 +81,4 @@ class MemoCreateDraftRepositoryImpl(
 }
 
 @Serializable
-private data class LegacyMemoCreateDraft(
-    val content: String,
-)
+private data class LegacyMemoCreateDraft(val content: String)

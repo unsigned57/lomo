@@ -39,10 +39,7 @@ val LocalAppHapticFeedback =
     compositionLocalOf<AppHapticFeedback> { NoOpAppHapticFeedback }
 
 @Composable
-fun ProvideAppHapticFeedback(
-    enabled: Boolean = true,
-    content: @Composable () -> Unit,
-) {
+fun ProvideAppHapticFeedback(enabled: Boolean = true, content: @Composable () -> Unit) {
     val view = LocalView.current
     val haptic =
         remember(view, enabled) {

@@ -17,14 +17,15 @@ open class CreateMemoUseCase(
     private val validator: ValidateMemoContentUseCase,
     private val workspaceMutationLease: WorkspaceMutationLease,
 ) {
+    /** [onAccepted] observes the engine's admission ahead of durability; see [MemoMutationRepository.saveMemo]. */
     open suspend operator fun invoke(
         attempt: com.lomo.domain.model.MemoCreateAttempt,
-    ): Memo =
-        workspaceMutationLease.withWrite {
-            checkNotNull(initializeWorkspaceUseCase.currentRootLocation()) {
-                "Please select a folder first"
-            }
-            validator.requireValidForCreate(attempt.content)
-            memoRepository.saveMemo(attempt)
+        onAccepted: (memoId: String) -> Unit,
+    ): Memo = workspaceMutationLease.withWrite {
+        checkNotNull(initializeWorkspaceUseCase.currentRootLocation()) {
+            "Please select a folder first"
         }
+        validator.requireValidForCreate(attempt.content)
+        memoRepository.saveMemo(attempt, onAccepted)
+    }
 }

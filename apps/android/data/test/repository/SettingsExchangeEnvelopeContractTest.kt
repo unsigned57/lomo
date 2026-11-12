@@ -4,9 +4,9 @@ package com.lomo.data.repository
 // the wire payload must carry an enforced settingsSchemaVersion, and wrong-password /
 // corrupted / unsupported-version inputs must not collapse into one exception type.
 
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.usecase.MigrationEnvelopeException
 import com.lomo.domain.usecase.MigrationPasswordException
-import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldNotBeInstanceOf
@@ -128,26 +128,22 @@ class SettingsExchangeEnvelopeContractTest : DataFunSpec() {
         saltBase64: String = "AAAAAAAAAAAAAAAAAAAAAA==",
         nonceBase64: String = "AAAAAAAAAAAAAAAA",
         cipherTextBase64: String = "AAAA",
-    ): String =
-        "{" +
-            "\"version\":$version," +
-            "\"kdf\":\"$kdf\"," +
-            "\"cipher\":\"$cipher\"," +
-            "\"iterations\":$iterations," +
-            "\"saltBase64\":\"$saltBase64\"," +
-            "\"nonceBase64\":\"$nonceBase64\"," +
-            "\"cipherTextBase64\":\"$cipherTextBase64\"" +
-            "}"
+    ): String = "{" +
+        "\"version\":$version," +
+        "\"kdf\":\"$kdf\"," +
+        "\"cipher\":\"$cipher\"," +
+        "\"iterations\":$iterations," +
+        "\"saltBase64\":\"$saltBase64\"," +
+        "\"nonceBase64\":\"$nonceBase64\"," +
+        "\"cipherTextBase64\":\"$cipherTextBase64\"" +
+        "}"
 
     /**
      * Produces a structurally valid version-2 envelope whose GCM tag was computed without the
      * production AAD — a faithful replica of what an attacker (or a no-AAD implementation)
      * could assemble with a known password.
      */
-    private fun forgedEnvelopeWithoutAad(
-        password: String,
-        plainText: ByteArray,
-    ): String {
+    private fun forgedEnvelopeWithoutAad(password: String, plainText: ByteArray): String {
         val salt = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
         val nonce = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
         val spec = PBEKeySpec(password.toCharArray(), salt, 600_000, 256)

@@ -701,7 +701,7 @@ mod tests {
     fn run_sync_cycle_streaming_materializes_open_conflict_across_intent_pages() {
         let (local, remote, baseline, total) = multi_page_open_conflict_ports();
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
         let bodies = multi_page_conflict_bodies(total);
         let session = SyncSession::new(fence(), SessionKind::Incremental, "stream-conflict")
@@ -744,7 +744,7 @@ mod tests {
     fn run_sync_cycle_streaming_later_page_open_conflict_without_bodies_fails_closed() {
         let (local, remote, baseline, _total) = multi_page_open_conflict_ports();
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         paths.ensure_layout().expect("layout");
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "stream-hollow").expect("session");

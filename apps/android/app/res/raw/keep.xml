@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ApkDataAndroidResources (//data) resolves the app-update, reminder, and recording
+  resources below by name through Resources.getIdentifier, because //data is a
+  runtime-only dependency of //app and cannot reference com.lomo.app.R statically.
+  The resource shrinker sees no static reference and would strip them from release
+  builds, so keep the resolver's namespaces explicitly.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@string/app_update_*,@string/reminder_*,@string/recording_*,@drawable/ic_lomo_reminder_status,@drawable/ic_mic" />

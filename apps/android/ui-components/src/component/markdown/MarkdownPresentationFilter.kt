@@ -8,10 +8,7 @@ internal object MarkdownPresentationFilter {
     private val HORIZONTAL_WHITESPACE_REGEX = Regex("[ \\t]{2,}")
     private val SPACE_BEFORE_PUNCTUATION_REGEX = Regex("[ \\t]+(?=[.,!?;:，。！？；：、)\\]}】）])")
 
-    fun filterBlock(
-        block: MarkdownRenderBlock,
-        policy: MarkdownPresentationPolicy,
-    ): MarkdownRenderBlock? =
+    fun filterBlock(block: MarkdownRenderBlock, policy: MarkdownPresentationPolicy): MarkdownRenderBlock? =
         when (block) {
             is MarkdownRenderBlock.Paragraph -> {
                 val inlines = filterInlines(block.inlines, policy)
@@ -21,6 +18,7 @@ internal object MarkdownPresentationFilter {
                     block.copy(inlines = inlines)
                 }
             }
+
             is MarkdownRenderBlock.Heading -> {
                 val inlines = filterInlines(block.inlines, policy)
                 if (policy.pruneEmptyBlocks && !hasRenderableInlines(inlines, policy)) {
@@ -29,6 +27,7 @@ internal object MarkdownPresentationFilter {
                     block.copy(inlines = inlines)
                 }
             }
+
             is MarkdownRenderBlock.BlockQuote -> {
                 val childBlocks = block.blocks.mapNotNull { child -> filterBlock(child, policy) }
                 if (policy.pruneEmptyBlocks && childBlocks.isEmpty()) {
@@ -37,6 +36,7 @@ internal object MarkdownPresentationFilter {
                     block.copy(blocks = childBlocks)
                 }
             }
+
             is MarkdownRenderBlock.ListBlock -> {
                 val items =
                     block.items.mapNotNull { item ->
@@ -53,6 +53,7 @@ internal object MarkdownPresentationFilter {
                     block.copy(items = items)
                 }
             }
+
             is MarkdownRenderBlock.Table -> {
                 val header =
                     block.header.map { cell ->
@@ -66,6 +67,7 @@ internal object MarkdownPresentationFilter {
                     }
                 block.copy(header = header, rows = rows)
             }
+
             is MarkdownRenderBlock.CodeBlock,
             is MarkdownRenderBlock.ThematicBreak,
             is MarkdownRenderBlock.HtmlBlock,
@@ -97,37 +99,47 @@ internal object MarkdownPresentationFilter {
         return trimBreakNodesAndWhitespace(mergeAdjacentTextNodes(normalized))
     }
 
-    private fun filterInline(
-        inline: MarkdownRenderInline,
-        policy: MarkdownPresentationPolicy,
-    ): MarkdownRenderInline? =
+    private fun filterInline(inline: MarkdownRenderInline, policy: MarkdownPresentationPolicy): MarkdownRenderInline? =
         when (inline) {
             is MarkdownRenderInline.Tag -> if (policy.hideTags) null else inline
+
             is MarkdownRenderInline.Reminder -> if (policy.hideReminders) null else inline
+
             is MarkdownRenderInline.Strong -> {
                 val children = filterInlines(inline.inlines, policy)
                 if (children.isEmpty()) null else inline.copy(inlines = children)
             }
+
             is MarkdownRenderInline.Emphasis -> {
                 val children = filterInlines(inline.inlines, policy)
                 if (children.isEmpty()) null else inline.copy(inlines = children)
             }
+
             is MarkdownRenderInline.Strikethrough -> {
                 val children = filterInlines(inline.inlines, policy)
                 if (children.isEmpty()) null else inline.copy(inlines = children)
             }
+
+            is MarkdownRenderInline.Underline -> {
+                val children = filterInlines(inline.inlines, policy)
+                if (children.isEmpty()) null else inline.copy(inlines = children)
+            }
+
             is MarkdownRenderInline.Highlight -> {
                 val children = filterInlines(inline.inlines, policy)
                 if (children.isEmpty()) null else inline.copy(inlines = children)
             }
+
             is MarkdownRenderInline.Link -> {
                 val children = filterInlines(inline.inlines, policy)
                 inline.copy(inlines = children)
             }
+
             is MarkdownRenderInline.WikiReference -> {
                 val children = filterInlines(inline.inlines, policy)
                 inline.copy(inlines = children)
             }
+
             is MarkdownRenderInline.Text,
             is MarkdownRenderInline.Code,
             is MarkdownRenderInline.Image,
@@ -167,14 +179,15 @@ internal object MarkdownPresentationFilter {
         return slice
     }
 
-    private fun isBreakOrBlank(inline: MarkdownRenderInline): Boolean =
-        when (inline) {
-            is MarkdownRenderInline.SoftBreak,
-            is MarkdownRenderInline.HardBreak,
-            -> true
-            is MarkdownRenderInline.Text -> inline.text.isBlank()
-            else -> false
-        }
+    private fun isBreakOrBlank(inline: MarkdownRenderInline): Boolean = when (inline) {
+        is MarkdownRenderInline.SoftBreak,
+        is MarkdownRenderInline.HardBreak,
+        -> true
+
+        is MarkdownRenderInline.Text -> inline.text.isBlank()
+
+        else -> false
+    }
 
     private fun collapseConsecutiveBreaks(inlines: List<MarkdownRenderInline>): List<MarkdownRenderInline> {
         if (inlines.isEmpty()) return inlines
@@ -238,24 +251,37 @@ internal object MarkdownPresentationFilter {
     private fun hasRenderableInlines(
         inlines: List<MarkdownRenderInline>,
         policy: MarkdownPresentationPolicy,
-    ): Boolean =
-        inlines.any { inline ->
-            when (inline) {
-                is MarkdownRenderInline.Text -> inline.text.isNotBlank()
-                is MarkdownRenderInline.Image -> true
-                is MarkdownRenderInline.Code -> inline.text.isNotBlank()
-                is MarkdownRenderInline.Strong -> hasRenderableInlines(inline.inlines, policy)
-                is MarkdownRenderInline.Emphasis -> hasRenderableInlines(inline.inlines, policy)
-                is MarkdownRenderInline.Strikethrough -> hasRenderableInlines(inline.inlines, policy)
-                is MarkdownRenderInline.Highlight -> hasRenderableInlines(inline.inlines, policy)
-                is MarkdownRenderInline.Link -> hasRenderableInlines(inline.inlines, policy)
-                is MarkdownRenderInline.WikiReference -> true
-                is MarkdownRenderInline.Tag -> !policy.hideTags && inline.name.isNotBlank()
-                is MarkdownRenderInline.Reminder -> !policy.hideReminders && inline.token.isNotBlank()
-                is MarkdownRenderInline.SoftBreak,
-                is MarkdownRenderInline.HardBreak,
-                is MarkdownRenderInline.HtmlInline,
-                -> false
-            }
+    ): Boolean = inlines.any { inline ->
+        when (inline) {
+            is MarkdownRenderInline.Text -> inline.text.isNotBlank()
+
+            is MarkdownRenderInline.Image -> true
+
+            is MarkdownRenderInline.Code -> inline.text.isNotBlank()
+
+            is MarkdownRenderInline.Strong -> hasRenderableInlines(inline.inlines, policy)
+
+            is MarkdownRenderInline.Emphasis -> hasRenderableInlines(inline.inlines, policy)
+
+            is MarkdownRenderInline.Strikethrough -> hasRenderableInlines(inline.inlines, policy)
+
+            is MarkdownRenderInline.Underline -> hasRenderableInlines(inline.inlines, policy)
+
+            is MarkdownRenderInline.Highlight -> hasRenderableInlines(inline.inlines, policy)
+
+            is MarkdownRenderInline.Link ->
+                inline.destination.isNotBlank() || hasRenderableInlines(inline.inlines, policy)
+
+            is MarkdownRenderInline.WikiReference -> true
+
+            is MarkdownRenderInline.Tag -> !policy.hideTags && inline.name.isNotBlank()
+
+            is MarkdownRenderInline.Reminder -> !policy.hideReminders && inline.token.isNotBlank()
+
+            is MarkdownRenderInline.SoftBreak,
+            is MarkdownRenderInline.HardBreak,
+            is MarkdownRenderInline.HtmlInline,
+            -> false
         }
+    }
 }

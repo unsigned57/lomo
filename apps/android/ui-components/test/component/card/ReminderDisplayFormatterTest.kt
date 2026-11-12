@@ -30,7 +30,7 @@ import java.time.format.DateTimeFormatter
  *
  * Excludes:
  * - Direct UI rendering on device, string resource resolution outside the test environment, haptic feedback triggers.
- 
+
  * Test Change Justification:
  * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
  * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
@@ -43,28 +43,24 @@ import java.time.format.DateTimeFormatter
  *   fail-closed boundaries, not private parser implementation details.
  */
 class ReminderDisplayFormatterTest : UiComponentsFunSpec() {
-    private fun marker(
-        dueAt: java.time.LocalDateTime,
-        repeatCount: Int,
-        firedCount: Int,
-        done: Boolean,
-    ) = ReminderMarker(
-        dueAtLocal = dueAt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd-HH:mm")),
-        dueAt = dueAt,
-        repeatCount = repeatCount,
-        firedCount = firedCount,
-        done = done,
-        intervalMinutes = 10,
-        recurrence = Recurrence.NONE,
-        reference = ReminderReference(
-            opaqueId = "r1",
-            revision = "a".repeat(64),
-            memoIdentity = "memo",
-            sourceSpan = MarkdownSourceSpan(0uL, 1uL),
-            tokenFingerprint = "b".repeat(64),
-        ),
-        token = "@token",
-    )
+    private fun marker(dueAt: java.time.LocalDateTime, repeatCount: Int, firedCount: Int, done: Boolean) =
+        ReminderMarker(
+            dueAtLocal = dueAt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd-HH:mm")),
+            dueAt = dueAt,
+            repeatCount = repeatCount,
+            firedCount = firedCount,
+            done = done,
+            intervalMinutes = 10,
+            recurrence = Recurrence.NONE,
+            reference = ReminderReference(
+                opaqueId = "r1",
+                revision = "a".repeat(64),
+                memoIdentity = "memo",
+                sourceSpan = MarkdownSourceSpan(0uL, 1uL),
+                tokenFingerprint = "b".repeat(64),
+            ),
+            token = "@token",
+        )
 
     init {
         val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
@@ -84,7 +80,9 @@ class ReminderDisplayFormatterTest : UiComponentsFunSpec() {
             display shouldBe "2026-05-22 17:30 x3"
         }
 
-        test("given an active repeating reminder that has partially fired when formatted then it includes repeat suffix and fire fraction") {
+        test(
+            "given an active repeating reminder that has partially fired when formatted then it includes repeat suffix and fire fraction",
+        ) {
             val reminder = marker(dueAt = baseTime, repeatCount = 3, firedCount = 1, done = false)
 
             val display = ReminderDisplayFormatter.format(reminder, formatter, "done")

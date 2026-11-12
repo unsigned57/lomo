@@ -1,3 +1,11 @@
+/*
+ * Test Change Justification:
+ * Reason category: stage destination checks now use the mounted session capability.
+ * Old behavior/assertion being replaced: fixture methods accepted a nullable Direct-only workspace root.
+ * Why old assertion is no longer correct: that input cannot represent the selected SAF or independent attachment directory.
+ * Coverage preserved by: every existing result assertion; only the lease API and fixture signatures change.
+ * Why this is not fitting the test to the implementation: one authoritative session now supplies destination evidence.
+ */
 package com.lomo.data.engine.media
 
 /*
@@ -50,7 +58,6 @@ class PendingMediaStageRegistryTest : DataFunSpec() {
             val port = FakeLedgerMediaPort()
             val registry = PendingMediaStageRegistry(port, stageRoot = { MEDIA_ROOT })
             port.recordStageLease(
-                workspaceRoot = null,
                 staged = stagedFacts(),
                 ownerKind = MediaStageOwnerKind.Draft,
                 ownerId = DRAFT.value,
@@ -66,7 +73,7 @@ class PendingMediaStageRegistryTest : DataFunSpec() {
         test("resolving an inbox drop transfers the incoming claim to the frozen operation") {
             val port = FakeLedgerMediaPort()
             val registry = PendingMediaStageRegistry(port, stageRoot = { MEDIA_ROOT })
-            registry.recordIncoming(stagedFacts(), ownerId = "inbox/note.md", workspaceRoot = null)
+            registry.recordIncoming(stagedFacts(), ownerId = "inbox/note.md")
 
             val plans = registry.plansForIncomingOperation(OPERATION_ID, "inbox/note.md")
 
@@ -78,8 +85,8 @@ class PendingMediaStageRegistryTest : DataFunSpec() {
         test("keep-local releases the incoming claim and deletes unshared bytes") {
             val port = FakeLedgerMediaPort()
             val registry = PendingMediaStageRegistry(port, stageRoot = { MEDIA_ROOT })
-            registry.recordIncoming(stagedFacts(), ownerId = "inbox/note.md", workspaceRoot = null)
-            port.recordStageLease(null, stagedFacts(), MediaStageOwnerKind.Draft, DRAFT.value)
+            registry.recordIncoming(stagedFacts(), ownerId = "inbox/note.md")
+            port.recordStageLease(stagedFacts(), MediaStageOwnerKind.Draft, DRAFT.value)
 
             registry.releaseIncoming("inbox/note.md")
 
@@ -90,7 +97,7 @@ class PendingMediaStageRegistryTest : DataFunSpec() {
         test("discarding a draft destination releases only that draft's claim") {
             val port = FakeLedgerMediaPort()
             val registry = PendingMediaStageRegistry(port, stageRoot = { MEDIA_ROOT })
-            port.recordStageLease(null, stagedFacts(), MediaStageOwnerKind.Draft, DRAFT.value)
+            port.recordStageLease(stagedFacts(), MediaStageOwnerKind.Draft, DRAFT.value)
 
             val released = registry.releaseDraftDestination(DRAFT, "media/photo.png")
 
@@ -102,7 +109,7 @@ class PendingMediaStageRegistryTest : DataFunSpec() {
         test("a bare basename never releases another directory's staged record") {
             val port = FakeLedgerMediaPort()
             val registry = PendingMediaStageRegistry(port, stageRoot = { MEDIA_ROOT })
-            port.recordStageLease(null, stagedFacts(), MediaStageOwnerKind.Draft, DRAFT.value)
+            port.recordStageLease(stagedFacts(), MediaStageOwnerKind.Draft, DRAFT.value)
 
             // Destination identity is the full relative path — `photo.png` must
             // not reach into `media/` and drop that draft's claim.
@@ -119,15 +126,14 @@ private const val MEDIA_ROOT = "/media"
 private const val OPERATION_ID = "op-1"
 private val DRAFT = DraftId("draft-a")
 
-private fun stagedFacts() =
-    MediaStagedFacts(
-        digest = "a".repeat(64),
-        size = 4L,
-        mime = "image/png",
-        stagingPath = "$MEDIA_ROOT/.lomo-media-stage/${"a".repeat(64)}.png",
-        humanNameHint = "photo.png",
-        suggestedFinalRelativePath = "media/photo.png",
-    )
+private fun stagedFacts() = MediaStagedFacts(
+    digest = "a".repeat(64),
+    size = 4L,
+    mime = "image/png",
+    stagingPath = "$MEDIA_ROOT/.lomo-media-stage/${"a".repeat(64)}.png",
+    humanNameHint = "photo.png",
+    suggestedFinalRelativePath = "media/photo.png",
+)
 
 private class FakeLedgerMediaPort : MediaPort {
     private val records = linkedMapOf<String, MediaStageRecord>()
@@ -144,7 +150,6 @@ private class FakeLedgerMediaPort : MediaPort {
     ): MediaStagedFacts = stagedFacts()
 
     override fun recordStageLease(
-        workspaceRoot: String?,
         staged: MediaStagedFacts,
         ownerKind: MediaStageOwnerKind,
         ownerId: String,
@@ -172,16 +177,11 @@ private class FakeLedgerMediaPort : MediaPort {
         mediaRoot: String,
         ownerKind: MediaStageOwnerKind,
         ownerId: String,
-    ): List<MediaStageRecord> =
-        records.values.filter { record ->
-            record.leases.any { it.ownerKind == ownerKind && it.ownerId == ownerId }
-        }
+    ): List<MediaStageRecord> = records.values.filter { record ->
+        record.leases.any { it.ownerKind == ownerKind && it.ownerId == ownerId }
+    }
 
-    override fun transferStageLease(
-        mediaRoot: String,
-        from: MediaStageLease,
-        to: MediaStageLease,
-    ): MediaStageRelease {
+    override fun transferStageLease(mediaRoot: String, from: MediaStageLease, to: MediaStageLease): MediaStageRelease {
         val record = records.getValue(from.artifactId)
         val leases =
             record.leases.filterNot { it == from }.let { remaining ->
@@ -195,10 +195,7 @@ private class FakeLedgerMediaPort : MediaPort {
         return MediaStageRelease(from.artifactId, leases.size.toLong(), leases.isEmpty())
     }
 
-    override fun releaseStageLease(
-        mediaRoot: String,
-        lease: MediaStageLease,
-    ): MediaStageRelease {
+    override fun releaseStageLease(mediaRoot: String, lease: MediaStageLease): MediaStageRelease {
         val record = records.getValue(lease.artifactId)
         val leases = record.leases.filterNot { it == lease }
         if (leases.isEmpty()) {
@@ -210,34 +207,25 @@ private class FakeLedgerMediaPort : MediaPort {
         return MediaStageRelease(lease.artifactId, leases.size.toLong(), leases.isEmpty())
     }
 
-    override fun allocateRecordingTarget(
-        mediaRoot: String,
-        extension: String,
-    ): String = "$mediaRoot/recording.$extension"
+    override fun allocateRecordingTarget(mediaRoot: String, extension: String): String =
+        "$mediaRoot/recording.$extension"
 
-    override fun finalizeRecording(
-        mediaRoot: String,
-        recordingPath: String,
-        humanNameHint: String,
-    ): MediaStagedFacts = stagedFacts()
+    override fun finalizeRecording(mediaRoot: String, recordingPath: String, humanNameHint: String): MediaStagedFacts =
+        stagedFacts()
 
-    override fun queryMediaManifest(
-        workspaceRoot: String,
-        verifiedEntries: List<MediaCommittedEntry>,
-    ): MediaManifest =
+    override fun queryMediaManifest(workspaceRoot: String, verifiedEntries: List<MediaCommittedEntry>): MediaManifest =
         MediaManifest(stageDirName = ".lomo-media-stage", entries = emptyList())
 
     override fun sessionMediaOrphanSweep(
         nowMs: Long?,
         recoveryWindowMs: Long,
         externalDrafts: List<MediaSweepDraftGuard>,
-    ): MediaSweepReport =
-        MediaSweepReport(
-            candidates = 0,
-            protections = emptyList(),
-            movedToTrash = emptyList(),
-            permanentlyDeletedDigests = emptyList(),
-            keptLive = 0,
-            failures = emptyList(),
-        )
+    ): MediaSweepReport = MediaSweepReport(
+        candidates = 0,
+        protections = emptyList(),
+        movedToTrash = emptyList(),
+        permanentlyDeletedDigests = emptyList(),
+        keptLive = 0,
+        failures = emptyList(),
+    )
 }

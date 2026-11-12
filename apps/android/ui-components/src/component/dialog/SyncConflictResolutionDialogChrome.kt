@@ -1,10 +1,8 @@
 package com.lomo.ui.component.dialog
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,19 +11,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -33,16 +29,16 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import org.jetbrains.compose.resources.StringResource
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncReviewResolutionChoice
+import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.component.common.LomoButton
+import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.sync_conflict_apply_resolution
 import com.lomo.ui.generated.resources.sync_conflict_choice_accept_suggestions
@@ -52,18 +48,15 @@ import com.lomo.ui.generated.resources.sync_conflict_resolving
 import com.lomo.ui.generated.resources.sync_conflict_title_inbox_review
 import com.lomo.ui.generated.resources.sync_conflict_title_initial_preview
 import com.lomo.ui.generated.resources.sync_conflict_title_standard
-import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableMap
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun TopBar(
-    source: SyncBackendType,
-    isInitialImportPreview: Boolean,
-    onDismiss: () -> Unit,
-) {
+internal fun TopBar(source: SyncBackendType, isInitialImportPreview: Boolean, onDismiss: () -> Unit) {
     CenterAlignedTopAppBar(
         title = {
             Text(
@@ -72,7 +65,7 @@ internal fun TopBar(
             )
         },
         navigationIcon = {
-            IconButton(onClick = onDismiss) {
+            LomoIconButton(onClick = onDismiss) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = stringResource(Res.string.sync_conflict_close),
@@ -139,10 +132,7 @@ internal fun ReviewGlobalActionRow(
 }
 
 @Composable
-internal fun BottomSection(
-    allFilesChosen: Boolean,
-    onApply: () -> Unit,
-) {
+internal fun BottomSection(allFilesChosen: Boolean, onApply: () -> Unit) {
     Surface(
         modifier = Modifier.wrapContentHeight(),
         shadowElevation = 4.dp,
@@ -156,11 +146,11 @@ internal fun BottomSection(
                 .padding(top = AppSpacing.Medium, bottom = AppSpacing.Large),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Button(
+            LomoButton(
                 onClick = onApply,
                 enabled = allFilesChosen,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = AppShapes.Large,
+                shapes = ButtonShapes(AppShapes.Large, AppShapes.Medium),
             ) {
                 Text(
                     text = stringResource(Res.string.sync_conflict_apply_resolution),
@@ -240,12 +230,8 @@ private fun DialogSuggestionActions(
 }
 
 @Composable
-private fun SuggestionButton(
-    text: String,
-    onClick: () -> Unit,
-    primary: Boolean,
-) {
-    Button(
+private fun SuggestionButton(text: String, onClick: () -> Unit, primary: Boolean) {
+    LomoButton(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().height(44.dp),
         colors = if (primary) {
@@ -259,7 +245,7 @@ private fun SuggestionButton(
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         },
-        shape = AppShapes.Large,
+        shapes = ButtonShapes(AppShapes.Large, AppShapes.Medium),
     ) {
         Icon(
             imageVector = if (primary) Icons.Default.AutoAwesome else Icons.Default.DoneAll,
@@ -271,12 +257,8 @@ private fun SuggestionButton(
     }
 }
 
-private fun dialogTitle(
-    source: SyncBackendType,
-    isInitialImportPreview: Boolean,
-): StringResource =
-    when {
-        source == SyncBackendType.INBOX -> Res.string.sync_conflict_title_inbox_review
-        isInitialImportPreview -> Res.string.sync_conflict_title_initial_preview
-        else -> Res.string.sync_conflict_title_standard
-    }
+private fun dialogTitle(source: SyncBackendType, isInitialImportPreview: Boolean): StringResource = when {
+    source == SyncBackendType.INBOX -> Res.string.sync_conflict_title_inbox_review
+    isInitialImportPreview -> Res.string.sync_conflict_title_initial_preview
+    else -> Res.string.sync_conflict_title_standard
+}

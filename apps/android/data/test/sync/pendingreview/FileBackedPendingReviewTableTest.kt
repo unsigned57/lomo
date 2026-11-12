@@ -4,8 +4,8 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 
 /*
  * Behavior Contract:
@@ -39,75 +39,73 @@ import kotlinx.coroutines.test.runTest
  * - Reason category: legacy dao/entity naming tail deletion; the P5-13 boundary keeps the inbox
  *   pending-review table Kotlin-owned, so its durable contract gets its first locked test.
  */
-class FileBackedPendingReviewTableTest : FunSpec({
-    fun newTable(tablesDir: java.nio.file.Path): FileBackedPendingReviewTable =
-        FileBackedPendingReviewTable(rootDir = tablesDir.toFile())
+class FileBackedPendingReviewTableTest :
+    FunSpec({
+        fun newTable(tablesDir: java.nio.file.Path): FileBackedPendingReviewTable =
+            FileBackedPendingReviewTable(rootDir = tablesDir.toFile())
 
-    fun record(
-        backend: String,
-        generation: String = "generation-1",
-    ): PendingSyncReviewRecord =
-        PendingSyncReviewRecord(
-            workspaceGeneration = generation,
-            backend = backend,
-            reviewKind = "SYNC_INBOX_IMPORT_REVIEW",
-            timestamp = 1_725_000_000_000,
-            payloadJson = """{"schemaVersion":2,"items":[]}""",
-        )
+        fun record(backend: String, generation: String = "generation-1"): PendingSyncReviewRecord =
+            PendingSyncReviewRecord(
+                workspaceGeneration = generation,
+                backend = backend,
+                reviewKind = "SYNC_INBOX_IMPORT_REVIEW",
+                timestamp = 1_725_000_000_000,
+                payloadJson = """{"schemaVersion":2,"items":[]}""",
+            )
 
-    test("upserted record survives a fresh table instance load") {
-        runTest {
-            val tablesDir = Files.createTempDirectory("lomo-pending-review")
-            val table = newTable(tablesDir)
-            table.upsert(record(backend = "INBOX"))
+        test("upserted record survives a fresh table instance load") {
+            runTest {
+                val tablesDir = Files.createTempDirectory("lomo-pending-review")
+                val table = newTable(tablesDir)
+                table.upsert(record(backend = "INBOX"))
 
-            val reloaded = newTable(tablesDir)
+                val reloaded = newTable(tablesDir)
 
-            reloaded.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1") shouldBe
-                record(backend = "INBOX")
+                reloaded.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1") shouldBe
+                    record(backend = "INBOX")
+            }
         }
-    }
 
-    test("deleteByBackend removes only the targeted backend record") {
-        runTest {
-            val tablesDir = Files.createTempDirectory("lomo-pending-review")
-            val table = newTable(tablesDir)
-            table.upsert(record(backend = "INBOX"))
-            table.upsert(record(backend = "GIT"))
+        test("deleteByBackend removes only the targeted backend record") {
+            runTest {
+                val tablesDir = Files.createTempDirectory("lomo-pending-review")
+                val table = newTable(tablesDir)
+                table.upsert(record(backend = "INBOX"))
+                table.upsert(record(backend = "GIT"))
 
-            table.deleteByBackend(backend = "INBOX", workspaceGeneration = "generation-1")
+                table.deleteByBackend(backend = "INBOX", workspaceGeneration = "generation-1")
 
-            table.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1") shouldBe null
-            table.getByBackend(backend = "GIT", workspaceGeneration = "generation-1") shouldNotBe null
+                table.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1") shouldBe null
+                table.getByBackend(backend = "GIT", workspaceGeneration = "generation-1") shouldNotBe null
+            }
         }
-    }
 
-    test("clearAll removes records across backends and generations") {
-        runTest {
-            val tablesDir = Files.createTempDirectory("lomo-pending-review")
-            val table = newTable(tablesDir)
-            table.upsert(record(backend = "INBOX", generation = "generation-1"))
-            table.upsert(record(backend = "INBOX", generation = "generation-2"))
+        test("clearAll removes records across backends and generations") {
+            runTest {
+                val tablesDir = Files.createTempDirectory("lomo-pending-review")
+                val table = newTable(tablesDir)
+                table.upsert(record(backend = "INBOX", generation = "generation-1"))
+                table.upsert(record(backend = "INBOX", generation = "generation-2"))
 
-            table.clearAll()
+                table.clearAll()
 
-            table.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1") shouldBe null
-            val reloaded = newTable(tablesDir)
-            reloaded.getByBackend(backend = "INBOX", workspaceGeneration = "generation-2") shouldBe null
+                table.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1") shouldBe null
+                val reloaded = newTable(tablesDir)
+                reloaded.getByBackend(backend = "INBOX", workspaceGeneration = "generation-2") shouldBe null
+            }
         }
-    }
 
-    test("corrupt table file is clean-slate discarded and next upsert persists") {
-        runTest {
-            val tablesDir = Files.createTempDirectory("lomo-pending-review")
-            Files.writeString(tablesDir.resolve("pending_reviews.json"), "{ not json")
+        test("corrupt table file is clean-slate discarded and next upsert persists") {
+            runTest {
+                val tablesDir = Files.createTempDirectory("lomo-pending-review")
+                Files.writeString(tablesDir.resolve("pending_reviews.json"), "{ not json")
 
-            val table = FileBackedPendingReviewTable(tablesDir.toFile())
-            table.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1") shouldBe null
+                val table = FileBackedPendingReviewTable(tablesDir.toFile())
+                table.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1") shouldBe null
 
-            table.upsert(record(backend = "INBOX"))
-            val reloaded = FileBackedPendingReviewTable(tablesDir.toFile())
-            reloaded.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1").shouldNotBeNull()
+                table.upsert(record(backend = "INBOX"))
+                val reloaded = FileBackedPendingReviewTable(tablesDir.toFile())
+                reloaded.getByBackend(backend = "INBOX", workspaceGeneration = "generation-1").shouldNotBeNull()
+            }
         }
-    }
-})
+    })

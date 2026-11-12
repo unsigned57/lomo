@@ -7,26 +7,19 @@ import androidx.appcompat.app.AppCompatDelegate
 import com.lomo.domain.model.ThemeMode
 
 @AppCompatDelegate.NightMode
-fun ThemeMode.toAppCompatNightMode(): Int =
-    when (this) {
-        ThemeMode.SYSTEM -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
-        ThemeMode.LIGHT -> AppCompatDelegate.MODE_NIGHT_NO
-        ThemeMode.DARK -> AppCompatDelegate.MODE_NIGHT_YES
-    }
+fun ThemeMode.toAppCompatNightMode(): Int = when (this) {
+    ThemeMode.SYSTEM -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+    ThemeMode.LIGHT -> AppCompatDelegate.MODE_NIGHT_NO
+    ThemeMode.DARK -> AppCompatDelegate.MODE_NIGHT_YES
+}
 
-internal fun resolvePlatformNightMode(
-    themeMode: ThemeMode,
-): Int? =
-    when (themeMode) {
-        ThemeMode.SYSTEM -> UiModeManager.MODE_NIGHT_AUTO
-        ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
-        ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
-    }
+internal fun resolvePlatformNightMode(themeMode: ThemeMode): Int? = when (themeMode) {
+    ThemeMode.SYSTEM -> UiModeManager.MODE_NIGHT_AUTO
+    ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
+    ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
+}
 
-fun applyAppNightMode(
-    context: Context,
-    themeMode: ThemeMode,
-) {
+fun applyAppNightMode(context: Context, themeMode: ThemeMode) {
     val targetCompatMode = themeMode.toAppCompatNightMode()
     if (AppCompatDelegate.getDefaultNightMode() != targetCompatMode) {
         AppCompatDelegate.setDefaultNightMode(targetCompatMode)

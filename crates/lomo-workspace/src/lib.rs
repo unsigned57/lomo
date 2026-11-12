@@ -74,8 +74,8 @@ pub use lomo_record::{
     isolate_corrupt_record, read_record, write_record_atomic,
 };
 pub use memo_identity::{
-    IdentityPatchOutcome, MemoBinding, MemoIdentityChange, MemoIdentityConflict, MemoIdentityMap,
-    MemoIdentityOperation, memo_identity_record_path,
+    IdentityPatchOutcome, MAX_RETAINED_OPERATIONS, MemoBinding, MemoIdentityChange,
+    MemoIdentityConflict, MemoIdentityMap, MemoIdentityOperation, memo_identity_record_path,
 };
 pub use memo_locator::{MemoId, MemoLocator, WorkspaceRootId};
 pub use migration_v2::{
@@ -90,7 +90,7 @@ pub use render::{
     DEFAULT_REMINDER_INTERVAL_MINUTES, RENDER_DOCUMENT_SCHEMA_V1, ReminderRecurrence,
     ReminderTokenFacts, ReminderTokenMutation, RenderBlock, RenderDocumentV1, RenderInline,
     RenderListItem, RenderTableCell, SemanticFact, SemanticFactKind, build_reminder_token,
-    plan_reminder_token_mutation, reminder_token_facts, render_markdown,
+    plan_reminder_token_mutation, project_markdown_facts, reminder_token_facts, render_markdown,
 };
 pub use source::{
     BomKind, ByteSpan, DominantNewline, NewlineKind, SourceBytes, SourceFingerprint,
@@ -98,8 +98,8 @@ pub use source::{
 };
 pub use trash::{
     TRASH_RECORD_DIRECTORY, TRASH_RECORD_SCHEMA_VERSION, TrashRecordCreate, TrashRecordV1,
-    decode_trash_record, encode_trash_record, read_trash_record, trash_record_relative_path,
-    write_trash_record_atomic,
+    decode_trash_record, encode_trash_record, is_trash_record_path, read_trash_record,
+    trash_record_path_matches_identity, trash_record_relative_path, write_trash_record_atomic,
 };
 pub use types::{MemoIdentity, WorkspaceRelativePath};
 

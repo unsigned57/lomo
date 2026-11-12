@@ -145,9 +145,7 @@ class SearchMemosPageUseCaseTest : DomainFunSpec() {
         }
     }
 
-    private class FakeSearchRepository(
-        private val searchPage: List<Memo>,
-    ) : MemoSearchRepository {
+    private class FakeSearchRepository(private val searchPage: List<Memo>) : MemoSearchRepository {
         val searchCalls = mutableListOf<SearchCall>()
         val searchLoads = mutableListOf<SearchLoad>()
 
@@ -163,16 +161,9 @@ class SearchMemosPageUseCaseTest : DomainFunSpec() {
             return RecordingPagingSource(rows = searchPage, loads = searchLoads)
         }
 
-        data class SearchCall(
-            val query: String,
-            val mode: MemoSearchMode,
-            val filter: MemoListFilter,
-        )
+        data class SearchCall(val query: String, val mode: MemoSearchMode, val filter: MemoListFilter)
 
-        data class SearchLoad(
-            val key: String?,
-            val loadSize: Int,
-        )
+        data class SearchLoad(val key: String?, val loadSize: Int)
     }
 
     private class RecordingPagingSource(
@@ -194,24 +185,20 @@ class SearchMemosPageUseCaseTest : DomainFunSpec() {
         }
     }
 
-    private suspend fun PagingSource<String, Memo>.loadPage(
-        key: String? = null,
-        loadSize: Int,
-    ): List<Memo> =
-        when (
-            val result =
-                load(
-                    PagingSource.LoadParams.Refresh(
-                        key = key,
-                        loadSize = loadSize,
-                        placeholdersEnabled = false,
-                    ),
-                )
-        ) {
-            is PagingSource.LoadResult.Page -> result.data
-            is PagingSource.LoadResult.Error -> throw result.throwable
-            is PagingSource.LoadResult.Invalid -> error("PagingSource returned invalid result")
-        }
+    private suspend fun PagingSource<String, Memo>.loadPage(key: String? = null, loadSize: Int): List<Memo> = when (
+        val result =
+            load(
+                PagingSource.LoadParams.Refresh(
+                    key = key,
+                    loadSize = loadSize,
+                    placeholdersEnabled = false,
+                ),
+            )
+    ) {
+        is PagingSource.LoadResult.Page -> result.data
+        is PagingSource.LoadResult.Error -> throw result.throwable
+        is PagingSource.LoadResult.Invalid -> error("PagingSource returned invalid result")
+    }
 }
 
 private fun encodeCursor(offset: Int): String = "fake-search-cursor:$offset"
@@ -226,13 +213,12 @@ private fun memo(
     timestamp: Long = 1L,
     updatedAt: Long = timestamp,
     isPinned: Boolean = false,
-): Memo =
-    Memo(
-        id = id,
-        timestamp = timestamp,
-        updatedAt = updatedAt,
-        content = content,
-        rawContent = content,
-        dateKey = "2026_03_24",
-        isPinned = isPinned,
-    )
+): Memo = Memo(
+    id = id,
+    timestamp = timestamp,
+    updatedAt = updatedAt,
+    content = content,
+    rawContent = content,
+    dateKey = "2026_03_24",
+    isPinned = isPinned,
+)

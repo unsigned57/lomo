@@ -1,12 +1,12 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.common.toUserMessage
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.PreferenceDefaults
-import com.lomo.domain.model.CredentialField
-import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
@@ -236,30 +236,35 @@ class SettingsGitCoordinator(
     private suspend fun testGitConnectionState(): RemoteProviderConnectionTestState =
         when (val result = gitSyncSettingsUseCase.testConnection()) {
             is GitSyncResult.Success -> RemoteProviderConnectionTestState.Success(result.message)
+
             is GitSyncResult.Accepted ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.GIT,
                     providerCode = GitSyncErrorCode.UNKNOWN.name,
                     detail = result.message,
                 )
+
             is GitSyncResult.Error ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.GIT,
                     providerCode = result.code.name,
                     detail = result.message,
                 )
+
             GitSyncResult.NotConfigured ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.GIT,
                     providerCode = GitSyncErrorCode.NOT_CONFIGURED.name,
                     detail = "Git sync is not configured",
                 )
+
             GitSyncResult.DirectPathRequired ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.GIT,
                     providerCode = GitSyncErrorCode.DIRECT_PATH_REQUIRED.name,
                     detail = "Git sync requires a direct local directory path",
                 )
+
             is GitSyncResult.Conflict ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.GIT,
@@ -279,12 +284,14 @@ class SettingsGitCoordinator(
                     providerCode = operationError.code.name,
                     detail = operationError.detail,
                 )
+
             is SettingsOperationError.Message ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.GIT,
                     providerCode = GitSyncErrorCode.UNKNOWN.name,
                     detail = operationError.text,
                 )
+
             is SettingsOperationError.WebDavSync ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.GIT,
@@ -294,10 +301,7 @@ class SettingsGitCoordinator(
         }
     }
 
-    private suspend fun runWithError(
-        fallbackMessage: String,
-        action: suspend () -> Unit,
-    ): SettingsOperationError? =
+    private suspend fun runWithError(fallbackMessage: String, action: suspend () -> Unit): SettingsOperationError? =
         runSettingsOperation(
             fallbackMessage = fallbackMessage,
             specificError = { throwable -> throwable.toGitOperationErrorOrNull() },
@@ -308,32 +312,35 @@ class SettingsGitCoordinator(
 private fun GitSyncResult.Error.toOperationError(): SettingsOperationError.GitSync =
     SettingsOperationError.GitSync(code = code, detail = message)
 
-private fun GitSyncResult.toOperationErrorOrNull(): SettingsOperationError.GitSync? =
-    when (this) {
-        is GitSyncResult.Error -> toOperationError()
-        GitSyncResult.NotConfigured ->
-            SettingsOperationError.GitSync(
-                code = GitSyncErrorCode.NOT_CONFIGURED,
-                detail = "Git sync is not configured",
-            )
-        GitSyncResult.DirectPathRequired ->
-            SettingsOperationError.GitSync(
-                code = GitSyncErrorCode.DIRECT_PATH_REQUIRED,
-                detail = "Git sync requires a direct local directory path",
-            )
-        is GitSyncResult.Conflict ->
-            SettingsOperationError.GitSync(
-                code = GitSyncErrorCode.CONFLICT,
-                detail = message,
-            )
-        is GitSyncResult.Success,
-        is GitSyncResult.Accepted,
-        -> null
-    }
+private fun GitSyncResult.toOperationErrorOrNull(): SettingsOperationError.GitSync? = when (this) {
+    is GitSyncResult.Error -> toOperationError()
 
-private fun Throwable.toGitOperationErrorOrNull(): SettingsOperationError.GitSync? =
-    when (this) {
-        is GitSyncFailureException ->
-            SettingsOperationError.GitSync(code = code, detail = message)
-        else -> null
-    }
+    GitSyncResult.NotConfigured ->
+        SettingsOperationError.GitSync(
+            code = GitSyncErrorCode.NOT_CONFIGURED,
+            detail = "Git sync is not configured",
+        )
+
+    GitSyncResult.DirectPathRequired ->
+        SettingsOperationError.GitSync(
+            code = GitSyncErrorCode.DIRECT_PATH_REQUIRED,
+            detail = "Git sync requires a direct local directory path",
+        )
+
+    is GitSyncResult.Conflict ->
+        SettingsOperationError.GitSync(
+            code = GitSyncErrorCode.CONFLICT,
+            detail = message,
+        )
+
+    is GitSyncResult.Success,
+    is GitSyncResult.Accepted,
+    -> null
+}
+
+private fun Throwable.toGitOperationErrorOrNull(): SettingsOperationError.GitSync? = when (this) {
+    is GitSyncFailureException ->
+        SettingsOperationError.GitSync(code = code, detail = message)
+
+    else -> null
+}

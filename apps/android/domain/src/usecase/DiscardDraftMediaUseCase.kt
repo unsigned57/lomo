@@ -9,13 +9,8 @@ import kotlinx.coroutines.CancellationException
  * Best-effort draft media cleanup. Stage discard is preferred; this removes the committed media
  * entries (owner-resolved relative paths) tracked by the editor when the draft is abandoned.
  */
-open class DiscardDraftMediaUseCase(
-    private val mediaRepository: MediaRepository,
-) {
-    open suspend operator fun invoke(
-        entryIds: Collection<String>,
-        draftId: DraftId,
-    ) {
+open class DiscardDraftMediaUseCase(private val mediaRepository: MediaRepository) {
+    open suspend operator fun invoke(entryIds: Collection<String>, draftId: DraftId) {
         entryIds.forEach { entryId ->
             try {
                 // behavior-contract: loop-io-ok: no bulk removeImage API; each iteration is one bounded media id

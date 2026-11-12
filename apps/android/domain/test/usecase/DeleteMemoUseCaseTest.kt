@@ -18,14 +18,14 @@
 
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -33,7 +33,6 @@ package com.lomo.domain.usecase
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoOperationId
@@ -55,18 +54,18 @@ class DeleteMemoUseCaseTest : DomainFunSpec() {
     init {
         test("invoke delegates delete to maintenance use case") {
             runTest {
-                        val memo =
-                            Memo(
-                                id = "memo-1",
-                                timestamp = 123L,
-                                content = "delete me",
-                                rawContent = "- 10:00 delete me",
-                                dateKey = "2026_03_24",
-                            )
-                        useCase(memo, MemoOperationId("delete-use-case-test"))
+                val memo =
+                    Memo(
+                        id = "memo-1",
+                        timestamp = 123L,
+                        content = "delete me",
+                        rawContent = "- 10:00 delete me",
+                        dateKey = "2026_03_24",
+                    )
+                useCase(memo, MemoOperationId("delete-use-case-test"))
 
-                        repository.deletedMemoRequests shouldBe listOf(memo)
-                    }
+                repository.deletedMemoRequests shouldBe listOf(memo)
+            }
         }
     }
 }

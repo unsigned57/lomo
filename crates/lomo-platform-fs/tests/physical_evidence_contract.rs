@@ -1,16 +1,28 @@
-//! Behavior Contract
+//! Behavior Contract:
 //!
 //! Capability: authorize physical writes using exact content and replay only the same action.
 //! Scenarios:
 //! - Given unchanged bytes with a changed mtime, replacement still accepts the original baseline.
 //! - Given a reused action ID with different write parameters, the second action writes its bytes.
 //! - Given a damaged exchange artifact, repeating a read restores verified source bytes.
-//! - Given Unicode filenames, opaque pagination resumes without loss and rejects a changed list.
+//! - Given Unicode filenames, opaque pagination resumes without loss and rejects a finished cursor.
 //! - Given inconsistent path and locator evidence, reading refuses to stage the wrong document.
 //! - Given a bound capability, rebinding it cannot redirect pending actions to another root.
 //! - Given a nonempty directory, a single delete action preserves unenumerated child documents.
 //! - Given an existing move destination, replacement requires and honors its exact byte baseline.
 //! - Given a named pipe among workspace entries, enumeration rejects it without blocking for a writer.
+//!
+//! - Given a paged directory and an external addition, when the page chain continues, then
+//!   its original members appear once; a new enumeration includes the external member.
+//! - Given sixteen pending observations, when another starts, then the oldest is evicted.
+//! - Given another capability or an external content edit, when resuming, then the foreign
+//!   capability is rejected while the owning capability receives live metadata for its member.
+//!
+//! Metadata observation control: Inspect equals listing evidence while Stat still attests bytes;
+//! application budget RED/GREEN: workspace-scaling/metadata-inspect-*.log.
+//!
+//! Snapshot TDD proof: workspace-scaling/fs-pagination-red.log (stale cursor instead of next
+//! original member), then fs-pagination-green.log, through the real filesystem executor.
 //!
 //! Observable outcomes: file bytes, stable SHA fingerprints, verified action outputs.
 //! TDD proof: RED shows mtime-dependent baselines and action-ID-only replay returning stale bytes.
@@ -59,6 +71,37 @@ mod tests {
     }
 
     #[test]
+    fn inspect_returns_listing_tokens_without_conflating_them_with_content_cas_evidence() {
+        let (temp, executor, _) = setup();
+        fs::write(temp.path().join("notes/memo.md"), b"hello").must_succeed("document");
+        let result = executor.execute_action(&PlatformAction::inspect(
+            action_id(),
+            capability(),
+            lomo_core::WorkspaceTarget::Relative(path()),
+        ));
+        let ActionOutcome::Applied(PlatformActionOutput::Stat { metadata }) = result.outcome()
+        else {
+            panic!("metadata inspection must succeed");
+        };
+        assert_eq!(metadata.evidence().length(), 5);
+        assert!(metadata.evidence().verified_digest().is_none());
+        let listed = page(list(&executor, None));
+        let entry = listed
+            .items()
+            .first()
+            .ok_or("missing file")
+            .must_succeed("listing");
+        assert_eq!(metadata.evidence(), entry.evidence());
+        let content =
+            executor.execute_action(&PlatformAction::stat(action_id(), capability(), path()));
+        let ActionOutcome::Applied(PlatformActionOutput::Stat { metadata }) = content.outcome()
+        else {
+            panic!("content observation must succeed");
+        };
+        assert!(metadata.evidence().verified_digest().is_some());
+    }
+
+    #[test]
     fn unicode_filename_pagination_is_opaque_and_bound_to_the_directory_snapshot() {
         let (temp, executor, _) = setup();
         fs::write(temp.path().join("notes/中文.md"), b"first").must_succeed("first document");
@@ -83,6 +126,117 @@ mod tests {
             panic!("cursor from old directory snapshot must fail");
         };
         assert_eq!(error.code(), "stale_directory_cursor");
+    }
+
+    #[test]
+    fn directory_pagination_observes_one_membership_snapshot_and_new_scans_see_additions() {
+        let (temp, executor, _) = setup();
+        let notes = temp.path().join("notes");
+        fs::write(notes.join("a.md"), b"a").must_succeed("first member");
+        fs::write(notes.join("b.md"), b"b").must_succeed("second member");
+        let first = page(list(&executor, None));
+        let cursor = first
+            .next_cursor()
+            .ok_or("missing continuation")
+            .must_succeed("continuation")
+            .as_str()
+            .to_owned();
+        fs::write(notes.join("0.md"), b"external addition").must_succeed("new member");
+        let second = page(list(&executor, Some(cursor)));
+        assert_eq!(
+            second
+                .items()
+                .first()
+                .ok_or("empty continuation")
+                .must_succeed("member")
+                .document_handle()
+                .as_str(),
+            "b.md"
+        );
+        assert!(second.next_cursor().is_none());
+        let fresh = page(list(&executor, None));
+        assert_eq!(
+            fresh
+                .items()
+                .first()
+                .ok_or("empty fresh listing")
+                .must_succeed("new member")
+                .document_handle()
+                .as_str(),
+            "0.md"
+        );
+    }
+
+    #[test]
+    fn pending_directory_snapshots_are_bounded_and_evicted_cursors_fail_explicitly() {
+        let (temp, executor, _) = setup();
+        fs::write(temp.path().join("notes/a.md"), b"a").must_succeed("first member");
+        fs::write(temp.path().join("notes/b.md"), b"b").must_succeed("second member");
+        let mut cursors = Vec::new();
+        for _ in 0..17 {
+            let first = page(list(&executor, None));
+            cursors.push(
+                first
+                    .next_cursor()
+                    .ok_or("missing continuation")
+                    .must_succeed("cursor")
+                    .as_str()
+                    .to_owned(),
+            );
+        }
+        let oldest = cursors
+            .first()
+            .ok_or("missing oldest")
+            .must_succeed("oldest")
+            .clone();
+        let ActionOutcome::Failed(error) = list(&executor, Some(oldest)) else {
+            panic!("oldest snapshot must be evicted");
+        };
+        assert_eq!(error.code(), "stale_directory_cursor");
+        let latest = cursors
+            .last()
+            .ok_or("missing latest")
+            .must_succeed("latest")
+            .clone();
+        assert!(page(list(&executor, Some(latest))).next_cursor().is_none());
+    }
+
+    #[test]
+    fn a_directory_snapshot_cannot_cross_a_capability_and_content_metadata_stays_live() {
+        let (temp, executor, _) = setup();
+        let notes = temp.path().join("notes");
+        fs::write(notes.join("a.md"), b"a").must_succeed("first member");
+        fs::write(notes.join("b.md"), b"b").must_succeed("second member");
+        let first = page(list(&executor, None));
+        let cursor = first
+            .next_cursor()
+            .ok_or("missing continuation")
+            .must_succeed("cursor")
+            .as_str()
+            .to_owned();
+        let other = CapabilityToken::parse("other-root").must_succeed("other capability");
+        executor
+            .bind_root(other.clone(), &notes)
+            .must_succeed("bind other capability");
+        let foreign = executor.execute_action(&PlatformAction::list_root(
+            action_id(),
+            other,
+            Some(cursor.clone()),
+            PageSize::new(1).must_succeed("page size"),
+        ));
+        let ActionOutcome::Failed(error) = foreign.outcome() else {
+            panic!("foreign root must not consume the snapshot");
+        };
+        assert_eq!(error.code(), "invalid_directory_cursor");
+        fs::write(notes.join("b.md"), b"new content").must_succeed("external content edit");
+        let second = page(list(&executor, Some(cursor)));
+        let current = second
+            .items()
+            .first()
+            .ok_or("missing member")
+            .must_succeed("member");
+        assert_eq!(current.evidence().length(), 11);
+        assert!(current.evidence().verified_digest().is_none());
     }
 
     #[test]

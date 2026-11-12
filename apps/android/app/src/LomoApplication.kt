@@ -1,7 +1,6 @@
 package com.lomo.app
 
 import android.app.Application
-import android.content.res.Configuration as AndroidConfiguration
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -36,14 +35,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
-import org.koin.androidx.workmanager.koin.workManagerFactory
 import org.koin.androidx.workmanager.factory.KoinWorkerFactory
-import org.koin.core.context.startKoin
+import org.koin.androidx.workmanager.koin.workManagerFactory
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
+import org.koin.core.context.startKoin
 import org.koin.core.module.Module
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
+import android.content.res.Configuration as AndroidConfiguration
 
 private val dataModules: List<Module> by lazy {
     val p1 = "com.lomo"
@@ -83,7 +83,7 @@ class LomoApplication :
     private val reminderCoordinator: ReminderCoordinator by inject()
     private val engineReadinessRepository: EngineReadinessRepository by inject()
     private val securitySessionController: SecuritySessionController by inject()
-    
+
     // behavior-contract: unmanaged-scope-ok: process-lifetime app
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val syncStartupRegistered = AtomicBoolean(false)
@@ -101,21 +101,36 @@ class LomoApplication :
                 }
                 .build()
 
-    override fun newImageLoader(context: android.content.Context): ImageLoader =
-        ImageLoader
-            .Builder(context)
-            .memoryCache(
-                MemoryCache
-                    .Builder()
-                    .maxSizePercent(context, LOMO_IMAGE_LOADER_MEMORY_CACHE_PERCENT)
-                    .build(),
-            ).diskCache(lomoImageDiskCache(context.cacheDir))
-            .diskCachePolicy(CachePolicy.ENABLED)
-            .fetcherCoroutineContext(lomoImageFetcherCoroutineContext(Dispatchers.IO))
-            .decoderCoroutineContext(lomoImageDecoderCoroutineContext(Dispatchers.IO))
-            .crossfade(true)
-            .serviceLoaderEnabled(false)
-            .build()
+    override fun newImageLoader(context: android.content.Context): ImageLoader = ImageLoader
+        .Builder(context)
+        .memoryCache(
+            MemoryCache
+                .Builder()
+                .maxSizePercent(context, LOMO_IMAGE_LOADER_MEMORY_CACHE_PERCENT)
+                .build(),
+        ).diskCache(lomoImageDiskCache(context.cacheDir))
+        .diskCachePolicy(CachePolicy.ENABLED)
+        .fetcherCoroutineContext(lomoImageFetcherCoroutineContext(Dispatchers.IO))
+        .decoderCoroutineContext(lomoImageDecoderCoroutineContext(Dispatchers.IO))
+        .crossfade(true)
+        .serviceLoaderEnabled(true)
+        .build()
+
+    /**
+     * Runs off Main: returning from a directory picker resumes while that switch still holds the
+     * engine lease, and a blocked process onStart is an ANR.
+     */
+    private fun launchForegroundResnapshot() {
+        appScope.launch {
+            try {
+                engineReadinessRepository.resnapshot()
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Timber.e(error, "Failed to resnapshot engine readiness on foreground entry")
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -130,11 +145,11 @@ class LomoApplication :
                 duty = processDuty,
                 processName = currentProcessName(this),
                 dataModules =
-                    if (processDuty.ownsNativeEngine) {
-                        dataModules
-                    } else {
-                        emptyList()
-                    },
+                if (processDuty.ownsNativeEngine) {
+                    dataModules
+                } else {
+                    emptyList()
+                },
             )
         Timber.i("startup plan %s", startupPlan.describe())
 
@@ -170,14 +185,12 @@ class LomoApplication :
                     // Foreground entry re-reads the authoritative engine snapshot. Grants can be
                     // revoked and workspaces removed while the process is backgrounded, so a stale
                     // Ready would keep the write gate open against a workspace that is gone.
-                    runCatching { engineReadinessRepository.resnapshot() }
-                        .onFailure { error ->
-                            Timber.e(error, "Failed to resnapshot engine readiness on foreground entry")
-                        }
+                    launchForegroundResnapshot()
                     if (!syncStartupRegistered.compareAndSet(false, true)) {
                         return
                     }
                     appScope.launch {
+                        appStartupCoordinator.awaitFirstFrame()
                         runCatching {
                             syncPolicyRepository.ensureCoreSyncActive()
                         }.onFailure { error ->
@@ -196,6 +209,7 @@ class LomoApplication :
                     // Reminder queries are admitted only by the published mount: bare authority
                     // without a verified projection must not rebuild alarms against a stale store.
                     appScope.launch {
+                        appStartupCoordinator.awaitFirstFrame()
                         engineReadinessRepository.mount
                             .map { it.admittedAuthority }
                             .distinctUntilChanged()
@@ -209,7 +223,7 @@ class LomoApplication :
                                     Timber.e(error, "Failed to rebuild reminder alarms after workspace activation")
                                 }
                             }
-                        }
+                    }
                 }
             },
         )

@@ -14,18 +14,28 @@
  * - Observable outcomes: assertions verify expected outcomes.
  * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
  * - Excludes: none.
+ *
+ * Test Change Justification:
+ * Reason category: measured profile packaging replaces static class enumeration.
+ * Old behavior/assertion being replaced: manual HRF/glob files must name data, JNI and Koin.
+ * Why old assertion is no longer correct: sampled hot paths are intentional subsets and the
+ * manual/glob inputs are removed; naming a class does not prove ART executed its methods.
+ * Coverage preserved by: lomo-xtask measured_profiles_contract validates exact collected bytes,
+ * provenance and rejection; SDK profgen and release APK checks own grammar and packaging.
+ * Why this is not fitting the test to the implementation: the deleted assertion enforced an
+ * obsolete generation mechanism, not layer authority or observed startup performance.
  */
 
 package com.lomo.app.architecture
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -33,7 +43,6 @@ package com.lomo.app.architecture
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.assertions.withClue
@@ -52,7 +61,9 @@ class AppLayerBoundaryTest : AppFunSpec() {
             withClue("No Kotlin sources found in app/src") { ((kotlinFiles.isNotEmpty())) shouldBe true }
 
             val offenders = kotlinFiles.filter(::containsDataLayerReference)
-            withClue("App layer must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}") { ((offenders.isEmpty())) shouldBe true }
+            withClue(
+                "App layer must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}",
+            ) { ((offenders.isEmpty())) shouldBe true }
         }
 
         test("widget receiver lives in a projection-only process") {
@@ -68,35 +79,6 @@ class AppLayerBoundaryTest : AppFunSpec() {
             }
             withClue("widget receiver must run in :widget so a Glance wake does not own the engine") {
                 widgetReceiver.orEmpty().contains("""android:process=":widget"""") shouldBe true
-            }
-        }
-
-        test("static baseline profile preheats data engine JNI and Koin") {
-            val profile = moduleRoot.resolve("src/main/baseline-prof.txt").readText()
-            val rules = moduleRoot.resolve("baseline-rules.txt").readText()
-            withClue("static baseline must name data DI") {
-                profile.contains("Lcom/lomo/data/di/") shouldBe true
-            }
-            withClue("static baseline must name ManagedEngineSession") {
-                profile.contains("Lcom/lomo/data/engine/ManagedEngineSession;") shouldBe true
-            }
-            withClue("static baseline must name JNI LomoEngine") {
-                profile.contains("Lcom/lomo/nativebridge/LomoEngine;") shouldBe true
-            }
-            withClue("static baseline must name Koin") {
-                profile.contains("Lorg/koin/core/Koin;") shouldBe true
-            }
-            withClue("baseline rules must cover data engine") {
-                rules.contains("com/lomo/data/engine/") shouldBe true
-            }
-            withClue("baseline rules must cover data DI") {
-                rules.contains("com/lomo/data/di/") shouldBe true
-            }
-            withClue("baseline rules must cover nativebridge") {
-                rules.contains("com/lomo/nativebridge/") shouldBe true
-            }
-            withClue("baseline rules must cover Koin") {
-                rules.contains("org/koin/core/") shouldBe true
             }
         }
 
@@ -135,17 +117,18 @@ class AppLayerBoundaryTest : AppFunSpec() {
                     .map { dependency -> dependency.value.trim() }
                     .toList()
 
-            withClue("app/module.yaml must keep //data runtime-only. Offenders: ${offenders.joinToString()}") { ((offenders.isNotEmpty())) shouldBe false }
+            withClue(
+                "app/module.yaml must keep //data runtime-only. Offenders: ${offenders.joinToString()}",
+            ) { ((offenders.isNotEmpty())) shouldBe false }
         }
     }
 
-    private fun collectKotlinFiles(): List<File> =
-        sourceRoot
-            .takeIf(File::exists)
-            ?.walkTopDown()
-            ?.filter { it.isFile && it.extension == kotlinFileExtension }
-            ?.toList()
-            .orEmpty()
+    private fun collectKotlinFiles(): List<File> = sourceRoot
+        .takeIf(File::exists)
+        ?.walkTopDown()
+        ?.filter { it.isFile && it.extension == kotlinFileExtension }
+        ?.toList()
+        .orEmpty()
 
     private fun containsDataLayerReference(file: File): Boolean {
         val content = file.readText()
@@ -154,11 +137,10 @@ class AppLayerBoundaryTest : AppFunSpec() {
         return DATA_FQCN_PATTERN.containsMatchIn(nonImportOrPackageContent)
     }
 
-    private fun stripImportAndPackageLines(content: String): String =
-        content
-            .lineSequence()
-            .filterNot { IMPORT_OR_PACKAGE_LINE_PATTERN.containsMatchIn(it) }
-            .joinToString(separator = "\n")
+    private fun stripImportAndPackageLines(content: String): String = content
+        .lineSequence()
+        .filterNot { IMPORT_OR_PACKAGE_LINE_PATTERN.containsMatchIn(it) }
+        .joinToString(separator = "\n")
 
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."

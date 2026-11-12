@@ -19,7 +19,7 @@ internal fun resolveMemoInputMinimumContentHeightPx(
                 style.fontSize != TextUnit.Unspecified -> style.fontSize.roundToPx()
                 else -> 0
             }
-    }
+        }
     return (minimumLineHeightPx * minLines.coerceAtLeast(1)).coerceAtLeast(0)
 }
 

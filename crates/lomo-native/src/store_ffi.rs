@@ -188,6 +188,8 @@ pub enum StoreMemoSortField {
     #[default]
     CreatedAt,
     UpdatedAt,
+    ReviewMonth,
+    ReviewRandom,
 }
 
 #[data]
@@ -199,10 +201,12 @@ pub enum StoreSortDirection {
 }
 
 #[data]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StoreMemoSort {
     pub field: StoreMemoSortField,
     pub direction: StoreSortDirection,
+    pub seed: i64,
+    pub time_zone: String,
 }
 
 #[data]
@@ -772,9 +776,13 @@ pub fn memo_query_from_ffi(query: StoreMemoQuery) -> (MemoQuery, Option<MemoQuer
             search_text: query.search_text,
             filters: memo_filters_from_ffi(query.filters),
             sort: store::MemoSort {
+                seed: query.sort.seed,
+                time_zone: query.sort.time_zone,
                 field: match query.sort.field {
                     StoreMemoSortField::CreatedAt => store::MemoSortField::CreatedAt,
                     StoreMemoSortField::UpdatedAt => store::MemoSortField::UpdatedAt,
+                    StoreMemoSortField::ReviewMonth => store::MemoSortField::ReviewMonth,
+                    StoreMemoSortField::ReviewRandom => store::MemoSortField::ReviewRandom,
                 },
                 direction: match query.sort.direction {
                     StoreSortDirection::Ascending => store::SortDirection::Ascending,

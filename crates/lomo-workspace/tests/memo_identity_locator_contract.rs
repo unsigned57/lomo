@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //!
 //! Capability: separate durable opaque memo IDs from byte-exact, versioned document addresses.
@@ -233,7 +242,7 @@ mod tests {
             .reconcile_external(operation("external-reorder"), &external)
             .test_ok("exact matching");
         assert_eq!(reconciled.memo_ids(), vec![id("b"), id("a")]);
-        assert!(reconciled.conflicts().is_empty());
+        assert_eq!(reconciled.conflicts(), []);
         assert_eq!(reconciled.locator(&id("a")).test_ok("a").block_index(), 1);
     }
 
@@ -244,7 +253,7 @@ mod tests {
         let reconciled = map
             .reconcile_external(operation("external-edit"), &external)
             .test_ok("record ambiguity");
-        assert!(reconciled.memo_ids().is_empty());
+        assert_eq!(reconciled.memo_ids(), Vec::<MemoId>::new());
         assert_eq!(reconciled.conflicts().len(), 2);
         let conflict = reconciled.conflicts().first().test_ok("conflict");
         assert_eq!(conflict.previous().memo_id(), &id("a"));
@@ -308,7 +317,7 @@ mod tests {
             *malformed.get_mut(field).test_ok("wire field") = value;
             let error = serde_json::from_value::<MemoLocator>(malformed)
                 .test_err("wire boundary rejection");
-            assert!(!error.to_string().is_empty());
+            assert_ne!(error.to_string(), "");
         }
         let mut zero_len = wire;
         *zero_len.get_mut("byte_start").test_ok("byte_start") = serde_json::json!(10);
@@ -390,11 +399,11 @@ mod tests {
         let mut encoded = map.encode().test_ok("encode");
         let last = encoded.last_mut().test_ok("nonempty envelope");
         *last ^= 1;
-        assert!(
-            !MemoIdentityMap::decode(&encoded)
+        assert_ne!(
+            MemoIdentityMap::decode(&encoded)
                 .test_err("tampered durable record")
-                .code()
-                .is_empty()
+                .code(),
+            ""
         );
         let error = MemoIdentityMap::initialize(
             operation("bad"),
@@ -434,7 +443,7 @@ mod tests {
         for invalid in [reordered, sparse, unjournaled, wrong_journal, future] {
             let error = serde_json::from_value::<MemoIdentityMap>(invalid)
                 .test_err("reject invalid identity graph at JSON boundary");
-            assert!(!error.to_string().is_empty());
+            assert_ne!(error.to_string(), "");
         }
     }
 
@@ -587,7 +596,7 @@ mod tests {
             .assign_discovered(operation("discover"), &doc, vec![id("new-random-id")])
             .test_ok("new ID");
         assert_eq!(discovered.memo_ids(), vec![id("a"), id("new-random-id")]);
-        assert!(discovered.unbound().is_empty());
+        assert_eq!(discovered.unbound(), []);
         let error = scanned
             .assign_discovered(operation("reuse"), &doc, vec![id("a")])
             .test_err("existing ID cannot be allocated");
@@ -663,7 +672,7 @@ mod tests {
         assert_eq!(scan3.memo_ids(), vec![id("unique-c")]);
         assert_eq!(scan3.conflicts().len(), 2);
         for conflict in scan3.conflicts() {
-            assert!(conflict.candidates().is_empty());
+            assert_eq!(conflict.candidates(), []);
             assert_eq!(conflict.observed_fingerprint(), doc3.source().fingerprint());
         }
     }
@@ -683,7 +692,7 @@ mod tests {
             .test_ok("scan none");
         assert_eq!(scan_none.conflicts().len(), 2);
         for conflict in scan_none.conflicts() {
-            assert!(conflict.candidates().is_empty());
+            assert_eq!(conflict.candidates(), []);
         }
 
         // Restore one copy of "same". Candidate is restored and retained in conflicts without guessing.

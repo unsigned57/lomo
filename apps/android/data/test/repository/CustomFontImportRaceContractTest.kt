@@ -57,12 +57,12 @@ class CustomFontImportRaceContractTest : DataFunSpec() {
                         CustomFontStoreImpl(
                             fontDir = fontDir,
                             fontFileValidator =
-                                FontFileValidator {
-                                    // both imports finish staging at the same instant, then race
-                                    // through uniqueTarget() -> renameTo()
-                                    barrier.await(5, TimeUnit.SECONDS)
-                                    true
-                                },
+                            FontFileValidator {
+                                // both imports finish staging at the same instant, then race
+                                // through uniqueTarget() -> renameTo()
+                                barrier.await(5, TimeUnit.SECONDS)
+                                true
+                            },
                             dispatcherProvider = SingleDispatcherProvider(Dispatchers.IO),
                             maxFontFileBytes = MAX_FONT_FILE_BYTES,
                         )

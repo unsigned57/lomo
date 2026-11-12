@@ -73,12 +73,11 @@ class InputEditorPreviewContentPolicyTest : UiComponentsFunSpec() {
         }
     }
 
-    private fun emptyDocument(plainText: String) =
-        MarkdownRenderDocument(
-            sourceByteLength = plainText.encodeToByteArray().size.toULong(),
-            plainText = plainText,
-            tagNames = emptyList(),
-            attachments = emptyList(),
-            blocks = emptyList(),
-        )
+    private fun emptyDocument(plainText: String) = MarkdownRenderDocument(
+        sourceByteLength = plainText.encodeToByteArray().size.toULong(),
+        plainText = plainText,
+        tagNames = emptyList(),
+        attachments = emptyList(),
+        blocks = emptyList(),
+    )
 }

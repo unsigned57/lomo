@@ -19,13 +19,13 @@ value class MemoOperationId(val value: String) {
             "Memo operation id must be a bounded nonblank ASCII protocol token"
         }
     }
+
+    companion object {
+        fun mint(): MemoOperationId = MemoOperationId(java.util.UUID.randomUUID().toString())
+    }
 }
 
-class EditBaseline internal constructor(
-    val memoId: String,
-    val contentRevision: Long,
-    val fileFingerprint: String,
-) {
+class EditBaseline internal constructor(val memoId: String, val contentRevision: Long, val fileFingerprint: String) {
     init {
         require(memoId.isNotBlank() && contentRevision > 0 && fileFingerprint.isNotBlank()) {
             "An edit baseline requires stable identity, revision and source fingerprint"
@@ -43,10 +43,7 @@ class EditBaseline internal constructor(
  * `String.length` reports). A promoted preview keeps either a null count or the count of the
  * *untruncated* document, which is larger than the preview body it carries, so it is rejected.
  */
-class EditableMemoSnapshot private constructor(
-    val memo: Memo,
-    val baseline: EditBaseline,
-) {
+class EditableMemoSnapshot private constructor(val memo: Memo, val baseline: EditBaseline) {
     override fun equals(other: Any?): Boolean = other is EditableMemoSnapshot && memo == other.memo
     override fun hashCode(): Int = memo.hashCode()
 

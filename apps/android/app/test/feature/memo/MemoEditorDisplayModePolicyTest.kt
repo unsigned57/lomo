@@ -43,5 +43,4 @@ class MemoEditorDisplayModePolicyTest : AppFunSpec() {
             (controller.displayMode) shouldBe (InputEditorDisplayMode.Edit)
         }
     }
-
 }

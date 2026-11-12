@@ -1,3 +1,12 @@
+// Test Change Justification:
+// Reason category: fixture address migration for requested dated trash names.
+// Old behavior/assertion being replaced: the rewrite fixture overwrote one hash-only path.
+// Why old assertion is no longer correct: changing a source document now changes its filename label;
+// simply writing the new address creates two records instead of replacing the original record.
+// Coverage preserved by: all convergence, source-conflict and cold-scan assertions remain unchanged.
+// Why this is not fitting the test to the implementation: the fixture still supplies exactly one
+// rewritten identity; it writes the replacement before removing the old address, preserving the
+// original scenario rather than weakening its expected result.
 //! Adversarial reconcile probes on the trash lane: record-echo rows,
 //! lane-aware row images, claim disambiguation, purge ordering and the
 //! lane-authority widen. Merged from the numbered re-audit rounds.
@@ -374,10 +383,29 @@ mod tests {
 
         /// Writes a durable trash record for `memo_id` at its canonical hashed path.
         fn write_trash_record(workspace: &Path, record: &TrashRecordV1) {
-            let rel = trash_record_relative_path(&record.memo_id).expect("trash path");
+            let rel = trash_record_relative_path(&record.memo_id, &record.source_path)
+                .expect("trash path");
             let abs = workspace.join(rel.as_str());
             fs::create_dir_all(abs.parent().expect("record dir")).expect("record dir");
             write_trash_record_atomic(&abs, record).expect("write record");
+            // This fixture replaces one record, including its filename when the source moves.
+            // Write first, then retire its previous address; do not turn a rewrite scenario into
+            // two simultaneous claims for the same identity.
+            for entry in fs::read_dir(abs.parent().expect("record dir")).expect("record dir") {
+                let previous = entry.expect("record entry").path();
+                let relative = format!(
+                    ".trash/{}",
+                    previous.file_name().expect("name").to_str().expect("utf8")
+                );
+                if previous != abs
+                    && lomo_workspace::trash_record_path_matches_identity(
+                        &relative,
+                        &record.memo_id,
+                    )
+                {
+                    fs::remove_file(previous).expect("retire replaced record address");
+                }
+            }
         }
 
         /// One doc-absent ghost record whose only authority is its own bytes.
@@ -445,7 +473,13 @@ mod tests {
                     trashed_at_ms: Some(1_757_500_000_000),
                 })
                 .expect("delete commits a trash row");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             let digest = committed_digest(&ctx.cache_dir, &victim_id).expect("trash row");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             assert!(!digest.is_empty(), "the commit path writes a real digest");
 
             // A v11-era store ends the session converged: the committed listing
@@ -1154,7 +1188,8 @@ mod tests {
 
         /// Writes a durable trash record for `memo_id` at its canonical hashed path.
         fn write_trash_record(workspace: &Path, record: &TrashRecordV1) {
-            let rel = trash_record_relative_path(&record.memo_id).expect("trash path");
+            let rel = trash_record_relative_path(&record.memo_id, &record.source_path)
+                .expect("trash path");
             let abs = workspace.join(rel.as_str());
             fs::create_dir_all(abs.parent().expect("record dir")).expect("record dir");
             write_trash_record_atomic(&abs, record).expect("write record");
@@ -1164,8 +1199,20 @@ mod tests {
         /// peer redelivery can surface on its own once the document half already
         /// landed in an earlier pass.
         fn remove_trash_record(workspace: &Path, memo_id: &str) {
-            let rel = trash_record_relative_path(memo_id).expect("trash path");
-            fs::remove_file(workspace.join(rel.as_str())).expect("remove record");
+            let path = fs::read_dir(workspace.join(".trash"))
+                .expect("trash directory")
+                .map(|entry| entry.expect("trash entry").path())
+                .find(|path| {
+                    lomo_workspace::trash_record_path_matches_identity(
+                        &format!(
+                            ".trash/{}",
+                            path.file_name().expect("name").to_str().expect("utf8")
+                        ),
+                        memo_id,
+                    )
+                })
+                .expect("matching recovery record");
+            fs::remove_file(path).expect("remove record");
         }
 
         /// Writes a durable purge tombstone for `memo_id` at its canonical hashed path.
@@ -1799,7 +1846,8 @@ mod tests {
 
         /// Writes a durable trash record for `memo_id` at its canonical hashed path.
         fn write_trash_record(workspace: &Path, record: &TrashRecordV1) {
-            let rel = trash_record_relative_path(&record.memo_id).expect("trash path");
+            let rel = trash_record_relative_path(&record.memo_id, &record.source_path)
+                .expect("trash path");
             let abs = workspace.join(rel.as_str());
             fs::create_dir_all(abs.parent().expect("record dir")).expect("record dir");
             write_trash_record_atomic(&abs, record).expect("write record");
@@ -1809,8 +1857,20 @@ mod tests {
         /// peer redelivery can surface on its own once the document half already
         /// landed in an earlier pass.
         fn remove_trash_record(workspace: &Path, memo_id: &str) {
-            let rel = trash_record_relative_path(memo_id).expect("trash path");
-            fs::remove_file(workspace.join(rel.as_str())).expect("remove record");
+            let path = fs::read_dir(workspace.join(".trash"))
+                .expect("trash directory")
+                .map(|entry| entry.expect("trash entry").path())
+                .find(|path| {
+                    lomo_workspace::trash_record_path_matches_identity(
+                        &format!(
+                            ".trash/{}",
+                            path.file_name().expect("name").to_str().expect("utf8")
+                        ),
+                        memo_id,
+                    )
+                })
+                .expect("matching recovery record");
+            fs::remove_file(path).expect("remove record");
         }
 
         /// Writes a durable purge tombstone for `memo_id` at its canonical hashed path.
@@ -1908,6 +1968,9 @@ mod tests {
                 )
                 .expect("pin");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .rebuild_projection()
                 .expect("the pin's durable state records reconcile");
             assert!(
@@ -1937,6 +2000,9 @@ mod tests {
                     trashed_at_ms: Some(1_757_500_000_000),
                 })
                 .expect("app trash");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session
                 .rebuild_projection()
                 .expect("the trash's durable records reconcile");
@@ -2169,11 +2235,17 @@ mod tests {
                 })
                 .expect("app trash");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .permanently_delete_memo(&PermanentDeleteRequest {
                     operation_id: OperationId::parse("purge-doomed").expect("operation id"),
                     memo_id: MemoId::parse(&doomed).expect("memo id"),
                 })
                 .expect("permanent delete");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
 
             ctx.session
                 .rebuild_projection()
@@ -2207,6 +2279,9 @@ mod tests {
                     memo_id: MemoId::parse(&doomed).expect("memo id"),
                 })
                 .expect("permanent delete");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
 
             ctx.session
                 .rebuild_projection()
@@ -2309,6 +2384,9 @@ mod tests {
                     trashed_at_ms: Some(1_757_500_000_000),
                 })
                 .expect("app delete on a tombstoned memo retires the row");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session
                 .rebuild_projection()
                 .expect("the suppressed record stays suppressed");

@@ -341,7 +341,7 @@ fn print_help() {
     match writeln!(
         io::stderr(),
         "lomo-feasibility\n\nCommands:\n  \
-         generate --mode quick|scale|capacity --seed N --out DIR [--fixtures DIR]\n  \
+         generate --mode quick|scale|capacity|device --seed N --out DIR [--fixtures DIR]\n  \
          scale-markdown-bench --corpus DIR [--full-samples N] [--warm-samples N]\n  \
          help"
     ) {

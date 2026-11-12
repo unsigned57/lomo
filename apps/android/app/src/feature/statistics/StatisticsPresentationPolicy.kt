@@ -27,10 +27,7 @@ internal fun resolveStatisticsTimeDistributionLayout(widthDp: Int): StatisticsTi
         StatisticsTimeDistributionLayout.Stacked
     }
 
-internal data class StatisticsSnapshotPresentationDates(
-    val today: LocalDate,
-    val weekDays: Int,
-)
+internal data class StatisticsSnapshotPresentationDates(val today: LocalDate, val weekDays: Int)
 
 internal fun resolveStatisticsSnapshotPresentationDates(stats: MemoStatistics): StatisticsSnapshotPresentationDates {
     val today = stats.asOfDate
@@ -42,13 +39,12 @@ internal fun resolveStatisticsSnapshotPresentationDates(stats: MemoStatistics): 
     return StatisticsSnapshotPresentationDates(today = today, weekDays = weekDays)
 }
 
-internal fun formatStatisticsNumber(n: Int): String =
-    when {
-        n >= NUMBER_FORMAT_MILLION_THRESHOLD -> "%.1fM".format(Locale.US, n / NUMBER_FORMAT_MILLION_DIVISOR)
-        n >= NUMBER_FORMAT_TEN_THOUSAND_THRESHOLD -> "%.1fK".format(Locale.US, n / NUMBER_FORMAT_THOUSAND_DIVISOR)
-        n >= NUMBER_FORMAT_THOUSAND_THRESHOLD -> "%,d".format(Locale.US, n)
-        else -> n.toString()
-    }
+internal fun formatStatisticsNumber(n: Int): String = when {
+    n >= NUMBER_FORMAT_MILLION_THRESHOLD -> "%.1fM".format(Locale.US, n / NUMBER_FORMAT_MILLION_DIVISOR)
+    n >= NUMBER_FORMAT_TEN_THOUSAND_THRESHOLD -> "%.1fK".format(Locale.US, n / NUMBER_FORMAT_THOUSAND_DIVISOR)
+    n >= NUMBER_FORMAT_THOUSAND_THRESHOLD -> "%,d".format(Locale.US, n)
+    else -> n.toString()
+}
 
 internal fun formatStatisticsDailyMemoTime(time: LocalTime?): String =
     time?.format(STATISTICS_TIME_FORMATTER) ?: "--:--"

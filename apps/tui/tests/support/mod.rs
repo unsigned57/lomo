@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 use std::sync::Arc;
 
 use lomo_tui::error::TuiError;
@@ -137,6 +146,20 @@ pub fn runtime_at(
     lomo_tui::ops::open_runtime(paths, config)
 }
 
+/// Deterministic terminal metrics for image protocol fixtures.
+///
+/// The upstream query constructor
+/// reads real terminal stdio, and `halfblocks()` fixes metrics at 10x20; neither can represent
+/// the independent width/height inputs these regression scenarios must control.
+#[must_use]
+#[expect(
+    deprecated,
+    reason = "upstream custom font metrics have no non-I/O replacement constructor"
+)]
+pub fn picker_with_font_size(font: (u16, u16)) -> ratatui_image::picker::Picker {
+    ratatui_image::picker::Picker::from_fontsize(font.into())
+}
+
 /// A graphics verdict the way `StdioProber` answers on a capable terminal —
 /// real font metrics with an explicit protocol — installed directly so tests
 /// never touch stdio.
@@ -144,7 +167,7 @@ pub fn runtime_at(
 pub fn ready_graphics(
     protocol: ratatui_image::picker::ProtocolType,
 ) -> lomo_tui::graphics::GraphicsVerdict {
-    let mut picker = ratatui_image::picker::Picker::from_fontsize((8, 16));
+    let mut picker = picker_with_font_size((8, 16));
     picker.set_protocol_type(protocol);
     lomo_tui::graphics::GraphicsVerdict::Ready(lomo_tui::graphics::SharedPicker::new(picker))
 }

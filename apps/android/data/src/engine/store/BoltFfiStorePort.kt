@@ -1,27 +1,22 @@
 package com.lomo.data.engine.store
 
 import com.lomo.data.engine.withEngineFailureConversion
-import com.lomo.data.reminder.toNativeRecurrence
 import com.lomo.data.reminder.toNativeSnoozeInterval
 import com.lomo.domain.model.ReminderInterval
-import com.lomo.nativebridge.MediaPromotePlanDto as BridgePromotePlan
-import com.lomo.nativebridge.MediaStagedDto as BridgeStaged
 import com.lomo.nativebridge.SessionCreateMemoRequest
 import com.lomo.nativebridge.SessionDeleteMemoRequest
 import com.lomo.nativebridge.SessionPinMemoRequest
 import com.lomo.nativebridge.SessionRestoreRequest
 import com.lomo.nativebridge.SessionRestoreRevisionRequest
 import com.lomo.nativebridge.SessionUpdateMemoRequest
-import com.lomo.nativebridge.StoreMemoCommand as BridgeMemoCommand
-import com.lomo.nativebridge.StoreMemoCommandKind as BridgeMemoCommandKind
+import com.lomo.nativebridge.MediaPromotePlanDto as BridgePromotePlan
+import com.lomo.nativebridge.MediaStagedDto as BridgeStaged
 import com.lomo.nativebridge.StoreMemoQuery as BridgeMemoQuery
 import com.lomo.nativebridge.StoreMemoQueryBoundary as BridgeMemoQueryBoundary
 import com.lomo.nativebridge.StoreMemoSort as BridgeMemoSort
 import com.lomo.nativebridge.StoreMemoSortField as BridgeMemoSortField
 import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
-import com.lomo.nativebridge.StoreSafMemoProjection as BridgeSafMemoProjection
 import com.lomo.nativebridge.StoreSortDirection as BridgeSortDirection
-import com.lomo.nativebridge.WorkspaceReminderReference as BridgeReminderReference
 
 /**
  * Production [StorePort] over [StoreNativeBridge] and [com.lomo.data.engine.SessionNativeBridge].
@@ -52,29 +47,33 @@ internal class BoltFfiStorePort(
                 BridgeMemoQuery(
                     searchText = query.searchText,
                     filters =
-                        query.filters.toNativeFilters(),
+                    query.filters.toNativeFilters(),
                     sort =
-                        BridgeMemoSort(
-                            field =
-                                when (query.sort.field) {
-                                    StoreMemoSortField.CreatedAt -> BridgeMemoSortField.CREATED_AT
-                                    StoreMemoSortField.UpdatedAt -> BridgeMemoSortField.UPDATED_AT
-                                },
-                            direction =
-                                when (query.sort.direction) {
-                                    StoreSortDirection.Ascending -> BridgeSortDirection.ASCENDING
-                                    StoreSortDirection.Descending -> BridgeSortDirection.DESCENDING
-                            },
-                        ),
-                    boundary =
-                        query.boundary?.let { boundary ->
-                            BridgeMemoQueryBoundary(
-                                isPinned = boundary.isPinned,
-                                primarySortMs = boundary.primarySortMs,
-                                createdAtMs = boundary.createdAtMs,
-                                memoId = boundary.memoId,
-                            )
+                    BridgeMemoSort(
+                        seed = query.sort.seed,
+                        timeZone = query.sort.timeZone,
+                        field =
+                        when (query.sort.field) {
+                            StoreMemoSortField.CreatedAt -> BridgeMemoSortField.CREATED_AT
+                            StoreMemoSortField.UpdatedAt -> BridgeMemoSortField.UPDATED_AT
+                            StoreMemoSortField.ReviewMonth -> BridgeMemoSortField.REVIEW_MONTH
+                            StoreMemoSortField.ReviewRandom -> BridgeMemoSortField.REVIEW_RANDOM
                         },
+                        direction =
+                        when (query.sort.direction) {
+                            StoreSortDirection.Ascending -> BridgeSortDirection.ASCENDING
+                            StoreSortDirection.Descending -> BridgeSortDirection.DESCENDING
+                        },
+                    ),
+                    boundary =
+                    query.boundary?.let { boundary ->
+                        BridgeMemoQueryBoundary(
+                            isPinned = boundary.isPinned,
+                            primarySortMs = boundary.primarySortMs,
+                            createdAtMs = boundary.createdAtMs,
+                            memoId = boundary.memoId,
+                        )
+                    },
                 ),
                 cursor?.let { BridgePageCursor(encoded = it.encoded) },
                 pageSize.toUInt(),
@@ -97,36 +96,39 @@ internal class BoltFfiStorePort(
         return StoreMemoSnapshot(summary = snap.summary.toStoreSummary(), body = snap.body)
     }
 
-    override fun queryCount(query: StoreMemoQuery): Long =
-        bridge.queryCount(
-            BridgeMemoQuery(
-                searchText = query.searchText,
-                filters =
-                    query.filters.toNativeFilters(),
-                sort =
-                    BridgeMemoSort(
-                        field =
-                            when (query.sort.field) {
-                                StoreMemoSortField.CreatedAt -> BridgeMemoSortField.CREATED_AT
-                                StoreMemoSortField.UpdatedAt -> BridgeMemoSortField.UPDATED_AT
-                            },
-                        direction =
-                            when (query.sort.direction) {
-                                StoreSortDirection.Ascending -> BridgeSortDirection.ASCENDING
-                                StoreSortDirection.Descending -> BridgeSortDirection.DESCENDING
-                            },
-                        ),
-                boundary =
-                    query.boundary?.let { boundary ->
-                        BridgeMemoQueryBoundary(
-                            isPinned = boundary.isPinned,
-                            primarySortMs = boundary.primarySortMs,
-                            createdAtMs = boundary.createdAtMs,
-                            memoId = boundary.memoId,
-                        )
-                    },
+    override fun queryCount(query: StoreMemoQuery): Long = bridge.queryCount(
+        BridgeMemoQuery(
+            searchText = query.searchText,
+            filters =
+            query.filters.toNativeFilters(),
+            sort =
+            BridgeMemoSort(
+                seed = query.sort.seed,
+                timeZone = query.sort.timeZone,
+                field =
+                when (query.sort.field) {
+                    StoreMemoSortField.CreatedAt -> BridgeMemoSortField.CREATED_AT
+                    StoreMemoSortField.UpdatedAt -> BridgeMemoSortField.UPDATED_AT
+                    StoreMemoSortField.ReviewMonth -> BridgeMemoSortField.REVIEW_MONTH
+                    StoreMemoSortField.ReviewRandom -> BridgeMemoSortField.REVIEW_RANDOM
+                },
+                direction =
+                when (query.sort.direction) {
+                    StoreSortDirection.Ascending -> BridgeSortDirection.ASCENDING
+                    StoreSortDirection.Descending -> BridgeSortDirection.DESCENDING
+                },
             ),
-        ).toStoreLong("query_count")
+            boundary =
+            query.boundary?.let { boundary ->
+                BridgeMemoQueryBoundary(
+                    isPinned = boundary.isPinned,
+                    primarySortMs = boundary.primarySortMs,
+                    createdAtMs = boundary.createdAtMs,
+                    memoId = boundary.memoId,
+                )
+            },
+        ),
+    ).toStoreLong("query_count")
 
     override fun sidebarProjection(): StoreSidebarProjection {
         val projection = bridge.sidebarProjection()
@@ -135,13 +137,13 @@ internal class BoltFfiStorePort(
             schemaVersion = projection.schemaVersion,
             memoCount = projection.memoCount.toSidebarCount("memo_count"),
             dateCounts =
-                projection.dateCounts.map {
-                    StoreSidebarDateCount(it.date, it.count.toSidebarCount("date_count"))
-                },
+            projection.dateCounts.map {
+                StoreSidebarDateCount(it.date, it.count.toSidebarCount("date_count"))
+            },
             tagCounts =
-                projection.tagCounts.map {
-                    StoreSidebarTagCount(it.name, it.count.toSidebarCount("tag_count"))
-                },
+            projection.tagCounts.map {
+                StoreSidebarTagCount(it.name, it.count.toSidebarCount("tag_count"))
+            },
         )
     }
 
@@ -150,33 +152,29 @@ internal class BoltFfiStorePort(
             withEngineFailureConversion { session.sessionReminderPlan(nowUtcMs) }
         return StoreReminderPlan(
             alarms =
-                plan.alarms.map { alarm ->
-                    StorePlannedAlarm(
-                        occurrenceId = alarm.occurrenceId,
-                        opaqueId = alarm.opaqueId,
-                        memoIdentity = alarm.memoIdentity,
-                        triggerAtUtcMs = alarm.triggerAtUtcMs,
-                        isCatchUp = alarm.isCatchUp,
-                    )
-                },
+            plan.alarms.map { alarm ->
+                StorePlannedAlarm(
+                    occurrenceId = alarm.occurrenceId,
+                    opaqueId = alarm.opaqueId,
+                    memoIdentity = alarm.memoIdentity,
+                    triggerAtUtcMs = alarm.triggerAtUtcMs,
+                    isCatchUp = alarm.isCatchUp,
+                )
+            },
             droppedCount = plan.droppedCount.toInt(),
             workspaceGeneration = plan.workspaceGeneration,
         )
     }
 
-    override fun snoozeReminder(
-        opaqueId: String,
-        interval: ReminderInterval,
-    ) = withEngineFailureConversion {
+    override fun snoozeReminder(opaqueId: String, interval: ReminderInterval) = withEngineFailureConversion {
         session.sessionSnoozeReminder(opaqueId, interval.toNativeSnoozeInterval())
     }
 
-    override fun recoverReminderSnooze() =
-        withEngineFailureConversion { session.sessionRecoverReminderSnooze() }
+    override fun recoverReminderSnooze() = withEngineFailureConversion { session.sessionRecoverReminderSnooze() }
 
     override fun applyMemoCommand(
         command: StoreMemoCommand,
-        onPublication: (StoreMemoCommit) -> Unit,
+        onPublication: (StoreMemoCommandPublication) -> Unit,
     ): StoreMemoCommit {
         require(command.operationId.isNotBlank()) {
             "Memo commands require a non-blank operationId frozen by their caller"
@@ -188,83 +186,123 @@ internal class BoltFfiStorePort(
         ) {
             error("pendingPromotes are only valid on create/update (session PlannedFile batch)")
         }
+        val observer = ForwardingCreateObserver(onPublication)
         val result =
-            withEngineFailureConversion {
-                applySessionMemoCommand(command, operationId)
+            try {
+                withEngineFailureConversion {
+                    applySessionMemoCommand(command, operationId, observer)
+                }
+            } catch (failure: Exception) {
+                observer.failure?.let(failure::addSuppressed)
+                throw failure
             }
-        // Session writes return one commit. Mid-flight pending-create publications are not
-        // synthesized from that return value; callers that observed a real pending publish
-        // confirm the returned commit instead.
+        observer.failure?.let { throw it }
         return result.toStoreCommit()
+    }
+
+    /**
+     * Forwards a create's mid-command publications from the engine thread. A Kotlin throwable must
+     * not cross the JNI callback, so a forwarding failure is held and rethrown once the command
+     * returns; the engine's own commit or withdrawal is unaffected by it.
+     */
+    private class ForwardingCreateObserver(private val onPublication: (StoreMemoCommandPublication) -> Unit) :
+        com.lomo.nativebridge.MemoCreateObserver {
+        @Volatile
+        var failure: Exception? = null
+            private set
+
+        override fun accepted(publication: com.lomo.nativebridge.StoreMemoCommit) {
+            forward(StoreMemoCommandPublication.Accepted(publication.toStoreCommit()))
+        }
+
+        override fun withdrawn(publication: com.lomo.nativebridge.StoreMemoCommit) {
+            forward(StoreMemoCommandPublication.Withdrawn(publication.toStoreCommit()))
+        }
+
+        private fun forward(publication: StoreMemoCommandPublication) {
+            if (failure != null) return
+            try {
+                onPublication(publication)
+            } catch (error: Exception) {
+                failure = error
+            }
+        }
     }
 
     private fun applySessionMemoCommand(
         command: StoreMemoCommand,
         operationId: String,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        when (command.kind) {
-            StoreMemoCommandKind.Create ->
-                session.sessionCreateMemo(
-                    SessionCreateMemoRequest(
-                        operationId = operationId,
-                        relativePath = null,
-                        timeToken = null,
-                        content = command.content ?: error("session create requires content"),
-                        expectedDocumentFingerprint = command.expectedFingerprint,
-                        pinned = command.pin == true,
-                        pendingPromotes = command.sessionPromotePlans(operationId),
-                        chronologyEpochMs = command.chronologyEpochMs,
-                    ),
-                )
-            StoreMemoCommandKind.Update ->
-                session.sessionUpdateMemo(
-                    SessionUpdateMemoRequest(
-                        operationId = operationId,
-                        memoId = command.memoId,
-                        content = command.content ?: error("session update requires content"),
-                        expectedDocumentFingerprint =
-                            command.expectedFingerprint?.takeIf { fingerprint -> fingerprint.isNotBlank() }
-                                ?: error("session update requires expectedFingerprint"),
-                        pendingPromotes = command.sessionPromotePlans(operationId),
-                    ),
-                )
-            StoreMemoCommandKind.Delete ->
-                session.sessionDeleteMemo(
-                    SessionDeleteMemoRequest(
-                        operationId = operationId,
-                        memoId = command.memoId,
-                        expectedDocumentFingerprint =
-                            command.expectedFingerprint?.takeIf { fingerprint -> fingerprint.isNotBlank() }
-                                ?: error("session delete requires expectedFingerprint"),
-                    ),
-                )
-            StoreMemoCommandKind.Pin,
-            StoreMemoCommandKind.Unpin,
-            ->
-                session.sessionPinMemo(
-                    SessionPinMemoRequest(
-                        operationId = operationId,
-                        memoId = command.memoId,
-                        pinned = command.kind == StoreMemoCommandKind.Pin || command.pin == true,
-                    ),
-                )
-            StoreMemoCommandKind.HistoryRestore -> {
-                val revision =
-                    command.historyRevision
-                        ?: error("HistoryRestore requires historyRevision")
-                session.sessionRestoreRevision(
-                    SessionRestoreRevisionRequest(
-                        operationId = operationId,
-                        memoId = command.memoId,
-                        revision = revision.toULong(),
-                    ),
-                )
-            }
-            StoreMemoCommandKind.Restore ->
-                session.sessionRestoreMemo(SessionRestoreRequest(operationId, command.memoId))
-            StoreMemoCommandKind.PermanentDelete ->
-                session.sessionPermanentlyDeleteMemo(SessionRestoreRequest(operationId, command.memoId))
+        observer: com.lomo.nativebridge.MemoCreateObserver,
+    ): com.lomo.nativebridge.StoreMemoCommit = when (command.kind) {
+        StoreMemoCommandKind.Create ->
+            session.sessionCreateMemo(
+                SessionCreateMemoRequest(
+                    operationId = operationId,
+                    relativePath = null,
+                    timeToken = null,
+                    content = command.content ?: error("session create requires content"),
+                    expectedDocumentFingerprint = command.expectedFingerprint,
+                    pinned = command.pin == true,
+                    pendingPromotes = command.sessionPromotePlans(operationId),
+                    chronologyEpochMs = command.chronologyEpochMs,
+                ),
+                observer,
+            )
+
+        StoreMemoCommandKind.Update ->
+            session.sessionUpdateMemo(
+                SessionUpdateMemoRequest(
+                    operationId = operationId,
+                    memoId = command.memoId,
+                    content = command.content ?: error("session update requires content"),
+                    expectedDocumentFingerprint =
+                    command.expectedFingerprint?.takeIf { fingerprint -> fingerprint.isNotBlank() }
+                        ?: error("session update requires expectedFingerprint"),
+                    pendingPromotes = command.sessionPromotePlans(operationId),
+                ),
+            )
+
+        StoreMemoCommandKind.Delete ->
+            session.sessionDeleteMemo(
+                SessionDeleteMemoRequest(
+                    operationId = operationId,
+                    memoId = command.memoId,
+                    expectedDocumentFingerprint =
+                    command.expectedFingerprint?.takeIf { fingerprint -> fingerprint.isNotBlank() }
+                        ?: error("session delete requires expectedFingerprint"),
+                ),
+            )
+
+        StoreMemoCommandKind.Pin,
+        StoreMemoCommandKind.Unpin,
+        ->
+            session.sessionPinMemo(
+                SessionPinMemoRequest(
+                    operationId = operationId,
+                    memoId = command.memoId,
+                    pinned = command.kind == StoreMemoCommandKind.Pin || command.pin == true,
+                ),
+            )
+
+        StoreMemoCommandKind.HistoryRestore -> {
+            val revision =
+                command.historyRevision
+                    ?: error("HistoryRestore requires historyRevision")
+            session.sessionRestoreRevision(
+                SessionRestoreRevisionRequest(
+                    operationId = operationId,
+                    memoId = command.memoId,
+                    revision = revision.toULong(),
+                ),
+            )
         }
+
+        StoreMemoCommandKind.Restore ->
+            session.sessionRestoreMemo(SessionRestoreRequest(operationId, command.memoId))
+
+        StoreMemoCommandKind.PermanentDelete ->
+            session.sessionPermanentlyDeleteMemo(SessionRestoreRequest(operationId, command.memoId))
+    }
 
     private fun StoreMemoCommand.sessionPromotePlans(operationId: String): List<BridgePromotePlan> =
         pendingPromotes.map { plan ->
@@ -278,22 +316,19 @@ internal class BoltFfiStorePort(
             BridgePromotePlan(
                 operationId = planOp,
                 staged =
-                    BridgeStaged(
-                        digest = plan.staged.digest,
-                        size = plan.staged.size.toULong(),
-                        mime = plan.staged.mime,
-                        stagingPath = plan.staged.stagingPath,
-                        humanNameHint = plan.staged.humanNameHint,
-                        suggestedFinalRelativePath = plan.staged.suggestedFinalRelativePath,
-                    ),
+                BridgeStaged(
+                    digest = plan.staged.digest,
+                    size = plan.staged.size.toULong(),
+                    mime = plan.staged.mime,
+                    stagingPath = plan.staged.stagingPath,
+                    humanNameHint = plan.staged.humanNameHint,
+                    suggestedFinalRelativePath = plan.staged.suggestedFinalRelativePath,
+                ),
                 finalRelativePath = plan.finalRelativePath,
             )
         }
 
-    override fun permanentDeleteMany(
-        operationId: String,
-        targets: List<StoreMemoDeleteTarget>,
-    ): StoreMemoBatchCommit {
+    override fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit {
         require(operationId.isNotBlank()) { "permanent delete batch operationId must be non-blank" }
         require(targets.isNotEmpty()) { "permanent delete batch must contain at least one target" }
         require(targets.all { it.memoId.isNotBlank() }) {
@@ -308,68 +343,28 @@ internal class BoltFfiStorePort(
                     com.lomo.nativebridge.StoreMemoBatchDelete(
                         operationId = operationId,
                         targets =
-                            targets.sortedBy(StoreMemoDeleteTarget::memoId).map { target ->
-                                com.lomo.nativebridge.StoreMemoDeleteTarget(
-                                    memoId = target.memoId,
-                                    sourcePath = target.sourcePath,
-                                    expectedRevision = target.expectedRevision.toULong(),
-                                    expectedFingerprint = target.expectedFingerprint,
-                                )
-                            },
+                        targets.sortedBy(StoreMemoDeleteTarget::memoId).map { target ->
+                            com.lomo.nativebridge.StoreMemoDeleteTarget(
+                                memoId = target.memoId,
+                                sourcePath = target.sourcePath,
+                                expectedRevision = target.expectedRevision.toULong(),
+                                expectedFingerprint = target.expectedFingerprint,
+                            )
+                        },
                     ),
                 )
             }
         return StoreMemoBatchCommit(
             operationId = result.operationId,
             deleted =
-                result.deleted.map { deleted ->
-                    StoreMemoDeletedMemo(deleted.memoId, deleted.reminderIds)
-                },
+            result.deleted.map { deleted ->
+                StoreMemoDeletedMemo(deleted.memoId, deleted.reminderIds)
+            },
             coreRevision = result.coreRevision.toStoreLong("core_revision"),
             eventSequence = result.eventSequence.toStoreLong("event_sequence"),
             scopes = result.scopes.map { scope -> scope.toStoreInvalidationScope() },
             idempotentReplay = result.idempotentReplay,
         )
-    }
-
-    override fun commitDocumentMutation(
-        mutation: com.lomo.domain.model.MemoDocumentMutation,
-    ): StoreMemoCommit {
-        val facts = mutation.facts
-        require(mutation.operationId.isNotBlank()) { "document mutation operationId must be non-blank" }
-        require(mutation.expectedRevision >= 0L) { "document mutation expected revision must be non-negative" }
-        require(mutation.expectedFingerprint.isNotBlank()) {
-            "document mutation expected fingerprint must be non-blank"
-        }
-        require(facts.memoId == mutation.facts.memoId) { "document mutation facts identity mismatch" }
-        val command =
-            BridgeMemoCommand(
-                operationId = mutation.operationId,
-                kind = BridgeMemoCommandKind.UPDATE,
-                memoId = facts.memoId,
-                expectedRevision = mutation.expectedRevision.toULong(),
-                expectedFingerprint = mutation.expectedFingerprint,
-                content = facts.content,
-                tags = facts.tags,
-                pin = null,
-                pendingPromotes = emptyList(),
-                chronologyEpochMs = facts.chronologyEpochMs,
-            )
-        val projection =
-            BridgeSafMemoProjection(
-                memoId = facts.memoId,
-                sourcePath = facts.sourcePath,
-                fileFingerprint = facts.fileFingerprint,
-                chronologyEpochMs = facts.chronologyEpochMs,
-                body = facts.content,
-                tags = facts.tags,
-                attachmentPaths = facts.attachmentPaths,
-                hasTodo = facts.hasTodo,
-                hasUrl = facts.hasUrl,
-                reminders = facts.reminders.map(::toBridgeReminder),
-                trashedAtMs = null,
-            )
-        return bridge.commitWorkspaceDocumentFacts(command, projection).toStoreCommit()
     }
 
     override fun startRebuild(batchSize: Int): StoreRebuildResult {
@@ -385,40 +380,18 @@ internal class BoltFfiStorePort(
             rewritten = result.rewritten,
         )
     }
-
-    private fun toBridgeReminder(
-        marker: com.lomo.domain.model.ReminderMarker,
-    ): BridgeReminderReference =
-        BridgeReminderReference(
-            opaqueId = marker.reference.opaqueId,
-            revision = marker.reference.revision,
-            memoIdentity = marker.reference.memoIdentity,
-            sourceStart = marker.reference.sourceSpan.startByte,
-            sourceEnd = marker.reference.sourceSpan.endByte,
-            tokenFingerprint = marker.reference.tokenFingerprint,
-            fingerprintOrdinal = marker.reference.fingerprintOrdinal,
-            embeddedId = marker.reference.embeddedId,
-            token = marker.token,
-            dueAtLocal = marker.dueAtLocal,
-            repeatCount = marker.repeatCount.toUInt(),
-            firedCount = marker.firedCount.toUInt(),
-            done = marker.done,
-            intervalMinutes = marker.intervalMinutes.toUInt(),
-            recurrence = marker.recurrence.toNativeRecurrence(),
-        )
 }
 
-internal fun com.lomo.nativebridge.StoreMemoCommit.toStoreCommit(): StoreMemoCommit =
-    StoreMemoCommit(
-        operationId = operationId,
-        memoId = memoId,
-        coreRevision = coreRevision.toStoreLong("core_revision"),
-        eventSequence = eventSequence.toStoreLong("event_sequence"),
-        contentRevision = contentRevision.toStoreLong("content_revision"),
-        fileFingerprint = fileFingerprint,
-        scopes = scopes.map { scope -> scope.toStoreInvalidationScope() },
-        idempotentReplay = idempotentReplay,
-    )
+internal fun com.lomo.nativebridge.StoreMemoCommit.toStoreCommit(): StoreMemoCommit = StoreMemoCommit(
+    operationId = operationId,
+    memoId = memoId,
+    coreRevision = coreRevision.toStoreLong("core_revision"),
+    eventSequence = eventSequence.toStoreLong("event_sequence"),
+    contentRevision = contentRevision.toStoreLong("content_revision"),
+    fileFingerprint = fileFingerprint,
+    scopes = scopes.map { scope -> scope.toStoreInvalidationScope() },
+    idempotentReplay = idempotentReplay,
+)
 
 internal fun com.lomo.nativebridge.StoreInvalidationScope.toStoreInvalidationScope(): StoreInvalidationScope =
     when (this) {

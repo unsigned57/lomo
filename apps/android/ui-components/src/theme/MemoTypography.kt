@@ -7,6 +7,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.sp
 
+private val BASELINE_FONT_SIZE = 14.sp
+private val BASELINE_LINE_HEIGHT = 21.sp
 private const val BASELINE_LETTER_SPACING = 0.1f
 private const val LETTER_SPACING_STEP = 1.0f
 
@@ -18,29 +20,26 @@ private val MemoEditorChromeLineHeightStyle =
 
 private val MemoEditorChromePlatformStyle = PlatformTextStyle(includeFontPadding = false)
 
-private fun scaledLetterSpacing(scale: Float) =
-    (BASELINE_LETTER_SPACING + LETTER_SPACING_STEP * (scale - 1.0f)).sp
+private fun scaledLetterSpacing(scale: Float) = (BASELINE_LETTER_SPACING + LETTER_SPACING_STEP * (scale - 1.0f)).sp
 
-fun Typography.memoBodyTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
-    bodyLarge.copy(
-        fontSize = bodyLarge.fontSize * scales.fontSizeScale,
-        lineHeight = bodyLarge.lineHeight * scales.fontSizeScale * scales.lineHeightScale,
-        letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
-        platformStyle = MemoEditorChromePlatformStyle,
-        lineHeightStyle = null,
-    )
+fun Typography.memoBodyTextStyle(scales: TypographyScales = TypographyScales()): TextStyle = bodyMedium.copy(
+    fontSize = BASELINE_FONT_SIZE * scales.fontSizeScale,
+    lineHeight = BASELINE_LINE_HEIGHT * scales.fontSizeScale * scales.lineHeightScale,
+    letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
+    platformStyle = MemoEditorChromePlatformStyle,
+    lineHeightStyle = null,
+)
 
 @Composable
 fun Typography.memoBodyTextStyle(): TextStyle = memoBodyTextStyle(currentTypographyScales())
 
-fun Typography.memoSummaryTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
-    bodyLarge.copy(
-        fontSize = bodyLarge.fontSize * scales.fontSizeScale,
-        lineHeight = bodyLarge.lineHeight * scales.fontSizeScale * scales.lineHeightScale,
-        letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
-        platformStyle = MemoEditorChromePlatformStyle,
-        lineHeightStyle = null,
-    )
+fun Typography.memoSummaryTextStyle(scales: TypographyScales = TypographyScales()): TextStyle = bodyMedium.copy(
+    fontSize = BASELINE_FONT_SIZE * scales.fontSizeScale,
+    lineHeight = BASELINE_LINE_HEIGHT * scales.fontSizeScale * scales.lineHeightScale,
+    letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
+    platformStyle = MemoEditorChromePlatformStyle,
+    lineHeightStyle = null,
+)
 
 @Composable
 fun Typography.memoSummaryTextStyle(): TextStyle = memoSummaryTextStyle(currentTypographyScales())
@@ -54,20 +53,18 @@ fun Typography.memoEditorTextStyle(scales: TypographyScales = TypographyScales()
 @Composable
 fun Typography.memoEditorTextStyle(): TextStyle = memoEditorTextStyle(currentTypographyScales())
 
-fun Typography.memoHintTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
-    bodyLarge.copy(
-        fontSize = bodyLarge.fontSize * scales.fontSizeScale,
-        lineHeight = bodyLarge.lineHeight * scales.fontSizeScale * scales.lineHeightScale,
-        letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
-        lineHeightStyle = MemoEditorChromeLineHeightStyle,
-        platformStyle = MemoEditorChromePlatformStyle,
-    )
+fun Typography.memoHintTextStyle(scales: TypographyScales = TypographyScales()): TextStyle = bodyMedium.copy(
+    fontSize = BASELINE_FONT_SIZE * scales.fontSizeScale,
+    lineHeight = BASELINE_LINE_HEIGHT * scales.fontSizeScale * scales.lineHeightScale,
+    letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
+    lineHeightStyle = MemoEditorChromeLineHeightStyle,
+    platformStyle = MemoEditorChromePlatformStyle,
+)
 
 @Composable
 fun Typography.memoHintTextStyle(): TextStyle = memoHintTextStyle(currentTypographyScales())
 
-fun Typography.memoListTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
-    memoBodyTextStyle(scales)
+fun Typography.memoListTextStyle(scales: TypographyScales = TypographyScales()): TextStyle = memoBodyTextStyle(scales)
 
 @Composable
 fun Typography.memoListTextStyle(): TextStyle = memoListTextStyle(currentTypographyScales())

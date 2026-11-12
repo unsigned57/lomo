@@ -28,40 +28,48 @@ class ExitAnimationRegistry<T> {
     private val _entries = MutableStateFlow<Map<String, ExitEntry<T>>>(emptyMap())
     val entries: StateFlow<Map<String, ExitEntry<T>>> = _entries.asStateFlow()
 
-    fun beginExit(
-        id: String,
-        item: T,
-        anchoredAfterKey: String?,
-    ) {
+    data class ExitRequest<T>(val id: String, val item: T, val anchoredAfterKey: String?)
+
+    fun beginExit(id: String, item: T, anchoredAfterKey: String?) {
+        beginExits(listOf(ExitRequest(id, item, anchoredAfterKey)))
+    }
+
+    fun beginExits(items: List<ExitRequest<T>>) {
         _entries.update { entries ->
-            val previous = entries[id]
-            entries + (
-                id to
-                    ExitEntry(
-                        item = item,
-                        anchoredAfterKey = anchoredAfterKey,
-                        animationSettled = previous?.animationSettled == true,
-                        mutationCommitted = previous?.mutationCommitted == true,
-                        sourceAbsent = previous?.sourceAbsent == true,
+            entries.toMutableMap().apply {
+                items.forEach { request ->
+                    val previous = get(request.id)
+                    put(
+                        request.id,
+                        ExitEntry(
+                            item = request.item,
+                            anchoredAfterKey = request.anchoredAfterKey,
+                            animationSettled = previous?.animationSettled == true,
+                            mutationCommitted = previous?.mutationCommitted == true,
+                            sourceAbsent = previous?.sourceAbsent == true,
+                        ),
                     )
-            )
+                }
+            }
         }
     }
 
     fun markExitAnimationSettled(id: String) {
-        updateEntry(id) { entry ->
+        updateEntries(setOf(id)) { entry ->
             entry.copy(animationSettled = true)
         }
     }
 
     fun markExitMutationCommitted(id: String) {
-        updateEntry(id) { entry ->
-            entry.copy(mutationCommitted = true)
-        }
+        markExitMutationsCommitted(setOf(id))
+    }
+
+    fun markExitMutationsCommitted(ids: Set<String>) {
+        updateEntries(ids) { entry -> entry.copy(mutationCommitted = true) }
     }
 
     fun markExitSourceAbsent(id: String) {
-        updateEntry(id) { entry ->
+        updateEntries(setOf(id)) { entry ->
             entry.copy(sourceAbsent = true)
         }
     }
@@ -77,24 +85,27 @@ class ExitAnimationRegistry<T> {
     }
 
     fun rollbackExit(id: String) {
-        _entries.update { it - id }
+        rollbackExits(setOf(id))
+    }
+
+    fun rollbackExits(ids: Set<String>) {
+        _entries.update { it - ids }
     }
 
     fun clear() {
         _entries.value = emptyMap()
     }
 
-    private fun updateEntry(
-        id: String,
-        transform: (ExitEntry<T>) -> ExitEntry<T>,
-    ) {
+    private fun updateEntries(ids: Set<String>, transform: (ExitEntry<T>) -> ExitEntry<T>) {
         _entries.update { entries ->
-            val entry = entries[id] ?: return@update entries
-            val updatedEntry = transform(entry)
-            if (updatedEntry.canRemove) {
-                entries - id
-            } else {
-                entries + (id to updatedEntry)
+            entries.toMutableMap().apply {
+                ids.forEach { id ->
+                    val entry = get(id)
+                    if (entry != null) {
+                        val updated = transform(entry)
+                        if (updated.canRemove) remove(id) else put(id, updated)
+                    }
+                }
             }
         }
     }

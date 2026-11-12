@@ -31,43 +31,44 @@ data class MarkdownRenderDocument(
         blocks.forEach { block -> validateBlock(block = block, parentSpan = null) }
     }
 
-    private fun validateBlock(
-        block: MarkdownRenderBlock,
-        parentSpan: MarkdownSourceSpan?,
-    ) {
+    private fun validateBlock(block: MarkdownRenderBlock, parentSpan: MarkdownSourceSpan?) {
         validateNodeSpan(block.sourceSpan, parentSpan)
         when (block) {
             is MarkdownRenderBlock.Paragraph ->
                 block.inlines.forEach { inline -> validateInline(inline, block.sourceSpan) }
+
             is MarkdownRenderBlock.Heading -> {
                 requireContract(block.level in 1u..MAX_HEADING_LEVEL, "render_heading_level_invalid") {
                     "heading level must be in 1..6"
                 }
                 block.inlines.forEach { inline -> validateInline(inline, block.sourceSpan) }
             }
+
             is MarkdownRenderBlock.BlockQuote ->
                 block.blocks.forEach { child -> validateBlock(child, block.sourceSpan) }
+
             is MarkdownRenderBlock.ListBlock ->
                 block.items.forEach { item -> validateListItem(item, block.sourceSpan) }
+
             is MarkdownRenderBlock.CodeBlock -> {
                 validateString(block.literal)
                 block.language?.let(::validateString)
             }
+
             is MarkdownRenderBlock.ThematicBreak -> Unit
+
             is MarkdownRenderBlock.Table -> {
                 block.header.forEach { cell -> validateTableCell(cell, block.sourceSpan) }
                 block.rows.forEach { row ->
                     row.forEach { cell -> validateTableCell(cell, block.sourceSpan) }
                 }
             }
+
             is MarkdownRenderBlock.HtmlBlock -> validateString(block.literal)
         }
     }
 
-    private fun validateListItem(
-        item: MarkdownRenderListItem,
-        parentSpan: MarkdownSourceSpan,
-    ) {
+    private fun validateListItem(item: MarkdownRenderListItem, parentSpan: MarkdownSourceSpan) {
         validateNodeSpan(item.sourceSpan, parentSpan)
         item.actionSpan?.let { actionSpan ->
             validateNodeSpan(actionSpan, item.sourceSpan, code = "render_action_span_outside_node")
@@ -81,49 +82,58 @@ data class MarkdownRenderDocument(
         item.blocks.forEach { block -> validateBlock(block, item.sourceSpan) }
     }
 
-    private fun validateTableCell(
-        cell: MarkdownRenderTableCell,
-        parentSpan: MarkdownSourceSpan,
-    ) {
+    private fun validateTableCell(cell: MarkdownRenderTableCell, parentSpan: MarkdownSourceSpan) {
         validateNodeSpan(cell.sourceSpan, parentSpan)
         cell.inlines.forEach { inline -> validateInline(inline, cell.sourceSpan) }
     }
 
-    private fun validateInline(
-        inline: MarkdownRenderInline,
-        parentSpan: MarkdownSourceSpan,
-    ) {
+    private fun validateInline(inline: MarkdownRenderInline, parentSpan: MarkdownSourceSpan) {
         validateNodeSpan(inline.sourceSpan, parentSpan)
         when (inline) {
             is MarkdownRenderInline.Text -> validateString(inline.text)
+
             is MarkdownRenderInline.Strong ->
                 inline.inlines.forEach { child -> validateInline(child, inline.sourceSpan) }
+
             is MarkdownRenderInline.Emphasis ->
                 inline.inlines.forEach { child -> validateInline(child, inline.sourceSpan) }
+
             is MarkdownRenderInline.Strikethrough ->
                 inline.inlines.forEach { child -> validateInline(child, inline.sourceSpan) }
+
+            is MarkdownRenderInline.Underline ->
+                inline.inlines.forEach { child -> validateInline(child, inline.sourceSpan) }
+
             is MarkdownRenderInline.Highlight ->
                 inline.inlines.forEach { child -> validateInline(child, inline.sourceSpan) }
+
             is MarkdownRenderInline.Code -> validateString(inline.text)
+
             is MarkdownRenderInline.Link -> {
                 validateString(inline.destination)
                 inline.title?.let(::validateString)
                 inline.inlines.forEach { child -> validateInline(child, inline.sourceSpan) }
             }
+
             is MarkdownRenderInline.Image -> {
                 validateString(inline.destination)
                 inline.title?.let(::validateString)
                 validateString(inline.altText)
             }
+
             is MarkdownRenderInline.Tag -> validateString(inline.name)
+
             is MarkdownRenderInline.Reminder -> validateString(inline.token)
+
             is MarkdownRenderInline.WikiReference -> {
                 validateString(inline.target)
                 inline.inlines.forEach { child -> validateInline(child, inline.sourceSpan) }
             }
+
             is MarkdownRenderInline.SoftBreak,
             is MarkdownRenderInline.HardBreak,
             -> Unit
+
             is MarkdownRenderInline.HtmlInline -> validateString(inline.literal)
         }
     }
@@ -165,10 +175,7 @@ data class MarkdownRenderDocument(
     }
 }
 
-data class MarkdownSourceSpan(
-    val startByte: ULong,
-    val endByte: ULong,
-) {
+data class MarkdownSourceSpan(val startByte: ULong, val endByte: ULong) {
     init {
         requireContract(startByte <= endByte, "render_span_reversed") {
             "render span end must not precede its start"
@@ -179,10 +186,8 @@ data class MarkdownSourceSpan(
 sealed interface MarkdownRenderBlock {
     val sourceSpan: MarkdownSourceSpan
 
-    data class Paragraph(
-        override val sourceSpan: MarkdownSourceSpan,
-        val inlines: List<MarkdownRenderInline>,
-    ) : MarkdownRenderBlock
+    data class Paragraph(override val sourceSpan: MarkdownSourceSpan, val inlines: List<MarkdownRenderInline>) :
+        MarkdownRenderBlock
 
     data class Heading(
         override val sourceSpan: MarkdownSourceSpan,
@@ -190,10 +195,8 @@ sealed interface MarkdownRenderBlock {
         val inlines: List<MarkdownRenderInline>,
     ) : MarkdownRenderBlock
 
-    data class BlockQuote(
-        override val sourceSpan: MarkdownSourceSpan,
-        val blocks: List<MarkdownRenderBlock>,
-    ) : MarkdownRenderBlock
+    data class BlockQuote(override val sourceSpan: MarkdownSourceSpan, val blocks: List<MarkdownRenderBlock>) :
+        MarkdownRenderBlock
 
     data class ListBlock(
         override val sourceSpan: MarkdownSourceSpan,
@@ -202,15 +205,10 @@ sealed interface MarkdownRenderBlock {
         val items: List<MarkdownRenderListItem>,
     ) : MarkdownRenderBlock
 
-    data class CodeBlock(
-        override val sourceSpan: MarkdownSourceSpan,
-        val language: String?,
-        val literal: String,
-    ) : MarkdownRenderBlock
+    data class CodeBlock(override val sourceSpan: MarkdownSourceSpan, val language: String?, val literal: String) :
+        MarkdownRenderBlock
 
-    data class ThematicBreak(
-        override val sourceSpan: MarkdownSourceSpan,
-    ) : MarkdownRenderBlock
+    data class ThematicBreak(override val sourceSpan: MarkdownSourceSpan) : MarkdownRenderBlock
 
     data class Table(
         override val sourceSpan: MarkdownSourceSpan,
@@ -218,10 +216,7 @@ sealed interface MarkdownRenderBlock {
         val rows: List<List<MarkdownRenderTableCell>>,
     ) : MarkdownRenderBlock
 
-    data class HtmlBlock(
-        override val sourceSpan: MarkdownSourceSpan,
-        val literal: String,
-    ) : MarkdownRenderBlock
+    data class HtmlBlock(override val sourceSpan: MarkdownSourceSpan, val literal: String) : MarkdownRenderBlock
 }
 
 data class MarkdownRenderListItem(
@@ -231,43 +226,29 @@ data class MarkdownRenderListItem(
     val blocks: List<MarkdownRenderBlock>,
 )
 
-data class MarkdownRenderTableCell(
-    val sourceSpan: MarkdownSourceSpan,
-    val inlines: List<MarkdownRenderInline>,
-)
+data class MarkdownRenderTableCell(val sourceSpan: MarkdownSourceSpan, val inlines: List<MarkdownRenderInline>)
 
 sealed interface MarkdownRenderInline {
     val sourceSpan: MarkdownSourceSpan
 
-    data class Text(
-        override val sourceSpan: MarkdownSourceSpan,
-        val text: String,
-    ) : MarkdownRenderInline
+    data class Text(override val sourceSpan: MarkdownSourceSpan, val text: String) : MarkdownRenderInline
 
-    data class Strong(
-        override val sourceSpan: MarkdownSourceSpan,
-        val inlines: List<MarkdownRenderInline>,
-    ) : MarkdownRenderInline
+    data class Strong(override val sourceSpan: MarkdownSourceSpan, val inlines: List<MarkdownRenderInline>) :
+        MarkdownRenderInline
 
-    data class Emphasis(
-        override val sourceSpan: MarkdownSourceSpan,
-        val inlines: List<MarkdownRenderInline>,
-    ) : MarkdownRenderInline
+    data class Emphasis(override val sourceSpan: MarkdownSourceSpan, val inlines: List<MarkdownRenderInline>) :
+        MarkdownRenderInline
 
-    data class Strikethrough(
-        override val sourceSpan: MarkdownSourceSpan,
-        val inlines: List<MarkdownRenderInline>,
-    ) : MarkdownRenderInline
+    data class Strikethrough(override val sourceSpan: MarkdownSourceSpan, val inlines: List<MarkdownRenderInline>) :
+        MarkdownRenderInline
 
-    data class Highlight(
-        override val sourceSpan: MarkdownSourceSpan,
-        val inlines: List<MarkdownRenderInline>,
-    ) : MarkdownRenderInline
+    data class Underline(override val sourceSpan: MarkdownSourceSpan, val inlines: List<MarkdownRenderInline>) :
+        MarkdownRenderInline
 
-    data class Code(
-        override val sourceSpan: MarkdownSourceSpan,
-        val text: String,
-    ) : MarkdownRenderInline
+    data class Highlight(override val sourceSpan: MarkdownSourceSpan, val inlines: List<MarkdownRenderInline>) :
+        MarkdownRenderInline
+
+    data class Code(override val sourceSpan: MarkdownSourceSpan, val text: String) : MarkdownRenderInline
 
     data class Link(
         override val sourceSpan: MarkdownSourceSpan,
@@ -285,15 +266,9 @@ sealed interface MarkdownRenderInline {
         val mediaClass: MediaClass,
     ) : MarkdownRenderInline
 
-    data class Tag(
-        override val sourceSpan: MarkdownSourceSpan,
-        val name: String,
-    ) : MarkdownRenderInline
+    data class Tag(override val sourceSpan: MarkdownSourceSpan, val name: String) : MarkdownRenderInline
 
-    data class Reminder(
-        override val sourceSpan: MarkdownSourceSpan,
-        val token: String,
-    ) : MarkdownRenderInline
+    data class Reminder(override val sourceSpan: MarkdownSourceSpan, val token: String) : MarkdownRenderInline
 
     data class WikiReference(
         override val sourceSpan: MarkdownSourceSpan,
@@ -301,71 +276,66 @@ sealed interface MarkdownRenderInline {
         val inlines: List<MarkdownRenderInline>,
     ) : MarkdownRenderInline
 
-    data class SoftBreak(
-        override val sourceSpan: MarkdownSourceSpan,
-    ) : MarkdownRenderInline
+    data class SoftBreak(override val sourceSpan: MarkdownSourceSpan) : MarkdownRenderInline
 
-    data class HardBreak(
-        override val sourceSpan: MarkdownSourceSpan,
-    ) : MarkdownRenderInline
+    data class HardBreak(override val sourceSpan: MarkdownSourceSpan) : MarkdownRenderInline
 
-    data class HtmlInline(
-        override val sourceSpan: MarkdownSourceSpan,
-        val literal: String,
-    ) : MarkdownRenderInline
+    data class HtmlInline(override val sourceSpan: MarkdownSourceSpan, val literal: String) : MarkdownRenderInline
 }
 
-class MarkdownRenderContractException(
-    val code: String,
-    message: String,
-) : IllegalArgumentException(message)
+class MarkdownRenderContractException(val code: String, message: String) : IllegalArgumentException(message)
 
-private inline fun requireContract(
-    condition: Boolean,
-    code: String,
-    message: () -> String,
-) {
+private inline fun requireContract(condition: Boolean, code: String, message: () -> String) {
     if (!condition) throw MarkdownRenderContractException(code, message())
 }
 
-private fun MarkdownRenderBlock.nodeCount(): Int =
-    1 +
-        when (this) {
-            is MarkdownRenderBlock.Paragraph -> inlines.sumOf(MarkdownRenderInline::nodeCount)
-            is MarkdownRenderBlock.Heading -> inlines.sumOf(MarkdownRenderInline::nodeCount)
-            is MarkdownRenderBlock.BlockQuote -> blocks.sumOf(MarkdownRenderBlock::nodeCount)
-            is MarkdownRenderBlock.ListBlock -> items.sumOf(MarkdownRenderListItem::nodeCount)
-            is MarkdownRenderBlock.CodeBlock,
-            is MarkdownRenderBlock.ThematicBreak,
-            is MarkdownRenderBlock.HtmlBlock,
-            -> 0
-            is MarkdownRenderBlock.Table ->
-                header.sumOf(MarkdownRenderTableCell::nodeCount) +
-                    rows.sumOf { row -> row.sumOf(MarkdownRenderTableCell::nodeCount) }
-        }
+private fun MarkdownRenderBlock.nodeCount(): Int = 1 +
+    when (this) {
+        is MarkdownRenderBlock.Paragraph -> inlines.sumOf(MarkdownRenderInline::nodeCount)
 
-private fun MarkdownRenderListItem.nodeCount(): Int =
-    1 + blocks.sumOf(MarkdownRenderBlock::nodeCount)
+        is MarkdownRenderBlock.Heading -> inlines.sumOf(MarkdownRenderInline::nodeCount)
 
-private fun MarkdownRenderTableCell.nodeCount(): Int =
-    1 + inlines.sumOf(MarkdownRenderInline::nodeCount)
+        is MarkdownRenderBlock.BlockQuote -> blocks.sumOf(MarkdownRenderBlock::nodeCount)
 
-private fun MarkdownRenderInline.nodeCount(): Int =
-    1 +
-        when (this) {
-            is MarkdownRenderInline.Strong -> inlines.sumOf(MarkdownRenderInline::nodeCount)
-            is MarkdownRenderInline.Emphasis -> inlines.sumOf(MarkdownRenderInline::nodeCount)
-            is MarkdownRenderInline.Strikethrough -> inlines.sumOf(MarkdownRenderInline::nodeCount)
-            is MarkdownRenderInline.Highlight -> inlines.sumOf(MarkdownRenderInline::nodeCount)
-            is MarkdownRenderInline.Link -> inlines.sumOf(MarkdownRenderInline::nodeCount)
-            is MarkdownRenderInline.WikiReference -> inlines.sumOf(MarkdownRenderInline::nodeCount)
-            is MarkdownRenderInline.Text,
-            is MarkdownRenderInline.Code,
-            is MarkdownRenderInline.Image,
-            is MarkdownRenderInline.Tag,
-            is MarkdownRenderInline.Reminder,
-            is MarkdownRenderInline.SoftBreak,
-            is MarkdownRenderInline.HardBreak,
-            is MarkdownRenderInline.HtmlInline,
-            -> 0
-        }
+        is MarkdownRenderBlock.ListBlock -> items.sumOf(MarkdownRenderListItem::nodeCount)
+
+        is MarkdownRenderBlock.CodeBlock,
+        is MarkdownRenderBlock.ThematicBreak,
+        is MarkdownRenderBlock.HtmlBlock,
+        -> 0
+
+        is MarkdownRenderBlock.Table ->
+            header.sumOf(MarkdownRenderTableCell::nodeCount) +
+                rows.sumOf { row -> row.sumOf(MarkdownRenderTableCell::nodeCount) }
+    }
+
+private fun MarkdownRenderListItem.nodeCount(): Int = 1 + blocks.sumOf(MarkdownRenderBlock::nodeCount)
+
+private fun MarkdownRenderTableCell.nodeCount(): Int = 1 + inlines.sumOf(MarkdownRenderInline::nodeCount)
+
+private fun MarkdownRenderInline.nodeCount(): Int = 1 +
+    when (this) {
+        is MarkdownRenderInline.Strong -> inlines.sumOf(MarkdownRenderInline::nodeCount)
+
+        is MarkdownRenderInline.Emphasis -> inlines.sumOf(MarkdownRenderInline::nodeCount)
+
+        is MarkdownRenderInline.Strikethrough -> inlines.sumOf(MarkdownRenderInline::nodeCount)
+
+        is MarkdownRenderInline.Underline -> inlines.sumOf(MarkdownRenderInline::nodeCount)
+
+        is MarkdownRenderInline.Highlight -> inlines.sumOf(MarkdownRenderInline::nodeCount)
+
+        is MarkdownRenderInline.Link -> inlines.sumOf(MarkdownRenderInline::nodeCount)
+
+        is MarkdownRenderInline.WikiReference -> inlines.sumOf(MarkdownRenderInline::nodeCount)
+
+        is MarkdownRenderInline.Text,
+        is MarkdownRenderInline.Code,
+        is MarkdownRenderInline.Image,
+        is MarkdownRenderInline.Tag,
+        is MarkdownRenderInline.Reminder,
+        is MarkdownRenderInline.SoftBreak,
+        is MarkdownRenderInline.HardBreak,
+        is MarkdownRenderInline.HtmlInline,
+        -> 0
+    }

@@ -68,7 +68,7 @@ fn run_pull_present_first_cycle(
     root: &std::path::Path,
     session: &SyncSession,
 ) -> (SyncPaths, BaselineHead) {
-    let paths = SyncPaths::for_workspace(root);
+    let paths = SyncPaths::for_control_root(root);
     write_session(&paths, session).expect("session head");
 
     let remote_bytes = b"# created on another device\n".to_vec();
@@ -205,7 +205,7 @@ fn never_landed_pull_is_tombstoned_as_phantom_user_delete() {
 fn resolved_session_masks_fresh_divergence_on_same_path() {
     let temporary = tempdir().expect("temp");
     let root = temporary.path();
-    let paths = SyncPaths::for_workspace(root);
+    let paths = SyncPaths::for_control_root(root);
     let session = SyncSession::new(fence_gen("ab", "ds"), SessionKind::Incremental, "adv-recon")
         .expect("session");
     write_session(&paths, &session).expect("session head");
@@ -330,7 +330,7 @@ fn resolved_session_masks_fresh_divergence_on_same_path() {
 #[test]
 fn pending_resolution_is_not_overwritten_by_new_conflict_page() {
     let temporary = tempdir().expect("temp");
-    let paths = SyncPaths::for_workspace(temporary.path());
+    let paths = SyncPaths::for_control_root(temporary.path());
     let session = SyncSession::new(fence_gen("ab", "ds"), SessionKind::Incremental, "adv-mask")
         .expect("session");
     write_session(&paths, &session).expect("session head");
@@ -456,7 +456,7 @@ fn pending_resolution_is_not_overwritten_by_new_conflict_page() {
 #[test]
 fn stale_session_fence_is_not_revalidated_against_live_generation() {
     let temporary = tempdir().expect("temp");
-    let paths = SyncPaths::for_workspace(temporary.path());
+    let paths = SyncPaths::for_control_root(temporary.path());
     // Session + baseline written under generation A / dataset ds-a.
     let session = SyncSession::new(
         fence_gen("aa", "ds-a"),

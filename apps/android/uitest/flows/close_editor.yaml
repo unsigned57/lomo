@@ -1,0 +1,17 @@
+# Close only a visible capture sheet, including IME, expanded mode and draft confirmation.
+appId: com.lomo.app
+---
+- repeat:
+    times: 3
+    commands:
+      - runFlow:
+          when:
+            visible:
+              id: "benchmark_input_sheet_root"
+          commands:
+            - pressKey: BACK
+            - runFlow:
+                when:
+                  visible: "Discard draft?"
+                commands:
+                  - tapOn: "Discard"

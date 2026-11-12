@@ -10,12 +10,12 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
 import com.lomo.domain.model.FontPreference
+import com.lomo.domain.usecase.SingleDispatcherProvider
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
-import com.lomo.domain.usecase.SingleDispatcherProvider
-import kotlinx.coroutines.Dispatchers
 import java.nio.file.Files
 
 /*

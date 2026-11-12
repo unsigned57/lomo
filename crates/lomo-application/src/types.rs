@@ -7,6 +7,20 @@ use serde::{Deserialize, Serialize};
 use crate::calendar::parse_time_token;
 use crate::error::validation;
 
+/// A unique source document witnessed in the active session before synchronization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SyncDocumentFact {
+    pub path: RelativeWorkspacePath,
+    pub fingerprint: SourceFingerprint,
+}
+
+/// Documents and their durable workspace generation, without per-memo revision placeholders.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionSyncSnapshot {
+    pub generation: lomo_workspace::WorkspaceGenerationId,
+    pub documents: Vec<SyncDocumentFact>,
+}
+
 /// A frozen "create memo" command.
 ///
 /// JSON deserialization and host construction share [`CreateMemoRequest::validate`], so an
@@ -365,13 +379,17 @@ const RESERVED_DOCUMENT_ROOTS: [&str; 6] = [
 /// root segment alone identifies the namespace. The error code matches the established
 /// document-path contract enforced by `document_plan` downstream — validation here just
 /// rejects the same class before any mutation or I/O.
-fn validate_document_path(path: &RelativeWorkspacePath) -> Result<(), LomoError> {
+pub(crate) fn validate_document_path(path: &RelativeWorkspacePath) -> Result<(), LomoError> {
     let reserved = path
         .as_str()
         .split('/')
         .next()
         .is_some_and(|root| RESERVED_DOCUMENT_ROOTS.contains(&root));
-    if reserved {
+    let markdown = path
+        .as_str()
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("md"));
+    if reserved || !markdown {
         return Err(validation(
             "invalid_memo_document_path",
             "memo commands require a Markdown path outside control directories",

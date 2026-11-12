@@ -11,7 +11,7 @@
 //! - Given direct aliases to the same canonical directory or a SAF stable identity with rotating
 //!   capabilities, when a workspace identity is derived, then aliases/tokens converge while
 //!   different trees and access modes cannot collide.
-//! - Given a page size outside 1..=256, when it crosses the boundary, then it is rejected rather
+//! - Given a page size outside 1..=512, when it crosses the boundary, then it is rejected rather
 //!   than clamped or replaced with a default.
 //! - Given a core event constructed with projection scopes, when it is observed, then those
 //!   scopes are retained on the event.
@@ -135,12 +135,12 @@ mod tests {
 
     #[test]
     fn page_size_is_rejected_instead_of_clamped() {
-        for invalid in [0, 257, u32::MAX] {
+        for invalid in [0, 513, u32::MAX] {
             let error = PageSize::new(invalid).must_fail("out-of-range page size");
             assert_eq!(error.category(), ErrorCategory::ResourceLimit);
             assert_eq!(error.code(), "invalid_page_size");
         }
-        assert_eq!(PageSize::new(256).must_succeed("upper bound").get(), 256);
+        assert_eq!(PageSize::new(512).must_succeed("upper bound").get(), 512);
     }
 
     #[test]
@@ -151,10 +151,10 @@ mod tests {
                 .err()
                 .is_some()
         );
-        assert!(serde_json::from_str::<PageSize>("257").err().is_some());
-        let bounded = serde_json::from_str::<PageSize>("256")
+        assert!(serde_json::from_str::<PageSize>("513").err().is_some());
+        let bounded = serde_json::from_str::<PageSize>("512")
             .unwrap_or_else(|error| panic!("bounded page should deserialize: {error}"));
-        assert_eq!(bounded.get(), 256);
+        assert_eq!(bounded.get(), 512);
     }
 
     #[test]

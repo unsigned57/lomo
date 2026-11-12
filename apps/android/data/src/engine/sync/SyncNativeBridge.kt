@@ -16,11 +16,7 @@ import com.lomo.nativebridge.SyncSecretLeaseDto as BridgeSecretLease
  * mapping is exercised without JNI.
  */
 interface SyncNativeBridge {
-    fun listConflicts(
-        workspaceRoot: String,
-        cursor: UInt,
-        limit: UInt,
-    ): BridgeConflictPage
+    fun listConflicts(workspaceRoot: String, cursor: UInt, limit: UInt): BridgeConflictPage
 
     fun resolveConflicts(
         workspaceRoot: String,
@@ -28,19 +24,13 @@ interface SyncNativeBridge {
         resolutions: List<BridgeResolution>,
     ): BridgeResolveResult
 
-    fun issueSecretLease(
-        secretBytes: ByteArray,
-        ttlMillis: ULong,
-    ): BridgeSecretLease
+    fun issueSecretLease(secretBytes: ByteArray, ttlMillis: ULong): BridgeSecretLease
 
     fun probeSecretLease(leaseId: String): UInt
 
     fun revokeSecretLease(leaseId: String)
 
-    fun readConflictArtifact(
-        workspaceRoot: String,
-        artifactRef: String,
-    ): ByteArray
+    fun readConflictArtifact(workspaceRoot: String, artifactRef: String): ByteArray
 
     fun runCycle(
         workspaceRoot: String,

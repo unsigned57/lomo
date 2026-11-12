@@ -12,10 +12,7 @@ data class MigrationArchiveSummary(
     val voiceCount: Int = 0,
 )
 
-data class MigrationSettingsSummary(
-    val settingCount: Int = 0,
-    val sensitiveSettingCount: Int = 0,
-)
+data class MigrationSettingsSummary(val settingCount: Int = 0, val sensitiveSettingCount: Int = 0)
 
 class MigrationPasswordException(
     message: String = "Unable to decrypt migration settings with the supplied password",
@@ -27,14 +24,9 @@ class MigrationPasswordException(
  * version/KDF/cipher this build does not produce — a file-format failure that is deliberately
  * distinct from [MigrationPasswordException] so callers can tell "bad file" from "bad password".
  */
-class MigrationEnvelopeException(
-    message: String,
-    cause: Throwable? = null,
-) : Exception(message, cause)
+class MigrationEnvelopeException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-class ExportAllNotesArchiveUseCase(
-    private val repository: MigrationArchiveRepository,
-) {
+class ExportAllNotesArchiveUseCase(private val repository: MigrationArchiveRepository) {
     suspend operator fun invoke(output: OutputStream): MigrationArchiveSummary =
         repository.exportAllNotesArchive(output)
 }
@@ -50,20 +42,12 @@ class ImportAllNotesArchiveUseCase(
     }
 }
 
-class ExportEncryptedSettingsUseCase(
-    private val repository: MigrationArchiveRepository,
-) {
-    suspend operator fun invoke(
-        output: OutputStream,
-        password: String,
-    ): MigrationSettingsSummary = repository.exportEncryptedSettings(output, password)
+class ExportEncryptedSettingsUseCase(private val repository: MigrationArchiveRepository) {
+    suspend operator fun invoke(output: OutputStream, password: String): MigrationSettingsSummary =
+        repository.exportEncryptedSettings(output, password)
 }
 
-class ImportEncryptedSettingsUseCase(
-    private val repository: MigrationArchiveRepository,
-) {
-    suspend operator fun invoke(
-        input: InputStream,
-        password: String,
-    ): MigrationSettingsSummary = repository.importEncryptedSettings(input, password)
+class ImportEncryptedSettingsUseCase(private val repository: MigrationArchiveRepository) {
+    suspend operator fun invoke(input: InputStream, password: String): MigrationSettingsSummary =
+        repository.importEncryptedSettings(input, password)
 }

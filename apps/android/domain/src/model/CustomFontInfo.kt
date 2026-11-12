@@ -36,13 +36,9 @@ fun interface CustomFontSource {
 
 /** Terminal result of one font import: published fact or typed rejection. */
 sealed interface CustomFontImportResult {
-    data class Imported(
-        val info: CustomFontInfo,
-    ) : CustomFontImportResult
+    data class Imported(val info: CustomFontInfo) : CustomFontImportResult
 
-    data class Rejected(
-        val reason: CustomFontRejection,
-    ) : CustomFontImportResult
+    data class Rejected(val reason: CustomFontRejection) : CustomFontImportResult
 }
 
 enum class CustomFontRejection {

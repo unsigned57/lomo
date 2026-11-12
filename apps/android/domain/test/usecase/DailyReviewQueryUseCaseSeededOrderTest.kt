@@ -1,59 +1,57 @@
 package com.lomo.domain.usecase
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
+import com.lomo.domain.model.DailyReviewCollectionSource
 import com.lomo.domain.model.Memo
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeMemoQueryRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
+import java.time.LocalDate
 
 /*
  * Behavior Contract:
- * - Unit under test: DailyReviewQueryUseCase
- * - Behavior focus: seeded random-review ordering must stay stable within the same day so a persisted page index still points at the same memo ordering after re-entry.
- * - Observable outcomes: identical memo id ordering for repeated queries with the same seed.
- * - TDD proof: Fails before the fix because the use case always reseeds from volatile time and exposes no way to replay the same random walk.
- * - Excludes: session date rollover, UI pager restoration, and repository paging correctness already covered elsewhere.
+ * - Capability: re-entering a daily review replays the same seed and owner-ordered first page.
+ * - Owning layer: domain adapter; priority: P1.
+ * Scenarios:
+ * - Given the same collection and seed, when loading twice, then memo identity order is equal.
+ * - Production scope: apps/android/domain/src/usecase/DailyReviewQueryUseCase.kt
+ * - Observable outcomes: identical public page results; native ordering is covered by store tests.
+ * - TDD proof: the pre-seeded implementation changed order on each query; this regression keeps
+ *   that replay assertion while adapting to bounded owner-ordered pages.
+ * - Test Change Justification: the obsolete whole-review invoke API became loadPage(source).
+ *   The same-seed equality assertion is preserved, without asserting private shuffle details.
+ * - Excludes: session rollover, Compose pager restoration and statistical randomness.
+ * Test Change Justification:
+ * Reason category: bounded owner-ordered query migration.
+ * Old behavior/assertion being replaced: The obsolete whole-review invocation was replaced with loadPage(source); seed equality remains.
+ * Why old assertion is no longer correct: existing outcome assertions remain valid and retained.
+ * Coverage preserved by: Both loads must return the same public memo order for the same collection and seed.
+ * Why this is not fitting the test to the implementation: no expected product outcome is weakened.
  */
 class DailyReviewQueryUseCaseSeededOrderTest : DomainFunSpec() {
     private val repository = FakeMemoStore()
-    private val useCase = DailyReviewQueryUseCase(com.lomo.domain.testing.fakes.FakeMemoQueryRepository(repository))
+    private val useCase = DailyReviewQueryUseCase(FakeMemoQueryRepository(repository))
+
     init {
-        test("invoke returns the same memo order when called with the same seed") {
+        test("given the same review seed when loading twice then memo order repeats") {
             runTest {
-                        val memos = (0 until 30).map(::memo)
-                        repository.setMemos(memos)
+                repository.setMemos((0 until 30).map(::memo))
+                val source = DailyReviewCollectionSource(LocalDate.of(2026, 4, 16), 42L)
 
-                        val first = useCase(seed = 42L).map { it.id }
-                        val second = useCase(seed = 42L).map { it.id }
+                val first = useCase.loadPage(source).memos.map { it.id }
+                val second = useCase.loadPage(source).memos.map { it.id }
 
-                        second shouldBe first
-                    }
+                second shouldBe first
+            }
         }
     }
 
-    private fun memo(index: Int): Memo =
-        Memo(
-            id = "memo_$index",
-            timestamp = index.toLong(),
-            content = "content_$index",
-            rawContent = "- 00:00:00 content_$index",
-            dateKey = "2026_04_16",
-        )
+    private fun memo(index: Int): Memo = Memo(
+        id = "memo_$index",
+        timestamp = index.toLong(),
+        content = "content_$index",
+        rawContent = "- 00:00:00 content_$index",
+        dateKey = "2026_04_16",
+    )
 }

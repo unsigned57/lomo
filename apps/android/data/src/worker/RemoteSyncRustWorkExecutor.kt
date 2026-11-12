@@ -21,9 +21,7 @@ import timber.log.Timber
  *
  * Disposition mapping has **no** fixed three-retry budget.
  */
-class RemoteSyncRustWorkExecutor(
-    private val remoteSync: RemoteSyncRepository,
-) : RustSyncWorkExecutor {
+class RemoteSyncRustWorkExecutor(private val remoteSync: RemoteSyncRepository) : RustSyncWorkExecutor {
     override suspend fun run(request: RustSyncWorkRequest): RemoteSyncRetryHint {
         validateRequest(request)?.let { return it }
 
@@ -88,7 +86,7 @@ class RemoteSyncRustWorkExecutor(
                         gitAuthorEmail = request.gitAuthorEmail,
                         remoteDatasetId = request.remoteDatasetId,
                         secretLeaseId =
-                            request.secretLeaseId?.run { trim().takeIf { it.isNotEmpty() } },
+                        request.secretLeaseId?.run { trim().takeIf { it.isNotEmpty() } },
                         applyRemote = request.applyRemote,
                     ),
                 )
@@ -117,22 +115,21 @@ class RemoteSyncRustWorkExecutor(
     }
 
     /** Terminal durable record read; `null` when unreadable or still running. */
-    private fun durableTerminal(request: RustSyncWorkRequest): RemoteSyncCycleStatus? =
-        try {
-            remoteSync
-                .cycleStatus(request.workspaceRoot.trim())
-                .takeIf { it.hasRecord && it.phase != RemoteSyncCycleStatus.PHASE_RUNNING }
-        } catch (failure: RemoteSyncBoundaryFailure) {
-            Timber.w(
-                "%s post-cycle status read failed category=%s code=%s",
-                WORKER_UNIT,
-                failure.category,
-                failure.code,
-            )
-            // behavior-contract: silent-result-ok: the cycle's terminal record is already
-            // durable in Rust; an unreadable projection degrades to the summary disposition.
-            null
-        }
+    private fun durableTerminal(request: RustSyncWorkRequest): RemoteSyncCycleStatus? = try {
+        remoteSync
+            .cycleStatus(request.workspaceRoot.trim())
+            .takeIf { it.hasRecord && it.phase != RemoteSyncCycleStatus.PHASE_RUNNING }
+    } catch (failure: RemoteSyncBoundaryFailure) {
+        Timber.w(
+            "%s post-cycle status read failed category=%s code=%s",
+            WORKER_UNIT,
+            failure.category,
+            failure.code,
+        )
+        // behavior-contract: silent-result-ok: the cycle's terminal record is already
+        // durable in Rust; an unreadable projection degrades to the summary disposition.
+        null
+    }
 
     /**
      * Maps a structured boundary failure's disposition **name** into a hint.
@@ -147,8 +144,7 @@ class RemoteSyncRustWorkExecutor(
     private fun hintFromDisposition(disposition: RemoteSyncRetryDisposition): RemoteSyncRetryHint =
         RemoteSyncRetryHint(disposition = disposition)
 
-    private fun neverHint(): RemoteSyncRetryHint =
-        RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Never)
+    private fun neverHint(): RemoteSyncRetryHint = RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Never)
 
     companion object {
         private const val WORKER_UNIT: String = "RemoteSyncRustWorkExecutor"

@@ -36,8 +36,8 @@ internal fun com.lomo.nativebridge.EngineFailure.toEngineCommandFailure(): Engin
         operationId = operationId,
         jobId = jobId,
         diagnostic =
-            "$diagnostic (unrecognized engine vocabulary: category=${this.category}, " +
-                "retry_disposition=${this.retryDisposition})",
+        "$diagnostic (unrecognized engine vocabulary: category=${this.category}, " +
+            "retry_disposition=${this.retryDisposition})",
     )
 }
 
@@ -45,16 +45,15 @@ internal fun com.lomo.nativebridge.EngineFailure.toEngineCommandFailure(): Engin
 internal fun EngineFailureSnapshot.toEngineCommandFailure(
     operationId: String? = null,
     jobId: String? = null,
-): EngineCommandFailure =
-    com.lomo.nativebridge
-        .EngineFailure(
-            category = category,
-            code = code,
-            retryDisposition = retryDisposition,
-            operationId = operationId,
-            jobId = jobId,
-            diagnostic = diagnostic,
-        ).toEngineCommandFailure()
+): EngineCommandFailure = com.lomo.nativebridge
+    .EngineFailure(
+        category = category,
+        code = code,
+        retryDisposition = retryDisposition,
+        operationId = operationId,
+        jobId = jobId,
+        diagnostic = diagnostic,
+    ).toEngineCommandFailure()
 
 /** Builds a typed rejection for a precondition the platform boundary itself refuses. */
 internal fun engineCommandFailure(
@@ -64,17 +63,37 @@ internal fun engineCommandFailure(
     diagnostic: String,
     operationId: String? = null,
     jobId: String? = null,
-): EngineCommandFailureException =
-    EngineCommandFailureException(
-        EngineCommandFailure(
-            category = category,
-            code = code,
-            retryDisposition = retryDisposition,
-            operationId = operationId,
-            jobId = jobId,
-            diagnostic = diagnostic,
-        ),
-    )
+): EngineCommandFailureException = EngineCommandFailureException(
+    EngineCommandFailure(
+        category = category,
+        code = code,
+        retryDisposition = retryDisposition,
+        operationId = operationId,
+        jobId = jobId,
+        diagnostic = diagnostic,
+    ),
+)
+
+/**
+ * Render-boundary conversion. Rust's presentation budget refusal (`resource_limit`) is the same
+ * domain fact as the IR contract check in
+ * [com.lomo.domain.model.markdown.MarkdownRenderDocument] — this body cannot be presented — so it
+ * surfaces as [com.lomo.domain.model.markdown.MarkdownRenderContractException] with Rust's code,
+ * which render consumers already model as a Failed render state. Every other refusal keeps the
+ * shared typed [EngineCommandFailureException].
+ */
+internal inline fun <T> withRenderFailureConversion(block: () -> T): T = try {
+    block()
+} catch (error: com.lomo.nativebridge.EngineError.Failure) {
+    val failure = error.failure.toEngineCommandFailure()
+    if (failure.category == EngineFailureCategory.RESOURCE_LIMIT) {
+        throw com.lomo.domain.model.markdown.MarkdownRenderContractException(
+            failure.code,
+            failure.diagnostic,
+        ).apply { initCause(error) }
+    }
+    throw EngineCommandFailureException(failure, cause = error)
+}
 
 /**
  * Runs one native call and converts its rejection.
@@ -82,9 +101,8 @@ internal fun engineCommandFailure(
  * [com.lomo.nativebridge.EngineError] is a sealed carrier without a message; catching it here is the
  * only place that knows how to keep its typed payload.
  */
-internal inline fun <T> withEngineFailureConversion(block: () -> T): T =
-    try {
-        block()
-    } catch (error: com.lomo.nativebridge.EngineError.Failure) {
-        throw EngineCommandFailureException(error.failure.toEngineCommandFailure(), cause = error)
-    }
+internal inline fun <T> withEngineFailureConversion(block: () -> T): T = try {
+    block()
+} catch (error: com.lomo.nativebridge.EngineError.Failure) {
+    throw EngineCommandFailureException(error.failure.toEngineCommandFailure(), cause = error)
+}

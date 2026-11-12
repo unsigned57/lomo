@@ -10,11 +10,8 @@ import com.lomo.domain.model.markdown.MarkdownRenderDocument
  *
  * Domain / app / ui-components must not import [com.lomo.nativebridge] types from this surface.
  */
-internal class WorkspaceRenderBoundaryException(
-    val code: String,
-    message: String,
-    cause: Throwable? = null,
-) : IllegalArgumentException(message, cause)
+internal class WorkspaceRenderBoundaryException(val code: String, message: String, cause: Throwable? = null) :
+    IllegalArgumentException(message, cause)
 
 internal data class WorkspaceReminderReferenceSnapshot(
     val opaqueId: String,
@@ -71,27 +68,16 @@ internal data class WorkspaceDocumentMemoFactsSnapshot(
 )
 
 internal sealed interface WorkspaceNativeCommandSpec {
-    data class Create(
-        val timePart: String,
-        val content: String,
-        val history: WorkspaceNativeHistoryWrite? = null,
-    ) : WorkspaceNativeCommandSpec
+    data class Create(val timePart: String, val content: String, val history: WorkspaceNativeHistoryWrite? = null) :
+        WorkspaceNativeCommandSpec
 
-    data class Append(
-        val timePart: String,
-        val content: String,
-        val history: WorkspaceNativeHistoryWrite? = null,
-    ) : WorkspaceNativeCommandSpec
+    data class Append(val timePart: String, val content: String, val history: WorkspaceNativeHistoryWrite? = null) :
+        WorkspaceNativeCommandSpec
 
-    data class Replace(
-        val identity: String,
-        val content: String,
-        val history: WorkspaceNativeHistoryWrite? = null,
-    ) : WorkspaceNativeCommandSpec
+    data class Replace(val identity: String, val content: String, val history: WorkspaceNativeHistoryWrite? = null) :
+        WorkspaceNativeCommandSpec
 
-    data class Remove(
-        val identity: String,
-    ) : WorkspaceNativeCommandSpec
+    data class Remove(val identity: String) : WorkspaceNativeCommandSpec
 
     data class ToggleTask(
         /** Stable memo identity resolved by Rust against the verified document parse. */
@@ -100,17 +86,9 @@ internal sealed interface WorkspaceNativeCommandSpec {
         val bodyStart: ULong,
         val bodyEnd: ULong,
     ) : WorkspaceNativeCommandSpec
-
-    data class RewriteReminder(
-        val reminder: WorkspaceReminderReferenceSnapshot,
-        val replacement: String,
-    ) : WorkspaceNativeCommandSpec
 }
 
-internal data class WorkspaceNativeHistoryWrite(
-    val revision: ULong,
-    val createdAtMs: Long,
-)
+internal data class WorkspaceNativeHistoryWrite(val revision: ULong, val createdAtMs: Long)
 
 internal sealed interface WorkspaceNativeExpectedState {
     data object Absent : WorkspaceNativeExpectedState
@@ -158,10 +136,7 @@ internal interface WorkspaceNativeAdapter :
 
 /** Read/rebuild capability of the Rust-owned workspace projection boundary. */
 internal interface WorkspaceProjectionEnginePort {
-    fun renderMarkdown(
-        content: String,
-        schemaVersion: UInt,
-    ): MarkdownRenderDocument
+    fun renderMarkdown(content: String, schemaVersion: UInt): MarkdownRenderDocument
 }
 
 /** Durable workspace mutation capability; every result is parsed and verified by Rust. */

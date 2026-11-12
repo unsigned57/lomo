@@ -15,12 +15,19 @@
  * - Given a relative path whose segment is `..` or a symlink, when Stat/open runs, then traversal
  *   is rejected before following the link.
  * - Given a CREATE write, when it completes, then the bound file contains the exchanged bytes.
+ * - Given a write or move target whose parent chain is absent, when the operation runs, then
+ *   the chain materializes descriptor-relatively before the target resolves — the platform
+ *   write law `lomo-platform-fs::ensure_parent_directory_beneath` and the SAF writer's
+ *   `ensureDirectory(parentPath)` already share; a file occupying the parent path fails closed
+ *   conflict instead of being silently replaced.
  * - Given a directory of files, when children are listed or a move receipt is observed, then
  *   digests stay unknown because no content channel is opened for metadata observations.
  * - Given a file, when stat requests CONTENT then the digest is the streamed SHA-256, and when it
  *   requests METADATA_ONLY then the digest stays unknown.
  * - Given more children than one page, when pages are walked by cursor, then no child repeats and
- *   none is missed and the emitted order is the sorted name order.
+ *   none is missed, the emitted order is the sorted name order, and every minted cursor stays
+ *   inside the protocol identifier alphabet (`MetadataPage.next_cursor` is a `CapabilityToken`:
+ *   1..=128 bytes of letters, digits, `-`, `_`, `.`, `:`) so the page survives the FFI boundary.
  * - Given a child added or removed between pages, when the next page runs, then the minted cursor
  *   fails closed stale instead of silently re-paging a shifted name set.
  * - Given a malformed, legacy decimal, cross-directory or cross-grant cursor, when listing runs,
@@ -49,7 +56,7 @@
  *
  * Excludes:
  * - SAF ContentResolver IO, session mount orchestration, and native StoreHandle lifecycle.
-  * Test Change Justification:
+ * Test Change Justification:
  * - Reason category: production API signature change — stat now takes SnapshotDigestMode — plus
  *   new cursor-paging coverage for the directory listing contract.
  * - Old behavior/assertion being replaced: stat calls without an evidence-depth argument.
@@ -73,6 +80,9 @@ import io.kotest.matchers.shouldBe
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.security.MessageDigest
+
+/** `CapabilityToken` wire law — the alphabet `MetadataPage.next_cursor` is validated against. */
+private val PROTOCOL_IDENTIFIER = Regex("[A-Za-z0-9._:-]{1,128}")
 
 class DirectRootDocumentsGatewayTest : DataFunSpec() {
     init {
@@ -187,6 +197,11 @@ class DirectRootDocumentsGatewayTest : DataFunSpec() {
                             pageSize = 4u,
                         )
                     page.incomplete shouldBe false
+                    // The page result crosses the FFI boundary as a CapabilityToken — a minted
+                    // cursor outside the identifier alphabet poisons the whole batch result.
+                    page.nextCursor?.let { minted ->
+                        PROTOCOL_IDENTIFIER.matches(minted) shouldBe true
+                    }
                     seen += page.items.map { (it.target as WorkspaceTarget.Relative).path }
                     cursor = page.nextCursor
                     pages += 1
@@ -463,18 +478,83 @@ class DirectRootDocumentsGatewayTest : DataFunSpec() {
         test("given a CREATE write when it completes then the bound file contains those bytes") {
             DirectRootFixture().use { fixture ->
                 val bytes = "hello-direct".toByteArray(StandardCharsets.UTF_8)
-                val snapshot =
+                val outcome =
                     fixture.gateway.writeFromExchange(
                         grant = fixture.grant,
                         path = "memo.md",
                         bytes = bytes,
                         mode = WriteMode.CREATE,
                         mimeType = "text/markdown",
+                        arbitrate = { null },
                     )
 
+                val snapshot = (outcome as WriteOutcome.Written).snapshot
                 snapshot.kind shouldBe DocumentKind.FILE
                 snapshot.digest shouldBe sha256Hex(bytes)
                 Files.readAllBytes(fixture.root.toPath().resolve("memo.md")) shouldBe bytes
+            }
+        }
+
+        // The platform write law is backend-uniform: lomo-platform-fs ensures the parent
+        // directory beneath every write/move target and the SAF writer calls
+        // ensureDirectory(parentPath) inside createFile/move — a Direct write must
+        // materialize the same chain instead of failing document_not_found.
+        test("given an absent parent chain when a write runs then the chain materializes and bytes land") {
+            DirectRootFixture().use { fixture ->
+                val bytes = "nested".toByteArray(StandardCharsets.UTF_8)
+
+                val outcome =
+                    fixture.gateway.writeFromExchange(
+                        grant = fixture.grant,
+                        path = ".lomo/identity/v1/rec.memo",
+                        bytes = bytes,
+                        mode = WriteMode.CREATE,
+                        mimeType = null,
+                        arbitrate = { null },
+                    )
+
+                val snapshot = (outcome as WriteOutcome.Written).snapshot
+                snapshot.kind shouldBe DocumentKind.FILE
+                Files.readAllBytes(
+                    fixture.root.toPath().resolve(".lomo/identity/v1/rec.memo"),
+                ) shouldBe bytes
+            }
+        }
+
+        test("given an absent parent chain when a move target names it then the chain materializes") {
+            DirectRootFixture().use { fixture ->
+                fixture.root.resolve("memo.md").writeText("moved bytes")
+
+                val snapshot =
+                    fixture.gateway.move(
+                        grant = fixture.grant,
+                        source = "memo.md",
+                        target = ".trash/memo.md",
+                    )
+
+                snapshot.documentId.isNotEmpty() shouldBe true
+                Files.readString(
+                    fixture.root.toPath().resolve(".trash/memo.md"),
+                ) shouldBe "moved bytes"
+            }
+        }
+
+        test("given a file occupying the parent path when a write runs then it fails closed conflict") {
+            DirectRootFixture().use { fixture ->
+                fixture.root.resolve("blocker").writeText("not a directory")
+
+                val error =
+                    shouldThrow<DirectRootAccessException> {
+                        fixture.gateway.writeFromExchange(
+                            grant = fixture.grant,
+                            path = "blocker/child.md",
+                            bytes = "x".toByteArray(StandardCharsets.UTF_8),
+                            mode = WriteMode.CREATE,
+                            mimeType = null,
+                            arbitrate = { null },
+                        )
+                    }
+                error.code shouldBe "platform_postcondition_mismatch"
             }
         }
     }
@@ -490,8 +570,7 @@ private class DirectRootFixture : AutoCloseable {
     }
 }
 
-private fun sha256Hex(bytes: ByteArray): String =
-    MessageDigest
-        .getInstance("SHA-256")
-        .digest(bytes)
-        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+private fun sha256Hex(bytes: ByteArray): String = MessageDigest
+    .getInstance("SHA-256")
+    .digest(bytes)
+    .joinToString(separator = "") { byte -> "%02x".format(byte) }

@@ -11,18 +11,9 @@ import com.lomo.data.engine.store.toStoreCommit
  * Repositories execute commands; this type is the only writer onto [StoreInvalidationBus] for
  * those stamps. Native receipts map here; Kotlin does not mint a second publication clock.
  */
-internal class StoreProjectionObserver(
-    private val bus: StoreInvalidationBus,
-) {
-    fun observeCommit(
-        commit: StoreMemoCommit,
-        midFlightAlreadyPublished: Boolean = false,
-    ) {
-        if (midFlightAlreadyPublished) {
-            bus.confirm(commit)
-        } else {
-            bus.publish(commit)
-        }
+internal class StoreProjectionObserver(private val bus: StoreInvalidationBus) {
+    fun observeCommit(commit: StoreMemoCommit) {
+        bus.publish(commit)
     }
 
     fun observeBatch(commit: StoreMemoBatchCommit) {

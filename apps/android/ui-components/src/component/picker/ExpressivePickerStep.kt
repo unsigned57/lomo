@@ -9,7 +9,4 @@ import androidx.compose.runtime.Composable
  * selection yet); [content] renders the step body, which should be a single picker surface so each
  * step fits on screen.
  */
-data class ExpressivePickerStep(
-    val confirmEnabled: Boolean = true,
-    val content: @Composable () -> Unit,
-)
+data class ExpressivePickerStep(val confirmEnabled: Boolean = true, val content: @Composable () -> Unit)

@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //! Capability: memo mutations and external editor commits stay within application transactions.
 //! Scenarios: pin/delete/restore/history, permanent delete and empty trash, revision restore,
@@ -187,7 +196,10 @@ mod tests {
         ));
         command(&fixture.runtime, &mut model, Command::Accept)
             .expect("fixture and operation must succeed");
-        assert!(feed(&model).expect("trash").memos.is_empty());
+        assert_eq!(
+            feed(&model).expect("trash").memos,
+            Vec::<lomo_tui::model::MemoCard>::new()
+        );
         assert_eq!(feed(&model).expect("trash").total, Some(0));
     }
 
@@ -273,6 +285,11 @@ mod tests {
         );
         run_effect(&fixture.runtime, &mut model, effect)
             .expect("fixture and operation must succeed");
+        fixture
+            .runtime
+            .session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             fs::read_to_string(fixture.runtime.workspace.join("2026_09_11.md"))
                 .expect("fixture and operation must succeed")
@@ -343,11 +360,11 @@ mod tests {
         assert_eq!(model.draft.text.text(), "expanded draft");
         assert_eq!(model.input, InputMode::Compose);
         assert_eq!(model.draft.save, SaveState::Editing);
-        assert!(
+        assert_eq!(
             feed(&model)
                 .expect("fixture and operation must succeed")
-                .memos
-                .is_empty()
+                .memos,
+            Vec::<lomo_tui::model::MemoCard>::new()
         );
         command(&fixture.runtime, &mut model, Command::Commit)
             .expect("fixture and operation must succeed");

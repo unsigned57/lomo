@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //!
 //! Capability: serialize job transitions through one bounded writer, durably arbitrate
@@ -107,6 +116,16 @@ mod tests {
         )
     }
 
+    fn inspection_metadata(target: &WorkspaceTarget) -> DocumentMetadata {
+        DocumentMetadata::new(
+            target.clone(),
+            DocumentKind::Directory,
+            None,
+            ActionEvidence::unknown(0, "root-listing").must_succeed("metadata evidence"),
+        )
+        .must_succeed("metadata")
+    }
+
     fn output_for(action: &PlatformAction) -> PlatformActionOutput {
         let evidence = || {
             ActionEvidence::verified(
@@ -120,6 +139,9 @@ mod tests {
             DocumentMetadata::new(target, kind, None, evidence()).must_succeed("metadata")
         };
         match action {
+            PlatformAction::Inspect { target, .. } => PlatformActionOutput::Stat {
+                metadata: inspection_metadata(target),
+            },
             PlatformAction::Stat { target, .. } => PlatformActionOutput::Stat {
                 metadata: metadata(target.clone(), DocumentKind::Directory),
             },
@@ -345,7 +367,7 @@ mod tests {
         );
         let event = listener.await_event();
         assert_eq!(event.core_revision().get(), 0);
-        assert!(event.scopes().is_empty());
+        assert_eq!(event.scopes(), []);
         let EngineState::Opening { .. } = before else {
             panic!("fixture must begin opening");
         };

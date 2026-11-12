@@ -11,11 +11,10 @@ private object MemoTextInteractionAlpha {
 internal val memoTextSelectionBackgroundAlpha: Float
     get() = MemoTextInteractionAlpha.SELECTION_BACKGROUND
 
-internal fun memoTextSelectionColors(colorScheme: ColorScheme): TextSelectionColors =
-    TextSelectionColors(
-        handleColor = memoPlatformTextHandleColor(colorScheme),
-        backgroundColor = memoPlatformTextSelectionHighlightColor(colorScheme),
-    )
+internal fun memoTextSelectionColors(colorScheme: ColorScheme): TextSelectionColors = TextSelectionColors(
+    handleColor = memoPlatformTextHandleColor(colorScheme),
+    backgroundColor = memoPlatformTextSelectionHighlightColor(colorScheme),
+)
 
 internal fun memoPlatformTextHandleColor(colorScheme: ColorScheme): Color = colorScheme.primary
 

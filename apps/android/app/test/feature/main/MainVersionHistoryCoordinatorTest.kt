@@ -58,18 +58,21 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
                 val repository =
                     FakeMemoVersionRepository(
                         pagesByCursor =
-                            linkedMapOf(
-                                null to
-                                    MemoRevisionPage(
-                                        items = listOf(testRevision(id = "r3", content = "v3"), testRevision(id = "r2", content = "v2")),
-                                        nextCursor = MemoRevisionCursor(createdAt = 2L, revisionId = "r2"),
+                        linkedMapOf(
+                            null to
+                                MemoRevisionPage(
+                                    items = listOf(
+                                        testRevision(id = "r3", content = "v3"),
+                                        testRevision(id = "r2", content = "v2"),
                                     ),
-                                MemoRevisionCursor(createdAt = 2L, revisionId = "r2") to
-                                    MemoRevisionPage(
-                                        items = listOf(testRevision(id = "r1", content = "v1")),
-                                        nextCursor = null,
-                                    ),
-                            ),
+                                    nextCursor = MemoRevisionCursor(createdAt = 2L, revisionId = "r2"),
+                                ),
+                            MemoRevisionCursor(createdAt = 2L, revisionId = "r2") to
+                                MemoRevisionPage(
+                                    items = listOf(testRevision(id = "r1", content = "v1")),
+                                    nextCursor = null,
+                                ),
+                        ),
                     )
                 val mutationRepository = FakeMemoMutationRepository()
                 val coordinator =
@@ -90,7 +93,12 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
                 (loadedAfterSecondPage.versions.map(MemoRevision::memoContent)) shouldBe (listOf("v3", "v2", "v1"))
                 ((loadedAfterSecondPage.hasMore)) shouldBe false
                 ((loadedAfterSecondPage.isLoadingMore)) shouldBe false
-                (repository.requestedCursors) shouldBe (listOf(null, MemoRevisionCursor(createdAt = 2L, revisionId = "r2")))
+                (repository.requestedCursors) shouldBe (
+                    listOf(
+                        null,
+                        MemoRevisionCursor(createdAt = 2L, revisionId = "r2"),
+                    )
+                    )
             }
         }
 
@@ -102,9 +110,9 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
                 val repository =
                     FakeMemoVersionRepository(
                         pagesByCursor =
-                            linkedMapOf(
-                                null to MemoRevisionPage(items = listOf(revision), nextCursor = null),
-                            ),
+                        linkedMapOf(
+                            null to MemoRevisionPage(items = listOf(revision), nextCursor = null),
+                        ),
                     )
                 val mutationRepository = FakeMemoMutationRepository(restoreGate = gate)
                 val coordinator =
@@ -140,9 +148,9 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
                 val repository =
                     FakeMemoVersionRepository(
                         pagesByCursor =
-                            linkedMapOf(
-                                null to MemoRevisionPage(items = listOf(currentRevision), nextCursor = null),
-                            ),
+                        linkedMapOf(
+                            null to MemoRevisionPage(items = listOf(currentRevision), nextCursor = null),
+                        ),
                     )
                 val mutationRepository = FakeMemoMutationRepository()
                 val coordinator =
@@ -161,39 +169,28 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
             }
         }
     }
-
 }
 
-private class FakeMemoVersionRepository(
-    private val pagesByCursor: Map<MemoRevisionCursor?, MemoRevisionPage>,
-) : MemoVersionRepository {
+private class FakeMemoVersionRepository(private val pagesByCursor: Map<MemoRevisionCursor?, MemoRevisionPage>) :
+    MemoVersionRepository {
     val requestedCursors = mutableListOf<MemoRevisionCursor?>()
 
-    override suspend fun listMemoRevisions(
-        memo: Memo,
-        cursor: MemoRevisionCursor?,
-        limit: Int,
-    ): MemoRevisionPage {
+    override suspend fun listMemoRevisions(memo: Memo, cursor: MemoRevisionCursor?, limit: Int): MemoRevisionPage {
         requestedCursors += cursor
         return requireNotNull(pagesByCursor[cursor]) { "Missing page for cursor=$cursor" }
     }
-
 }
 
-private class FakeMemoMutationRepository(
-    private val restoreGate: CompletableDeferred<Unit>? = null,
-) : MemoMutationRepository {
+private class FakeMemoMutationRepository(private val restoreGate: CompletableDeferred<Unit>? = null) :
+    MemoMutationRepository {
     var restoreCalls: Int = 0
         private set
 
     override suspend fun refreshMemos() = Unit
 
-    override suspend fun commitDocumentMutation(
-        mutation: com.lomo.domain.model.MemoDocumentMutation,
-    ) = Unit
-
     override suspend fun saveMemo(
         attempt: com.lomo.domain.model.MemoCreateAttempt,
+        onAccepted: (String) -> Unit,
     ): Memo = Memo(
         id = attempt.timestampMillis.toString(),
         timestamp = attempt.timestampMillis,
@@ -202,14 +199,9 @@ private class FakeMemoMutationRepository(
         dateKey = "test",
     )
 
-    override suspend fun updateMemo(
-        attempt: com.lomo.domain.model.MemoUpdateAttempt,
-    ) = Unit
+    override suspend fun updateMemo(attempt: com.lomo.domain.model.MemoUpdateAttempt) = Unit
 
-    override suspend fun deleteMemo(
-        memo: Memo,
-        operationId: com.lomo.domain.model.MemoOperationId,
-    ) = Unit
+    override suspend fun deleteMemo(memo: Memo, operationId: com.lomo.domain.model.MemoOperationId) = Unit
 
     override suspend fun restoreMemoRevision(
         currentMemo: Memo,
@@ -227,31 +219,25 @@ private class FakeMemoMutationRepository(
     ) = Unit
 }
 
-private fun testMemo(id: String): Memo =
-    Memo(
-        id = id,
-        timestamp = 1L,
-        updatedAt = 1L,
-        content = "current",
-        rawContent = "- 09:00 current",
-        dateKey = "2026_03_27",
-    )
+private fun testMemo(id: String): Memo = Memo(
+    id = id,
+    timestamp = 1L,
+    updatedAt = 1L,
+    content = "current",
+    rawContent = "- 09:00 current",
+    dateKey = "2026_03_27",
+)
 
-private fun testRevision(
-    id: String,
-    content: String,
-    isCurrent: Boolean = false,
-): MemoRevision =
-    MemoRevision(
-        revisionId = id,
-        parentRevisionId = null,
-        memoId = "memo",
-        commitId = "commit-$id",
-        batchId = null,
-        createdAt = id.removePrefix("r").toLongOrNull() ?: 1L,
-        origin = MemoRevisionOrigin.LOCAL_EDIT,
-        summary = "Edited memo",
-        lifecycleState = MemoRevisionLifecycleState.ACTIVE,
-        memoContent = content,
-        isCurrent = isCurrent,
-    )
+private fun testRevision(id: String, content: String, isCurrent: Boolean = false): MemoRevision = MemoRevision(
+    revisionId = id,
+    parentRevisionId = null,
+    memoId = "memo",
+    commitId = "commit-$id",
+    batchId = null,
+    createdAt = id.removePrefix("r").toLongOrNull() ?: 1L,
+    origin = MemoRevisionOrigin.LOCAL_EDIT,
+    summary = "Edited memo",
+    lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+    memoContent = content,
+    isCurrent = isCurrent,
+)

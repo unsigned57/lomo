@@ -41,6 +41,7 @@ package com.lomo.app.feature.synccenter
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
+import com.lomo.app.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.model.RemoteSyncBackendLabel
 import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
 import com.lomo.domain.model.RemoteSyncCenterFailure
@@ -56,15 +57,14 @@ import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
 import com.lomo.domain.repository.RemoteSyncCenterRepository
 import com.lomo.domain.usecase.DispatcherProvider
-import com.lomo.app.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.usecase.ObserveDirectWorkspaceRootUseCase
 import com.lomo.domain.usecase.RemoteSyncCenterUseCase
-import kotlinx.coroutines.CoroutineDispatcher
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -85,7 +85,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -109,7 +109,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -132,7 +132,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -159,19 +159,19 @@ class SyncCenterViewModelTest : AppFunSpec() {
                 val repo =
                     FakeRemoteSyncCenterRepository(
                         listFailure =
-                            RemoteSyncCenterFailure(
-                                category = "conflict",
-                                code = "corrupt_session",
-                                retryDisposition = "never",
-                                diagnostic = "session checksum mismatch",
-                            ),
+                        RemoteSyncCenterFailure(
+                            category = "conflict",
+                            code = "corrupt_session",
+                            retryDisposition = "never",
+                            diagnostic = "session checksum mismatch",
+                        ),
                     )
                 val viewModel =
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -187,19 +187,19 @@ class SyncCenterViewModelTest : AppFunSpec() {
                 val repo =
                     FakeRemoteSyncCenterRepository(
                         resolveFailure =
-                            RemoteSyncCenterFailure(
-                                category = "conflict",
-                                code = "conflict_revision_stale",
-                                retryDisposition = "after_user_action",
-                                diagnostic = "expected 3 got 4",
-                            ),
+                        RemoteSyncCenterFailure(
+                            category = "conflict",
+                            code = "conflict_revision_stale",
+                            retryDisposition = "after_user_action",
+                            diagnostic = "expected 3 got 4",
+                        ),
                     )
                 val viewModel =
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -223,18 +223,18 @@ class SyncCenterViewModelTest : AppFunSpec() {
                 val repo =
                     FakeRemoteSyncCenterRepository(
                         markdownBodies =
-                            MarkdownBodies(
-                                base = "base-body",
-                                local = "local-body",
-                                remote = "remote-body",
-                            ),
+                        MarkdownBodies(
+                            base = "base-body",
+                            local = "local-body",
+                            remote = "remote-body",
+                        ),
                     )
                 val viewModel =
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -271,7 +271,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -307,19 +307,19 @@ class SyncCenterViewModelTest : AppFunSpec() {
                 val repo =
                     FakeRemoteSyncCenterRepository(
                         markdownDetailFailure =
-                            RemoteSyncCenterFailure(
-                                category = "conflict",
-                                code = "conflict_artifact_invalid_utf8",
-                                retryDisposition = "never",
-                                diagnostic = "invalid utf-8 in local artifact",
-                            ),
+                        RemoteSyncCenterFailure(
+                            category = "conflict",
+                            code = "conflict_artifact_invalid_utf8",
+                            retryDisposition = "never",
+                            diagnostic = "invalid utf-8 in local artifact",
+                        ),
                     )
                 val viewModel =
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -348,31 +348,31 @@ class SyncCenterViewModelTest : AppFunSpec() {
                 val repo =
                     FakeRemoteSyncCenterRepository(
                         pagesByWorkspace =
-                            mapOf(
-                                "/ws-stale" to
-                                    RemoteSyncConflictPage(
-                                        session = RemoteSyncConflictSessionState.Present,
-                                        sessionId = "session-stale",
-                                        conflictRevision = 1L,
-                                        items = emptyList(),
-                                        nextCursor = null,
-                                    ),
-                                "/ws-fresh" to
-                                    RemoteSyncConflictPage(
-                                        session = RemoteSyncConflictSessionState.Absent,
-                                        sessionId = "",
-                                        conflictRevision = 0L,
-                                        items = emptyList(),
-                                        nextCursor = null,
-                                    ),
-                            ),
+                        mapOf(
+                            "/ws-stale" to
+                                RemoteSyncConflictPage(
+                                    session = RemoteSyncConflictSessionState.Present,
+                                    sessionId = "session-stale",
+                                    conflictRevision = 1L,
+                                    items = emptyList(),
+                                    nextCursor = null,
+                                ),
+                            "/ws-fresh" to
+                                RemoteSyncConflictPage(
+                                    session = RemoteSyncConflictSessionState.Absent,
+                                    sessionId = "",
+                                    conflictRevision = 0L,
+                                    items = emptyList(),
+                                    nextCursor = null,
+                                ),
+                        ),
                     )
                 val viewModel =
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws-stale", false)
@@ -401,7 +401,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -431,7 +431,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -450,23 +450,23 @@ class SyncCenterViewModelTest : AppFunSpec() {
                 val repo =
                     FakeRemoteSyncCenterRepository(
                         pagesByWorkspace =
-                            mapOf(
-                                "/ws" to
-                                    RemoteSyncConflictPage(
-                                        session = RemoteSyncConflictSessionState.Absent,
-                                        sessionId = "",
-                                        conflictRevision = 0L,
-                                        items = emptyList(),
-                                        nextCursor = null,
-                                    ),
-                            ),
+                        mapOf(
+                            "/ws" to
+                                RemoteSyncConflictPage(
+                                    session = RemoteSyncConflictSessionState.Absent,
+                                    sessionId = "",
+                                    conflictRevision = 0L,
+                                    items = emptyList(),
+                                    nextCursor = null,
+                                ),
+                        ),
                     )
                 val viewModel =
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -480,11 +480,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
     }
 }
 
-private data class MarkdownBodies(
-    val base: String?,
-    val local: String?,
-    val remote: String?,
-)
+private data class MarkdownBodies(val base: String?, val local: String?, val remote: String?)
 
 private class FakeRemoteSyncCenterRepository(
     private val includeNextCursor: Boolean = false,
@@ -515,16 +511,14 @@ private class FakeRemoteSyncCenterRepository(
             canCancel = true,
         )
 
-    override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
-        RemoteSyncConfigSummary(
-            backend = RemoteSyncBackendLabel.Git,
-            attentionCount = 2,
-            lastVerifiedAtEpochMillis = 1_700_000_000_000L,
-            schedulePolicyLabel = "interval_1h",
-        )
+    override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary = RemoteSyncConfigSummary(
+        backend = RemoteSyncBackendLabel.Git,
+        attentionCount = 2,
+        lastVerifiedAtEpochMillis = 1_700_000_000_000L,
+        schedulePolicyLabel = "interval_1h",
+    )
 
-    override suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
-        sessionProgressResult
+    override suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress = sessionProgressResult
 
     override suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress {
         cancelFailure?.let { throw it }
@@ -532,11 +526,7 @@ private class FakeRemoteSyncCenterRepository(
         return cancelProgressResult ?: sessionProgressResult
     }
 
-    override fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage {
+    override fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage {
         listFailure?.let { throw it }
         lastListCursor = cursor
         lastListLimit = limit
@@ -547,31 +537,31 @@ private class FakeRemoteSyncCenterRepository(
                 sessionId = "session-1",
                 conflictRevision = 3L,
                 items =
-                    listOf(
-                        RemoteSyncConflictPath(
-                            path = "memo/a.md",
-                            kind = "markdown",
-                            localDigest = "l",
-                            remoteDigest = "r",
-                            baselineDigest = "b",
-                            remoteTokenPresent = true,
-                            localArtifactRef = "la",
-                            remoteArtifactRef = "ra",
-                            baselineArtifactRef = "ba",
-                            status = RemoteSyncConflictPathStatus.Open,
-                        ),
-                        RemoteSyncConflictPath(
-                            path = "media/x.bin",
-                            kind = "binary",
-                            localDigest = "lb",
-                            remoteDigest = "rb",
-                            baselineDigest = "bb",
-                            remoteTokenPresent = false,
-                            localArtifactRef = "a1",
-                            remoteArtifactRef = "a2",
-                            status = RemoteSyncConflictPathStatus.Open,
-                        ),
+                listOf(
+                    RemoteSyncConflictPath(
+                        path = "memo/a.md",
+                        kind = "markdown",
+                        localDigest = "l",
+                        remoteDigest = "r",
+                        baselineDigest = "b",
+                        remoteTokenPresent = true,
+                        localArtifactRef = "la",
+                        remoteArtifactRef = "ra",
+                        baselineArtifactRef = "ba",
+                        status = RemoteSyncConflictPathStatus.Open,
                     ),
+                    RemoteSyncConflictPath(
+                        path = "media/x.bin",
+                        kind = "binary",
+                        localDigest = "lb",
+                        remoteDigest = "rb",
+                        baselineDigest = "bb",
+                        remoteTokenPresent = false,
+                        localArtifactRef = "a1",
+                        remoteArtifactRef = "a2",
+                        status = RemoteSyncConflictPathStatus.Open,
+                    ),
+                ),
                 nextCursor = if (includeNextCursor) 100 else null,
             )
         } else {
@@ -580,19 +570,19 @@ private class FakeRemoteSyncCenterRepository(
                 sessionId = "session-1",
                 conflictRevision = 3L,
                 items =
-                    listOf(
-                        RemoteSyncConflictPath(
-                            path = "memo/b.md",
-                            kind = "markdown",
-                            localDigest = null,
-                            remoteDigest = null,
-                            baselineDigest = null,
-                            remoteTokenPresent = false,
-                            localArtifactRef = null,
-                            remoteArtifactRef = null,
-                            status = RemoteSyncConflictPathStatus.Open,
-                        ),
+                listOf(
+                    RemoteSyncConflictPath(
+                        path = "memo/b.md",
+                        kind = "markdown",
+                        localDigest = null,
+                        remoteDigest = null,
+                        baselineDigest = null,
+                        remoteTokenPresent = false,
+                        localArtifactRef = null,
+                        remoteArtifactRef = null,
+                        status = RemoteSyncConflictPathStatus.Open,
                     ),
+                ),
                 nextCursor = null,
             )
         }
@@ -653,9 +643,7 @@ private class FakeRemoteSyncCenterRepository(
     }
 }
 
-private class TestDispatcherProvider(
-    private val dispatcher: CoroutineDispatcher,
-) : DispatcherProvider {
+private class TestDispatcherProvider(private val dispatcher: CoroutineDispatcher) : DispatcherProvider {
     override val main: CoroutineDispatcher get() = dispatcher
     override val io: CoroutineDispatcher get() = dispatcher
     override val default: CoroutineDispatcher get() = dispatcher

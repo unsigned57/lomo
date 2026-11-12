@@ -31,25 +31,22 @@ object StorageFilenameFormats {
     private val supportedFormatters: List<DateTimeFormatter> =
         supportedPatterns.map(::buildStrictFormatter)
 
-    fun formatter(pattern: String): DateTimeFormatter =
-        formattersByPattern[pattern]
-            ?: throw IllegalArgumentException("Unsupported storage filename format: $pattern")
+    fun formatter(pattern: String): DateTimeFormatter = formattersByPattern[pattern]
+        ?: throw IllegalArgumentException("Unsupported storage filename format: $pattern")
 
-    fun parseOrNull(raw: String): LocalDate? =
-        supportedFormatters.firstNotNullOfOrNull { formatter ->
-            // behavior-contract: silent-result-ok: format mismatch is expected; loop tries next
-            runCatching { LocalDate.parse(raw, formatter) }.getOrNull()
-        }
+    fun parseOrNull(raw: String): LocalDate? = supportedFormatters.firstNotNullOfOrNull { formatter ->
+        // behavior-contract: silent-result-ok: format mismatch is expected; loop tries next
+        runCatching { LocalDate.parse(raw, formatter) }.getOrNull()
+    }
 
     fun parseFilenameOrNull(filename: String): LocalDate? {
         if (!filename.endsWith(MARKDOWN_EXTENSION)) return null
         return parseOrNull(filename.removeSuffix(MARKDOWN_EXTENSION))
     }
 
-    private fun buildStrictFormatter(pattern: String): DateTimeFormatter =
-        DateTimeFormatter
-            .ofPattern(pattern.replace("yyyy", "uuuu"), Locale.US)
-            .withResolverStyle(ResolverStyle.STRICT)
+    private fun buildStrictFormatter(pattern: String): DateTimeFormatter = DateTimeFormatter
+        .ofPattern(pattern.replace("yyyy", "uuuu"), Locale.US)
+        .withResolverStyle(ResolverStyle.STRICT)
 }
 
 private const val MARKDOWN_EXTENSION = ".md"

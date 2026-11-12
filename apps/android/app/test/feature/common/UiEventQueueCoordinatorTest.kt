@@ -21,37 +21,38 @@ import java.util.concurrent.TimeUnit
  * GREEN: ./kotlin test --include-module=app --include-classes='com.lomo.app.feature.common.UiEventQueueCoordinatorTest'.
  * Excludes: durable command delivery across process death and Compose rendering.
  */
-class UiEventQueueCoordinatorTest : FunSpec({
-    test("given a full queue when enqueueing then the unacknowledged command is retained") {
-        val queue = UiEventQueueCoordinator<String>(maxSize = 1)
-        queue.enqueue("first").shouldBeInstanceOf<UiEventEnqueueResult.Accepted>()
-        queue.enqueue("second") shouldBe UiEventEnqueueResult.Rejected(UiEventQueueRejection.CapacityReached)
-        queue.events.value.map { it.payload } shouldBe listOf("first")
-        val id = queue.events.value.single().id
-        queue.consume(id)
-        queue.consume(id)
-        queue.enqueue("third")
-        queue.events.value.single().id shouldBe id + 1
-    }
-
-    test("given an invalid capacity when creating a queue then construction fails") {
-        shouldThrow<IllegalArgumentException> { UiEventQueueCoordinator<String>(maxSize = 0) }
-    }
-
-    test("given concurrent producers when enqueueing then every retained command has one ordered id") {
-        val queue = UiEventQueueCoordinator<Int>(maxSize = 128)
-        val start = CountDownLatch(1)
-        Executors.newFixedThreadPool(4).use { executor ->
-            val results = (1..128).map { payload ->
-                executor.submit {
-                    check(start.await(5, TimeUnit.SECONDS))
-                    queue.enqueue(payload)
-                }
-            }
-            start.countDown()
-            results.forEach { it.get(5, TimeUnit.SECONDS) }
+class UiEventQueueCoordinatorTest :
+    FunSpec({
+        test("given a full queue when enqueueing then the unacknowledged command is retained") {
+            val queue = UiEventQueueCoordinator<String>(maxSize = 1)
+            queue.enqueue("first").shouldBeInstanceOf<UiEventEnqueueResult.Accepted>()
+            queue.enqueue("second") shouldBe UiEventEnqueueResult.Rejected(UiEventQueueRejection.CapacityReached)
+            queue.events.value.map { it.payload } shouldBe listOf("first")
+            val id = queue.events.value.single().id
+            queue.consume(id)
+            queue.consume(id)
+            queue.enqueue("third")
+            queue.events.value.single().id shouldBe id + 1
         }
-        queue.events.value.map { it.id } shouldBe (1L..128L).toList()
-        queue.events.value.map { it.payload }.toSet() shouldBe (1..128).toSet()
-    }
-})
+
+        test("given an invalid capacity when creating a queue then construction fails") {
+            shouldThrow<IllegalArgumentException> { UiEventQueueCoordinator<String>(maxSize = 0) }
+        }
+
+        test("given concurrent producers when enqueueing then every retained command has one ordered id") {
+            val queue = UiEventQueueCoordinator<Int>(maxSize = 128)
+            val start = CountDownLatch(1)
+            Executors.newFixedThreadPool(4).use { executor ->
+                val results = (1..128).map { payload ->
+                    executor.submit {
+                        check(start.await(5, TimeUnit.SECONDS))
+                        queue.enqueue(payload)
+                    }
+                }
+                start.countDown()
+                results.forEach { it.get(5, TimeUnit.SECONDS) }
+            }
+            queue.events.value.map { it.id } shouldBe (1L..128L).toList()
+            queue.events.value.map { it.payload }.toSet() shouldBe (1..128).toSet()
+        }
+    })

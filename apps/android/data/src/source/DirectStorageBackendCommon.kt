@@ -28,10 +28,7 @@ internal fun directEnsureTrashExists(rootDir: File) {
  * Rejects writes/reads whose canonical path escapes the workspace root.
  * Defense in depth against tainted memo dateKeys arriving from remote sync.
  */
-internal fun ensureWithinDirectory(
-    root: File,
-    target: File,
-) {
+internal fun ensureWithinDirectory(root: File, target: File) {
     val rootPath = root.canonicalFile.toPath().normalize()
     val targetPath = target.canonicalFile.toPath().normalize()
     if (!targetPath.startsWith(rootPath)) {
@@ -67,21 +64,19 @@ internal fun fsyncDirectoryBestEffort(dir: File) {
  * UTF-8 decode that replaces malformed bytes instead of throwing. Keeps the parser usable when
  * an external sync drops a file whose encoding drifted (e.g. Obsidian export with BOM).
  */
-internal fun File.readTextBestEffortUtf8(): String {
-    return try {
+internal fun File.readTextBestEffortUtf8(): String = try {
+    // behavior-contract: blocking-io-ok: Direct markdown decode is invoked from IO storage backends
+    readText(Charsets.UTF_8)
+} catch (error: IOException) {
+    Timber.w(error, "UTF-8 decode failed, replacing malformed bytes: %s", name)
+    FileInputStream(this).use { stream ->
+        val decoder =
+            Charsets.UTF_8
+                .newDecoder()
+                .onMalformedInput(CodingErrorAction.REPLACE)
+                .onUnmappableCharacter(CodingErrorAction.REPLACE)
         // behavior-contract: blocking-io-ok: Direct markdown decode is invoked from IO storage backends
-        readText(Charsets.UTF_8)
-    } catch (error: IOException) {
-        Timber.w(error, "UTF-8 decode failed, replacing malformed bytes: %s", name)
-        FileInputStream(this).use { stream ->
-            val decoder =
-                Charsets.UTF_8
-                    .newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPLACE)
-                    .onUnmappableCharacter(CodingErrorAction.REPLACE)
-            // behavior-contract: blocking-io-ok: Direct markdown decode is invoked from IO storage backends
-            InputStreamReader(stream, decoder).readText()
-        }
+        InputStreamReader(stream, decoder).readText()
     }
 }
 

@@ -42,8 +42,8 @@ import com.lomo.ui.component.input.InputEditorCommand
 import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
-import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.io.File
 class MemoEditorHostSurfaceContractTest : AppFunSpec() {
     private val appSourceRoot = resolveModuleRoot("app").resolve("src")
 
@@ -52,12 +52,12 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
             val surface =
                 MemoEditorSurface(
                     session =
-                        MemoEditorSessionState(
-                            imageDirectory = "/images",
-                            ownerDraftId = DraftId("contract-draft"),
-                            dateFormat = PreferenceDefaults.DATE_FORMAT,
-                            timeFormat = PreferenceDefaults.TIME_FORMAT,
-                        ),
+                    MemoEditorSessionState(
+                        imageDirectory = "/images",
+                        ownerDraftId = DraftId("contract-draft"),
+                        dateFormat = PreferenceDefaults.DATE_FORMAT,
+                        timeFormat = PreferenceDefaults.TIME_FORMAT,
+                    ),
                     capabilities = MemoEditorCapabilities(quickSaveOnBackEnabled = true),
                     commands = MemoEditorCommandHandler { },
                     operations = MemoEditorOperations.fakeForContract(),
@@ -72,12 +72,12 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
             val surface =
                 MemoEditorSurface(
                     session =
-                        MemoEditorSessionState(
-                            imageDirectory = "/images",
-                            ownerDraftId = DraftId("contract-draft"),
-                            dateFormat = PreferenceDefaults.DATE_FORMAT,
-                            timeFormat = PreferenceDefaults.TIME_FORMAT,
-                        ),
+                    MemoEditorSessionState(
+                        imageDirectory = "/images",
+                        ownerDraftId = DraftId("contract-draft"),
+                        dateFormat = PreferenceDefaults.DATE_FORMAT,
+                        timeFormat = PreferenceDefaults.TIME_FORMAT,
+                    ),
                     capabilities = MemoEditorCapabilities(quickSaveOnBackEnabled = false),
                     commands = MemoEditorCommandHandler { command -> commands += command },
                     operations = MemoEditorOperations.fakeForContract(),
@@ -125,11 +125,7 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
         }
     }
 
-    private fun assertMemoEditorSurfaceOnly(
-        source: String,
-        functionName: String,
-        requiredParameter: String,
-    ) {
+    private fun assertMemoEditorSurfaceOnly(source: String, functionName: String, requiredParameter: String) {
         withClue("$functionName must expose one app editor surface entrypoint") {
             Regex("""fun\s+$functionName\s*\(""").findAll(source).count() shouldBe 1
         }
@@ -139,6 +135,7 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
         val forbiddenParameters =
             listOf(
                 "onSaveImage:",
+                "onSaveImages:",
                 "onStartRecording:",
                 "onStopRecording:",
                 "onCancelRecording:",
@@ -157,12 +154,11 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
         }
     }
 
-    private fun appSource(relativePath: String): File =
-        appSourceRoot.resolve(relativePath).also { file ->
-            withClue("Expected app source file exists: ${file.path}") {
-                file.isFile shouldBe true
-            }
+    private fun appSource(relativePath: String): File = appSourceRoot.resolve(relativePath).also { file ->
+        withClue("Expected app source file exists: ${file.path}") {
+            file.isFile shouldBe true
         }
+    }
 
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."
@@ -182,11 +178,10 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
     }
 }
 
-private fun MemoEditorOperations.Companion.fakeForContract(): MemoEditorOperations =
-    MemoEditorOperations(
-        onSaveImage = { _, _, _, _ -> },
-        onSubmit = { _, _, _, _ -> true },
-        submissionState = MutableStateFlow(MemoEditorSubmissionState.Idle),
-        onDismiss = { _ -> },
-        onToolbarOrderChanged = {},
-    )
+private fun MemoEditorOperations.Companion.fakeForContract(): MemoEditorOperations = MemoEditorOperations(
+    onSaveImages = { _, _, _, _ -> },
+    onSubmit = { _, _, _, _ -> true },
+    submissionState = MutableStateFlow(MemoEditorSubmissionState.Idle),
+    onDismiss = { _ -> },
+    onToolbarOrderChanged = {},
+)

@@ -2,14 +2,13 @@ package com.lomo.data.repository
 
 import android.content.Context
 import com.lomo.data.engine.media.PendingMediaStageRegistry
-import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.engine.store.StoreMemoCommand
 import com.lomo.data.engine.store.StoreMemoCommandKind
 import com.lomo.data.engine.store.StorePort
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
-import com.lomo.domain.model.SyncBackendType
 import com.lomo.data.sync.SyncConflictSuggestionPort
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewItemState
 import com.lomo.domain.model.SyncReviewResolution
@@ -26,13 +25,11 @@ import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
-
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-
 
 internal const val INBOX_PREFIX = "inbox/"
 
@@ -46,7 +43,6 @@ data class SyncInboxRepositoryDependencies(
     val pendingReviewStore: PendingSyncReviewStore,
     val storePort: StorePort,
     val pendingStages: PendingMediaStageRegistry,
-    val workspaceRoot: WorkspaceFilesystemRoot,
     val committedMediaSink: CommittedMediaLocationSink,
 )
 
@@ -63,7 +59,6 @@ class SyncInboxRepositoryImpl(
     private val pendingReviewStore: PendingSyncReviewStore = dependencies.pendingReviewStore
     private val storePort: StorePort = dependencies.storePort
     private val pendingStages: PendingMediaStageRegistry = dependencies.pendingStages
-    private val workspaceRoot: WorkspaceFilesystemRoot = dependencies.workspaceRoot
     private val committedMediaSink: CommittedMediaLocationSink = dependencies.committedMediaSink
 
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
@@ -71,7 +66,6 @@ class SyncInboxRepositoryImpl(
         SyncInboxPendingReviewRestorer(
             context = context,
             pendingStages = pendingStages,
-            workspaceRoot = workspaceRoot,
             contentProjector = contentProjector,
             suggestionPort = suggestionPort,
             dispatcherProvider = dispatcherProvider,
@@ -108,8 +102,7 @@ class SyncInboxRepositoryImpl(
     override suspend fun resolveReview(
         resolution: SyncReviewResolution,
         review: SyncReviewSession,
-    ): UnifiedSyncResult =
-        // One admission for the whole resolution: a switch mid-review would otherwise land some
+    ): UnifiedSyncResult = // One admission for the whole resolution: a switch mid-review would otherwise land some
         // files in the old workspace and the rest in the new one.
         writeLease.withWriteOrNull {
             state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.INITIALIZING)
@@ -120,11 +113,15 @@ class SyncInboxRepositoryImpl(
                     ?: return@withWriteOrNull notConfiguredResult()
 
             val validatedReview =
-                when (val restored = pendingReviewStore.readDescriptor(SyncBackendType.INBOX)?.let { descriptor ->
-                    pendingReviewRestorer.restore(inboxRoot = inboxRoot, descriptor = descriptor)
-                }) {
+                when (
+                    val restored = pendingReviewStore.readDescriptor(SyncBackendType.INBOX)?.let { descriptor ->
+                        pendingReviewRestorer.restore(inboxRoot = inboxRoot, descriptor = descriptor)
+                    }
+                ) {
                     null -> review
+
                     is PendingSyncRestoreResult.Restored -> restored.session
+
                     is PendingSyncRestoreResult.Invalidated -> {
                         pendingReviewStore.clear(SyncBackendType.INBOX)
                         val error =
@@ -135,13 +132,14 @@ class SyncInboxRepositoryImpl(
                         state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
                         return@withWriteOrNull UnifiedSyncResult.Error(provider = SyncBackendType.INBOX, error = error)
                     }
+
                     is PendingSyncRestoreResult.Failed -> {
                         val error =
                             UnifiedSyncError(
                                 provider = SyncBackendType.INBOX,
                                 message =
-                                    "Pending sync inbox review restore failed: " +
-                                        (restored.error.category ?: restored.error.message),
+                                "Pending sync inbox review restore failed: " +
+                                    (restored.error.category ?: restored.error.message),
                                 cause = restored.error.cause,
                             )
                         state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
@@ -194,17 +192,19 @@ class SyncInboxRepositoryImpl(
                         review = pendingReview,
                     )
                 }
+
                 is PendingSyncRestoreResult.Invalidated -> {
                     pendingReviewStore.clear(SyncBackendType.INBOX)
                     Timber.i("Pending sync inbox review invalidated for rebuild: %s", restored.reason)
                 }
+
                 is PendingSyncRestoreResult.Failed -> {
                     val error =
                         UnifiedSyncError(
                             provider = SyncBackendType.INBOX,
                             message =
-                                "Pending sync inbox review restore failed: " +
-                                    (restored.error.category ?: restored.error.message),
+                            "Pending sync inbox review restore failed: " +
+                                (restored.error.category ?: restored.error.message),
                             cause = restored.error.cause,
                         )
                     state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
@@ -266,10 +266,7 @@ class SyncInboxRepositoryImpl(
         )
     }
 
-    private suspend fun cleanupImportedAttachments(
-        inboxRoot: String,
-        committedFiles: List<CommittedInboxFile>,
-    ) {
+    private suspend fun cleanupImportedAttachments(inboxRoot: String, committedFiles: List<CommittedInboxFile>) {
         committedFiles
             .asSequence()
             .flatMap { committed -> committed.importedAttachmentsToDelete.asSequence() }
@@ -338,10 +335,7 @@ class SyncInboxRepositoryImpl(
         )
     }
 
-    private suspend fun buildInboxReviewFile(
-        inboxRoot: String,
-        inboxFile: InboxMarkdownFileMetadata,
-    ): SyncReviewItem {
+    private suspend fun buildInboxReviewFile(inboxRoot: String, inboxFile: InboxMarkdownFileMetadata): SyncReviewItem {
         val relativePath = inboxFile.relativePath
         val markdown =
             readInboxTextFile(
@@ -370,20 +364,20 @@ class SyncInboxRepositoryImpl(
             localLastModified = null,
             incomingLastModified = inboxFile.lastModified,
             state =
-                if (staged.missingAttachments.isNotEmpty()) {
-                    SyncReviewItemState.BLOCKED
-                } else {
-                    SyncReviewItemState.READY_TO_IMPORT
-                },
+            if (staged.missingAttachments.isNotEmpty()) {
+                SyncReviewItemState.BLOCKED
+            } else {
+                SyncReviewItemState.READY_TO_IMPORT
+            },
             message = staged.missingAttachments.reviewMessageOrNull(),
             suggestion =
-                suggestionPort.suggest(
-                    localBody = null,
-                    remoteBody = staged.rewrittenMarkdown,
-                    localLastModifiedMs = null,
-                    remoteLastModifiedMs = inboxFile.lastModified,
-                    isBinary = false,
-                ),
+            suggestionPort.suggest(
+                localBody = null,
+                remoteBody = staged.rewrittenMarkdown,
+                localLastModifiedMs = null,
+                remoteLastModifiedMs = inboxFile.lastModified,
+                isBinary = false,
+            ),
         )
     }
 
@@ -445,15 +439,13 @@ class SyncInboxRepositoryImpl(
      * document and its artifact writes atomically, and the inbox source is deleted only after the
      * durable commit returns.
      */
-    private fun inboxStagingEnvironment(inboxRoot: String): InboxStagingEnvironment =
-        InboxStagingEnvironment(
-            context = context,
-            inboxRoot = inboxRoot,
-            pendingStages = pendingStages,
-            workspaceRoot = workspaceRoot,
-            contentProjector = contentProjector,
-            dispatcherProvider = dispatcherProvider,
-        )
+    private fun inboxStagingEnvironment(inboxRoot: String): InboxStagingEnvironment = InboxStagingEnvironment(
+        context = context,
+        inboxRoot = inboxRoot,
+        pendingStages = pendingStages,
+        contentProjector = contentProjector,
+        dispatcherProvider = dispatcherProvider,
+    )
 
     private suspend fun commitImportedFile(
         inboxRoot: String,
@@ -518,10 +510,6 @@ class SyncInboxRepositoryImpl(
     }
 }
 
-private data class CommittedInboxFile(
-    val importedAttachmentsToDelete: List<String>,
-)
+private data class CommittedInboxFile(val importedAttachmentsToDelete: List<String>)
 
-private data class ProcessInboxBatchResult(
-    val reviewFiles: List<SyncReviewItem>,
-)
+private data class ProcessInboxBatchResult(val reviewFiles: List<SyncReviewItem>)

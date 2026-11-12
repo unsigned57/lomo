@@ -38,10 +38,7 @@ internal class GitEndpointSecurityMigration(
         }
     }
 
-    private suspend fun migrateTrusted(
-        remote: String,
-        parsed: LegacyGitUserinfoEndpoint.Trusted,
-    ) {
+    private suspend fun migrateTrusted(remote: String, parsed: LegacyGitUserinfoEndpoint.Trusted) {
         // Credentials land first: a crash between writes leaves the poisoned URL in place,
         // so the next pass re-extracts instead of losing the secret.
         parsed.password?.let { credentialRepository.writeSecret(CredentialField.GIT_TOKEN, it) }
@@ -95,11 +92,8 @@ internal class GitEndpointSecurityMigration(
  * running.
  */
 internal sealed interface LegacyGitUserinfoEndpoint {
-    data class Trusted(
-        val username: String?,
-        val password: String?,
-        val sanitizedUrl: String,
-    ) : LegacyGitUserinfoEndpoint
+    data class Trusted(val username: String?, val password: String?, val sanitizedUrl: String) :
+        LegacyGitUserinfoEndpoint
 
     data object Untrusted : LegacyGitUserinfoEndpoint
 

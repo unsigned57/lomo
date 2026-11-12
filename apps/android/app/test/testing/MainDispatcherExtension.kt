@@ -20,17 +20,14 @@ import kotlinx.coroutines.test.setMain
  * Main dispatcher failures.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class MainDispatcherExtension(
-    val testDispatcher: TestDispatcher = UnconfinedTestDispatcher(),
-) : BeforeEachListener, AfterEachListener {
+class MainDispatcherExtension(val testDispatcher: TestDispatcher = UnconfinedTestDispatcher()) :
+    BeforeEachListener,
+    AfterEachListener {
     override suspend fun beforeEach(testCase: TestCase) {
         Dispatchers.setMain(testDispatcher)
     }
 
-    override suspend fun afterEach(
-        testCase: TestCase,
-        result: TestResult,
-    ) {
+    override suspend fun afterEach(testCase: TestCase, result: TestResult) {
         // Drain any virtual-time work that still owns this test dispatcher before swapping Main.
         testDispatcher.scheduler.advanceUntilIdle()
         // Do not resetMain() to the missing Android platform dispatcher on host JVM tests.

@@ -24,10 +24,10 @@ object AppShapes {
     /** 12.dp - Cards, dialogs, menus */
     val Medium = RoundedCornerShape(12.dp)
 
-    /** 16.dp - Large containers, settings groups */
+    /** 16.dp - Large containers (cards, chips, segmented controls, row icon containers) */
     val Large = RoundedCornerShape(16.dp)
 
-    /** 20.dp - Expressive `large-increased`; elevated cards, prominent tiles */
+    /** 20.dp - Expressive `large-increased`; settings section containers, prominent tiles */
     val LargeIncreased = RoundedCornerShape(20.dp)
 
     /** 28.dp - Legacy Material 3 extra-large; kept for call sites that intentionally pin to 28dp */

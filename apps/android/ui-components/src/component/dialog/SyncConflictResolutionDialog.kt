@@ -15,14 +15,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.toConflictChoice
 import com.lomo.domain.model.toReviewChoice
-import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableList
@@ -62,8 +60,10 @@ fun SyncConflictResolutionDialog(
     val canAutoResolveSafe =
         remember(conflictSet.source, conflictSet.files, safeChoices) {
             safeChoices.isNotEmpty() &&
-                (conflictSet.source.supportsDeferredConflictResolutionUi() ||
-                    safeChoices.size == conflictSet.files.size)
+                (
+                    conflictSet.source.supportsDeferredConflictResolutionUi() ||
+                        safeChoices.size == conflictSet.files.size
+                    )
         }
     val allFilesChosen = conflictSet.files.all { file ->
         perFileChoices.containsKey(file.relativePath)
@@ -108,16 +108,16 @@ fun SyncConflictResolutionDialog(
                     ConflictFileList(
                         source = conflictSet.source,
                         state =
-                            ConflictFileListState(
-                                files = conflictFiles,
-                                safeChoices = safeChoices,
-                                suggestedChoices = suggestedChoices,
-                                perFileChoices = perFileChoices,
-                                expandedFilePath = expandedFilePath,
-                                reviewMessages = reviewMessages,
-                                onFileChoiceChanged = callbacks.onFileChoiceChanged,
-                                onToggleExpanded = callbacks.onToggleExpanded,
-                            ),
+                        ConflictFileListState(
+                            files = conflictFiles,
+                            safeChoices = safeChoices,
+                            suggestedChoices = suggestedChoices,
+                            perFileChoices = perFileChoices,
+                            expandedFilePath = expandedFilePath,
+                            reviewMessages = reviewMessages,
+                            onFileChoiceChanged = callbacks.onFileChoiceChanged,
+                            onToggleExpanded = callbacks.onToggleExpanded,
+                        ),
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -220,16 +220,16 @@ fun SyncReviewResolutionDialog(
                     ReviewFileList(
                         source = reviewSession.source,
                         state =
-                            ReviewFileListState(
-                                items = reviewItems,
-                                safeChoices = safeChoices,
-                                suggestedChoices = suggestedChoices,
-                                perItemChoices = perItemChoices,
-                                blockedPaths = blockedPaths,
-                                expandedFilePath = expandedFilePath,
-                                onItemChoiceChanged = callbacks.onItemChoiceChanged,
-                                onToggleExpanded = callbacks.onToggleExpanded,
-                            ),
+                        ReviewFileListState(
+                            items = reviewItems,
+                            safeChoices = safeChoices,
+                            suggestedChoices = suggestedChoices,
+                            perItemChoices = perItemChoices,
+                            blockedPaths = blockedPaths,
+                            expandedFilePath = expandedFilePath,
+                            onItemChoiceChanged = callbacks.onItemChoiceChanged,
+                            onToggleExpanded = callbacks.onToggleExpanded,
+                        ),
                         modifier = Modifier.weight(1f),
                     )
                 }

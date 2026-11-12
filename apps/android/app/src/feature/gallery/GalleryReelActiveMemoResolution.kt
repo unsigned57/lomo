@@ -5,9 +5,7 @@ internal sealed interface GalleryReelActiveMemoResolution {
 
     data object PopRoute : GalleryReelActiveMemoResolution
 
-    data class UpdateActiveMemo(
-        val memoId: String,
-    ) : GalleryReelActiveMemoResolution
+    data class UpdateActiveMemo(val memoId: String) : GalleryReelActiveMemoResolution
 }
 
 internal fun resolveGalleryReelActiveMemo(

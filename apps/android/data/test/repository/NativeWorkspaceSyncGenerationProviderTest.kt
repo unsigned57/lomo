@@ -30,12 +30,12 @@ package com.lomo.data.repository
  */
 
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
+import com.lomo.data.engine.sync.RemoteSyncBackendProbe
 import com.lomo.data.engine.sync.RemoteSyncConflictPage
-import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncConflictResolution
+import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncCyclePlanSummary
 import com.lomo.data.engine.sync.RemoteSyncCycleRequest
-import com.lomo.data.engine.sync.RemoteSyncBackendProbe
 import com.lomo.data.engine.sync.RemoteSyncCycleStatus
 import com.lomo.data.engine.sync.RemoteSyncRepository
 import com.lomo.data.engine.sync.RemoteSyncSecretLease
@@ -49,11 +49,7 @@ private class RecordingGenerationRemoteSync : RemoteSyncRepository {
     var lastGenerationRoot: String? = null
     var generation: String = "ab".repeat(32)
 
-    override fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage = error("unused")
+    override fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage = error("unused")
 
     override fun resolveConflicts(
         workspaceRoot: String,
@@ -61,10 +57,7 @@ private class RecordingGenerationRemoteSync : RemoteSyncRepository {
         resolutions: List<RemoteSyncConflictResolution>,
     ): RemoteSyncConflictResolveResult = error("unused")
 
-    override fun issueSecretLease(
-        secretBytes: ByteArray,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease = error("unused")
+    override fun issueSecretLease(secretBytes: ByteArray, ttlMillis: Long): RemoteSyncSecretLease = error("unused")
 
     override fun probeSecretLease(leaseId: String): Int = error("unused")
 
@@ -86,35 +79,36 @@ private class RecordingGenerationRemoteSync : RemoteSyncRepository {
     override fun probeBackend(request: RemoteSyncCycleRequest): RemoteSyncBackendProbe = error("unused")
 }
 
-class NativeWorkspaceSyncGenerationProviderTest : FunSpec({
-    test("activeGeneration returns the Rust fence id for the Direct root") {
-        runTest {
-            val remote = RecordingGenerationRemoteSync()
-            remote.generation = "ef".repeat(32)
-            val provider =
-                NativeWorkspaceSyncGenerationProvider(
-                    workspaceRoot = WorkspaceFilesystemRoot { "/workspaces/notes" },
-                    remoteSync = remote,
-                )
+class NativeWorkspaceSyncGenerationProviderTest :
+    FunSpec({
+        test("activeGeneration returns the Rust fence id for the Direct root") {
+            runTest {
+                val remote = RecordingGenerationRemoteSync()
+                remote.generation = "ef".repeat(32)
+                val provider =
+                    NativeWorkspaceSyncGenerationProvider(
+                        workspaceRoot = WorkspaceFilesystemRoot { "/workspaces/notes" },
+                        remoteSync = remote,
+                    )
 
-            provider.activeGeneration().value shouldBe "ef".repeat(32)
-            remote.lastGenerationRoot shouldBe "/workspaces/notes"
-        }
-    }
-
-    test("missing Direct root fails closed without loading a generation") {
-        runTest {
-            val remote = RecordingGenerationRemoteSync()
-            val provider =
-                NativeWorkspaceSyncGenerationProvider(
-                    workspaceRoot = WorkspaceFilesystemRoot { null },
-                    remoteSync = remote,
-                )
-
-            shouldThrow<IllegalArgumentException> {
-                provider.activeGeneration()
+                provider.activeGeneration().value shouldBe "ef".repeat(32)
+                remote.lastGenerationRoot shouldBe "/workspaces/notes"
             }
-            remote.lastGenerationRoot.shouldBeNull()
         }
-    }
-})
+
+        test("missing Direct root fails closed without loading a generation") {
+            runTest {
+                val remote = RecordingGenerationRemoteSync()
+                val provider =
+                    NativeWorkspaceSyncGenerationProvider(
+                        workspaceRoot = WorkspaceFilesystemRoot { null },
+                        remoteSync = remote,
+                    )
+
+                shouldThrow<IllegalArgumentException> {
+                    provider.activeGeneration()
+                }
+                remote.lastGenerationRoot.shouldBeNull()
+            }
+        }
+    })

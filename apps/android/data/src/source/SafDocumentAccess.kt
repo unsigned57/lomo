@@ -30,29 +30,24 @@ internal class SafDocumentAccess(
     internal val treeUri: Uri
         get() = rootUri
 
-    fun root(): DocumentFile? =
-        try {
-            val root = DocumentFile.fromTreeUri(context, rootUri) ?: return null
-            if (subDir != null) {
-                root.findFile(subDir) ?: root.createDirectory(subDir)
-            } else {
-                root
-            }
-        } catch (error: SecurityException) {
-            Timber.w(error, "Lost SAF permission for root uri: %s", rootUri)
-            // behavior-contract: silent-result-ok: lost SAF grant is a missing-document probe
-            null
+    fun root(): DocumentFile? = try {
+        val root = DocumentFile.fromTreeUri(context, rootUri) ?: return null
+        if (subDir != null) {
+            root.findFile(subDir) ?: root.createDirectory(subDir)
+        } else {
+            root
         }
+    } catch (error: SecurityException) {
+        Timber.w(error, "Lost SAF permission for root uri: %s", rootUri)
+        // behavior-contract: silent-result-ok: lost SAF grant is a missing-document probe
+        null
+    }
 
     fun trashDir(): DocumentFile? = resolveTrashDir(createIfMissing = false)
 
     fun orCreateTrashDir(): DocumentFile? = resolveTrashDir(createIfMissing = true)
 
-    fun <T> withSecurityRetry(
-        operation: String,
-        fallbackValue: T,
-        block: () -> T,
-    ): T {
+    fun <T> withSecurityRetry(operation: String, fallbackValue: T, block: () -> T): T {
         repeat(SECURITY_RETRY_ATTEMPTS) { attempt ->
             try {
                 return block()
@@ -69,10 +64,7 @@ internal class SafDocumentAccess(
         return fallbackValue
     }
 
-    fun <T> withSecurityRetryOrThrow(
-        operation: String,
-        block: () -> T,
-    ): T {
+    fun <T> withSecurityRetryOrThrow(operation: String, block: () -> T): T {
         var lastException: SecurityException? = null
         repeat(SECURITY_RETRY_ATTEMPTS) { attempt ->
             try {
@@ -91,19 +83,14 @@ internal class SafDocumentAccess(
         throw lastException ?: SecurityException("$operation failed with lost SAF permission")
     }
 
-    fun readTextFromUri(uri: Uri): String? =
-        try {
-            context.contentResolver.openInputStream(uri)?.run { source().buffer().use { it.readUtf8() } }
-        } catch (_: Exception) {
-            // behavior-contract: silent-result-ok: unreadable SAF document is treated as absent optional content
-            null
-        }
+    fun readTextFromUri(uri: Uri): String? = try {
+        context.contentResolver.openInputStream(uri)?.run { source().buffer().use { it.readUtf8() } }
+    } catch (_: Exception) {
+        // behavior-contract: silent-result-ok: unreadable SAF document is treated as absent optional content
+        null
+    }
 
-    fun writeTextToUri(
-        uri: Uri,
-        mode: String,
-        content: String,
-    ) {
+    fun writeTextToUri(uri: Uri, mode: String, content: String) {
         val output =
             context.contentResolver.openOutputStream(uri, mode)
                 ?: throw IOException("openOutputStream returned null for uri=$uri mode=$mode")
@@ -112,10 +99,7 @@ internal class SafDocumentAccess(
         }
     }
 
-    fun overwriteWithRollback(
-        uri: Uri,
-        content: String,
-    ) {
+    fun overwriteWithRollback(uri: Uri, content: String) {
         val backup = readTextFromUri(uri)
         runNonFatalCatching {
             writeTextToUri(uri, "wt", content)
@@ -157,13 +141,12 @@ internal class SafDocumentAccess(
         cachedTrashDir = null
     }
 
-    private fun DocumentFile.isUsableSafDocument(): Boolean =
-        try {
-            exists() && canRead() && (isFile || isDirectory)
-        } catch (_: SecurityException) {
-            // behavior-contract: silent-result-ok: revoked SAF document is treated as absent
-            false
-        }
+    private fun DocumentFile.isUsableSafDocument(): Boolean = try {
+        exists() && canRead() && (isFile || isDirectory)
+    } catch (_: SecurityException) {
+        // behavior-contract: silent-result-ok: revoked SAF document is treated as absent
+        false
+    }
 
     private companion object {
         const val SECURITY_RETRY_ATTEMPTS = 2

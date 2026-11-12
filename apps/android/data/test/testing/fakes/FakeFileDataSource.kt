@@ -21,6 +21,7 @@ class FakeFileDataSource : FileDataSource {
 
     // Read-only media locations; mutation is owned by MediaRepository/Rust.
     val imageLocations = mutableMapOf<String, String>()
+    val workspaceImageLocations = mutableMapOf<String, Map<String, String>>()
 
     // Roots
     private val roots = mutableMapOf<StorageRootType, String?>()
@@ -51,29 +52,26 @@ class FakeFileDataSource : FileDataSource {
                 FileMetadata(
                     filename = filename,
                     lastModified = fileLastModified[key] ?: 0L,
-                    size = files[key]?.length?.toLong()
+                    size = files[key]?.length?.toLong(),
                 )
             }
     }
 
-    override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> {
-        return files.keys
-            .filter { it.first == directory }
-            .map { key ->
-                val filename = key.second
-                FileMetadataWithId(
-                    filename = filename,
-                    lastModified = fileLastModified[key] ?: 0L,
-                    documentId = documentIds[key] ?: filename,
-                    uriString = fileUris[key]?.toString()
-                )
-            }
-    }
-
-    override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId> =
-        flow {
-            listMetadataWithIdsIn(directory).forEach { metadata -> emit(metadata) }
+    override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> = files.keys
+        .filter { it.first == directory }
+        .map { key ->
+            val filename = key.second
+            FileMetadataWithId(
+                filename = filename,
+                lastModified = fileLastModified[key] ?: 0L,
+                documentId = documentIds[key] ?: filename,
+                uriString = fileUris[key]?.toString(),
+            )
         }
+
+    override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId> = flow {
+        listMetadataWithIdsIn(directory).forEach { metadata -> emit(metadata) }
+    }
 
     override suspend fun readFileByDocumentIdIn(directory: MemoDirectoryType, documentId: String): String? {
         val key = files.keys.firstOrNull { it.first == directory && documentIds[it] == documentId }
@@ -107,7 +105,7 @@ class FakeFileDataSource : FileDataSource {
         filename: String,
         content: String,
         append: Boolean,
-        uri: Uri?
+        uri: Uri?,
     ): String? {
         val key = Pair(directory, filename)
         val existing = files[key] ?: ""
@@ -144,22 +142,19 @@ class FakeFileDataSource : FileDataSource {
         return FileMetadata(
             filename = filename,
             lastModified = fileLastModified[key] ?: 0L,
-            size = files[key]?.length?.toLong()
+            size = files[key]?.length?.toLong(),
         )
     }
 
-    override suspend fun listImageFiles(): List<Pair<String, String>> {
-        return imageLocations.entries.map { it.key to it.value }
+    override suspend fun listImageFiles(
+        selection: com.lomo.data.source.MediaStorageSelection,
+    ): List<Pair<String, String>> {
+        val workspaceFiles = workspaceImageLocations[selection.workspaceLocation] ?: imageLocations
+        return workspaceFiles.entries.map { it.key to it.value }
     }
-
-    override suspend fun getImageLocation(filename: String): String? {
-        return imageLocations[filename]
-    }
-
 }
 
-private fun ByteArray.md5Hex(): String =
-    java.security.MessageDigest
-        .getInstance("MD5")
-        .digest(this)
-        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+private fun ByteArray.md5Hex(): String = java.security.MessageDigest
+    .getInstance("MD5")
+    .digest(this)
+    .joinToString(separator = "") { byte -> "%02x".format(byte) }

@@ -4,7 +4,6 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import com.lomo.data.testing.DataFunSpec
-import com.lomo.domain.model.SyncBackendType
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
@@ -12,7 +11,6 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
-import java.io.File
 import java.nio.file.Files
 
 /*
@@ -150,13 +148,12 @@ private fun mutablePreferencesOf(vararg entries: Pair<Preferences.Key<Boolean>, 
 private fun mutablePreferencesOf(
     backendType: String,
     vararg entries: Pair<Preferences.Key<Boolean>, Boolean>,
-): Preferences =
-    androidx.datastore.preferences.core
-        .mutablePreferencesOf()
-        .apply {
-            this[LomoDataStoreKeys.SYNC_BACKEND_TYPE] = backendType
-            entries.forEach { (key, value) -> this[key] = value }
-        }
+): Preferences = androidx.datastore.preferences.core
+    .mutablePreferencesOf()
+    .apply {
+        this[LomoDataStoreKeys.SYNC_BACKEND_TYPE] = backendType
+        entries.forEach { (key, value) -> this[key] = value }
+    }
 
 private fun newRawDataStore(scope: CoroutineScope): androidx.datastore.core.DataStore<Preferences> {
     val backingFile =

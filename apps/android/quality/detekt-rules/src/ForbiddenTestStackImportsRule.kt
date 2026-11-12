@@ -3,12 +3,11 @@ package com.lomo.detektrules
 import dev.detekt.api.Config
 import org.jetbrains.kotlin.psi.KtFile
 
-internal class ForbiddenTestStackImportsRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Test source must use the approved Kotest/MockK/Coroutines stack; JUnit / Mockito / Strikt / AssertK / AssertJ are forbidden.",
-) {
+internal class ForbiddenTestStackImportsRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Test source must use the approved Kotest/MockK/Coroutines stack; JUnit / Mockito / Strikt / AssertK / AssertJ are forbidden.",
+    ) {
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.getViewProvider().getVirtualFile().getPath().replace('\\', '/')

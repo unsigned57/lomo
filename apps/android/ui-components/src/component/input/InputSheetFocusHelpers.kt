@@ -3,7 +3,6 @@ package com.lomo.ui.component.input
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.SoftwareKeyboardController
-import kotlin.coroutines.cancellation.CancellationException
 
 internal suspend fun releaseEditorFocusAndKeyboard(
     keyboardController: SoftwareKeyboardController?,
@@ -17,21 +16,22 @@ internal suspend fun releaseEditorFocusAndKeyboard(
 }
 
 internal fun releaseEditorWindowFocus(focusParkingRequester: FocusRequester) {
-    runCatching { focusParkingRequester.requestFocus() }
+    focusParkingRequester.requestFocus()
 }
 
 internal suspend fun requestEditorFocusAndKeyboard(
     focusRequester: FocusRequester,
     keyboardController: SoftwareKeyboardController?,
+    isActive: () -> Boolean,
 ) {
     repeat(INPUT_SHEET_FOCUS_REQUEST_MAX_ATTEMPTS) {
-        try {
-            focusRequester.requestFocus()
-        } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            // behavior-contract: silent-result-ok: editor focus is retried across frames; one miss is not a failure
-        }
+        if (!isActive()) return
+        val focused = focusRequester.requestFocus()
         withFrameNanos { }
-        keyboardController?.show()
+        if (!isActive()) return
+        if (focused) {
+            keyboardController?.show()
+            return
+        }
     }
 }

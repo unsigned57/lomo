@@ -366,7 +366,7 @@ impl WorkspaceSession {
     }
 
     fn collect_pending_refs(&self, index: &mut AttachmentIndex) -> Result<(), LomoError> {
-        for operation_id in self.intent_journal.pending_ids()? {
+        for operation_id in self.intent_journal.pending_ids(&BTreeSet::new())? {
             let Some(record) = self.intent_journal.pending_record(&operation_id)? else {
                 continue;
             };

@@ -2118,7 +2118,7 @@ fn ensure_bootstrap(
                     ActionId::parse("action-root-list")?,
                     capability.clone(),
                     None,
-                    PageSize::new(256)?,
+                    PageSize::new(512)?,
                 ),
             ],
             PersistedJobStatus::WaitingPlatform,
@@ -2873,13 +2873,13 @@ fn decode_journal_payload(schema: u32, payload: &str) -> Result<JournalState, Lo
     let jobs = value
         .get_mut("jobs")
         .and_then(serde_json::Value::as_array_mut)
-        .ok_or_else(&invalid)?;
+        .ok_or_else(invalid)?;
     for job in jobs {
         let actions = job
             .get_mut("batch")
             .and_then(|batch| batch.get_mut("actions"))
             .and_then(serde_json::Value::as_array_mut)
-            .ok_or_else(&invalid)?;
+            .ok_or_else(invalid)?;
         for action in actions {
             let Some(read) = action
                 .as_object_mut()
@@ -2894,7 +2894,7 @@ fn decode_journal_payload(schema: u32, payload: &str) -> Result<JournalState, Lo
             let path = read
                 .get("path")
                 .and_then(serde_json::Value::as_str)
-                .ok_or_else(&invalid)?
+                .ok_or_else(invalid)?
                 .to_owned();
             read.insert("locator".to_owned(), serde_json::json!({ "Path": path }));
         }
@@ -3011,5 +3011,5 @@ fn journal_write_error(error: &std::io::Error) -> LomoError {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::hex_encode(&Sha256::digest(bytes))
 }

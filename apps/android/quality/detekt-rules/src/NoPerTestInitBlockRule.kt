@@ -5,12 +5,11 @@ import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassInitializer
 
-internal class NoPerTestInitBlockRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Kotest specs must use a single init { ... } block (or constructor-block form); one init per test is a JUnit4-migration anti-pattern.",
-) {
+internal class NoPerTestInitBlockRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Kotest specs must use a single init { ... } block (or constructor-block form); one init per test is a JUnit4-migration anti-pattern.",
+    ) {
     override fun visitClass(klass: KtClass) {
         super.visitClass(klass)
         val file = klass.containingKtFile
@@ -62,8 +61,8 @@ internal class NoPerTestInitBlockRule(
     private companion object {
         val SPEC_NAME_REGEX =
             Regex(
-                "\\b(FunSpec|BehaviorSpec|DescribeSpec|WordSpec|ShouldSpec|StringSpec|FeatureSpec|ExpectSpec|FreeSpec|" +
-                    "AnnotationSpec|DomainFunSpec|DataFunSpec|AppFunSpec|UiComponentsFunSpec)\\b",
+                "\\b(FunSpec|BehaviorSpec|DescribeSpec|WordSpec|ShouldSpec|StringSpec|FeatureSpec|" +
+                    "ExpectSpec|FreeSpec|AnnotationSpec|DomainFunSpec|DataFunSpec|AppFunSpec|UiComponentsFunSpec)\\b",
             )
 
         val SPEC_BLOCK_NAMES =

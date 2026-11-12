@@ -278,7 +278,9 @@ fn push_inlines(inlines: &[RenderInline], style: Style, tags: TagDisplay, out: &
             RenderInline::Highlight { children, .. } => {
                 push_inlines(children, style.add_modifier(Modifier::REVERSED), tags, out);
             }
-            RenderInline::Link { children, .. } | RenderInline::WikiReference { children, .. } => {
+            RenderInline::Underline { children, .. }
+            | RenderInline::Link { children, .. }
+            | RenderInline::WikiReference { children, .. } => {
                 push_inlines(
                     children,
                     style.add_modifier(Modifier::UNDERLINED),

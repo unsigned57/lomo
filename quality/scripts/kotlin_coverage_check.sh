@@ -12,18 +12,17 @@ cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
 cache_dir="${LOMO_JACOCO_CACHE_DIR:-$cache_root/lomo/jacoco}"
 agent_jar="$cache_dir/jacocoagent-${JACOCO_VERSION}.jar"
 cli_jar="$cache_dir/jacococli-${JACOCO_VERSION}.jar"
-cargo_target="${CARGO_TARGET_DIR:-$repo_root/target}"
-generated_root="${LOMO_GENERATED_ROOT:-$cargo_target/lomo}"
+generated_root="${LOMO_GENERATED_ROOT:-$repo_root/target/lomo}"
 case "$generated_root" in
   /*) ;;
   *) generated_root="$repo_root/$generated_root" ;;
 esac
 work_dir="$generated_root/tmp/jacoco"
-report_dir="$generated_root/reports/kover"
+report_dir="$repo_root/reports/kover"
 exec_file="$work_dir/jacoco.exec"
 xml_report="$report_dir/coverage.xml"
 html_report="$report_dir/html"
-build_dir="${LOMO_COVERAGE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}}"
+build_dir="${LOMO_COVERAGE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-${LOMO_GENERATED_ROOT:-$repo_root/target/lomo}/build/kotlin}}"
 mkdir -p "$cache_dir" "$work_dir" "$report_dir"
 
 download() {
@@ -254,11 +253,8 @@ def class_excluded(class_slash: str) -> bool:
 
 missed = 0.0
 covered = 0.0
-# Host-unit quality gate: classes with zero executed lines and a large body are almost always
-# SAF/device/Compose-only or post-cutover dual-stack leftovers without a host RED/GREEN contract.
-# Counting them as "missed product surface" forces coverage theater. Exclude zero-hit classes at
-# or above this line floor; re-include by adding host behavior tests that actually execute them.
-ZERO_HIT_MIN_LINES = 20
+# Every class outside the explicit, reviewable exclusions above counts. An untested class is
+# missed surface, never silently dropped from the denominator.
 for pkg in root.findall("package"):
     pname = pkg.get("name", "")
     if pkg_excluded(pname):
@@ -269,12 +265,8 @@ for pkg in root.findall("package"):
             continue
         for counter in cls.findall("counter"):
             if counter.get("type") == "LINE":
-                class_missed = float(counter.get("missed", "0"))
-                class_covered = float(counter.get("covered", "0"))
-                if class_covered == 0.0 and class_missed >= ZERO_HIT_MIN_LINES:
-                    break
-                missed += class_missed
-                covered += class_covered
+                missed += float(counter.get("missed", "0"))
+                covered += float(counter.get("covered", "0"))
                 break
 
 total = missed + covered

@@ -189,7 +189,7 @@ impl<'ast> Visit<'ast> for SourcePolicy<'_> {
     }
 
     fn visit_signature(&mut self, signature: &'ast syn::Signature) {
-        if let Some(unsafe_token) = signature.unsafety {
+        if let syn::Safety::Unsafe(unsafe_token) = &signature.safety {
             self.record(
                 "rust-first-party-unsafe",
                 unsafe_token.span(),

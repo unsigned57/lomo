@@ -65,6 +65,7 @@ internal fun resolveMemoTextSelectionHandleTopLeft(
         when (endpoint) {
             // Visual's right edge sits at anchorX -> visualLeft = anchorX - visualSize.
             MemoTextSelectionEndpointKind.Anchor -> anchorPositionPx.x - visualSizePx - horizontalPadding
+
             // Visual's left edge sits at anchorX -> touchLeft = anchorX - horizontalPadding.
             MemoTextSelectionEndpointKind.Focus -> anchorPositionPx.x - horizontalPadding
         }

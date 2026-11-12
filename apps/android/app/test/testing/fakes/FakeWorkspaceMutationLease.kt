@@ -28,20 +28,18 @@ class FakeWorkspaceMutationLease(
 
     override val authority: Flow<WorkspaceAuthority?> = engineReadiness.workspaceAuthority
 
-    override fun isWritable(): Boolean =
-        synchronized(monitor) {
-            engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) &&
-                engineReadiness.projectionFreshness.value.permitsWrites()
-        }
+    override fun isWritable(): Boolean = synchronized(monitor) {
+        engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) &&
+            engineReadiness.projectionFreshness.value.permitsWrites()
+    }
 
-    override fun isWritableFlow(): Flow<Boolean> =
-        combine(
-            engineReadiness.readiness,
-            engineReadiness.projectionFreshness,
-            admissionsOpen,
-        ) { readiness, freshness, open ->
-            readiness.isWritable(writeFrozen = !open) && freshness.permitsWrites()
-        }
+    override fun isWritableFlow(): Flow<Boolean> = combine(
+        engineReadiness.readiness,
+        engineReadiness.projectionFreshness,
+        admissionsOpen,
+    ) { readiness, freshness, open ->
+        readiness.isWritable(writeFrozen = !open) && freshness.permitsWrites()
+    }
 
     override suspend fun <T> withWrite(block: suspend (WorkspaceAuthority) -> T): T {
         val admitted = admit()
@@ -75,25 +73,23 @@ class FakeWorkspaceMutationLease(
         }
     }
 
-    private fun admit(): WorkspaceAuthority =
-        synchronized(monitor) {
-            engineReadiness.readiness.value.requireWritable(writeFrozen = !admissionsOpen.value)
-            check(engineReadiness.projectionFreshness.value.permitsWrites()) {
-                "Workspace projection is not writable"
-            }
+    private fun admit(): WorkspaceAuthority = synchronized(monitor) {
+        engineReadiness.readiness.value.requireWritable(writeFrozen = !admissionsOpen.value)
+        check(engineReadiness.projectionFreshness.value.permitsWrites()) {
+            "Workspace projection is not writable"
+        }
+        registerLocked()
+    }
+
+    private fun admitOrNull(): WorkspaceAuthority? = synchronized(monitor) {
+        if (!engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) ||
+            !engineReadiness.projectionFreshness.value.permitsWrites()
+        ) {
+            null
+        } else {
             registerLocked()
         }
-
-    private fun admitOrNull(): WorkspaceAuthority? =
-        synchronized(monitor) {
-            if (!engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) ||
-                !engineReadiness.projectionFreshness.value.permitsWrites()
-            ) {
-                null
-            } else {
-                registerLocked()
-            }
-        }
+    }
 
     private fun registerLocked(): WorkspaceAuthority {
         inFlight += 1

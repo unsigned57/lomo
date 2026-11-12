@@ -13,16 +13,13 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /** DataStore implementation of the single durable edit-session slot. */
-class MemoEditDraftRepositoryImpl(
-    private val dataStore: LomoDataStore,
-) : MemoEditDraftRepository {
+class MemoEditDraftRepositoryImpl(private val dataStore: LomoDataStore) : MemoEditDraftRepository {
     private val operationLock = Mutex()
     private val json = Json { ignoreUnknownKeys = false }
 
-    override suspend fun read(): MemoEditDraft? =
-        operationLock.withLock {
-            decode(dataStore.memoEditDraft.first())
-        }
+    override suspend fun read(): MemoEditDraft? = operationLock.withLock {
+        decode(dataStore.memoEditDraft.first())
+    }
 
     private suspend fun decode(payload: String?): MemoEditDraft? {
         if (payload.isNullOrBlank()) return null

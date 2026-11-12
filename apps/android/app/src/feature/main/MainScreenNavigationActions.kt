@@ -1,6 +1,5 @@
 package com.lomo.app.feature.main
 
-import androidx.compose.material3.DrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import com.lomo.app.feature.image.ImageViewerRequest
@@ -9,10 +8,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 @Composable
-fun MainScreenNavigationActionHost(
+internal fun MainScreenNavigationActionHost(
     scope: CoroutineScope,
-    drawerState: DrawerState,
-    isExpanded: Boolean,
+    sidebar: MainSidebarState,
     canCreateMemo: Boolean,
     onCreateMemoUnavailable: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -22,11 +20,12 @@ fun MainScreenNavigationActionHost(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
-    onNavigateToTasks: () -> Unit,
     onNavigateToStatistics: () -> Unit,
     onClearMainFilters: () -> Unit,
     onOpenMemoFilterPanel: () -> Unit,
     onOpenCreateMemo: () -> Unit,
+    onOpenLongText: () -> Unit,
+    onStartRecording: () -> Unit,
     onRefreshMemos: suspend () -> Unit,
     content: @Composable (MainScreenActions) -> Unit,
 ) {
@@ -34,9 +33,8 @@ fun MainScreenNavigationActionHost(
     val actions =
         rememberMainScreenActions(
             scope = scope,
-            drawerState = drawerState,
+            sidebar = sidebar,
             haptic = haptic,
-            isExpanded = isExpanded,
             canCreateMemo = canCreateMemo,
             onCreateMemoUnavailable = onCreateMemoUnavailable,
             onNavigateToSettings = onNavigateToSettings,
@@ -46,22 +44,22 @@ fun MainScreenNavigationActionHost(
             onNavigateToImage = onNavigateToImage,
             onNavigateToDailyReview = onNavigateToDailyReview,
             onNavigateToGallery = onNavigateToGallery,
-            onNavigateToTasks = onNavigateToTasks,
             onNavigateToStatistics = onNavigateToStatistics,
             onClearMainFilters = onClearMainFilters,
             onOpenMemoFilterPanel = onOpenMemoFilterPanel,
             onOpenCreateMemo = onOpenCreateMemo,
+            onOpenLongText = onOpenLongText,
+            onStartRecording = onStartRecording,
             onRefreshMemos = onRefreshMemos,
         )
     content(actions)
 }
 
 @Composable
-fun rememberMainScreenActions(
+internal fun rememberMainScreenActions(
     scope: CoroutineScope,
-    drawerState: DrawerState,
+    sidebar: MainSidebarState,
     haptic: com.lomo.ui.util.AppHapticFeedback,
-    isExpanded: Boolean,
     canCreateMemo: Boolean,
     onCreateMemoUnavailable: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -71,101 +69,99 @@ fun rememberMainScreenActions(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
-    onNavigateToTasks: () -> Unit,
     onNavigateToStatistics: () -> Unit,
     onClearMainFilters: () -> Unit,
     onOpenMemoFilterPanel: () -> Unit,
     onOpenCreateMemo: () -> Unit,
+    onOpenLongText: () -> Unit,
+    onStartRecording: () -> Unit,
     onRefreshMemos: suspend () -> Unit,
-): MainScreenActions =
-    remember(
-        scope,
-        drawerState,
-        haptic,
-        isExpanded,
-        canCreateMemo,
-        onCreateMemoUnavailable,
-        onNavigateToSettings,
-        onNavigateToTrash,
-        onNavigateToSearch,
-        onNavigateToTag,
-        onNavigateToImage,
-        onNavigateToDailyReview,
-        onNavigateToGallery,
-        onNavigateToTasks,
-        onNavigateToStatistics,
-        onClearMainFilters,
-        onOpenMemoFilterPanel,
-        onOpenCreateMemo,
-        onRefreshMemos,
-    ) {
-        val closeDrawerIfNeeded = {
-            if (!isExpanded) {
-                scope.launch { drawerState.close() }
-            }
-        }
-        MainScreenActions(
-            onSettings = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToSettings),
-            onTrash = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToTrash),
-            onSearch = onNavigateToSearch,
-            onSidebarTagClick = { tag ->
-                closeDrawerIfNeeded()
-                onNavigateToTag(tag)
-            },
-            onNavigateToImage = onNavigateToImage,
-            onClearFilter = onClearMainFilters,
-            onOpenMemoFilterPanel = onOpenMemoFilterPanel,
-            onMenuOpen = { scope.launch { drawerState.open() } },
-            onFabClick =
-                createFabAction(
-                    haptic = haptic,
-                    canCreateMemo = canCreateMemo,
-                    onOpenCreateMemo = onOpenCreateMemo,
-                    onCreateMemoUnavailable = onCreateMemoUnavailable,
-                ),
-            onRefresh =
-                createRefreshAction(
-                    scope = scope,
-                    onRefreshMemos = onRefreshMemos,
-                ),
-            onDailyReviewClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToDailyReview),
-            onGalleryClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToGallery),
-            onTasksClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToTasks),
-            onStatisticsClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToStatistics),
-        )
-    }
+): MainScreenActions = remember(
+    scope,
+    sidebar,
+    haptic,
+    canCreateMemo,
+    onCreateMemoUnavailable,
+    onNavigateToSettings,
+    onNavigateToTrash,
+    onNavigateToSearch,
+    onNavigateToTag,
+    onNavigateToImage,
+    onNavigateToDailyReview,
+    onNavigateToGallery,
+    onNavigateToStatistics,
+    onClearMainFilters,
+    onOpenMemoFilterPanel,
+    onOpenCreateMemo,
+    onOpenLongText,
+    onStartRecording,
+    onRefreshMemos,
+) {
+    val closeDrawerIfNeeded: () -> Unit = { scope.launch { sidebar.closeOverlay() } }
+    MainScreenActions(
+        onSettings = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToSettings),
+        onTrash = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToTrash),
+        onSearch = onNavigateToSearch,
+        onSidebarTagClick = { tag ->
+            closeDrawerIfNeeded()
+            onNavigateToTag(tag)
+        },
+        onNavigateToImage = onNavigateToImage,
+        onClearFilter = onClearMainFilters,
+        onOpenMemoFilterPanel = onOpenMemoFilterPanel,
+        onMenuToggle = { scope.launch { sidebar.toggle() } },
+        onFabClick =
+        createMemoAction(
+            haptic = haptic,
+            canCreateMemo = canCreateMemo,
+            onOpenCreateMemo = onOpenCreateMemo,
+            onCreateMemoUnavailable = onCreateMemoUnavailable,
+        ),
+        onLongText = createMemoAction(
+            haptic = haptic,
+            canCreateMemo = canCreateMemo,
+            onOpenCreateMemo = onOpenLongText,
+            onCreateMemoUnavailable = onCreateMemoUnavailable,
+        ),
+        onRecord = createMemoAction(
+            haptic = haptic,
+            canCreateMemo = canCreateMemo,
+            onOpenCreateMemo = onStartRecording,
+            onCreateMemoUnavailable = onCreateMemoUnavailable,
+        ),
+        onRefresh =
+        createRefreshAction(
+            scope = scope,
+            onRefreshMemos = onRefreshMemos,
+        ),
+        onDailyReviewClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToDailyReview),
+        onGalleryClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToGallery),
+        onStatisticsClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToStatistics),
+    )
+}
 
-private fun closeDrawerNavigationAction(
-    closeDrawerIfNeeded: () -> Unit,
-    onNavigate: () -> Unit,
-): () -> Unit =
-    {
-        closeDrawerIfNeeded()
-        onNavigate()
-    }
+private fun closeDrawerNavigationAction(closeDrawerIfNeeded: () -> Unit, onNavigate: () -> Unit): () -> Unit = {
+    closeDrawerIfNeeded()
+    onNavigate()
+}
 
-private fun createFabAction(
+private fun createMemoAction(
     haptic: com.lomo.ui.util.AppHapticFeedback,
     canCreateMemo: Boolean,
     onOpenCreateMemo: () -> Unit,
     onCreateMemoUnavailable: () -> Unit,
-): () -> Unit =
-    {
-        haptic.longPress()
-        if (canCreateMemo) {
-            onOpenCreateMemo()
-        } else {
-            onCreateMemoUnavailable()
-        }
+): () -> Unit = {
+    haptic.longPress()
+    if (canCreateMemo) {
+        onOpenCreateMemo()
+    } else {
+        onCreateMemoUnavailable()
     }
+}
 
-private fun createRefreshAction(
-    scope: CoroutineScope,
-    onRefreshMemos: suspend () -> Unit,
-): () -> Unit =
-    {
-        scope.launch { onRefreshMemos() }
-    }
+private fun createRefreshAction(scope: CoroutineScope, onRefreshMemos: suspend () -> Unit): () -> Unit = {
+    scope.launch { onRefreshMemos() }
+}
 
 data class MainScreenActions(
     val onSettings: () -> Unit,
@@ -174,12 +170,13 @@ data class MainScreenActions(
     val onSidebarTagClick: (String) -> Unit,
     val onClearFilter: () -> Unit,
     val onOpenMemoFilterPanel: () -> Unit,
-    val onMenuOpen: () -> Unit,
+    val onMenuToggle: () -> Unit,
     val onFabClick: () -> Unit,
+    val onLongText: () -> Unit,
+    val onRecord: () -> Unit,
     val onRefresh: () -> Unit,
     val onNavigateToImage: (ImageViewerRequest) -> Unit,
     val onDailyReviewClick: () -> Unit,
     val onGalleryClick: () -> Unit,
-    val onTasksClick: () -> Unit,
     val onStatisticsClick: () -> Unit,
 )

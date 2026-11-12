@@ -9,15 +9,16 @@ import com.lomo.data.sync.SyncIdentityResetPolicy
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.worker.DeferredLockWorkStore
 import com.lomo.data.worker.RustSyncScheduler
+import com.lomo.domain.model.AppPreferenceSnapshotField
+import com.lomo.domain.model.ColorPresetId
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialFieldState
 import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialReadAuthorization
 import com.lomo.domain.model.CredentialSecretReadResult
 import com.lomo.domain.model.CredentialState
-import com.lomo.domain.model.AppPreferenceSnapshotField
-import com.lomo.domain.model.ColorPresetId
-import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.SettingsCatalog
 import com.lomo.domain.model.SettingsReadModel
@@ -27,21 +28,29 @@ import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.repository.SecuritySessionPolicy
 import com.lomo.domain.repository.SyncStateResetRepository
 import io.kotest.assertions.throwables.shouldThrow
-import io.mockk.every
-import io.mockk.mockk
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
+import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 
 /*
+
+ * Test Change Justification:
+ * Reason category: Preference schema expansion.
+ * Old behavior/assertion being replaced: the exhaustive catalog sample omitted quick-ball bindings.
+ * Why old assertion is no longer correct: the catalog now includes this persisted preference.
+ * Coverage preserved by: all existing snapshot/restore assertions remain, with a non-default gesture mapping.
+ * Why this is not fitting the test to the implementation: the fixture extends exhaustive field coverage;
+ * malformed values, atomicity and prior field expectations remain enforced.
  * Behavior Contract:
  * - Unit under test: DataStoreMigrationSettingsStore
  * - Owning layer: data
@@ -122,6 +131,16 @@ import java.nio.file.Files
  * - Why old assertion is no longer correct: new modules introduce typed credential reads, positional memo identities, and staged migration/restore plans that change observable data behavior.
  * - Coverage preserved by: all existing repository scenarios retained; new scenarios added for install persistence, staging workspace, preference repos, and conflict store contracts.
  * - Why this is not fitting the test to the implementation: tests verify observable repository store outcomes, not internal implementation details.
+ *
+ * Test Change Justification:
+ * - Reason category: product feature removal (usage-based memo menu auto-reorder).
+ * - Old behavior/assertion being replaced: restore round-trips asserted and sampled the three memo action settings.
+ * - Why old assertion is no longer correct: the memo_action_auto_reorder_enabled, memo_action_order
+ *   and memo_action_orders_by_scope settings were deleted from the settings catalog, DataStore and
+ *   snapshot; the redesigned memo menu has a fixed layout.
+ * - Coverage preserved by: restore round-trip assertions for every remaining catalog setting.
+ * - Why this is not fitting the test to the implementation: only sample values and assertions for
+ *   deleted settings were removed; the scenario and every remaining setting are unchanged.
  */
 class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
     init {
@@ -225,7 +244,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given catalog ordinary settings are omitted when restore is validated then structured coverage reports them") {
+        test(
+            "given catalog ordinary settings are omitted when restore is validated then structured coverage reports them",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 val providedKey = "theme_mode"
@@ -382,12 +403,12 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 fixture.store.restore(
                     MigrationSettingsSnapshot(
                         preferences =
-                            fullValidPreferencePayload(
-                                mapOf(
-                                    SettingsKey.WEBDAV_USERNAME to "alice",
-                                    "theme_mode" to "dark",
-                                ),
+                        fullValidPreferencePayload(
+                            mapOf(
+                                SettingsKey.WEBDAV_USERNAME to "alice",
+                                "theme_mode" to "dark",
                             ),
+                        ),
                     ),
                 )
 
@@ -437,9 +458,6 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 fixture.dataStore.showInputHints.first() shouldBe false
                 fixture.dataStore.doubleTapEditEnabled.first() shouldBe false
                 fixture.dataStore.freeTextCopyEnabled.first() shouldBe true
-                fixture.dataStore.memoActionAutoReorderEnabled.first() shouldBe true
-                fixture.dataStore.memoActionOrder.first() shouldBe "copy,edit,delete"
-                fixture.dataStore.memoActionOrdersByScope.first() shouldBe "main=edit,copy"
                 fixture.dataStore.inputToolbarToolOrder.first() shouldBe "text,image,voice"
                 fixture.dataStore.quickSaveOnBackEnabled.first() shouldBe false
                 fixture.dataStore.scrollbarEnabled.first() shouldBe false
@@ -462,13 +480,13 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 fixture.store.restore(
                     MigrationSettingsSnapshot(
                         preferences =
-                            fullValidPreferencePayload(
-                                mapOf(
-                                    "theme_mode" to ThemeMode.DARK.value,
-                                    SettingsKey.GIT_REMOTE_URL to "https://example.invalid/repo.git",
-                                    SettingsKey.S3_LOCAL_SYNC_DIRECTORY to "content://tree/local-sync",
-                                ),
+                        fullValidPreferencePayload(
+                            mapOf(
+                                "theme_mode" to ThemeMode.DARK.value,
+                                SettingsKey.GIT_REMOTE_URL to "https://example.invalid/repo.git",
+                                SettingsKey.S3_LOCAL_SYNC_DIRECTORY to "content://tree/local-sync",
                             ),
+                        ),
                     ),
                 )
 
@@ -498,7 +516,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given restored providers require credentials when restore is validated then missing sensitive coverage is reported") {
+        test(
+            "given restored providers require credentials when restore is validated then missing sensitive coverage is reported",
+        ) {
             runTest {
                 val fixture = setUpStore()
 
@@ -507,21 +527,21 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                         fixture.store.validateRestore(
                             MigrationSettingsSnapshot(
                                 preferences =
-                                    fullValidPreferencePayload(
-                                        mapOf(
-                                            SettingsKey.SYNC_BACKEND_TYPE to "webdav",
-                                            SettingsKey.GIT_SYNC_ENABLED to true.toString(),
-                                            SettingsKey.WEBDAV_SYNC_ENABLED to true.toString(),
-                                            SettingsKey.S3_SYNC_ENABLED to true.toString(),
-                                            SettingsKey.S3_ENCRYPTION_MODE to "rclone_crypt",
-                                        ),
-                                    ),
-                                sensitive =
+                                fullValidPreferencePayload(
                                     mapOf(
-                                        SettingsKey.GIT_TOKEN to "git-token",
-                                        SettingsKey.WEBDAV_STORED_USERNAME to "alice",
-                                        SettingsKey.S3_ACCESS_KEY_ID to "s3-access-key",
+                                        SettingsKey.SYNC_BACKEND_TYPE to "webdav",
+                                        SettingsKey.GIT_SYNC_ENABLED to true.toString(),
+                                        SettingsKey.WEBDAV_SYNC_ENABLED to true.toString(),
+                                        SettingsKey.S3_SYNC_ENABLED to true.toString(),
+                                        SettingsKey.S3_ENCRYPTION_MODE to "rclone_crypt",
                                     ),
+                                ),
+                                sensitive =
+                                mapOf(
+                                    SettingsKey.GIT_TOKEN to "git-token",
+                                    SettingsKey.WEBDAV_STORED_USERNAME to "alice",
+                                    SettingsKey.S3_ACCESS_KEY_ID to "s3-access-key",
+                                ),
                             ),
                         )
                     }
@@ -551,7 +571,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given Git provider restore has blank required token when restore is attempted then settings and credentials are preserved") {
+        test(
+            "given Git provider restore has blank required token when restore is attempted then settings and credentials are preserved",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 fixture.credentials.gitToken = "old-git-token"
@@ -563,11 +585,11 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                         fixture.store.restore(
                             MigrationSettingsSnapshot(
                                 preferences =
-                                    fullValidPreferencePayload(
-                                        mapOf(
-                                            SettingsKey.GIT_SYNC_ENABLED to true.toString(),
-                                        ),
+                                fullValidPreferencePayload(
+                                    mapOf(
+                                        SettingsKey.GIT_SYNC_ENABLED to true.toString(),
                                     ),
+                                ),
                                 sensitive = mapOf(SettingsKey.GIT_TOKEN to " "),
                             ),
                         )
@@ -582,7 +604,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given WebDAV provider restore has whitespace required password when restore is attempted then settings and credentials are preserved") {
+        test(
+            "given WebDAV provider restore has whitespace required password when restore is attempted then settings and credentials are preserved",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 fixture.credentials.webDavUsername = "old-dav-user"
@@ -595,17 +619,17 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                         fixture.store.restore(
                             MigrationSettingsSnapshot(
                                 preferences =
-                                    fullValidPreferencePayload(
-                                        mapOf(
-                                            SettingsKey.SYNC_BACKEND_TYPE to "webdav",
-                                            SettingsKey.WEBDAV_SYNC_ENABLED to true.toString(),
-                                        ),
-                                    ),
-                                sensitive =
+                                fullValidPreferencePayload(
                                     mapOf(
-                                        SettingsKey.WEBDAV_STORED_USERNAME to "alice",
-                                        SettingsKey.WEBDAV_PASSWORD to "\t\n ",
+                                        SettingsKey.SYNC_BACKEND_TYPE to "webdav",
+                                        SettingsKey.WEBDAV_SYNC_ENABLED to true.toString(),
                                     ),
+                                ),
+                                sensitive =
+                                mapOf(
+                                    SettingsKey.WEBDAV_STORED_USERNAME to "alice",
+                                    SettingsKey.WEBDAV_PASSWORD to "\t\n ",
+                                ),
                             ),
                         )
                     }
@@ -620,7 +644,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given WebDAV provider restore has blank legacy username when restore is attempted then settings and credentials are preserved") {
+        test(
+            "given WebDAV provider restore has blank legacy username when restore is attempted then settings and credentials are preserved",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 fixture.credentials.webDavUsername = "old-dav-user"
@@ -634,17 +660,17 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                         fixture.store.restore(
                             MigrationSettingsSnapshot(
                                 preferences =
-                                    fullValidPreferencePayload(
-                                        mapOf(
-                                            SettingsKey.SYNC_BACKEND_TYPE to "webdav",
-                                            SettingsKey.WEBDAV_SYNC_ENABLED to true.toString(),
-                                            SettingsKey.WEBDAV_USERNAME to " \t\n ",
-                                        ),
-                                    ),
-                                sensitive =
+                                fullValidPreferencePayload(
                                     mapOf(
-                                        SettingsKey.WEBDAV_PASSWORD to "imported-dav-password",
+                                        SettingsKey.SYNC_BACKEND_TYPE to "webdav",
+                                        SettingsKey.WEBDAV_SYNC_ENABLED to true.toString(),
+                                        SettingsKey.WEBDAV_USERNAME to " \t\n ",
                                     ),
+                                ),
+                                sensitive =
+                                mapOf(
+                                    SettingsKey.WEBDAV_PASSWORD to "imported-dav-password",
+                                ),
                             ),
                         )
                     }
@@ -660,7 +686,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given S3 provider restore has blank required secret key when restore is attempted then settings and credentials are preserved") {
+        test(
+            "given S3 provider restore has blank required secret key when restore is attempted then settings and credentials are preserved",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 fixture.credentials.s3AccessKeyId = "old-s3-access-key"
@@ -673,17 +701,17 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                         fixture.store.restore(
                             MigrationSettingsSnapshot(
                                 preferences =
-                                    fullValidPreferencePayload(
-                                        mapOf(
-                                            SettingsKey.SYNC_BACKEND_TYPE to "s3",
-                                            SettingsKey.S3_SYNC_ENABLED to true.toString(),
-                                        ),
-                                    ),
-                                sensitive =
+                                fullValidPreferencePayload(
                                     mapOf(
-                                        SettingsKey.S3_ACCESS_KEY_ID to "s3-access-key",
-                                        SettingsKey.S3_SECRET_ACCESS_KEY to " ",
+                                        SettingsKey.SYNC_BACKEND_TYPE to "s3",
+                                        SettingsKey.S3_SYNC_ENABLED to true.toString(),
                                     ),
+                                ),
+                                sensitive =
+                                mapOf(
+                                    SettingsKey.S3_ACCESS_KEY_ID to "s3-access-key",
+                                    SettingsKey.S3_SECRET_ACCESS_KEY to " ",
+                                ),
                             ),
                         )
                     }
@@ -698,7 +726,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given required credential import fails when restore is attempted then ordinary provider settings are not written") {
+        test(
+            "given required credential import fails when restore is attempted then ordinary provider settings are not written",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 fixture.dataStore.setRemoteSyncBackendType("none")
@@ -709,17 +739,17 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                     fixture.store.restore(
                         MigrationSettingsSnapshot(
                             preferences =
-                                fullValidPreferencePayload(
-                                    mapOf(
-                                        SettingsKey.SYNC_BACKEND_TYPE to "webdav",
-                                        SettingsKey.WEBDAV_SYNC_ENABLED to true.toString(),
-                                    ),
-                                ),
-                            sensitive =
+                            fullValidPreferencePayload(
                                 mapOf(
-                                    SettingsKey.WEBDAV_STORED_USERNAME to "alice",
-                                    SettingsKey.WEBDAV_PASSWORD to "imported-dav-password",
+                                    SettingsKey.SYNC_BACKEND_TYPE to "webdav",
+                                    SettingsKey.WEBDAV_SYNC_ENABLED to true.toString(),
                                 ),
+                            ),
+                            sensitive =
+                            mapOf(
+                                SettingsKey.WEBDAV_STORED_USERNAME to "alice",
+                                SettingsKey.WEBDAV_PASSWORD to "imported-dav-password",
+                            ),
                         ),
                     )
                 }
@@ -732,24 +762,26 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given valid provider settings and credentials when restore succeeds then credentials commit before ordinary settings") {
+        test(
+            "given valid provider settings and credentials when restore succeeds then credentials commit before ordinary settings",
+        ) {
             runTest {
                 val fixture = setUpStore()
 
                 fixture.store.restore(
                     MigrationSettingsSnapshot(
                         preferences =
-                            fullValidPreferencePayload(
-                                mapOf(
-                                    SettingsKey.SYNC_BACKEND_TYPE to "s3",
-                                    SettingsKey.S3_SYNC_ENABLED to true.toString(),
-                                ),
-                            ),
-                        sensitive =
+                        fullValidPreferencePayload(
                             mapOf(
-                                SettingsKey.S3_ACCESS_KEY_ID to "s3-access-key",
-                                SettingsKey.S3_SECRET_ACCESS_KEY to "s3-secret-key",
+                                SettingsKey.SYNC_BACKEND_TYPE to "s3",
+                                SettingsKey.S3_SYNC_ENABLED to true.toString(),
                             ),
+                        ),
+                        sensitive =
+                        mapOf(
+                            SettingsKey.S3_ACCESS_KEY_ID to "s3-access-key",
+                            SettingsKey.S3_SECRET_ACCESS_KEY to "s3-secret-key",
+                        ),
                     ),
                 )
 
@@ -775,7 +807,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given restore fails after applying omitted rollback values then rollback cleanup clears transient values") {
+        test(
+            "given restore fails after applying omitted rollback values then rollback cleanup clears transient values",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 fixture.credentials.webDavPasswordFailures += IllegalStateException("webdav password write failed")
@@ -784,16 +818,16 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                     fixture.store.restore(
                         MigrationSettingsSnapshot(
                             preferences =
-                                fullValidPreferencePayload(
-                                    mapOf(
-                                        SettingsKey.GIT_REMOTE_URL to "https://example.invalid/transient.git",
-                                    ),
-                                ),
-                            sensitive =
+                            fullValidPreferencePayload(
                                 mapOf(
-                                    SettingsKey.GIT_TOKEN to "transient-git-token",
-                                    SettingsKey.WEBDAV_PASSWORD to "transient-dav-password",
+                                    SettingsKey.GIT_REMOTE_URL to "https://example.invalid/transient.git",
                                 ),
+                            ),
+                            sensitive =
+                            mapOf(
+                                SettingsKey.GIT_TOKEN to "transient-git-token",
+                                SettingsKey.WEBDAV_PASSWORD to "transient-dav-password",
+                            ),
                         ),
                     )
                 }
@@ -818,9 +852,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                         fixture.store.restore(
                             MigrationSettingsSnapshot(
                                 sensitive =
-                                    mapOf(
-                                        SettingsKey.WEBDAV_PASSWORD to "imported-dav-password",
-                                    ),
+                                mapOf(
+                                    SettingsKey.WEBDAV_PASSWORD to "imported-dav-password",
+                                ),
                             ),
                         )
                     }
@@ -831,7 +865,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given preferences and sensitive rollback fail when restore reports failure then both failures are suppressed") {
+        test(
+            "given preferences and sensitive rollback fail when restore reports failure then both failures are suppressed",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 val restoreFailure = IllegalArgumentException("restore preference write failed")
@@ -850,10 +886,10 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                         fixture.store.restore(
                             MigrationSettingsSnapshot(
                                 preferences =
-                                    fullValidPreferencePayload(mapOf("theme_mode" to "dark")),
+                                fullValidPreferencePayload(mapOf("theme_mode" to "dark")),
                             ),
                         )
-                }
+                    }
 
                 failure shouldBe restoreFailure
                 failure.suppressed.size shouldBe 2
@@ -864,7 +900,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given restore moves the selected backend identity when restore runs then sync state is disposed before writes") {
+        test(
+            "given restore moves the selected backend identity when restore runs then sync state is disposed before writes",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 fixture.dataStore.setRemoteSyncBackendType("git")
@@ -876,17 +914,17 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 fixture.store.restore(
                     MigrationSettingsSnapshot(
                         preferences =
-                            fullValidPreferencePayload(
-                                mapOf(
-                                    SettingsKey.SYNC_BACKEND_TYPE to "git",
-                                    SettingsKey.GIT_REMOTE_URL to "https://new.example/repo.git",
-                                ),
-                            ),
-                        sensitive =
+                        fullValidPreferencePayload(
                             mapOf(
-                                SettingsKey.GIT_TOKEN to "tok",
-                                SettingsKey.GIT_USERNAME to "gituser",
+                                SettingsKey.SYNC_BACKEND_TYPE to "git",
+                                SettingsKey.GIT_REMOTE_URL to "https://new.example/repo.git",
                             ),
+                        ),
+                        sensitive =
+                        mapOf(
+                            SettingsKey.GIT_TOKEN to "tok",
+                            SettingsKey.GIT_USERNAME to "gituser",
+                        ),
                     ),
                 )
 
@@ -909,17 +947,17 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 fixture.store.restore(
                     MigrationSettingsSnapshot(
                         preferences =
-                            fullValidPreferencePayload(
-                                mapOf(
-                                    SettingsKey.SYNC_BACKEND_TYPE to "git",
-                                    SettingsKey.GIT_REMOTE_URL to "https://same.example/repo.git",
-                                ),
-                            ),
-                        sensitive =
+                        fullValidPreferencePayload(
                             mapOf(
-                                SettingsKey.GIT_TOKEN to "tok",
-                                SettingsKey.GIT_USERNAME to "gituser",
+                                SettingsKey.SYNC_BACKEND_TYPE to "git",
+                                SettingsKey.GIT_REMOTE_URL to "https://same.example/repo.git",
                             ),
+                        ),
+                        sensitive =
+                        mapOf(
+                            SettingsKey.GIT_TOKEN to "tok",
+                            SettingsKey.GIT_USERNAME to "gituser",
+                        ),
                     ),
                 )
 
@@ -936,14 +974,14 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 fixture.store.restore(
                     MigrationSettingsSnapshot(
                         preferences =
-                            fullValidPreferencePayload(
-                                mapOf(SettingsKey.SYNC_BACKEND_TYPE to "s3"),
-                            ),
+                        fullValidPreferencePayload(
+                            mapOf(SettingsKey.SYNC_BACKEND_TYPE to "s3"),
+                        ),
                         sensitive =
-                            mapOf(
-                                SettingsKey.S3_ACCESS_KEY_ID to "s3-access-key",
-                                SettingsKey.S3_SECRET_ACCESS_KEY to "s3-secret-key",
-                            ),
+                        mapOf(
+                            SettingsKey.S3_ACCESS_KEY_ID to "s3-access-key",
+                            SettingsKey.S3_SECRET_ACCESS_KEY to "s3-secret-key",
+                        ),
                     ),
                 )
 
@@ -952,7 +990,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             }
         }
 
-        test("given restore only moves a non-selected backend field when restore runs then durable state is untouched") {
+        test(
+            "given restore only moves a non-selected backend field when restore runs then durable state is untouched",
+        ) {
             runTest {
                 val fixture = setUpStore()
                 fixture.dataStore.setRemoteSyncBackendType("git")
@@ -964,18 +1004,18 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 fixture.store.restore(
                     MigrationSettingsSnapshot(
                         preferences =
-                            fullValidPreferencePayload(
-                                mapOf(
-                                    SettingsKey.SYNC_BACKEND_TYPE to "git",
-                                    SettingsKey.GIT_REMOTE_URL to "https://same.example/repo.git",
-                                    SettingsKey.S3_BUCKET to "moved-bucket",
-                                ),
-                            ),
-                        sensitive =
+                        fullValidPreferencePayload(
                             mapOf(
-                                SettingsKey.GIT_TOKEN to "tok",
-                                SettingsKey.GIT_USERNAME to "gituser",
+                                SettingsKey.SYNC_BACKEND_TYPE to "git",
+                                SettingsKey.GIT_REMOTE_URL to "https://same.example/repo.git",
+                                SettingsKey.S3_BUCKET to "moved-bucket",
                             ),
+                        ),
+                        sensitive =
+                        mapOf(
+                            SettingsKey.GIT_TOKEN to "tok",
+                            SettingsKey.GIT_USERNAME to "gituser",
+                        ),
                     ),
                 )
 
@@ -984,37 +1024,34 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
         }
     }
 
-    private fun com.lomo.domain.model.SettingDescriptor.restoreValue(): String =
-        when (snapshotField) {
-            AppPreferenceSnapshotField.DATE_FORMAT -> "yyyy/MM/dd"
-            AppPreferenceSnapshotField.TIME_FORMAT -> "HH:mm"
-            AppPreferenceSnapshotField.THEME_MODE -> ThemeMode.DARK.value
-            AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> "2,5,9"
-            AppPreferenceSnapshotField.COLOR_SOURCE -> ColorSource.Preset(ColorPresetId.OCEAN).storageValue
-            AppPreferenceSnapshotField.FONT_PREFERENCE -> FontPreference.UserImported("serif.ttf").storageValue
-            AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.SHOW_INPUT_HINTS -> false.toString()
-            AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> true.toString()
-            AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED -> true.toString()
-            AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> true.toString()
-            AppPreferenceSnapshotField.MEMO_ACTION_ORDER -> "copy,edit,delete"
-            AppPreferenceSnapshotField.MEMO_ACTION_ORDERS_BY_SCOPE -> "main=edit,copy"
-            AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> "text,image,voice"
-            AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.SCROLLBAR_ENABLED -> false.toString()
-            AppPreferenceSnapshotField.SHARE_CARD_SHOW_TIME -> false.toString()
-            AppPreferenceSnapshotField.SHARE_CARD_SHOW_BRAND -> false.toString()
-            AppPreferenceSnapshotField.SHARE_CARD_SIGNATURE_TEXT -> "Imported"
-            AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE -> "1.25"
-            AppPreferenceSnapshotField.TYPOGRAPHY_LINE_HEIGHT_SCALE -> "1.35"
-            AppPreferenceSnapshotField.TYPOGRAPHY_LETTER_SPACING_SCALE -> "0.95"
-            AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE -> "1.45"
-        }
+    private fun com.lomo.domain.model.SettingDescriptor.restoreValue(): String = when (snapshotField) {
+        AppPreferenceSnapshotField.DATE_FORMAT -> "yyyy/MM/dd"
+        AppPreferenceSnapshotField.TIME_FORMAT -> "HH:mm"
+        AppPreferenceSnapshotField.THEME_MODE -> ThemeMode.DARK.value
+        AppPreferenceSnapshotField.PURE_BLACK_DARK -> true.toString()
+        AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> "2,5,9"
+        AppPreferenceSnapshotField.COLOR_SOURCE -> ColorSource.Preset(ColorPresetId.OCEAN).storageValue
+        AppPreferenceSnapshotField.CONTRAST_LEVEL -> ContrastLevel.HIGH.value
+        AppPreferenceSnapshotField.FONT_PREFERENCE -> FontPreference.UserImported("serif.ttf").storageValue
+        AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.SHOW_INPUT_HINTS -> false.toString()
+        AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> true.toString()
+        AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> true.toString()
+        AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> "text,image,voice"
+        AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.SCROLLBAR_ENABLED -> false.toString()
+        AppPreferenceSnapshotField.QUICK_BALL_CONFIG -> "v1|SEARCH|FILTER|LONG_TEXT|NONE|RECORD"
+        AppPreferenceSnapshotField.SHARE_CARD_SHOW_TIME -> false.toString()
+        AppPreferenceSnapshotField.SHARE_CARD_SHOW_BRAND -> false.toString()
+        AppPreferenceSnapshotField.SHARE_CARD_SIGNATURE_TEXT -> "Imported"
+        AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE -> "1.25"
+        AppPreferenceSnapshotField.TYPOGRAPHY_LINE_HEIGHT_SCALE -> "1.35"
+        AppPreferenceSnapshotField.TYPOGRAPHY_LETTER_SPACING_SCALE -> "0.95"
+        AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE -> "1.45"
+    }
 
-    private fun fullValidPreferencePayload(
-        overrides: Map<String, String> = emptyMap(),
-    ): Map<String, String> {
+    private fun fullValidPreferencePayload(overrides: Map<String, String> = emptyMap()): Map<String, String> {
         val catalogPreferences =
             SettingsCatalog
                 .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
@@ -1075,31 +1112,31 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 credentialRepository = FakeCredentialRepository(credentials, operationLog),
                 securitySessionPolicy = AuthorizedSecuritySessionPolicy,
                 identityReset =
-                    SyncIdentityResetPolicy(
-                        scheduler =
-                            mockk<RustSyncScheduler>().also {
-                                every { it.cancel() } answers { identityResetEvents += "cancel" }
-                            },
-                        deferredLockStore =
-                            object : DeferredLockWorkStore {
-                                override fun save(input: Data) = error("not used")
+                SyncIdentityResetPolicy(
+                    scheduler =
+                    mockk<RustSyncScheduler>().also {
+                        every { it.cancel() } answers { identityResetEvents += "cancel" }
+                    },
+                    deferredLockStore =
+                    object : DeferredLockWorkStore {
+                        override fun save(input: Data) = error("not used")
 
-                                override fun take(): Data? = null
+                        override fun take(): Data? = null
 
-                                override fun clear() {
-                                    identityResetEvents += "deferred-clear"
-                                }
-                            },
-                        syncStateReset =
-                            object : SyncStateResetRepository {
-                                override suspend fun resetWorkspaceScopedSyncState() {
-                                    // Observed mid-disposal: the pre-write identity value must
-                                    // still be stored — reset runs before the mutation lands.
-                                    remoteAtReset = dataStore.gitRemoteUrl.first()
-                                    identityResetEvents += "reset"
-                                }
-                            },
-                    ),
+                        override fun clear() {
+                            identityResetEvents += "deferred-clear"
+                        }
+                    },
+                    syncStateReset =
+                    object : SyncStateResetRepository {
+                        override suspend fun resetWorkspaceScopedSyncState() {
+                            // Observed mid-disposal: the pre-write identity value must
+                            // still be stored — reset runs before the mutation lands.
+                            remoteAtReset = dataStore.gitRemoteUrl.first()
+                            identityResetEvents += "reset"
+                        }
+                    },
+                ),
             )
         return SettingsStoreFixture(
             dataStore = dataStore,
@@ -1129,11 +1166,12 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             preferenceUpdates = preferenceUpdates,
             operationLog = operationLog,
         )
-        val constructor = LomoDataStore::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+        val constructor = LomoDataStore::class.java.getDeclaredConstructor(
+            androidx.datastore.core.DataStore::class.java,
+        )
         constructor.isAccessible = true
         return constructor.newInstance(failingDataStore)
     }
-
 }
 
 private data class SettingsStoreFixture(
@@ -1204,17 +1242,15 @@ private class FakeCredentialRepository(
     override fun observeCredentialState(provider: CredentialProvider): Flow<CredentialState> =
         flowOf(stateFor(provider))
 
-    override suspend fun credentialState(provider: CredentialProvider): CredentialState =
-        stateFor(provider)
+    override suspend fun credentialState(provider: CredentialProvider): CredentialState = stateFor(provider)
 
-    private fun stateFor(provider: CredentialProvider): CredentialState =
-        CredentialState(
-            provider = provider,
-            fields =
-                fieldsForProvider(provider).map { field ->
-                    CredentialFieldState(field = field, status = statusFor(field))
-                },
-        )
+    private fun stateFor(provider: CredentialProvider): CredentialState = CredentialState(
+        provider = provider,
+        fields =
+        fieldsForProvider(provider).map { field ->
+            CredentialFieldState(field = field, status = statusFor(field))
+        },
+    )
 
     override suspend fun readSecret(
         field: CredentialField,
@@ -1242,10 +1278,7 @@ private class FakeCredentialRepository(
         }
     }
 
-    private fun applyWrite(
-        field: CredentialField,
-        value: String?,
-    ) {
+    private fun applyWrite(field: CredentialField, value: String?) {
         when (field) {
             CredentialField.GIT_TOKEN -> credentials.gitToken = value
             CredentialField.GIT_USERNAME -> credentials.gitUsername = value
@@ -1259,37 +1292,36 @@ private class FakeCredentialRepository(
         }
     }
 
-    private fun statusFor(field: CredentialField): StoredCredentialStatus =
-        if (readValue(field).isNullOrBlank()) {
-            StoredCredentialStatus.Missing
-        } else {
-            StoredCredentialStatus.Present
-        }
+    private fun statusFor(field: CredentialField): StoredCredentialStatus = if (readValue(field).isNullOrBlank()) {
+        StoredCredentialStatus.Missing
+    } else {
+        StoredCredentialStatus.Present
+    }
 
-    private fun readValue(field: CredentialField): String? =
-        when (field) {
-            CredentialField.GIT_TOKEN -> credentials.gitToken
-            CredentialField.GIT_USERNAME -> credentials.gitUsername
-            CredentialField.WEBDAV_USERNAME -> credentials.webDavUsername
-            CredentialField.WEBDAV_PASSWORD -> credentials.webDavPassword
-            CredentialField.S3_ACCESS_KEY_ID -> credentials.s3AccessKeyId
-            CredentialField.S3_SECRET_ACCESS_KEY -> credentials.s3SecretAccessKey
-            CredentialField.S3_SESSION_TOKEN -> credentials.s3SessionToken
-            CredentialField.S3_ENCRYPTION_PASSWORD -> credentials.s3EncryptionPassword
-            CredentialField.S3_ENCRYPTION_PASSWORD2 -> credentials.s3EncryptionPassword2
-        }
+    private fun readValue(field: CredentialField): String? = when (field) {
+        CredentialField.GIT_TOKEN -> credentials.gitToken
+        CredentialField.GIT_USERNAME -> credentials.gitUsername
+        CredentialField.WEBDAV_USERNAME -> credentials.webDavUsername
+        CredentialField.WEBDAV_PASSWORD -> credentials.webDavPassword
+        CredentialField.S3_ACCESS_KEY_ID -> credentials.s3AccessKeyId
+        CredentialField.S3_SECRET_ACCESS_KEY -> credentials.s3SecretAccessKey
+        CredentialField.S3_SESSION_TOKEN -> credentials.s3SessionToken
+        CredentialField.S3_ENCRYPTION_PASSWORD -> credentials.s3EncryptionPassword
+        CredentialField.S3_ENCRYPTION_PASSWORD2 -> credentials.s3EncryptionPassword2
+    }
 
-    private fun fieldsForProvider(provider: CredentialProvider): List<CredentialField> =
-        when (provider) {
-            CredentialProvider.GIT -> listOf(CredentialField.GIT_TOKEN, CredentialField.GIT_USERNAME)
-            CredentialProvider.WEBDAV -> listOf(CredentialField.WEBDAV_USERNAME, CredentialField.WEBDAV_PASSWORD)
-            CredentialProvider.S3 ->
-                listOf(
-                    CredentialField.S3_ACCESS_KEY_ID,
-                    CredentialField.S3_SECRET_ACCESS_KEY,
-                    CredentialField.S3_SESSION_TOKEN,
-                    CredentialField.S3_ENCRYPTION_PASSWORD,
-                    CredentialField.S3_ENCRYPTION_PASSWORD2,
-                )
-        }
+    private fun fieldsForProvider(provider: CredentialProvider): List<CredentialField> = when (provider) {
+        CredentialProvider.GIT -> listOf(CredentialField.GIT_TOKEN, CredentialField.GIT_USERNAME)
+
+        CredentialProvider.WEBDAV -> listOf(CredentialField.WEBDAV_USERNAME, CredentialField.WEBDAV_PASSWORD)
+
+        CredentialProvider.S3 ->
+            listOf(
+                CredentialField.S3_ACCESS_KEY_ID,
+                CredentialField.S3_SECRET_ACCESS_KEY,
+                CredentialField.S3_SESSION_TOKEN,
+                CredentialField.S3_ENCRYPTION_PASSWORD,
+                CredentialField.S3_ENCRYPTION_PASSWORD2,
+            )
+    }
 }

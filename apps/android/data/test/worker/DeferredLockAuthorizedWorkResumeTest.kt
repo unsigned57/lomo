@@ -26,6 +26,12 @@ package com.lomo.data.worker
  *   boundary.
  *
  * Excludes: WorkManager admission itself (instrumented boundary), storage IO.
+ * Test Change Justification:
+ * Reason category: strict scheduling seam.
+ * Old behavior/assertion being replaced: Relaxed scheduler mocks are replaced by strict mocks; resume assertions remain.
+ * Why old assertion is no longer correct: existing outcome assertions remain valid and retained.
+ * Coverage preserved by: Lazy resolution and the exact pending WorkManager input are still checked.
+ * Why this is not fitting the test to the implementation: no expected product outcome is weakened.
  */
 
 import androidx.work.workDataOf
@@ -44,15 +50,16 @@ class DeferredLockAuthorizedWorkResumeTest : DataFunSpec() {
                 val store = mockk<DeferredLockWorkStore>()
                 every { store.take() } returns pending
                 var schedulerResolved = false
-                val scheduler = mockk<RustSyncScheduler>(relaxed = true)
+                val scheduler = mockk<RustSyncScheduler>()
+                every { scheduler.enqueueSaved(any()) } returns Unit
                 val resume =
                     DeferredLockAuthorizedWorkResume(
                         store = store,
                         scheduler =
-                            lazy {
-                                schedulerResolved = true
-                                scheduler
-                            },
+                        lazy {
+                            schedulerResolved = true
+                            scheduler
+                        },
                         scope = this,
                     )
 
@@ -69,15 +76,15 @@ class DeferredLockAuthorizedWorkResumeTest : DataFunSpec() {
                 val store = mockk<DeferredLockWorkStore>()
                 every { store.take() } returns null
                 var schedulerResolved = false
-                val scheduler = mockk<RustSyncScheduler>(relaxed = true)
+                val scheduler = mockk<RustSyncScheduler>()
                 val resume =
                     DeferredLockAuthorizedWorkResume(
                         store = store,
                         scheduler =
-                            lazy {
-                                schedulerResolved = true
-                                scheduler
-                            },
+                        lazy {
+                            schedulerResolved = true
+                            scheduler
+                        },
                         scope = this,
                     )
 

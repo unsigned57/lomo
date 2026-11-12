@@ -1,3 +1,9 @@
+//! Test Change Justification:
+//! Reason category: historical schema fixture maintenance.
+//! Old behavior/assertion being replaced: rewinding the schema kept current v16 triggers and v17 partial indexes.
+//! Why old assertion is no longer correct: those objects are absent in the v12 fixture.
+//! Coverage preserved by: every pin authority and selective listing migration assertion remains.
+//! Why this is not fitting the test to the implementation: omit only schema objects introduced later.
 //! Adversarial reconcile probes on pin authority: the cold-side pin axiom,
 //! the three-way scoped-pin verdict, head stem-checks and rewalk
 //! re-attestation/absorb. Merged from the numbered re-audit rounds.
@@ -367,6 +373,9 @@ mod tests {
                 )
                 .expect("pin");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .rebuild_projection()
                 .expect("the pin's durable state records reconcile");
             assert!(
@@ -393,6 +402,9 @@ mod tests {
                     trashed_at_ms: Some(1_757_500_000_000),
                 })
                 .expect("app trash");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session
                 .rebuild_projection()
                 .expect("the trash's durable records reconcile");
@@ -553,6 +565,10 @@ mod tests {
                 .expect("unpin");
             ctx_a
                 .session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx_a
+                .session
                 .rebuild_projection()
                 .expect("unpin reconciles");
             assert!(!is_pinned(&ctx_a, &victim), "fixture sanity: unpinned");
@@ -611,6 +627,10 @@ mod tests {
                     memo_id: MemoId::parse(&victim).expect("memo id"),
                 })
                 .expect("permanent delete");
+            ctx_a
+                .session
+                .settle_workspace()
+                .expect("committed writes converge");
 
             fs::write(
                 ctx_a.workspace.join(".lomo/unscoped.evidence"),
@@ -806,6 +826,9 @@ mod tests {
                     }],
                 })
                 .expect("batch permanent delete");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session
                 .rebuild_projection()
                 .expect("the post-delete reconcile converges");
@@ -1205,6 +1228,9 @@ mod tests {
                 )
                 .expect("pin");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .rebuild_projection()
                 .expect("the pin's durable state records reconcile");
             assert!(
@@ -1226,7 +1252,8 @@ mod tests {
 
         /// Writes a durable trash record for `memo_id` at its canonical hashed path.
         fn write_trash_record(workspace: &Path, record: &TrashRecordV1) {
-            let rel = trash_record_relative_path(&record.memo_id).expect("trash path");
+            let rel = trash_record_relative_path(&record.memo_id, &record.source_path)
+                .expect("trash path");
             let abs = workspace.join(rel.as_str());
             fs::create_dir_all(abs.parent().expect("record dir")).expect("record dir");
             write_trash_record_atomic(&abs, record).expect("write record");
@@ -1234,8 +1261,20 @@ mod tests {
 
         /// Deletes the durable trash record for `memo_id`.
         fn remove_trash_record(workspace: &Path, memo_id: &str) {
-            let rel = trash_record_relative_path(memo_id).expect("trash path");
-            fs::remove_file(workspace.join(rel.as_str())).expect("remove record");
+            let path = fs::read_dir(workspace.join(".trash"))
+                .expect("trash directory")
+                .map(|entry| entry.expect("trash entry").path())
+                .find(|path| {
+                    lomo_workspace::trash_record_path_matches_identity(
+                        &format!(
+                            ".trash/{}",
+                            path.file_name().expect("name").to_str().expect("utf8")
+                        ),
+                        memo_id,
+                    )
+                })
+                .expect("matching recovery record");
+            fs::remove_file(path).expect("remove record");
         }
 
         /// Writes a durable purge tombstone for `memo_id` at its canonical hashed path.
@@ -1609,7 +1648,13 @@ mod tests {
                     .expect("unpin request"),
                 )
                 .expect("unpin");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session.rebuild_projection().expect("unpin reconciles");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             assert!(!is_pinned(&ctx, &victim), "fixture sanity: unpinned");
 
             // The stray lands under a non-canonical stem — a valid envelope with a
@@ -1671,6 +1716,10 @@ mod tests {
                     .expect("unpin request"),
                 )
                 .expect("unpin");
+            ctx_a
+                .session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx_a
                 .session
                 .rebuild_projection()
@@ -2107,6 +2156,9 @@ mod tests {
                 )
                 .expect("pin");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .rebuild_projection()
                 .expect("the pin's durable state records reconcile");
             assert!(
@@ -2128,6 +2180,9 @@ mod tests {
                     .expect("unpin request"),
                 )
                 .expect("unpin");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session
                 .rebuild_projection()
                 .expect("the unpin's durable state records reconcile");
@@ -2887,6 +2942,9 @@ mod tests {
         fn set_user_version(cache_dir: &Path, version: i64) {
             let db = cache_dir.join(".lomo-sqlite").join("store.db");
             let conn = rusqlite::Connection::open(&db).expect("store db");
+            conn.execute_batch("DROP TRIGGER memo_stats_insert; DROP TRIGGER memo_stats_delete;
+                DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders;")
+                .expect("historical schema omits later aggregate triggers and partial indexes");
             conn.pragma_update(None, "user_version", version)
                 .expect("user_version rewind");
         }
@@ -2947,6 +3005,9 @@ mod tests {
                 )
                 .expect("pin");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .rebuild_projection()
                 .expect("the pin's durable state records reconcile");
             assert!(
@@ -2968,6 +3029,9 @@ mod tests {
                     .expect("unpin request"),
                 )
                 .expect("unpin");
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             ctx.session
                 .rebuild_projection()
                 .expect("the unpin's durable state records reconcile");
@@ -2994,6 +3058,9 @@ mod tests {
                 })
                 .expect("delete");
             ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
+            ctx.session
                 .rebuild_projection()
                 .expect("the delete's durable records reconcile");
         }
@@ -3008,9 +3075,9 @@ mod tests {
         }
 
         /// Absolute path of a memo's canonical v1 trash record inside `workspace`.
-        fn trash_record_file(workspace: &Path, memo_id: &str) -> PathBuf {
+        fn trash_record_file(workspace: &Path, memo_id: &str, source: &str) -> PathBuf {
             workspace.join(
-                lomo_workspace::trash_record_relative_path(memo_id)
+                lomo_workspace::trash_record_relative_path(memo_id, source)
                     .expect("trash path")
                     .as_str(),
             )
@@ -3229,8 +3296,12 @@ mod tests {
                 "fixture sanity: the trashed row is projected"
             );
 
-            let record_bytes =
-                fs::read(trash_record_file(&ctx_a.workspace, &victim)).expect("trash record");
+            let record_bytes = fs::read(trash_record_file(
+                &ctx_a.workspace,
+                &victim,
+                "2026_09_11.md",
+            ))
+            .expect("trash record");
             // The document leaves: the row retires and the live claim re-projects
             // it trashed — `retire_memo` supplied that pass's durable verdict.
             fs::remove_file(ctx_a.workspace.join("2026_09_11.md")).expect("remove doc");
@@ -3248,7 +3319,12 @@ mod tests {
             );
             // The record leaves: the claimed row retires for good and the
             // cascade takes `memo_pin` with it — the absent-row shape.
-            fs::remove_file(trash_record_file(&ctx_a.workspace, &victim)).expect("remove record");
+            fs::remove_file(trash_record_file(
+                &ctx_a.workspace,
+                &victim,
+                "2026_09_11.md",
+            ))
+            .expect("remove record");
             ctx_a
                 .session
                 .rebuild_projection()
@@ -3265,8 +3341,11 @@ mod tests {
             // identity sits outside every other `state_memos` supply — the head
             // never diffed, nothing retired it, `committed_pins` no longer names
             // it. Only the absent-row supply joins it to the durable tip.
-            fs::write(trash_record_file(&ctx_a.workspace, &victim), record_bytes)
-                .expect("restore record");
+            fs::write(
+                trash_record_file(&ctx_a.workspace, &victim, "2026_09_11.md"),
+                record_bytes,
+            )
+            .expect("restore record");
             ctx_a
                 .session
                 .rebuild_projection()
@@ -3411,7 +3490,7 @@ mod tests {
                 ".lomo/state/v2/memos/ghost.rec",
                 "shared-prefix-decoy",
             );
-            stamp_listing_row(&ctx.cache_dir, ".lomo/trash/v1/ghost.rec", "trash-decoy");
+            stamp_listing_row(&ctx.cache_dir, ".trash/ghost.md", "trash-decoy");
             set_user_version(&ctx.cache_dir, 12);
 
             // Re-open the store so the migration replays over the planted rows —
@@ -3432,7 +3511,7 @@ mod tests {
                 ".lomo/state/v2/objects/ghost.rec",
                 ".lomo/state/v2/headsX/ghost.rec",
                 ".lomo/state/v2/memos/ghost.rec",
-                ".lomo/trash/v1/ghost.rec",
+                ".trash/ghost.md",
             ] {
                 assert!(
                     migrated.contains(survivor),

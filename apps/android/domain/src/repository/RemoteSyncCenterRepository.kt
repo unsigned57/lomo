@@ -37,11 +37,7 @@ interface RemoteSyncCenterRepository {
      */
     suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress
 
-    fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage
+    fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage
 
     fun resolveConflicts(
         workspaceRoot: String,
@@ -67,8 +63,5 @@ interface RemoteSyncCenterRepository {
      * MIME/size remain null unless a future owner port provides them. Never invents text body
      * previews from artifact bytes.
      */
-    fun binaryConflictFacts(
-        workspaceRoot: String,
-        path: RemoteSyncConflictPath,
-    ): RemoteSyncBinaryConflictFacts
+    fun binaryConflictFacts(workspaceRoot: String, path: RemoteSyncConflictPath): RemoteSyncBinaryConflictFacts
 }

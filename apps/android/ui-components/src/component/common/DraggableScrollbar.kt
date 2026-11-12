@@ -21,16 +21,10 @@ import kotlin.math.roundToInt
 internal fun shouldShowDraggableScrollbar(canScroll: Boolean): Boolean = canScroll
 
 @Stable
-internal data class ScrollbarThumbMetrics(
-    val thumbExtentPx: Float,
-    val thumbOffsetPx: Float,
-)
+internal data class ScrollbarThumbMetrics(val thumbExtentPx: Float, val thumbOffsetPx: Float)
 
 @Stable
-internal data class LazyListScrollTarget(
-    val index: Int,
-    val scrollOffsetPx: Int,
-)
+internal data class LazyListScrollTarget(val index: Int, val scrollOffsetPx: Int)
 
 internal fun resolveScrollbarThumbMetrics(
     trackExtentPx: Float,
@@ -46,10 +40,8 @@ internal fun resolveScrollbarThumbMetrics(
     )
 }
 
-internal fun mapThumbFractionToScrollOffset(
-    thumbFraction: Float,
-    maxScrollOffset: Int,
-): Int = (thumbFraction.coerceIn(0f, 1f) * maxScrollOffset.coerceAtLeast(0)).roundToInt()
+internal fun mapThumbFractionToScrollOffset(thumbFraction: Float, maxScrollOffset: Int): Int =
+    (thumbFraction.coerceIn(0f, 1f) * maxScrollOffset.coerceAtLeast(0)).roundToInt()
 
 internal fun mapDraggedThumbOffsetToFraction(
     draggedThumbOffsetPx: Float,
@@ -126,6 +118,15 @@ fun WithDraggableScrollbar(
         Box(modifier = Modifier.then(modifier), content = content)
         return
     }
+    Box(modifier = modifier) {
+        content()
+        ScrollStateScrollbar(state)
+    }
+}
+
+// Keep scroll-position observation outside the composition scope that invokes list content.
+@Composable
+private fun BoxScope.ScrollStateScrollbar(state: ScrollState) {
     val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarTokens.ThumbHeight.toPx() }
     val dragScope = rememberCoroutineScope()
     val canScroll by remember(state) {
@@ -146,28 +147,25 @@ fun WithDraggableScrollbar(
             isScrollInProgress = state.isScrollInProgress,
         )
 
-    Box(modifier = Modifier.then(modifier)) {
-        content()
-        DraggableScrollbarOverlay(
-            visible = shouldShowDraggableScrollbar(canScroll = canScroll),
-            isThumbDragged = interaction.isThumbDragged,
-            isScrollInProgress = state.isScrollInProgress,
-            recentlyScrolled = interaction.recentlyScrolled,
-            thumbFraction = thumbFraction,
-            thumbExtentPx = thumbExtentPx,
-            onThumbFractionChanged = { fraction ->
-                dragScope.launch {
-                    state.scrollTo(
-                        mapThumbFractionToScrollOffset(
-                            thumbFraction = fraction,
-                            maxScrollOffset = state.maxValue,
-                        ),
-                    )
-                }
-            },
-            onDragStateChanged = { interaction.isThumbDragged = it },
-        )
-    }
+    DraggableScrollbarOverlay(
+        visible = shouldShowDraggableScrollbar(canScroll = canScroll),
+        isThumbDragged = interaction.isThumbDragged,
+        isScrollInProgress = state.isScrollInProgress,
+        recentlyScrolled = interaction.recentlyScrolled,
+        thumbFraction = thumbFraction,
+        thumbExtentPx = thumbExtentPx,
+        onThumbFractionChanged = { fraction ->
+            dragScope.launch {
+                state.scrollTo(
+                    mapThumbFractionToScrollOffset(
+                        thumbFraction = fraction,
+                        maxScrollOffset = state.maxValue,
+                    ),
+                )
+            }
+        },
+        onDragStateChanged = { interaction.isThumbDragged = it },
+    )
 }
 
 @Composable
@@ -184,6 +182,24 @@ fun WithDraggableScrollbar(
         Box(modifier = Modifier.then(modifier), content = content)
         return
     }
+    Box(modifier = modifier) {
+        content()
+        LazyListScrollbar(
+            state = state,
+            contentGeneration = contentGeneration,
+            totalItemsCountOverride = totalItemsCountOverride,
+            scrollTargetItemsCountOverride = scrollTargetItemsCountOverride,
+        )
+    }
+}
+
+@Composable
+private fun BoxScope.LazyListScrollbar(
+    state: LazyListState,
+    contentGeneration: Any?,
+    totalItemsCountOverride: Int?,
+    scrollTargetItemsCountOverride: Int?,
+) {
     val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarTokens.ThumbHeight.toPx() }
     val dragScope = rememberCoroutineScope()
     val lazyMetrics by produceState<LazyListScrollbarMetrics?>(
@@ -229,20 +245,17 @@ fun WithDraggableScrollbar(
             isScrollInProgress = state.isScrollInProgress,
         )
 
-    Box(modifier = Modifier.then(modifier)) {
-        content()
-        DraggableScrollbarOverlay(
-            visible = shouldShowDraggableScrollbar(canScroll = canScroll),
-            isThumbDragged = interaction.isThumbDragged,
-            isScrollInProgress = state.isScrollInProgress,
-            recentlyScrolled = interaction.recentlyScrolled,
-            thumbFraction = thumbFraction,
-            thumbExtentPx = thumbExtentPx,
-            onThumbFractionChanged = { fraction ->
-                val metrics = lazyMetrics ?: return@DraggableScrollbarOverlay
-                scrollRequestDispatcher.dispatch(metrics.targetForFraction(fraction))
-            },
-            onDragStateChanged = { interaction.isThumbDragged = it },
-        )
-    }
+    DraggableScrollbarOverlay(
+        visible = shouldShowDraggableScrollbar(canScroll = canScroll),
+        isThumbDragged = interaction.isThumbDragged,
+        isScrollInProgress = state.isScrollInProgress,
+        recentlyScrolled = interaction.recentlyScrolled,
+        thumbFraction = thumbFraction,
+        thumbExtentPx = thumbExtentPx,
+        onThumbFractionChanged = { fraction ->
+            val metrics = lazyMetrics ?: return@DraggableScrollbarOverlay
+            scrollRequestDispatcher.dispatch(metrics.targetForFraction(fraction))
+        },
+        onDragStateChanged = { interaction.isThumbDragged = it },
+    )
 }

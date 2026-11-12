@@ -59,7 +59,7 @@ impl S3ObjectSource for MapS3ObjectSource {
                 "s3 object source has no bytes for the ensure-present path",
             )
         })?;
-        let digest = format!("{:x}", Sha256::digest(bytes));
+        let digest = lomo_core::hex_encode(&Sha256::digest(bytes));
         if digest != expected_digest.as_str() {
             return Err(validation(
                 "s3_object_source_digest_mismatch",
@@ -229,11 +229,11 @@ impl<S: S3ObjectSource> S3Adapter<S> {
     fn multipart_dir(&self) -> Option<PathBuf> {
         self.durable_workspace_root
             .as_ref()
-            .map(|root| crate::durable::SyncPaths::for_workspace(root).multipart)
+            .map(|root| crate::durable::SyncPaths::for_control_root(root).multipart)
     }
 
     fn durable_session_path(dir: &Path, sync_path: &str) -> PathBuf {
-        let digest = format!("{:x}", Sha256::digest(sync_path.as_bytes()));
+        let digest = lomo_core::hex_encode(&Sha256::digest(sync_path.as_bytes()));
         dir.join(format!("{digest}.rec"))
     }
 
@@ -1151,7 +1151,7 @@ impl S3ObjectSource for WorkspaceFileObjectSource {
                     ),
                 }
             })?;
-        let digest = format!("{:x}", Sha256::digest(&bytes));
+        let digest = lomo_core::hex_encode(&Sha256::digest(&bytes));
         if digest != expected_digest.as_str() {
             return Err(validation(
                 "workspace_object_source_digest_mismatch",

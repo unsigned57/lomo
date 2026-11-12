@@ -226,6 +226,7 @@ mod tests {
         let fixture = Fixture::new();
         let session = fixture.open();
         let created = session.create_memo(valid_create()).value();
+        session.settle_workspace().value();
         let Err(error) = PinMemoRequest::new(
             OperationId::parse("pin-invalid").value(),
             created.memo_id.clone(),
@@ -261,6 +262,7 @@ mod tests {
         let fixture = Fixture::new();
         let session = fixture.open();
         let created = session.create_memo(valid_create()).value();
+        session.settle_workspace().value();
         let request = UpdateMemoRequest {
             operation_id: OperationId::parse("update-invalid").value(),
             memo_id: created.memo_id,

@@ -1,0 +1,28 @@
+# A fenced-code-first memo must never collapse to an empty body.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- eraseText
+- inputText: "```text"
+- pressKey: Enter
+- inputText: "uitest-code-first-preview 0code content 1code content 2code content 3code content 4code content 5code content 6code content 7code content 8code content 9code content 10code content 11code content 12code content 13code content 14code content 15code content 16code content 17code content 18code content 19code content 20code content 21code content 22code content 23code content 24code content 25code content 26code content 27code content 28code content 29code content 30code content 31code content 32code content 33code content 34code content 35code content 36code content 37code content 38code content 39code content 40code content 41code content 42code content 43code content 44 uitest-code-end"
+- pressKey: Enter
+- inputText: "```"
+- tapOn:
+    id: "benchmark_input_submit"
+- assertNotVisible:
+    id: "benchmark_input_editor"
+- waitForAnimationToEnd
+- assertVisible: ".*uitest-code-first-preview.*"
+- takeScreenshot: code-collapsed
+- tapOn: ".*uitest-code-first-preview.*"
+- scrollUntilVisible:
+    element:
+      text: "Collapse"
+    direction: DOWN
+- takeScreenshot: code-expanded

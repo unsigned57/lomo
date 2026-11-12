@@ -12,7 +12,7 @@ import io.kotest.matchers.shouldBe
  *   presenter or memo-result projection boundary.
  *
  * Scenarios:
- * - Given the query is empty, when content state resolves, then the initial empty state wins over
+ * - Given the query is empty or whitespace-only, when content state resolves, then the initial empty state wins over
  *   loading and results facts.
  * - Given a non-empty query is loading, when content state resolves, then loading wins over result
  *   presence.
@@ -47,6 +47,12 @@ class SearchContentStateTest : AppFunSpec() {
             state shouldBe SearchContentState.EmptyInitial
         }
 
+        test("given a whitespace-only query when state resolves then it is EmptyInitial") {
+            val state = resolveSearchContentState(query = "   ", showLoading = false, hasResults = false)
+
+            state shouldBe SearchContentState.EmptyInitial
+        }
+
         test("given an empty query with loading and results when state resolves then EmptyInitial still wins") {
             val state = resolveSearchContentState(query = "", showLoading = true, hasResults = true)
 
@@ -71,16 +77,17 @@ class SearchContentStateTest : AppFunSpec() {
             state shouldBe SearchContentState.Results
         }
 
-        test("given a non-empty query no loading empty results but has active exits when state resolves then it is Results") {
+        test(
+            "given a non-empty query no loading empty results but has active exits when state resolves then it is Results",
+        ) {
             val state = resolveSearchContentState(
                 query = "hello",
                 showLoading = false,
                 hasResults = false,
-                hasActiveExits = true
+                hasActiveExits = true,
             )
 
             state shouldBe SearchContentState.Results
         }
     }
 }
-

@@ -9,8 +9,15 @@
 //! - Given created memos, when statistics rows are read, then word/character counts are
 //!   materialized per memo, trash-only rows are excluded, and updates re-materialize the counts.
 //! - Given a body longer than the preview budget, when the preview is materialized, then the cut
-//!   lands on a block boundary and never inside an unclosed fenced code block.
+//!   prefers a late block/line boundary and retains code content under `CommonMark` EOF rules.
 //!
+//! TDD proof: preview-red.log/preview-green.log in reports/manual/interaction-fixes.
+//! Test Change Justification:
+//! Reason category: user-requested useful collapsed preview.
+//! Old behavior/assertion being replaced: removing every unclosed code block from a 200-character prefix.
+//! Why old assertion is no longer correct: a code-first memo becomes entirely blank; `CommonMark` renders code at EOF.
+//! Coverage preserved by: source-prefix boundaries, bounded code and Unicode scenarios, and upgrade repair tests.
+//! Why this is not fitting the test to the implementation: visible content and a bounded transfer are the required outcomes.
 //! Observable outcomes: `query_count`, `memo_statistics_rows`, `body_preview` values.
 
 mod support;
@@ -223,27 +230,16 @@ mod tests {
     }
 
     #[test]
-    fn body_preview_cuts_on_block_boundaries_and_never_inside_a_fence() {
-        // Short body is preserved verbatim.
+    fn body_preview_prefers_late_block_boundaries_and_retains_code_at_eof() {
         assert_eq!("short", body_preview("short"));
-
-        // Cut lands on the last blank line inside the budget: both blocks stay complete.
-        let paragraphs = format!("first paragraph\n\n{}\n\nsecond paragraph", "x".repeat(400));
-        let preview = body_preview(&paragraphs);
-        assert_eq!(
-            "first paragraph",
-            preview.trim_end(),
-            "cut must land on the blank-line block separator"
-        );
-
-        // A fence opened inside the budget is excluded whole instead of leaking unclosed code.
-        let fenced = format!("intro line\n```rust\ncode {}\n", "y".repeat(300));
+        let first = "x".repeat(800);
+        let paragraphs = format!("{first}\n\n{}", "y".repeat(800));
+        assert_eq!(first, body_preview(&paragraphs));
+        let fenced = format!("intro line\n```rust\ncode {}\n", "y".repeat(2000));
         let preview = body_preview(&fenced);
-        assert!(
-            !preview.contains("```"),
-            "preview must not open a fence it cannot close: {preview:?}"
-        );
-        assert_eq!("intro line", preview.trim_end());
+        assert!(preview.starts_with("intro line\n```rust\ncode "));
+        assert!(preview.chars().count() <= lomo_store::BODY_PREVIEW_MAX_CHARS);
+        assert!(fenced.starts_with(&preview));
     }
 
     #[test]

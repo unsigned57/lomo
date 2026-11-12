@@ -4,20 +4,20 @@ data class AppPreferenceSnapshot(
     val dateFormat: String,
     val timeFormat: String,
     val themeMode: ThemeMode,
+    val pureBlackDark: Boolean = com.lomo.domain.model.PreferenceDefaults.PURE_BLACK_DARK,
     val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     val colorSource: ColorSource,
+    val contrastLevel: ContrastLevel,
     val fontPreference: FontPreference,
     val hapticFeedbackEnabled: Boolean,
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
-    val memoActionAutoReorderEnabled: Boolean,
     val autoOpenInputOnForeground: Boolean,
-    val memoActionOrder: List<String>,
-    val memoActionOrdersByScope: Map<String, List<String>>,
     val inputToolbarToolOrder: List<String>,
     val quickSaveOnBackEnabled: Boolean,
     val scrollbarEnabled: Boolean,
+    val quickBallConfig: QuickBallConfig = QuickBallConfig.defaults(),
     val shareCardShowTime: Boolean,
     val shareCardShowBrand: Boolean,
     val shareCardSignatureText: String,
@@ -27,7 +27,6 @@ data class AppPreferenceSnapshot(
     val typographyParagraphSpacingScale: Float,
 ) {
     companion object {
-        fun defaults(): AppPreferenceSnapshot =
-            SettingsCatalog.appPreferenceDefaults()
+        fun defaults(): AppPreferenceSnapshot = SettingsCatalog.appPreferenceDefaults()
     }
 }

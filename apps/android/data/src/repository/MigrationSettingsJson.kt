@@ -18,8 +18,7 @@ internal interface MigrationSettingsRestoreValidator {
     suspend fun validateRestore(snapshot: MigrationSettingsSnapshot): MigrationSettingsValidationReport
 }
 
-internal fun MigrationSettingsSnapshot.toSummary(): MigrationSettingsSummary =
-    MigrationSettingsSummary(
-        settingCount = preferences.size + sensitive.size,
-        sensitiveSettingCount = sensitive.size,
-    )
+internal fun MigrationSettingsSnapshot.toSummary(): MigrationSettingsSummary = MigrationSettingsSummary(
+    settingCount = preferences.size + sensitive.size,
+    sensitiveSettingCount = sensitive.size,
+)

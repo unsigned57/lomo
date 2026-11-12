@@ -1,0 +1,37 @@
+# Toolbar dispatch, undo/redo, typed underline preview and persisted card text.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor_expand"
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_input_editor"
+- eraseText
+- tapOn: "Expand"
+- tapOn: "Underline"
+- assertVisible: "<u></u>"
+- tapOn: "Undo"
+- assertNotVisible: "<u></u>"
+- tapOn: "Redo"
+- assertVisible: "<u></u>"
+- inputText: "uitest-underlined-probe"
+- assertVisible: "<u>uitest-underlined-probe</u>"
+- tapOn: "Preview"
+- waitForAnimationToEnd
+- assertVisible: "uitest-underlined-probe"
+- assertNotVisible: "<u>uitest-underlined-probe</u>"
+- takeScreenshot: underline-preview
+- tapOn: "Collapse"
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_input_submit"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_main_root"
+- assertVisible: "uitest-underlined-probe"
+- assertNotVisible: "<u>uitest-underlined-probe</u>"
+- takeScreenshot: underline-card

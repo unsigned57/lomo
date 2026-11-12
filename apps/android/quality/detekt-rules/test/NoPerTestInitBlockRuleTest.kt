@@ -1,13 +1,13 @@
 package com.lomo.detektrules
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.detektrules
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
@@ -51,16 +50,17 @@ import kotlin.io.path.writeText
  * Excludes:
  * - production-source classes with init blocks, BehaviorSpec given/when blocks (handled by other rules).
  */
-class NoPerTestInitBlockRuleTest : FunSpec({
-    test("registers NoPerTestInitBlock rule") {
-        val rules = LomoTestStyleRuleSetProvider().instance().rules
-        rules[RuleName("NoPerTestInitBlock")].shouldNotBeNull()
-    }
+class NoPerTestInitBlockRuleTest :
+    FunSpec({
+        test("registers NoPerTestInitBlock rule") {
+            val rules = LomoTestStyleRuleSetProvider().instance().rules
+            rules[RuleName("NoPerTestInitBlock")].shouldNotBeNull()
+        }
 
-    test("flags multiple init blocks each holding one test call") {
-        val findings =
-            rule("NoPerTestInitBlock").findingsForTestSource(
-                """
+        test("flags multiple init blocks each holding one test call") {
+            val findings =
+                rule("NoPerTestInitBlock").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -71,16 +71,16 @@ class NoPerTestInitBlockRuleTest : FunSpec({
                     init { test("c") { } }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "per-test init"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "per-test init"
+        }
 
-    test("allows single init block with multiple test calls") {
-        val findings =
-            rule("NoPerTestInitBlock").findingsForTestSource(
-                """
+        test("allows single init block with multiple test calls") {
+            val findings =
+                rule("NoPerTestInitBlock").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -92,15 +92,15 @@ class NoPerTestInitBlockRuleTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("allows constructor-block FunSpec form") {
-        val findings =
-            rule("NoPerTestInitBlock").findingsForTestSource(
-                """
+        test("allows constructor-block FunSpec form") {
+            val findings =
+                rule("NoPerTestInitBlock").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.core.spec.style.FunSpec
@@ -110,15 +110,15 @@ class NoPerTestInitBlockRuleTest : FunSpec({
                     test("b") { }
                 })
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("does not flag non-test class with multiple init blocks") {
-        val findings =
-            rule("NoPerTestInitBlock").findingsForTestSource(
-                """
+        test("does not flag non-test class with multiple init blocks") {
+            val findings =
+                rule("NoPerTestInitBlock").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 class Helper {
@@ -126,16 +126,13 @@ class NoPerTestInitBlockRuleTest : FunSpec({
                     init { println("two") }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
-})
+            findings.shouldHaveSize(0)
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoTestStyleRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)

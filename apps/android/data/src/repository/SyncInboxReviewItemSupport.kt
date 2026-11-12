@@ -3,11 +3,7 @@ package com.lomo.data.repository
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewItemState
 
-internal fun blockedInboxReviewFile(
-    relativePath: String,
-    lastModified: Long,
-    message: String,
-): SyncReviewItem =
+internal fun blockedInboxReviewFile(relativePath: String, lastModified: Long, message: String): SyncReviewItem =
     SyncReviewItem(
         relativePath = INBOX_PREFIX + relativePath,
         localContent = null,
@@ -18,6 +14,5 @@ internal fun blockedInboxReviewFile(
         message = message,
     )
 
-internal fun List<String>.reviewMessageOrNull(): String? =
-    takeIf { it.isNotEmpty() }
-        ?.joinToString(prefix = "Missing attachments: ")
+internal fun List<String>.reviewMessageOrNull(): String? = takeIf { it.isNotEmpty() }
+    ?.joinToString(prefix = "Missing attachments: ")

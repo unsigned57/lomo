@@ -1,0 +1,69 @@
+[advisories]
+yanked = "deny"
+
+[bans]
+multiple-versions = "deny"
+# Only unavoidable upstream constraints from the resolved graph are exempted. Each
+# entry pins the older branch exactly; direct workspace dependencies use current releases.
+skip = [
+    # git2 0.21 requires openssl-probe 0.1; rustls-native-certs uses 0.2.
+    { name = "openssl-probe", version = "=0.1.6" },
+    # ratatui-image 11.1 retains rustix 0.38 (and its Linux/Windows backends).
+    { name = "rustix", version = "=0.38.44" },
+    { name = "linux-raw-sys", version = "=0.4.15" },
+    { name = "windows-sys", version = "=0.59.0" },
+    # wl-clipboard-rs -> tree_magic_mini -> petgraph retains hashbrown 0.15.
+    { name = "hashbrown", version = "=0.15.5" },
+    { name = "foldhash", version = "=0.1.5" },
+    # Ratatui's layout cache constrains lru 0.18; application search uses 0.19.
+    { name = "lru", version = "=0.18.5" },
+    # BoltFFI and other upstream macros still use syn 2; workspace source parsing uses 3.
+    { name = "syn", version = "=2.0.119" },
+    # ratatui-image retains rand 0.8 and thiserror 1; current image/TLS crates use newer lines.
+    { name = "rand", version = "=0.8.8" },
+    { name = "rand_core", version = "=0.6.4" },
+    { name = "getrandom", version = "=0.2.17" },
+    { name = "thiserror", version = "=1.0.69" },
+    { name = "thiserror-impl", version = "=1.0.69" },
+    # Stable crypto_secretbox 0.1 requires the preceding RustCrypto generation;
+    # the only newer secretbox is 0.2.0-pre.0. AES/scrypt use current stable primitives.
+    { name = "cipher", version = "=0.4.4" },
+    { name = "crypto-common", version = "=0.1.7" },
+    { name = "inout", version = "=0.1.4" },
+    { name = "cpufeatures", version = "=0.2.17" },
+    { name = "salsa20", version = "=0.10.2" },
+    # PNG 0.18 retains miniz_oxide 0.8; flate2 uses 0.9.
+    { name = "miniz_oxide", version = "=0.8.9" },
+    # wayland-scanner's build-time XML parser constrains 0.41; runtime sync uses 0.42.
+    { name = "quick-xml", version = "=0.41.0" },
+    # portable-pty 0.9 requires bitflags 1 and nix 0.28; zip requires nix 0.31.
+    { name = "bitflags", version = "=1.3.2" },
+    { name = "nix", version = "=0.28.0" },
+    { name = "cfg_aliases", version = "=0.1.1" },
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    # Boost license on arboard's Windows clipboard-win graph (present in the lockfile on Linux).
+    "BSL-1.0",
+    # Root certificate bundles pulled by reqwest's rustls platform verifier.
+    "CDLA-Permissive-2.0",
+    "GPL-3.0-only",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    # hashbrown 0.15 / foldhash (ratatui lru and wl-clipboard petgraph).
+    "Zlib",
+]
+
+[sources]
+unknown-git = "deny"
+unknown-registry = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Exact git pin for BoltFFI (formal tag tip SHA; see quality/tools.toml + workspace deps).
+allow-git = ["https://github.com/boltffi/boltffi"]

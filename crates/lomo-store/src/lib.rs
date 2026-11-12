@@ -57,20 +57,21 @@ pub use lomo_workspace::{
 pub use open::{
     IntegrityWitness, OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store,
 };
-pub use publication::{DocumentPublication, ProjectionClock};
+pub use publication::{DocumentPublication, ProjectionClock, RebuiltPublicationEvidence};
 pub use purge::{
     PURGE_RECORD_DIRECTORY, PurgeRecordV1, decode_purge_record, encode_purge_record,
     list_purged_memo_ids, purge_record_relative_path, read_purge_record, write_purge_record_atomic,
 };
 pub use query::{
-    MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoSort,
-    MemoSortField, MemoStatisticsRow, MemoSummary, MemoWindowSides, ProjectedAttachmentRef,
-    SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount, SidebarProjection, SidebarTagCount, SortDirection,
-    StoreStats, TagSelectionMode, active_memo_ids_for_source_path, get_memo, get_memo_projection,
-    get_projected_memo, get_projected_memos, history_record_owner, list_projected_attachment_refs,
-    memo_ids_for_source_path, memo_source_path, memos_matching_window, pinned_memo_timestamps,
-    purged_memo_ids, query_count, query_memo_statistics_rows, query_memos, query_memos_starting_at,
-    query_memos_with_boundary, query_sidebar_projection, query_stats, source_document_fingerprint,
+    MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoReminderProjection,
+    MemoSnapshot, MemoSort, MemoSortField, MemoStatisticsRow, MemoSummary, MemoWindowSides,
+    ProjectedAttachmentRef, SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount, SidebarProjection,
+    SidebarTagCount, SortDirection, StoreStats, TagSelectionMode, active_memo_ids_for_source_path,
+    get_memo, get_memo_projection, get_projected_memo, get_projected_memos, history_record_owner,
+    list_projected_attachment_refs, memo_ids_for_source_path, memo_source_path,
+    memos_matching_window, pinned_memo_timestamps, purged_memo_ids, query_count,
+    query_memo_statistics_rows, query_memos, query_memos_starting_at, query_memos_with_boundary,
+    query_reminder_projections, query_sidebar_projection, query_stats, source_document_fingerprint,
     trashed_memo_ids, workspace_listing_snapshot,
 };
 pub use reader::StoreReader;
@@ -748,7 +749,19 @@ impl Store {
         Ok(result)
     }
 
-    /// Acknowledges a frozen operation whose complete physical result has been reindexed.
+    /// Reports whether this projection already published a receipt for the operation.
+    ///
+    /// The committed-operation index is the durable terminal witness once the intent
+    /// journal's bounded retired window has evicted an operation's receipt.
+    ///
+    /// # Errors
+    /// Returns storage errors from the SQLite projection.
+    pub fn operation_was_committed(&self, operation_id: &str) -> Result<bool, LomoError> {
+        rebuild::operation_is_witnessed(&self.opened.connection, operation_id)
+    }
+
+    /// Acknowledges a reindexed frozen result, or an earlier edit attested by its immutable
+    /// history and the final memo/document result of the same edit chain.
     ///
     /// # Errors
     /// Rejects any mismatch between the frozen publication and the rebuilt projection.
@@ -756,8 +769,14 @@ impl Store {
         &mut self,
         publication: &DocumentPublication,
         clock: ProjectionClock,
+        evidence: RebuiltPublicationEvidence<'_>,
     ) -> Result<SafProjectionCommitResult, LomoError> {
-        rebuild::acknowledge_rebuilt_publication(&self.opened.connection, publication, clock)
+        rebuild::acknowledge_rebuilt_publication(
+            &self.opened.connection,
+            publication,
+            clock,
+            evidence,
+        )
     }
 
     /// Publishes a pending SAF memo create projection before durable platform I/O.

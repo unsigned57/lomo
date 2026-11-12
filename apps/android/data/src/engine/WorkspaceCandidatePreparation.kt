@@ -18,6 +18,7 @@ internal data class ManagedWorkspaceCandidate(
     val adapter: RustEngineAdapter,
     val selection: NativeWorkspaceSelection?,
     val projectionRevision: ULong?,
+    val projectionVerified: Boolean,
 ) {
     init {
         if (selection == null) {
@@ -48,12 +49,12 @@ internal data class ManagedWorkspaceCandidate(
             }
 
     companion object {
-        fun bootstrap(adapter: RustEngineAdapter): ManagedWorkspaceCandidate =
-            ManagedWorkspaceCandidate(
-                adapter = adapter,
-                selection = null,
-                projectionRevision = null,
-            )
+        fun bootstrap(adapter: RustEngineAdapter): ManagedWorkspaceCandidate = ManagedWorkspaceCandidate(
+            adapter = adapter,
+            selection = null,
+            projectionRevision = null,
+            projectionVerified = false,
+        )
     }
 }
 
@@ -82,7 +83,8 @@ internal data class CandidateOpenContext(
  *
  * Capability registration, projection inspection and candidate cleanup belong here so every
  * acquisition path has the same failure semantics before [ManagedEngineSession] reaches promotion.
- * Mount reconcile is owned by Rust session open; this type only transcribes the resulting revision.
+ * Rust owns reconciliation. Explicit switches require verification before promotion; cold restore
+ * may promote a readable retained projection while the session schedules revalidation.
  */
 internal class WorkspaceCandidatePreparer(
     private val filesDir: File,
@@ -91,22 +93,29 @@ internal class WorkspaceCandidatePreparer(
     private val isContentUri: (String) -> Boolean,
     private val sessionDateFormat: SessionDateFormatSource,
 ) {
-    fun openBootstrap(): ManagedWorkspaceCandidate =
-        ManagedWorkspaceCandidate.bootstrap(
-            openAdapter(NativeEngineOpenRequest.forAppFilesDir(filesDir)),
-        )
+    fun openBootstrap(): ManagedWorkspaceCandidate = ManagedWorkspaceCandidate.bootstrap(
+        openAdapter(NativeEngineOpenRequest.forAppFilesDir(filesDir)),
+    )
 
-    suspend fun prepare(location: StorageLocation): ManagedWorkspaceCandidate {
+    suspend fun prepare(
+        location: StorageLocation,
+        mediaRoots: Map<String, String> = emptyMap(),
+        allowRetainedProjection: Boolean = false,
+    ): ManagedWorkspaceCandidate {
         val selection = selectionFor(location)
-        val candidate = openWorkspaceAdapter(selection)
+        val candidate = openWorkspaceAdapter(selection, mediaRoots)
         val candidateReadiness = candidate.readiness.value
         if (candidateReadiness is EngineReadiness.Ready) {
             return try {
-                // The open receipt is the only projection authority: FFI open returns only
-                // after the initial rebuild commits, and no store read can race the receipt.
+                // Keep revision and verification from one owner receipt. A switch verifies
+                // before promotion; startup may expose the retained read-only revision.
                 val projectionRevision =
-                    requireNotNull(candidate.sessionProjectionRevision) {
-                        "Workspace session open completed without a projection revision"
+                    if (!allowRetainedProjection && !candidate.sessionProjectionVerified) {
+                        candidate.startRebuild(64u).highWaterRevision
+                    } else {
+                        requireNotNull(candidate.sessionProjectionRevision) {
+                            "Workspace session open completed without a projection revision"
+                        }
                     }
                 candidate.resnapshot()
                 val afterInspect = candidate.readiness.value
@@ -122,6 +131,7 @@ internal class WorkspaceCandidatePreparer(
                     adapter = candidate,
                     selection = selection.workspace,
                     projectionRevision = projectionRevision,
+                    projectionVerified = !allowRetainedProjection || candidate.sessionProjectionVerified,
                 )
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
@@ -138,8 +148,8 @@ internal class WorkspaceCandidatePreparer(
                         code = "workspace_open_not_ready",
                         retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                         diagnostic =
-                            "Workspace open did not reach Ready " +
-                                "(${candidateReadiness::class.simpleName})",
+                        "Workspace open did not reach Ready " +
+                            "(${candidateReadiness::class.simpleName})",
                     ),
             )
         releaseCandidate(candidate, selection.capabilityToken, activation, capabilityRegistry)
@@ -149,9 +159,10 @@ internal class WorkspaceCandidatePreparer(
     suspend fun rebuildProjectionForRecovery(
         location: StorageLocation,
         batchSize: UInt,
+        mediaRoots: Map<String, String> = emptyMap(),
     ): com.lomo.nativebridge.StoreRebuildResult {
         val selection = selectionFor(location)
-        val repairAdapter = openWorkspaceAdapter(selection)
+        val repairAdapter = openWorkspaceAdapter(selection, mediaRoots)
         var result: com.lomo.nativebridge.StoreRebuildResult? = null
         var failure: Throwable? = null
         try {
@@ -194,17 +205,13 @@ internal class WorkspaceCandidatePreparer(
         }
     }
 
-    private suspend fun openWorkspaceAdapter(selection: PreparedSelection): RustEngineAdapter {
-        // Stage root follows the candidate selection, not the currently active workspace: a
-        // Direct workspace stages beside its root while SAF workspaces share the app-private
-        // host stage root.
-        val stageRoot =
-            when (val workspace = selection.workspace) {
-                is NativeWorkspaceSelection.Direct -> workspace.rootPath
-                is NativeWorkspaceSelection.Saf ->
-                    File(filesDir, com.lomo.data.engine.media.HOST_MEDIA_STAGE_ROOT_NAME)
-            }
+    private suspend fun openWorkspaceAdapter(
+        selection: PreparedSelection,
+        mediaRoots: Map<String, String>,
+    ): RustEngineAdapter {
+        val stageRoot = File(filesDir, com.lomo.data.engine.media.HOST_MEDIA_STAGE_ROOT_NAME)
         return try {
+            capabilityRegistry.bindMediaRoots(checkNotNull(selection.capabilityToken), mediaRoots)
             openAdapter(
                 NativeEngineOpenRequest
                     .forAppFilesDir(filesDir)
@@ -222,17 +229,10 @@ internal class WorkspaceCandidatePreparer(
 
     private fun RustEngineAdapter.closeResult(): Throwable? = runCatching { close() }.exceptionOrNull()
 
-    private fun failPreparation(
-        candidate: RustEngineAdapter,
-        capabilityToken: String?,
-        error: Exception,
-    ): Nothing {
+    private fun failPreparation(candidate: RustEngineAdapter, capabilityToken: String?, error: Exception): Nothing {
         releaseCandidate(candidate, capabilityToken, error, capabilityRegistry)
         throw error
     }
 
-    private data class PreparedSelection(
-        val workspace: NativeWorkspaceSelection,
-        val capabilityToken: String?,
-    )
+    private data class PreparedSelection(val workspace: NativeWorkspaceSelection, val capabilityToken: String?)
 }

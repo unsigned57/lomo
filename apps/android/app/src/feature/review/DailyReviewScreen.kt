@@ -1,9 +1,9 @@
 package com.lomo.app.feature.review
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,9 +15,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -29,32 +29,36 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import com.lomo.app.util.injectedKoinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
-import com.lomo.app.feature.common.MemoActionOrderScopes
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.app.feature.memo.MemoEditorSessionState
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.MemoMenuContextAction
 import com.lomo.app.feature.memo.MemoMenuPresentationState
 import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.app.feature.memo.existingMemoEditorSurface
 import com.lomo.app.feature.memo.handleMemoJumpToMain
+import com.lomo.app.feature.memo.rememberAutoSaveCommittedNotifier
+import com.lomo.app.feature.memo.rememberFullMemoEditorOpener
 import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
-import com.lomo.app.feature.memo.rememberFullMemoEditorOpener
+import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.domain.model.Memo
-import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
+import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.component.common.LomoPageIndicator
 import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -74,14 +78,20 @@ fun DailyReviewScreen(
     viewModel: DailyReviewViewModel = injectedKoinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val readyOptions = (uiState as? DailyReviewScreenState.Ready)?.options
+    var retainedOptions by remember { mutableStateOf(readyOptions) }
+    if (readyOptions != null) {
+        retainedOptions = readyOptions
+    }
+    val openOptions =
+        rememberDailyReviewOptionsAction(
+            options = retainedOptions,
+            onOptionsChange = { updated ->
+                retainedOptions = updated
+                viewModel.updateReviewOptions(updated)
+            },
+        )
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
-    val dateFormat = appPreferences.dateFormat
-    val timeFormat = appPreferences.timeFormat
-    val shareCardShowTime = appPreferences.shareCardShowTime
-    val shareCardShowSignature = appPreferences.shareCardShowBrand
-    val shareCardSignatureText = appPreferences.shareCardSignatureText
-    val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
-    val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
     val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
@@ -95,41 +105,18 @@ fun DailyReviewScreen(
     val openFullMemoEditor =
         rememberFullMemoEditorOpener(editorController, viewModel::reportError)
 
-    LaunchedEffect(errorMessage) {
-        errorMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
-            viewModel.clearError()
-        }
-    }
+    DailyReviewErrorEffect(errorMessage, snackbarHostState, viewModel::clearError)
+    val mainViewModel: com.lomo.app.feature.main.MainViewModel = com.lomo.app.util.activityKoinViewModel()
     val memoMenuCommandHandler =
-        rememberMemoMenuCommandHandler(
-            presentationState =
-                MemoMenuPresentationState(
-                    shareCardShowTime = shareCardShowTime,
-                    shareCardShowSignature = shareCardShowSignature,
-                    shareCardSignatureText = shareCardSignatureText,
-                    customFontPath = appPreferences.customFontPath,
-                    showJump = true,
-                    memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
-                    memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.REVIEW),
-                ),
-            onEditMemo = openFullMemoEditor,
-            onDeleteMemo = viewModel::deleteMemo,
-            onLanShare =
-                if (lanShareEnabled) {
-                    { request -> onNavigateToShare(request.content, request.timestamp) }
-                } else {
-                    null
-                },
-            onJump = { state ->
-                handleMemoJumpToMain(
-                    selection = state,
-                    requestFocusMemo = onRequestFocusMemo,
-                    navigateToMain = onNavigateToMain,
-                )
-            },
-            onMemoActionInvoked = viewModel::recordMemoActionUsage,
-            onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
+        rememberDailyReviewMenuCommands(
+            appPreferences,
+            viewModel,
+            mainViewModel,
+            openFullMemoEditor,
+            lanShareEnabled,
+            onNavigateToShare,
+            onRequestFocusMemo,
+            onNavigateToMain,
         )
 
     val editorSurface =
@@ -137,8 +124,8 @@ fun DailyReviewScreen(
             imageDirectory = imageDirectory,
             rootDirectory = rootDirectory,
             imageMap = stableImageMap,
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
+            dateFormat = appPreferences.dateFormat,
+            timeFormat = appPreferences.timeFormat,
             toolbarToolOrder = appPreferences.inputToolbarToolOrder,
             viewModel = viewModel,
         )
@@ -148,20 +135,25 @@ fun DailyReviewScreen(
         controller = editorController,
         editorSurface = editorSurface,
         onEditorOpenFailure = viewModel::reportError,
+        onAutoSaveCommitted = rememberAutoSaveCommittedNotifier(snackbarHostState),
     ) { showMenu, openEditor ->
         DailyReviewScreenScaffold(
+            onFilterClick = openOptions,
+            filterEnabled = retainedOptions != null,
+            isFilterActive = retainedOptions != null && retainedOptions != com.lomo.domain.model.DailyReviewOptions(),
             onBackClick = onBackClick,
             haptic = haptic,
             scrollBehavior = scrollBehavior,
             snackbarHostState = snackbarHostState,
         ) { scaffoldPadding ->
             DailyReviewScreenContent(
+                onRetry = viewModel.retry,
                 uiState = uiState,
                 restoredPageIndex = restoredPageIndex,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                doubleTapEditEnabled = doubleTapEditEnabled,
-                freeTextCopyEnabled = freeTextCopyEnabled,
+                dateFormat = appPreferences.dateFormat,
+                timeFormat = appPreferences.timeFormat,
+                doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
+                freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
                 padding = scaffoldPadding,
                 onShowMenu = showMenu,
                 onOpenEditor = openEditor,
@@ -173,6 +165,7 @@ fun DailyReviewScreen(
             )
         }
     }
+    com.lomo.app.feature.main.MainVersionHistoryEffectHost(mainViewModel = mainViewModel)
 }
 
 private fun dailyReviewMemoEditorSurface(
@@ -183,27 +176,29 @@ private fun dailyReviewMemoEditorSurface(
     timeFormat: String,
     toolbarToolOrder: ImmutableList<String>,
     viewModel: DailyReviewViewModel,
-) =
-    existingMemoEditorSurface(
-        session =
-            MemoEditorSessionState(
-                imageDirectory = imageDirectory,
-                ownerDraftId = viewModel.ownerDraftId,
-                rootPath = rootDirectory,
-                imageMap = imageMap,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-            ),
-        toolbarToolOrder = toolbarToolOrder,
-        onUpdateMemo = viewModel.editorSubmission::submit,
-        submissionState = viewModel.editorSubmission.state,
-        onSaveImage = viewModel::saveImage,
-        onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
-    )
+) = existingMemoEditorSurface(
+    session =
+    MemoEditorSessionState(
+        imageDirectory = imageDirectory,
+        ownerDraftId = viewModel.ownerDraftId,
+        rootPath = rootDirectory,
+        imageMap = imageMap,
+        dateFormat = dateFormat,
+        timeFormat = timeFormat,
+    ),
+    toolbarToolOrder = toolbarToolOrder,
+    onUpdateMemo = viewModel.editorSubmission::submit,
+    submissionState = viewModel.editorSubmission.state,
+    onSaveImages = viewModel::saveImages,
+    onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DailyReviewScreenScaffold(
+    onFilterClick: () -> Unit,
+    filterEnabled: Boolean,
+    isFilterActive: Boolean,
     onBackClick: () -> Unit,
     haptic: com.lomo.ui.util.AppHapticFeedback,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
@@ -211,13 +206,21 @@ private fun DailyReviewScreenScaffold(
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier =
+        Modifier
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
+            .benchmarkAnchorRoot(BenchmarkAnchorContract.DAILY_REVIEW_ROOT),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(androidx.compose.ui.res.stringResource(R.string.sidebar_daily_review)) },
+                title = {
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(R.string.sidebar_daily_review),
+                        style = MaterialTheme.typography.titleLargeEmphasized,
+                    )
+                },
                 navigationIcon = {
-                    IconButton(
+                    LomoIconButton(
                         onClick = {
                             haptic.medium()
                             onBackClick()
@@ -229,11 +232,37 @@ private fun DailyReviewScreenScaffold(
                         )
                     }
                 },
+                actions = {
+                    LomoIconButton(
+                        onClick = onFilterClick,
+                        enabled = filterEnabled,
+                        colors =
+                        androidx.compose.material3.IconButtonDefaults.iconButtonColors(
+                            containerColor =
+                            if (isFilterActive) {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            } else {
+                                androidx.compose.ui.graphics.Color.Transparent
+                            },
+                            contentColor =
+                            if (isFilterActive) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Rounded.FilterAlt,
+                            contentDescription = androidx.compose.ui.res.stringResource(R.string.review_options_title),
+                        )
+                    }
+                },
                 colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
                 scrollBehavior = scrollBehavior,
             )
         },
@@ -243,6 +272,7 @@ private fun DailyReviewScreenScaffold(
 
 @Composable
 private fun DailyReviewScreenContent(
+    onRetry: () -> Unit,
     uiState: DailyReviewScreenState,
     restoredPageIndex: Int,
     dateFormat: String,
@@ -260,9 +290,9 @@ private fun DailyReviewScreenContent(
 ) {
     Box(
         modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(padding),
+        Modifier
+            .fillMaxSize()
+            .padding(padding),
         contentAlignment = Alignment.Center,
     ) {
         com.lomo.ui.component.common.LomoStateContent(
@@ -271,43 +301,60 @@ private fun DailyReviewScreenContent(
             modifier = Modifier.fillMaxSize(),
         ) { state ->
             when (state) {
-            is DailyReviewScreenState.Loading -> ExpressiveContainedLoadingIndicator()
+                is DailyReviewScreenState.Loading -> ExpressiveContainedLoadingIndicator()
 
-            is DailyReviewScreenState.Failed -> {
-                Text(
-                    text = state.message,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(AppSpacing.Medium),
-                )
-            }
+                is DailyReviewScreenState.Failed -> {
+                    Column {
+                        Text(
+                            text = state.message,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(AppSpacing.Medium),
+                        )
+                        com.lomo.ui.component.common.LomoTextButton(onClick = onRetry) {
+                            Text(androidx.compose.ui.res.stringResource(R.string.action_retry))
+                        }
+                    }
+                }
 
-            is DailyReviewScreenState.Ready -> {
-                val memos = state.memos
-                if (memos.isEmpty()) {
-                    EmptyState(
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        title = androidx.compose.ui.res.stringResource(R.string.review_no_memos_title),
-                        description = androidx.compose.ui.res.stringResource(R.string.review_no_memos_desc),
-                    )
-                } else {
-                    DailyReviewPager(
-                        memos = remember(memos) { memos.toImmutableList() },
-                        restoredPageIndex = restoredPageIndex,
-                        dateFormat = dateFormat,
-                        timeFormat = timeFormat,
-                        doubleTapEditEnabled = doubleTapEditEnabled,
-                        freeTextCopyEnabled = freeTextCopyEnabled,
-                        onShowMenu = onShowMenu,
-                        onOpenEditor = onOpenEditor,
-                        onTodoClick = onTodoClick,
-                        onNavigateToImage = onNavigateToImage,
-                        onRequestMore = onLoadMore,
-                        onPageChanged = onPageChanged,
-                        haptic = haptic,
-                    )
+                is DailyReviewScreenState.Ready -> {
+                    val memos = state.memos
+                    if (memos.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            title = androidx.compose.ui.res.stringResource(
+                                if (state.options.filter.isActive) {
+                                    R.string.review_no_matches_title
+                                } else {
+                                    R.string.review_no_memos_title
+                                },
+                            ),
+                            description = androidx.compose.ui.res.stringResource(
+                                if (state.options.filter.isActive) {
+                                    R.string.review_no_matches_desc
+                                } else {
+                                    R.string.review_no_memos_desc
+                                },
+                            ),
+                        )
+                    } else {
+                        DailyReviewPager(
+                            memos = remember(memos) { memos.toImmutableList() },
+                            restoredPageIndex = restoredPageIndex,
+                            dateFormat = dateFormat,
+                            timeFormat = timeFormat,
+                            doubleTapEditEnabled = doubleTapEditEnabled,
+                            freeTextCopyEnabled = freeTextCopyEnabled,
+                            onShowMenu = onShowMenu,
+                            onOpenEditor = onOpenEditor,
+                            onTodoClick = onTodoClick,
+                            onNavigateToImage = onNavigateToImage,
+                            onRequestMore = onLoadMore,
+                            onPageChanged = onPageChanged,
+                            haptic = haptic,
+                        )
+                    }
                 }
             }
-        }
         }
     }
 }
@@ -358,9 +405,9 @@ private fun DailyReviewPager(
             contentPadding = PaddingValues(horizontal = AppSpacing.Large),
             pageSpacing = AppSpacing.Medium,
             modifier =
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+            Modifier
+                .weight(1f)
+                .fillMaxWidth(),
         ) { page ->
             DailyReviewPagerPage(
                 memo = memos[page],
@@ -395,13 +442,12 @@ private fun DailyReviewPagerPage(
 ) {
     val scrollState = rememberScrollState()
     val onMemoImageClick =
-        remember(memo.imageUrls, onNavigateToImage) {
+        remember(memo, onNavigateToImage) {
             { url: String ->
                 onNavigateToImage(
                     createImageViewerRequest(
-                        imageUrls = memo.imageUrls,
+                        memo = memo,
                         clickedUrl = url,
-                        memoId = memo.memo.id,
                     ),
                 )
             }
@@ -418,12 +464,13 @@ private fun DailyReviewPagerPage(
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 Column(
                     modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = maxHeight)
-                            .padding(bottom = AppSpacing.ExtraLarge)
-                            .verticalScroll(scrollState),
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = maxHeight)
+                        .padding(bottom = AppSpacing.ExtraLarge)
+                        .verticalScroll(scrollState),
                     verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     MemoCardEntry(
                         uiModel = memo,
@@ -439,18 +486,80 @@ private fun DailyReviewPagerPage(
                         },
                     )
 
-                    Text(
-                        text = "${page + 1} / $totalPages",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(top = AppSpacing.Medium),
-                        textAlign = TextAlign.Center,
+                    LomoPageIndicator(
+                        current = page,
+                        total = totalPages,
+                        modifier = Modifier.padding(top = AppSpacing.Medium),
                     )
                 }
             }
         }
     }
 }
+
+@Composable
+private fun DailyReviewErrorEffect(
+    errorMessage: String?,
+    snackbarHostState: SnackbarHostState,
+    onConsumed: () -> Unit,
+) {
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            onConsumed()
+        }
+    }
+}
+
+@Composable
+private fun rememberDailyReviewOptionsAction(
+    options: com.lomo.domain.model.DailyReviewOptions?,
+    onOptionsChange: (com.lomo.domain.model.DailyReviewOptions) -> Unit,
+): () -> Unit {
+    var visible by remember { mutableStateOf(false) }
+    if (visible && options != null) {
+        DailyReviewOptionsSheet(
+            options = options,
+            onOptionsChange = onOptionsChange,
+            onDismiss = { visible = false },
+        )
+    }
+    return remember { { visible = true } }
+}
+
+@Composable
+private fun rememberDailyReviewMenuCommands(
+    appPreferences: com.lomo.app.feature.preferences.AppPreferencesState,
+    viewModel: DailyReviewViewModel,
+    mainViewModel: com.lomo.app.feature.main.MainViewModel,
+    openFullMemoEditor: (String) -> Unit,
+    lanShareEnabled: Boolean,
+    onNavigateToShare: (String, Long) -> Unit,
+    onRequestFocusMemo: (String) -> Unit,
+    onNavigateToMain: () -> Unit,
+): com.lomo.app.feature.memo.MemoMenuCommandHandler = rememberMemoMenuCommandHandler(
+    presentationState =
+    MemoMenuPresentationState(
+        shareCardShowTime = appPreferences.shareCardShowTime,
+        shareCardShowSignature = appPreferences.shareCardShowBrand,
+        shareCardSignatureText = appPreferences.shareCardSignatureText,
+        customFontPath = appPreferences.customFontPath,
+    ),
+    onEditMemo = openFullMemoEditor,
+    onDeleteMemo = viewModel::deleteMemo,
+    onLanShare =
+    if (lanShareEnabled) {
+        { request -> onNavigateToShare(request.content, request.timestamp) }
+    } else {
+        null
+    },
+    contextAction =
+    MemoMenuContextAction.Jump { state ->
+        handleMemoJumpToMain(
+            selection = state,
+            requestFocusMemo = onRequestFocusMemo,
+            navigateToMain = onNavigateToMain,
+        )
+    },
+    onVersionHistory = { selection -> mainViewModel.loadVersionHistory(selection.memo) },
+)

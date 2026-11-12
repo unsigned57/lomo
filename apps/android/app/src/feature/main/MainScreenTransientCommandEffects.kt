@@ -12,14 +12,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.ExternalAppCommand
 import com.lomo.app.ExternalAppCommandTerminalResult
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.common.PendingUiEvent
 import com.lomo.app.feature.memo.MemoEditorController
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 internal fun MainScreenForegroundAutoInputEffect(
@@ -70,10 +70,10 @@ internal fun MainScreenForegroundEffects(
         enabled = autoOpenInputOnForeground,
         uiState = uiState,
         explicitEntryPending =
-            sharedContentEvents.isNotEmpty() ||
-                pendingSharedImageEvents.isNotEmpty() ||
-                appActionEvents.isNotEmpty() ||
-                externalAppCommands.any { command -> !command.status.isTerminal },
+        sharedContentEvents.isNotEmpty() ||
+            pendingSharedImageEvents.isNotEmpty() ||
+            appActionEvents.isNotEmpty() ||
+            externalAppCommands.any { command -> !command.status.isTerminal },
         editorController = editorController,
         isRecording = isRecording,
         hasPendingNewMemoCreation = pendingNewMemoCreationEvent != null,
@@ -117,7 +117,10 @@ internal fun MainScreenExternalAppCommandEffects(
             pendingPermissionCommand = null
             if (command != null) {
                 if (isGranted) {
-                    latestDependencies.value.recordingViewModel.startRecording()
+                    latestDependencies.value.recordingViewModel.startRecording(
+                        latestEditorController.value.editingSession?.draftId
+                            ?: latestDependencies.value.editorViewModel.ownerDraftId,
+                    )
                     latestDependencies.value.mainViewModel.completeExternalAppCommand(
                         command.id,
                         ExternalAppCommandTerminalResult.Executed,
@@ -138,15 +141,15 @@ internal fun MainScreenExternalAppCommandEffects(
     ExternalAppCommandExecutionEffect(
         commands = externalAppCommands,
         readiness =
-            ExternalAppCommandReadiness(
-                appReady = uiState is MainViewModel.MainScreenState.Ready,
-                voiceDirectoryConfigured = voiceDirectoryConfigured,
-                editorVisible = editorController.isVisible,
-                canOpenDraftEditor = canOpenCreateMemo,
-                hasRecordAudioPermission = hasRecordAudioPermission(),
-                isRecording = isRecording,
-                recordingCaptureId = recordingCaptureId,
-            ),
+        ExternalAppCommandReadiness(
+            appReady = uiState is MainViewModel.MainScreenState.Ready,
+            voiceDirectoryConfigured = voiceDirectoryConfigured,
+            editorVisible = editorController.isVisible,
+            canOpenDraftEditor = canOpenCreateMemo,
+            hasRecordAudioPermission = hasRecordAudioPermission(),
+            isRecording = isRecording,
+            recordingCaptureId = recordingCaptureId,
+        ),
         draftText = draftText,
         directoryGuideController = directoryGuideController,
         editorController = latestEditorController.value,

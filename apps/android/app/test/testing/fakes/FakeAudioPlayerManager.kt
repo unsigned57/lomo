@@ -31,7 +31,5 @@ class FakeAudioPlaybackResolverRepository : AudioPlaybackResolverRepository {
         voiceLocation = location
     }
 
-    override suspend fun resolve(source: String): String? {
-        return source
-    }
+    override suspend fun resolve(source: String): String? = source
 }

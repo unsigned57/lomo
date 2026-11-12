@@ -3,11 +3,11 @@ package com.lomo.app.feature.main
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
 import io.kotest.matchers.shouldBe
-import java.time.LocalDate
-import java.time.ZoneId
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.test.runTest
+import java.time.LocalDate
+import java.time.ZoneId
 
 /*
  * Behavior Contract:
@@ -48,11 +48,11 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                 resolveMainScreenFocusRequest(
                     memoId = "memo-2",
                     visibleUiMemos =
-                        listOf(
-                            memoUiModel("memo-1"),
-                            memoUiModel("memo-2"),
-                            memoUiModel("memo-3"),
-                        ).toImmutableList(),
+                    listOf(
+                        memoUiModel("memo-1"),
+                        memoUiModel("memo-2"),
+                        memoUiModel("memo-3"),
+                    ).toImmutableList(),
                 )
 
             request shouldBe MainScreenFocusRequest.Immediate(index = 1)
@@ -63,11 +63,11 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                 resolveMainScreenFocusRequest(
                     memoId = "memo-3",
                     visibleUiMemos =
-                        listOf(
-                            memoUiModel("memo-1"),
-                            memoUiModel("memo-2"),
-                            memoUiModel("memo-3"),
-                        ).toImmutableList(),
+                    listOf(
+                        memoUiModel("memo-1"),
+                        memoUiModel("memo-2"),
+                        memoUiModel("memo-3"),
+                    ).toImmutableList(),
                 )
 
             request shouldBe MainScreenFocusRequest.Immediate(index = 2)
@@ -79,11 +79,11 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                     memoId = "memo-42",
                     visibleUiMemoStartIndex = 40,
                     visibleUiMemos =
-                        listOf(
-                            memoUiModel("memo-40"),
-                            memoUiModel("memo-41"),
-                            memoUiModel("memo-42"),
-                        ).toImmutableList(),
+                    listOf(
+                        memoUiModel("memo-40"),
+                        memoUiModel("memo-41"),
+                        memoUiModel("memo-42"),
+                    ).toImmutableList(),
                 )
 
             request shouldBe MainScreenFocusRequest.Immediate(index = 42)
@@ -94,10 +94,10 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                 resolveMainScreenFocusRequest(
                     memoId = "missing",
                     visibleUiMemos =
-                        listOf(
-                            memoUiModel("memo-1"),
-                            memoUiModel("memo-2"),
-                        ).toImmutableList(),
+                    listOf(
+                        memoUiModel("memo-1"),
+                        memoUiModel("memo-2"),
+                    ).toImmutableList(),
                 )
 
             request shouldBe MainScreenFocusRequest.NotFound
@@ -111,11 +111,11 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                     focusMemoInMainScreen(
                         memoId = "memo-2",
                         visibleUiMemos =
-                            listOf(
-                                memoUiModel("memo-1"),
-                                memoUiModel("memo-2"),
-                                memoUiModel("memo-3"),
-                            ).toImmutableList(),
+                        listOf(
+                            memoUiModel("memo-1"),
+                            memoUiModel("memo-2"),
+                            memoUiModel("memo-3"),
+                        ).toImmutableList(),
                         positioner = positioner,
                     )
 
@@ -132,10 +132,10 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                     focusMemoInMainScreen(
                         memoId = "missing",
                         visibleUiMemos =
-                            listOf(
-                                memoUiModel("memo-1"),
-                                memoUiModel("memo-2"),
-                            ).toImmutableList(),
+                        listOf(
+                            memoUiModel("memo-1"),
+                            memoUiModel("memo-2"),
+                        ).toImmutableList(),
                         positioner = positioner,
                     )
 
@@ -181,25 +181,24 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
         }
     }
 
-    private fun memoUiModel(id: String): MemoUiModel =
-        MemoUiModel(
-            memo =
-                Memo(
-                    id = id,
-                    timestamp =
-                        LocalDate.of(2026, 4, 10)
-                            .atStartOfDay(ZoneId.systemDefault())
-                            .toInstant()
-                            .toEpochMilli(),
-                    content = id,
-                    rawContent = id,
-                    dateKey = "2026_04_10",
-                    localDate = LocalDate.of(2026, 4, 10),
-                ),
-            processedContent = id,
-            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
-            tags = persistentListOf(),
-        )
+    private fun memoUiModel(id: String): MemoUiModel = MemoUiModel(
+        memo =
+        Memo(
+            id = id,
+            timestamp =
+            LocalDate.of(2026, 4, 10)
+                .atStartOfDay(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli(),
+            content = id,
+            rawContent = id,
+            dateKey = "2026_04_10",
+            localDate = LocalDate.of(2026, 4, 10),
+        ),
+        processedContent = id,
+        renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
+        tags = persistentListOf(),
+    )
 
     private class RecordingFocusPositioner : MainScreenFocusPositioner {
         val indexes = mutableListOf<Int>()

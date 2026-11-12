@@ -1,6 +1,6 @@
 package com.lomo.ui.text
 
-/**
+/*
  * Behavior Contract:
  * Capability: Script aware text layout metrics
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
@@ -9,13 +9,13 @@ package com.lomo.ui.text
  * Excludes: none
  */
 
-import com.lomo.ui.testing.UiComponentsFunSpec
-import io.kotest.matchers.shouldBe
 import android.text.Layout
 import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 class ScriptAwareTextTest : UiComponentsFunSpec() {
     init {
@@ -72,10 +72,12 @@ class ScriptAwareTextTest : UiComponentsFunSpec() {
 
         test("script aware style uses proportional mixed cjk line height without trimming paragraph edges") {
             val style = androidx.compose.ui.text.TextStyle().scriptAwareFor("今天 review 很长的一段 mixed text")
-            (style.lineHeightStyle) shouldBe (LineHeightStyle(
-                alignment = LineHeightStyle.Alignment.Proportional,
-                trim = LineHeightStyle.Trim.None,
-            ))
+            (style.lineHeightStyle) shouldBe (
+                LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Proportional,
+                    trim = LineHeightStyle.Trim.None,
+                )
+                )
         }
 
         test("script aware style keeps paragraph line breaking for chinese long prose with quotes and colon") {
@@ -86,7 +88,9 @@ class ScriptAwareTextTest : UiComponentsFunSpec() {
             (style.lineBreak) shouldBe (LineBreak.Paragraph)
         }
 
-        test("script aware style does not enable proportional cjk punctuation compaction for chinese prose with quotes and colon") {
+        test(
+            "script aware style does not enable proportional cjk punctuation compaction for chinese prose with quotes and colon",
+        ) {
             val style =
                 androidx.compose.ui.text.TextStyle().scriptAwareFor(
                     "这是一段很长的“中文引号”段落内容：应该保持两端对齐。",

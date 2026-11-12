@@ -8,7 +8,6 @@ import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
 import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
-
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -21,66 +20,65 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 
-
 private const val DEBUG_UPDATE_STEP_DELAY_MS = 280L
 private const val DEBUG_UPDATE_TERMINAL_DELAY_MS = 220L
 
 class UpdateStartupOrchestrator
-    internal constructor(
-        private val startupUpdateCheck: suspend () -> AppUpdateCheckOutcome,
-    ) {
-        constructor(appUpdateChecker: AppUpdateChecker) : this(
-            startupUpdateCheck = appUpdateChecker::checkForStartupUpdate,
-        )
+internal constructor(
+    private val startupUpdateCheck: suspend () -> AppUpdateCheckOutcome,
+) {
+    constructor(appUpdateChecker: AppUpdateChecker) : this(
+        startupUpdateCheck = appUpdateChecker::checkForStartupUpdate,
+    )
 
-        private val _dialogState = MutableStateFlow<AppUpdateDialogState?>(null)
-        val dialogState: StateFlow<AppUpdateDialogState?> = _dialogState.asStateFlow()
+    private val _dialogState = MutableStateFlow<AppUpdateDialogState?>(null)
+    val dialogState: StateFlow<AppUpdateDialogState?> = _dialogState.asStateFlow()
 
-        private var startupCheckConsumed = false
-        private var activeStartupCheckJob: Job? = null
+    private var startupCheckConsumed = false
+    private var activeStartupCheckJob: Job? = null
 
-        fun triggerStartupCheck(scope: CoroutineScope) {
-            if (startupCheckConsumed || activeStartupCheckJob?.isActive == true) {
-                return
-            }
-            val startupCheckJob =
-                scope.launch(start = CoroutineStart.LAZY) {
-                    try {
-                        val updateResult = runSuspendCatching { startupUpdateCheck() }
-                        if (updateResult.isSuccess) {
-                            val outcome = updateResult.getOrThrow()
-                            // A check that ran to completion consumes the once-per-startup slot;
-                            // a Failed check did not complete, so a later trigger may retry.
-                            if (outcome !is AppUpdateCheckOutcome.Failed) {
-                                startupCheckConsumed = true
+    fun triggerStartupCheck(scope: CoroutineScope) {
+        if (startupCheckConsumed || activeStartupCheckJob?.isActive == true) {
+            return
+        }
+        val startupCheckJob =
+            scope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    val updateResult = runSuspendCatching { startupUpdateCheck() }
+                    if (updateResult.isSuccess) {
+                        val outcome = updateResult.getOrThrow()
+                        // A check that ran to completion consumes the once-per-startup slot;
+                        // a Failed check did not complete, so a later trigger may retry.
+                        if (outcome !is AppUpdateCheckOutcome.Failed) {
+                            startupCheckConsumed = true
+                        }
+                        // Startup checks stay silent: only an Available outcome presents a
+                        // dialog; UpToDate/Failed never surface UI.
+                        (outcome as? AppUpdateCheckOutcome.Available)
+                            ?.let { available ->
+                                _dialogState.value = available.update.toDialogState()
                             }
-                            // Startup checks stay silent: only an Available outcome presents a
-                            // dialog; UpToDate/Failed never surface UI.
-                            (outcome as? AppUpdateCheckOutcome.Available)
-                                ?.let { available ->
-                                    _dialogState.value = available.update.toDialogState()
-                                }
-                        }
-                    } finally {
-                        if (activeStartupCheckJob === coroutineContext[Job]) {
-                            activeStartupCheckJob = null
-                        }
+                    }
+                } finally {
+                    if (activeStartupCheckJob === coroutineContext[Job]) {
+                        activeStartupCheckJob = null
                     }
                 }
-            activeStartupCheckJob = startupCheckJob
-            startupCheckJob.start()
-        }
-
-        fun dismissUpdateDialog() {
-            _dialogState.value = null
-        }
-
-        fun consumeUpdateDialog(): AppUpdateDialogState? {
-            val update = _dialogState.value
-            _dialogState.value = null
-            return update
-        }
+            }
+        activeStartupCheckJob = startupCheckJob
+        startupCheckJob.start()
     }
+
+    fun dismissUpdateDialog() {
+        _dialogState.value = null
+    }
+
+    fun consumeUpdateDialog(): AppUpdateDialogState? {
+        val update = _dialogState.value
+        _dialogState.value = null
+        return update
+    }
+}
 
 class AppUpdateDownloadSession(
     private val context: Context,
@@ -118,12 +116,12 @@ class AppUpdateDownloadSession(
                     publishState(
                         update = update,
                         installState =
-                            AppUpdateInstallState.Failed(
-                                message =
-                                    error.message
-                                        ?.takeIf { it.isNotBlank() }
-                                        ?: context.getString(R.string.update_download_failed_generic),
-                            ),
+                        AppUpdateInstallState.Failed(
+                            message =
+                            error.message
+                                ?.takeIf { it.isNotBlank() }
+                                ?: context.getString(R.string.update_download_failed_generic),
+                        ),
                     )
                 } finally {
                     if (activeDownloadJob === coroutineContext[Job]) {
@@ -156,10 +154,7 @@ class AppUpdateDownloadSession(
 
     // behavior-contract: constant-status-ok: debug simulation emits a scripted progress
     // sequence (19/52/87); the values are the fixture, not a measurement.
-    private suspend fun runDebugSimulation(
-        update: AppUpdateDialogState,
-        scenario: DebugAppUpdateScenario,
-    ) {
+    private suspend fun runDebugSimulation(update: AppUpdateDialogState, scenario: DebugAppUpdateScenario) {
         publishState(update = update, installState = AppUpdateInstallState.Preparing)
         delay(DEBUG_UPDATE_STEP_DELAY_MS)
         publishState(update = update, installState = AppUpdateInstallState.Downloading(progress = 19))
@@ -179,17 +174,14 @@ class AppUpdateDownloadSession(
                 publishState(
                     update = update,
                     installState =
-                        AppUpdateInstallState.Failed(
-                            message = context.getString(R.string.debug_update_simulation_failed),
-                        ),
+                    AppUpdateInstallState.Failed(
+                        message = context.getString(R.string.debug_update_simulation_failed),
+                    ),
                 )
         }
     }
 
-    private fun publishState(
-        update: AppUpdateDialogState,
-        installState: AppUpdateInstallState,
-    ) {
+    private fun publishState(update: AppUpdateDialogState, installState: AppUpdateInstallState) {
         _progressDialogState.value =
             AppUpdateProgressDialogState(
                 update = update,
@@ -198,28 +190,26 @@ class AppUpdateDownloadSession(
     }
 }
 
-internal fun AppUpdateInfo.toDialogState(): AppUpdateDialogState =
-    AppUpdateDialogState(
-        url = url,
-        version = version,
-        releaseNotes = releaseNotes,
-        apkDownloadUrl = apkDownloadUrl,
-        apkFileName = apkFileName,
-        apkSizeBytes = apkSizeBytes,
-        expectedPackageName = expectedPackageName,
-        expectedVersionName = expectedVersionName,
-        expectedVersionCode = expectedVersionCode,
-    )
+internal fun AppUpdateInfo.toDialogState(): AppUpdateDialogState = AppUpdateDialogState(
+    url = url,
+    version = version,
+    releaseNotes = releaseNotes,
+    apkDownloadUrl = apkDownloadUrl,
+    apkFileName = apkFileName,
+    apkSizeBytes = apkSizeBytes,
+    expectedPackageName = expectedPackageName,
+    expectedVersionName = expectedVersionName,
+    expectedVersionCode = expectedVersionCode,
+)
 
-internal fun AppUpdateDialogState.toAppUpdateInfo(): AppUpdateInfo =
-    AppUpdateInfo(
-        url = url,
-        version = version,
-        releaseNotes = releaseNotes,
-        apkDownloadUrl = apkDownloadUrl,
-        apkFileName = apkFileName,
-        apkSizeBytes = apkSizeBytes,
-        expectedPackageName = expectedPackageName,
-        expectedVersionName = expectedVersionName,
-        expectedVersionCode = expectedVersionCode,
-    )
+internal fun AppUpdateDialogState.toAppUpdateInfo(): AppUpdateInfo = AppUpdateInfo(
+    url = url,
+    version = version,
+    releaseNotes = releaseNotes,
+    apkDownloadUrl = apkDownloadUrl,
+    apkFileName = apkFileName,
+    apkSizeBytes = apkSizeBytes,
+    expectedPackageName = expectedPackageName,
+    expectedVersionName = expectedVersionName,
+    expectedVersionCode = expectedVersionCode,
+)

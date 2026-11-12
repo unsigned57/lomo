@@ -13,7 +13,6 @@ fun MemoMenuBinder(
     commandHandler: MemoMenuCommandHandler,
     content: @Composable (showMenu: (MemoMenuSelection) -> Unit) -> Unit,
 ) {
-    val presentationState = commandHandler.presentationState
     var activeSelection by remember { mutableStateOf<MemoMenuSelection?>(null) }
 
     MemoMenuHost(
@@ -35,11 +34,6 @@ fun MemoMenuBinder(
             }
         },
         onMenuCleared = { activeSelection = null },
-        actionAutoReorderEnabled = presentationState.memoActionAutoReorderEnabled,
-        onActionInvoked = { key -> MemoActionId.fromStorageKey(key)?.let(commandHandler::recordActionUsage) },
-        onActionOrderChanged = { keys ->
-            commandHandler.changeActionOrder(keys.mapNotNull(MemoActionId::fromStorageKey))
-        },
         benchmarkRootTag = BenchmarkAnchorContract.MEMO_MENU_ROOT,
     )
 }

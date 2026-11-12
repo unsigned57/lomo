@@ -40,11 +40,10 @@ object StorageTimestampFormats {
     fun formatter(pattern: String): DateTimeFormatter =
         formattersByPattern[normalize(pattern)] ?: formattersByPattern.getValue(DEFAULT_PATTERN)
 
-    fun parseOrNull(raw: String): LocalTime? =
-        parseFormatters.firstNotNullOfOrNull { formatter ->
-            // behavior-contract: silent-result-ok: format mismatch is expected; loop tries next
-            runCatching { LocalTime.parse(raw, formatter) }.getOrNull()
-        }
+    fun parseOrNull(raw: String): LocalTime? = parseFormatters.firstNotNullOfOrNull { formatter ->
+        // behavior-contract: silent-result-ok: format mismatch is expected; loop tries next
+        runCatching { LocalTime.parse(raw, formatter) }.getOrNull()
+    }
 
     fun parseMemoHeaderLine(line: String): ParsedMemoHeader? {
         val trimmed = line.trimStart(::isIgnorableHeaderSeparator)
@@ -58,15 +57,9 @@ object StorageTimestampFormats {
             .firstOrNull()
     }
 
-    data class ParsedMemoHeader(
-        val timePart: String,
-        val contentPart: String,
-    )
+    data class ParsedMemoHeader(val timePart: String, val contentPart: String)
 
-    private fun parseHeader(
-        formatter: DateTimeFormatter,
-        afterDash: String,
-    ): ParsedMemoHeader? {
+    private fun parseHeader(formatter: DateTimeFormatter, afterDash: String): ParsedMemoHeader? {
         val position = ParsePosition(0)
         // behavior-contract: silent-result-ok: parse-with-position null+pos=0 is the no-match signal
         val parsed = runCatching { formatter.parse(afterDash, position) }.getOrNull()
@@ -88,10 +81,9 @@ object StorageTimestampFormats {
 
     private fun buildFormatter(pattern: String): DateTimeFormatter = DateTimeFormatter.ofPattern(pattern, Locale.US)
 
-    private fun isIgnorableHeaderSeparator(char: Char): Boolean =
-        char.isWhitespace() ||
-            char == UTF8_BOM ||
-            char == ZERO_WIDTH_SPACE
+    private fun isIgnorableHeaderSeparator(char: Char): Boolean = char.isWhitespace() ||
+        char == UTF8_BOM ||
+        char == ZERO_WIDTH_SPACE
 }
 
 private const val UTF8_BOM = '\uFEFF'

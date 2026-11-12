@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::RwLock;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lomo_core::{
@@ -11,7 +11,7 @@ use lomo_core::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::directory::DirectoryListing;
+use crate::directory::{DirectoryListing, DirectoryPages};
 use crate::error::{conflict, internal, storage, timeout, validation};
 use crate::exchange::{ExchangeDirectory, generate_random_nonce};
 use crate::registry::RootRegistry;
@@ -31,6 +31,7 @@ use crate::sys;
 #[derive(Debug)]
 pub struct FsPlatformActionExecutor {
     registry: RootRegistry,
+    directory_pages: Mutex<DirectoryPages>,
     exchange: ExchangeDirectory,
     witnesses: RwLock<BTreeMap<ActionId, (PlatformAction, PlatformActionOutput)>>,
 }
@@ -44,6 +45,7 @@ impl FsPlatformActionExecutor {
     pub fn new(exchange_dir: impl AsRef<std::path::Path>) -> Result<Self, LomoError> {
         Ok(Self {
             registry: RootRegistry::new(),
+            directory_pages: Mutex::new(DirectoryPages::default()),
             exchange: ExchangeDirectory::new(exchange_dir)?,
             witnesses: RwLock::new(BTreeMap::new()),
         })
@@ -200,7 +202,10 @@ impl FsPlatformActionExecutor {
         match action {
             PlatformAction::Stat {
                 capability, target, ..
-            } => self.execute_stat(capability, target),
+            } => self.execute_observation(capability, target, sys::stat_document),
+            PlatformAction::Inspect {
+                capability, target, ..
+            } => self.execute_observation(capability, target, sys::inspect_document),
             PlatformAction::ListChildren {
                 capability,
                 target,
@@ -265,17 +270,18 @@ impl FsPlatformActionExecutor {
         }
     }
 
-    fn execute_stat(
+    fn execute_observation(
         &self,
         capability: &CapabilityToken,
         target: &WorkspaceTarget,
+        observe: fn(&sys::Root, &WorkspaceTarget) -> Result<DocumentMetadata, LomoError>,
     ) -> ActionOutcome {
         let bound = match self.registry.resolve(capability) {
             Ok(b) => b,
             Err(e) => return ActionOutcome::Failed(e),
         };
 
-        match sys::stat_document(bound.root(), target) {
+        match observe(bound.root(), target) {
             Ok(metadata) => {
                 let output = PlatformActionOutput::Stat { metadata };
                 ActionOutcome::Applied(output)
@@ -296,25 +302,38 @@ impl FsPlatformActionExecutor {
             Err(e) => return ActionOutcome::Failed(e),
         };
 
-        let (dir, rel_prefix) = match target {
-            WorkspaceTarget::Root => match bound.root().as_dir() {
-                Ok(dir) => (dir, String::new()),
-                Err(err) => return ActionOutcome::Failed(err),
+        let rel_prefix = match target {
+            WorkspaceTarget::Root => "",
+            WorkspaceTarget::Relative(path) => path.as_str(),
+        };
+        let listing = cursor.map_or_else(
+            || {
+                let directory = match target {
+                    WorkspaceTarget::Root => bound.root().as_dir(),
+                    WorkspaceTarget::Relative(path) => {
+                        sys::open_dir_at(bound.root(), path.as_str())
+                    }
+                };
+                directory.and_then(|dir| dir.entries()).and_then(|names| {
+                    DirectoryListing::new(names, capability.as_str(), rel_prefix).map(Arc::new)
+                })
             },
-            WorkspaceTarget::Relative(parent_rel) => {
-                match sys::open_dir_at(bound.root(), parent_rel.as_str()) {
-                    Ok(dir) => (dir, parent_rel.as_str().to_owned()),
-                    Err(err) => return ActionOutcome::Failed(err),
-                }
-            }
+            |cursor| {
+                self.directory_pages
+                    .lock()
+                    .map_err(|_error| {
+                        internal(
+                            "directory_pages_poisoned",
+                            "directory snapshot lock poisoned",
+                        )
+                    })
+                    .and_then(|pages| pages.resume(cursor, capability.as_str(), rel_prefix))
+            },
+        );
+        let listing = match listing {
+            Ok(listing) => listing,
+            Err(error) => return ActionOutcome::Failed(error),
         };
-
-        let entry_names = match dir.entries() {
-            Ok(names) => names,
-            Err(err) => return ActionOutcome::Failed(err),
-        };
-
-        let listing = DirectoryListing::new(entry_names, capability.as_str(), &rel_prefix);
         let start = match listing.start(cursor) {
             Ok(start) => start,
             Err(error) => return ActionOutcome::Failed(error),
@@ -334,17 +353,33 @@ impl FsPlatformActionExecutor {
             // Listing evidence is a metadata token, not a byte hash: reconcile diffs the
             // token stream against the committed `file_listing` snapshot so an unchanged
             // workspace costs one stat per path, never a full-library read.
-            match sys::list_document(bound.root(), &relative_path) {
+            match sys::inspect_document(bound.root(), &WorkspaceTarget::Relative(relative_path)) {
                 Ok(metadata) => items.push(metadata),
                 Err(error) => return ActionOutcome::Failed(error),
             }
         }
         let next_cursor = listing.cursor_after(start + items.len());
 
-        match MetadataPage::new(items, next_cursor.as_deref()) {
-            Ok(page) => ActionOutcome::Applied(PlatformActionOutput::Listed { page }),
-            Err(err) => ActionOutcome::Failed(err),
+        let page = match MetadataPage::new(items, next_cursor.as_deref()) {
+            Ok(page) => page,
+            Err(error) => return ActionOutcome::Failed(error),
+        };
+        let mut pages = match self.directory_pages.lock() {
+            Ok(pages) => pages,
+            Err(_error) => {
+                return ActionOutcome::Failed(internal(
+                    "directory_pages_poisoned",
+                    "directory snapshot lock poisoned",
+                ));
+            }
+        };
+        if next_cursor.is_none() {
+            pages.complete(&listing);
+        } else if cursor.is_none() {
+            pages.retain(listing);
         }
+        drop(pages);
+        ActionOutcome::Applied(PlatformActionOutput::Listed { page })
     }
 
     fn execute_ensure_directory(
@@ -493,6 +528,25 @@ impl FsPlatformActionExecutor {
 
         let target_ws = WorkspaceTarget::Relative(path.clone());
         let existing_res = sys::stat_document(bound.root(), &target_ws);
+
+        // Replay-satisfied boundary, uniform with the platform arbitration contract: when the
+        // target already holds the staged bytes (and any expected baseline evidence matches),
+        // the write is consumed without mutation.
+        if let Ok(existing_meta) = &existing_res {
+            let matches_artifact = existing_meta.evidence().length() == artifact.length()
+                && existing_meta.evidence().verified_digest() == Some(artifact.digest());
+            let satisfied = match expected_target {
+                ExpectedFingerprint::Absent => matches_artifact,
+                ExpectedFingerprint::Match(expected) => {
+                    existing_meta.evidence() == expected && matches_artifact
+                }
+            };
+            if satisfied {
+                return ActionOutcome::AlreadySatisfied(PlatformActionOutput::WriteComplete {
+                    metadata: existing_meta.clone(),
+                });
+            }
+        }
 
         if let Err(err) = validate_write_mode(mode, expected_target, &existing_res) {
             return ActionOutcome::Failed(err);
@@ -1018,7 +1072,7 @@ impl PlatformActionExecutor for FsPlatformActionExecutor {
 fn absence_fingerprint(path: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(path.as_bytes());
-    let hex = format!("{:x}", hasher.finalize());
+    let hex = lomo_core::hex_encode(&hasher.finalize());
     let prefix: String = hex.chars().take(40).collect();
     format!("absent.{prefix}")
 }
@@ -1026,7 +1080,7 @@ fn absence_fingerprint(path: &str) -> String {
 fn deleted_fingerprint(path: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(path.as_bytes());
-    let hex = format!("{:x}", hasher.finalize());
+    let hex = lomo_core::hex_encode(&hasher.finalize());
     let prefix: String = hex.chars().take(40).collect();
     format!("deleted.{prefix}")
 }

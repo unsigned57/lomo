@@ -2,7 +2,7 @@
 //!
 //! Phase one enumerates `media/` candidates and collects the protection set outside the
 //! transaction lock (streaming digests only — media bytes never enter memory). Phase two acquires
-//! [`TransactionLock`], recomputes the protection set, re-verifies every candidate's evidence, and
+//! a settled workspace barrier, recomputes the protection set, re-verifies every candidate's evidence, and
 //! only then moves unreferenced objects into `.lomo-media-trash` or purges expired trash through
 //! verified platform actions. A reference created between enumeration and commit blocks deletion
 //! because the keep-set is rebuilt inside the same write isolation every mutation uses.
@@ -22,7 +22,6 @@ use crate::{
     csprng::generate_hex_token,
     draft::GuardedDraftBody,
     error::{corruption, storage, validation},
-    lock::TransactionLock,
     media_index::AttachmentIndex,
     session::WorkspaceSession,
     workspace_io::WorkspaceIo,
@@ -126,7 +125,7 @@ impl WorkspaceSession {
             .map_err(|error| resource_overflow("media_sweep_candidates", error.to_string()))?;
 
         // Phase two: inside the write lock recompute protection and re-verify every candidate.
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        let _held = self.write_behind.exclusive()?;
         let index = self.attachment_index_guarding(external_drafts)?;
         let mut run = SweepRun {
             io: &io,
@@ -137,7 +136,7 @@ impl WorkspaceSession {
             report,
         };
         for candidate in &candidates {
-            self.sweep_one(candidate, &mut run);
+            Self::sweep_one(candidate, &mut run);
         }
         for item in &trash {
             self.purge_one(item, &mut run);
@@ -214,7 +213,7 @@ impl WorkspaceSession {
         Ok(out)
     }
 
-    fn sweep_one(&self, candidate: &SweepCandidate, run: &mut SweepRun<'_>) {
+    fn sweep_one(candidate: &SweepCandidate, run: &mut SweepRun<'_>) {
         let path_str = candidate.path.as_str().to_owned();
         let result = (|| -> Result<(), LomoError> {
             // Re-verify the candidate inside the lock: unchanged evidence means the bytes that
@@ -264,20 +263,7 @@ impl WorkspaceSession {
             let trash_name = lomo_media::trash_entry_name(&digest_hex, run.now_ms, file_name);
             let target =
                 RelativeWorkspacePath::parse(&format!("{MEDIA_TRASH_DIR_NAME}/{trash_name}"))?;
-            let action = PlatformAction::move_path(
-                ActionId::parse(&format!("sweep-move-{}", generate_hex_token(8)?))?,
-                self.config.capability.clone(),
-                candidate.path.clone(),
-                target,
-                ExpectedFingerprint::matching(current.evidence().clone()),
-                ExpectedFingerprint::absent(),
-            );
-            let PlatformActionOutput::MoveComplete { .. } = run.io.execute(action)? else {
-                return Err(corruption(
-                    "invalid_move_output",
-                    "expected a verified move receipt",
-                ));
-            };
+            run.io.relocate(&candidate.path, &target, &current)?;
             run.report.moved_to_trash.push(MediaTrashEntry {
                 digest: ContentDigest::parse(&digest_hex)?,
                 trash_path: PathBuf::from(format!("{MEDIA_TRASH_DIR_NAME}/{trash_name}")),
@@ -322,7 +308,7 @@ impl WorkspaceSession {
                     format!("cannot encode media delete intent: {error}"),
                 )
             })?;
-            // Durable delete-intent journal inside the workspace before the permanent delete.
+            // Durable private delete-intent journal before the permanent delete.
             ensure_intent_dir(run.io)?;
             let intent_path = RelativeWorkspacePath::parse(&format!(
                 "{MEDIA_DELETE_INTENT_DIR_NAME}/{}_{}.json",
@@ -372,7 +358,7 @@ fn list_dir(
             io.config.capability.clone(),
             dir.clone(),
             cursor,
-            PageSize::new(256)?,
+            PageSize::new(512)?,
         );
         let output = match io.execute(action) {
             Ok(output) => output,

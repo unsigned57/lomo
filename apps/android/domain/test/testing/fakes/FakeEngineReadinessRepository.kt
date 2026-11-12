@@ -1,10 +1,10 @@
 package com.lomo.domain.testing.fakes
 
-import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.DerivedIndexRebuildSummary
+import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.RecoveryWorkspaceKind
-import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.WorkspaceMount
@@ -15,9 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class FakeEngineReadinessRepository(
-    initial: EngineReadiness = EngineReadiness.Ready,
-) : EngineReadinessRepository {
+class FakeEngineReadinessRepository(initial: EngineReadiness = EngineReadiness.Ready) : EngineReadinessRepository {
     private val _readiness = MutableStateFlow(initial)
     private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
     private val _workspaceAuthority =
@@ -51,10 +49,14 @@ class FakeEngineReadinessRepository(
     var clearCount: Int = 0
     var lastActivated: StorageLocation? = null
         private set
+
     /** Fail the next [activateWorkspace] call this many times, then succeed. */
     var remainingActivateFailures: Int = 0
     var activateFailure: Throwable = IllegalStateException("activate failed")
     var activateResult: EngineReadiness? = null
+
+    /** Optional suspension point awaited inside [activateWorkspace] before state mutates. */
+    var activateCheckpoint: (suspend () -> Unit)? = null
 
     fun publish(value: EngineReadiness) {
         _readiness.value = value
@@ -71,7 +73,7 @@ class FakeEngineReadinessRepository(
             )
     }
 
-    override fun resnapshot() {
+    override suspend fun resnapshot() {
         resnapshotCount += 1
     }
 
@@ -95,13 +97,16 @@ class FakeEngineReadinessRepository(
         return DerivedIndexRebuildSummary(0uL, 0uL, 0uL, 0uL, 1uL)
     }
 
-    private fun workspaceKind(): RecoveryWorkspaceKind =
-        when (val location = activeWorkspaceLocation.value?.raw) {
-            null -> RecoveryWorkspaceKind.NONE
-            else -> if (location.startsWith("content://")) RecoveryWorkspaceKind.SAF else RecoveryWorkspaceKind.DIRECT
-        }
+    private fun workspaceKind(): RecoveryWorkspaceKind = when (val location = activeWorkspaceLocation.value?.raw) {
+        null -> RecoveryWorkspaceKind.NONE
+        else -> if (location.startsWith("content://")) RecoveryWorkspaceKind.SAF else RecoveryWorkspaceKind.DIRECT
+    }
 
-    override suspend fun activateWorkspace(location: StorageLocation) {
+    override suspend fun activateWorkspace(
+        location: StorageLocation,
+        mediaChange: com.lomo.domain.model.MediaDirectoryChange?,
+    ) {
+        activateCheckpoint?.invoke()
         activateCount += 1
         lastActivated = location
         if (remainingActivateFailures > 0) {

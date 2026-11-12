@@ -6,23 +6,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.lomo.app.R
 import com.lomo.app.feature.preferences.CustomFontHost
 import com.lomo.app.util.ShareUtils
 import com.lomo.app.util.rememberShareUtils
 import com.lomo.domain.model.Memo
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
+import com.lomo.domain.repository.MemoQueryRepository
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 
 data class MemoMenuPresentationState(
     val shareCardShowTime: Boolean,
     val shareCardShowSignature: Boolean,
     val shareCardSignatureText: String,
     val customFontPath: String?,
-    val showJump: Boolean = false,
-    val showVersionHistory: Boolean = false,
-    val memoActionAutoReorderEnabled: Boolean = true,
-    val memoActionOrder: ImmutableList<String> = persistentListOf(),
 )
 
 data class MemoMenuShareCardRequest(
@@ -35,19 +34,19 @@ data class MemoMenuShareCardRequest(
     val resolvedImagePaths: List<String>,
 )
 
-data class MemoMenuShareTextRequest(
-    val content: String,
-)
+data class MemoMenuShareTextRequest(val content: String)
 
-data class MemoMenuLanShareRequest(
-    val content: String,
-    val timestamp: Long,
-)
+data class MemoMenuLanShareRequest(val content: String, val timestamp: Long)
 
-data class MemoMenuTogglePinRequest(
-    val memo: Memo,
-    val pinned: Boolean,
-)
+/**
+ * The screen-specific action occupying the third menu tile. Exactly one exists per screen:
+ * the main list pins in place, every other memo surface jumps back to the main list.
+ */
+sealed interface MemoMenuContextAction {
+    data class TogglePin(val setPinned: (Memo, Boolean) -> Unit) : MemoMenuContextAction
+
+    data class Jump(val jump: (MemoMenuSelection) -> Unit) : MemoMenuContextAction
+}
 
 class MemoMenuCommandHandler(
     val presentationState: MemoMenuPresentationState,
@@ -55,24 +54,16 @@ class MemoMenuCommandHandler(
     private val onDeleteMemo: (Memo, String?) -> Unit,
     private val onShareCard: (MemoMenuShareCardRequest) -> Unit,
     private val onShareText: (MemoMenuShareTextRequest) -> Unit,
+    private val onCopyMemo: (MemoMenuSelection, String) -> Unit,
+    val contextAction: MemoMenuContextAction,
     private val onLanShare: ((MemoMenuLanShareRequest) -> Unit)? = null,
-    private val onTogglePin: ((MemoMenuTogglePinRequest) -> Unit)? = null,
-    private val onJump: ((MemoMenuSelection) -> Unit)? = null,
     private val onVersionHistory: ((MemoMenuSelection) -> Unit)? = null,
-    private val onMemoActionInvoked: (MemoActionId) -> Unit,
-    private val onMemoActionOrderChanged: (List<MemoActionId>) -> Unit,
 ) {
     val hasLanShare: Boolean
         get() = onLanShare != null
 
-    val hasTogglePin: Boolean
-        get() = onTogglePin != null
-
-    val hasJump: Boolean
-        get() = presentationState.showJump && onJump != null
-
     val hasVersionHistory: Boolean
-        get() = presentationState.showVersionHistory && onVersionHistory != null
+        get() = onVersionHistory != null
 
     fun edit(selection: MemoMenuSelection) {
         onEditMemo(selection.memo.id)
@@ -80,6 +71,10 @@ class MemoMenuCommandHandler(
 
     fun delete(selection: MemoMenuSelection) {
         onDeleteMemo(selection.memo, selection.anchoredAfterKey)
+    }
+
+    fun copy(selection: MemoMenuSelection, label: String) {
+        onCopyMemo(selection, label)
     }
 
     fun shareCard(selection: MemoMenuSelection) {
@@ -112,26 +107,15 @@ class MemoMenuCommandHandler(
         )
     }
 
-    fun togglePin(selection: MemoMenuSelection) {
-        val handler = onTogglePin ?: return
-        val memo = selection.memo
-        handler(MemoMenuTogglePinRequest(memo = memo, pinned = !memo.isPinned))
-    }
-
-    fun jump(selection: MemoMenuSelection) {
-        onJump?.invoke(selection)
+    fun runContextAction(selection: MemoMenuSelection) {
+        when (contextAction) {
+            is MemoMenuContextAction.TogglePin -> contextAction.setPinned(selection.memo, !selection.memo.isPinned)
+            is MemoMenuContextAction.Jump -> contextAction.jump(selection)
+        }
     }
 
     fun versionHistory(selection: MemoMenuSelection) {
         onVersionHistory?.invoke(selection)
-    }
-
-    fun recordActionUsage(actionId: MemoActionId) {
-        onMemoActionInvoked(actionId)
-    }
-
-    fun changeActionOrder(actionIds: List<MemoActionId>) {
-        onMemoActionOrderChanged(actionIds)
     }
 }
 
@@ -140,15 +124,15 @@ fun rememberMemoMenuCommandHandler(
     presentationState: MemoMenuPresentationState,
     onEditMemo: (String) -> Unit,
     onDeleteMemo: (Memo, String?) -> Unit,
-    onMemoActionInvoked: (MemoActionId) -> Unit,
+    contextAction: MemoMenuContextAction,
     onLanShare: ((MemoMenuLanShareRequest) -> Unit)? = null,
-    onTogglePin: ((Memo, Boolean) -> Unit)? = null,
-    onJump: ((MemoMenuSelection) -> Unit)? = null,
     onVersionHistory: ((MemoMenuSelection) -> Unit)? = null,
-    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit,
 ): MemoMenuCommandHandler {
     val context = LocalContext.current
     val shareUtils = rememberShareUtils()
+    val memoQueryRepository = koinInject<MemoQueryRepository>()
+    val dispatcherProvider = koinInject<DispatcherProvider>()
+    val copyFailedMessage = stringResource(R.string.memo_copy_failed)
     // Platform typeface construction is owned by CustomFontHost; it resolves lazily inside the
     // share coroutine (IO dispatcher, identity-cached) instead of blocking composition.
     val customFontHost = org.koin.compose.koinInject<CustomFontHost>()
@@ -156,25 +140,21 @@ fun rememberMemoMenuCommandHandler(
     val editMemoState = rememberUpdatedState(onEditMemo)
     val deleteMemoState = rememberUpdatedState(onDeleteMemo)
     val lanShareState = rememberUpdatedState(onLanShare)
-    val togglePinState = rememberUpdatedState(onTogglePin)
-    val jumpState = rememberUpdatedState(onJump)
     val versionHistoryState = rememberUpdatedState(onVersionHistory)
-    val actionInvokedState = rememberUpdatedState(onMemoActionInvoked)
-    val actionOrderChangedState = rememberUpdatedState(onMemoActionOrderChanged)
     val hasLanShare = onLanShare != null
-    val hasTogglePin = onTogglePin != null
-    val hasJump = onJump != null
     val hasVersionHistory = onVersionHistory != null
 
     return remember(
         presentationState,
         context,
         shareUtils,
+        memoQueryRepository,
+        dispatcherProvider,
+        copyFailedMessage,
         customFontHost,
         scope,
+        contextAction,
         hasLanShare,
-        hasTogglePin,
-        hasJump,
         hasVersionHistory,
     ) {
         MemoMenuCommandHandler(
@@ -190,7 +170,7 @@ fun rememberMemoMenuCommandHandler(
                         context = context,
                         shareUtils = shareUtils,
                         bodyTypeface =
-                            customFontHost.canvasTypefaceOrNull(presentationState.customFontPath),
+                        customFontHost.canvasTypefaceOrNull(presentationState.customFontPath),
                     )
                 }
             },
@@ -200,32 +180,31 @@ fun rememberMemoMenuCommandHandler(
                     content = request.content,
                 )
             },
+            contextAction = contextAction,
+            onCopyMemo = { selection, label ->
+                scope.launch {
+                    copyMemoToClipboard(
+                        context,
+                        memoQueryRepository,
+                        selection,
+                        label,
+                        copyFailedMessage,
+                        dispatcherProvider,
+                    )
+                }
+            },
             onLanShare =
-                if (hasLanShare) {
-                    { request -> lanShareState.value?.invoke(request) }
-                } else {
-                    null
-                },
-            onTogglePin =
-                if (hasTogglePin) {
-                    { request -> togglePinState.value?.invoke(request.memo, request.pinned) }
-                } else {
-                    null
-                },
-            onJump =
-                if (hasJump) {
-                    { state -> jumpState.value?.invoke(state) }
-                } else {
-                    null
-                },
+            if (hasLanShare) {
+                { request -> lanShareState.value?.invoke(request) }
+            } else {
+                null
+            },
             onVersionHistory =
-                if (hasVersionHistory) {
-                    { selection -> versionHistoryState.value?.invoke(selection) }
-                } else {
-                    null
-                },
-            onMemoActionInvoked = { actionId -> actionInvokedState.value(actionId) },
-            onMemoActionOrderChanged = { actionIds -> actionOrderChangedState.value(actionIds) },
+            if (hasVersionHistory) {
+                { selection -> versionHistoryState.value?.invoke(selection) }
+            } else {
+                null
+            },
         )
     }
 }

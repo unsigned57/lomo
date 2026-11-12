@@ -48,9 +48,8 @@ class AndroidLanDeviceKeyTest : DataFunSpec() {
     }
 }
 
-private fun generate(curve: String): ECPublicKey =
-    KeyPairGenerator
-        .getInstance("EC")
-        .apply { initialize(ECGenParameterSpec(curve)) }
-        .generateKeyPair()
-        .public as ECPublicKey
+private fun generate(curve: String): ECPublicKey = KeyPairGenerator
+    .getInstance("EC")
+    .apply { initialize(ECGenParameterSpec(curve)) }
+    .generateKeyPair()
+    .public as ECPublicKey

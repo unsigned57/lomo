@@ -9,14 +9,9 @@ package com.lomo.ui.component.picker
  */
 internal object SteppedPickerPaging {
     /** True when [currentIndex] is the terminal step, so the footer should confirm rather than advance. */
-    fun isLastStep(
-        currentIndex: Int,
-        stepCount: Int,
-    ): Boolean = currentIndex >= stepCount - 1
+    fun isLastStep(currentIndex: Int, stepCount: Int): Boolean = currentIndex >= stepCount - 1
 
     /** Index to advance to, or `null` when [currentIndex] is already the last step (caller should confirm). */
-    fun nextStepIndex(
-        currentIndex: Int,
-        stepCount: Int,
-    ): Int? = if (isLastStep(currentIndex, stepCount)) null else currentIndex + 1
+    fun nextStepIndex(currentIndex: Int, stepCount: Int): Int? =
+        if (isLastStep(currentIndex, stepCount)) null else currentIndex + 1
 }

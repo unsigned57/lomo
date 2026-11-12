@@ -33,16 +33,16 @@ enum class RetainedAsyncImageSource {
 fun resolveRetainedAsyncImageSource(
     loadState: RetainedAsyncImageLoadState,
     hasRetainedSuccess: Boolean,
-): RetainedAsyncImageSource =
-    when (loadState) {
-        RetainedAsyncImageLoadState.Success -> RetainedAsyncImageSource.Current
-        RetainedAsyncImageLoadState.Loading,
-        RetainedAsyncImageLoadState.Empty,
-        RetainedAsyncImageLoadState.Error,
-        ->
-            if (hasRetainedSuccess) {
-                RetainedAsyncImageSource.Retained
-            } else {
-                RetainedAsyncImageSource.Current
-            }
-    }
+): RetainedAsyncImageSource = when (loadState) {
+    RetainedAsyncImageLoadState.Success -> RetainedAsyncImageSource.Current
+
+    RetainedAsyncImageLoadState.Loading,
+    RetainedAsyncImageLoadState.Empty,
+    RetainedAsyncImageLoadState.Error,
+    ->
+        if (hasRetainedSuccess) {
+            RetainedAsyncImageSource.Retained
+        } else {
+            RetainedAsyncImageSource.Current
+        }
+}

@@ -1,0 +1,25 @@
+# Run on a landscape tablet window; clock controls and pinned actions must remain reachable.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- runFlow:
+    when:
+      notVisible: "Backfill Memo"
+    commands:
+      - tapOn:
+          text: "Expand"
+          below:
+            id: "benchmark_input_editor"
+      - waitForAnimationToEnd
+- tapOn: "Backfill Memo"
+- assertVisible: "Backfill memo time"
+- tapOn: "Next"
+- takeScreenshot: backfill-clock
+- assertVisible: "Next"
+- tapOn: "Next"
+- assertVisible: "Seconds"
+- takeScreenshot: backfill-seconds
+- tapOn: "Use time"

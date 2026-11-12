@@ -102,10 +102,10 @@ class PreferencesCorruptionCollapseContractTest : DataFunSpec() {
     ) = PreferenceDataStoreFactory.create(
         scope = scope,
         corruptionHandler =
-            lomoPreferencesCorruptionHandler(
-                corruptionFile = { backing },
-                registry = registry,
-            ),
+        lomoPreferencesCorruptionHandler(
+            corruptionFile = { backing },
+            registry = registry,
+        ),
         produceFile = { backing },
     )
 }

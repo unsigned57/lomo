@@ -50,11 +50,9 @@ class S3SyncConfigurationRepositoryImpl(
     override fun getRcloneFilenameEncoding(): Flow<S3RcloneFilenameEncoding> =
         dataStore.s3RcloneFilenameEncoding.map(::s3RcloneFilenameEncodingFromPreference)
 
-    override fun getRcloneDirectoryNameEncryption(): Flow<Boolean> =
-        dataStore.s3RcloneDirectoryNameEncryption
+    override fun getRcloneDirectoryNameEncryption(): Flow<Boolean> = dataStore.s3RcloneDirectoryNameEncryption
 
-    override fun getRcloneDataEncryptionEnabled(): Flow<Boolean> =
-        dataStore.s3RcloneDataEncryptionEnabled
+    override fun getRcloneDataEncryptionEnabled(): Flow<Boolean> = dataStore.s3RcloneDataEncryptionEnabled
 
     override fun getRcloneEncryptedSuffix(): Flow<String> = dataStore.s3RcloneEncryptedSuffix
 
@@ -195,11 +193,9 @@ class S3SyncConfigurationMutationRepositoryImpl(
 
     override suspend fun isSessionTokenConfigured(): Boolean = getSessionTokenStatus().isConfigured
 
-    override suspend fun isEncryptionPasswordConfigured(): Boolean =
-        getEncryptionPasswordStatus().isConfigured
+    override suspend fun isEncryptionPasswordConfigured(): Boolean = getEncryptionPasswordStatus().isConfigured
 
-    override suspend fun isEncryptionPassword2Configured(): Boolean =
-        getEncryptionPassword2Status().isConfigured
+    override suspend fun isEncryptionPassword2Configured(): Boolean = getEncryptionPassword2Status().isConfigured
 
     override suspend fun setAutoSyncEnabled(enabled: Boolean) {
         dataStore.updateS3AutoSyncEnabled(enabled)
@@ -214,25 +210,18 @@ class S3SyncConfigurationMutationRepositoryImpl(
     }
 
     /** Canonical-identity write guard: disposal runs before the mutation lands, never on a no-op re-write. */
-    private suspend fun resetIfIdentityChanged(
-        previous: String,
-        next: String,
-    ) {
+    private suspend fun resetIfIdentityChanged(previous: String, next: String) {
         if (previous != next) {
             identityReset.resetIdentityScopedSyncState()
         }
     }
 
-    private suspend fun credentialState(): CredentialState =
-        credentialRepository.credentialState(CredentialProvider.S3)
+    private suspend fun credentialState(): CredentialState = credentialRepository.credentialState(CredentialProvider.S3)
 }
 
 /** Durable sync state for S3 — real cycle-record reads, never an in-memory `Idle` seed. */
-class S3SyncStateRepositoryImpl(
-    private val cycleStatus: RustSyncCycleStatusStore,
-) : S3SyncStateRepository {
-    override fun syncState(): Flow<S3SyncState> =
-        cycleStatus.observe().map { status -> status.toS3SyncState() }
+class S3SyncStateRepositoryImpl(private val cycleStatus: RustSyncCycleStatusStore) : S3SyncStateRepository {
+    override fun syncState(): Flow<S3SyncState> = cycleStatus.observe().map { status -> status.toS3SyncState() }
 }
 
 internal val S3PathStyle.preferenceValue: String
@@ -275,5 +264,4 @@ internal fun s3RcloneEncryptedSuffixFromPreference(value: String): String {
     }
 }
 
-internal fun s3RcloneEncryptedSuffixToPreference(value: String): String =
-    value.trim().ifBlank { "none" }
+internal fun s3RcloneEncryptedSuffixToPreference(value: String): String = value.trim().ifBlank { "none" }

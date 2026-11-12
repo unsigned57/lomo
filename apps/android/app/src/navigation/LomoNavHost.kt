@@ -1,7 +1,5 @@
 package com.lomo.app.navigation
 
-import androidx.compose.material3.MaterialTheme
-
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -9,13 +7,13 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.toRoute
+import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.app.feature.gallery.GalleryReelMode
 import com.lomo.app.feature.gallery.GalleryReelRequest
 import com.lomo.app.feature.gallery.GalleryReelScreen
@@ -26,9 +24,9 @@ import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.search.SearchScreen
 import com.lomo.app.feature.settings.SettingsScreen
+import com.lomo.app.feature.share.ShareScreen
 import com.lomo.app.feature.synccenter.SyncCenterRoute
 import com.lomo.app.feature.synccenter.SyncCenterViewModel
-import com.lomo.app.feature.share.ShareScreen
 import com.lomo.app.feature.tag.TagFilterScreen
 import com.lomo.app.feature.trash.TrashScreen
 import com.lomo.app.util.activityKoinViewModel
@@ -93,42 +91,34 @@ fun LomoNavHost(
 private fun rememberShareNavigationAction(
     navController: NavHostController,
     lanShareEnabled: Boolean,
-): (String, Long) -> Unit =
-    remember(navController, lanShareEnabled) {
-        { content, timestamp ->
-            if (!lanShareEnabled) {
-                Unit
-            } else {
-                val payloadKey = ShareRoutePayloadStore.putMemoContent(content)
-                navController.navigate(
-                    NavRoute.Share(
-                        payloadKey = payloadKey,
-                        memoTimestamp = timestamp,
-                    ),
-                )
-            }
+): (String, Long) -> Unit = remember(navController, lanShareEnabled) {
+    { content, timestamp ->
+        if (lanShareEnabled) {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent(content)
+            navController.navigate(
+                NavRoute.Share(
+                    payloadKey = payloadKey,
+                    memoTimestamp = timestamp,
+                ),
+            )
         }
     }
+}
 
 @Composable
 private fun rememberImageNavigationAction(navController: NavHostController): (ImageViewerRequest) -> Unit =
     remember(navController) {
         { request ->
-            val imageUrls = request.imageUrls.ifEmpty { emptyList() }
-            val clampedIndex =
-                if (imageUrls.isEmpty()) {
-                    0
-                } else {
-                    request.initialIndex.coerceIn(0, imageUrls.lastIndex)
-                }
-            val fallbackUrl = imageUrls.getOrNull(clampedIndex).orEmpty()
-            val encodedFallbackUrl = URLEncoder.encode(fallbackUrl, StandardCharsets.UTF_8.toString())
-            val payloadKey = ImageViewerRoutePayloadStore.putImageUrls(imageUrls)
+            val encodedFallbackUrl = URLEncoder.encode(
+                request.imageUrls[request.initialIndex],
+                StandardCharsets.UTF_8.toString(),
+            )
+            val payloadKey = ImageViewerRoutePayloadStore.put(request)
             navController.navigate(
                 NavRoute.ImageViewer(
                     url = encodedFallbackUrl,
                     payloadKey = payloadKey,
-                    initialIndex = clampedIndex,
+                    initialIndex = request.initialIndex,
                     memoId = request.memoId,
                 ),
             )
@@ -144,9 +134,14 @@ private fun LomoNavigationGraph(
     lanShareEnabled: Boolean,
     mainForegroundEntryId: Long,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
+    val motionScheme = com.lomo.ui.theme.LocalLomoMotion.current.layout
     val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
-    val transitions = remember(motionScheme, layoutDirection) { NavigationTransitions(motionScheme, layoutDirection) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val pageOffsetPx = with(density) { com.lomo.ui.theme.PageTransitionDistance.toPx() }
+    val transitions =
+        remember(motionScheme, layoutDirection, pageOffsetPx) {
+            NavigationTransitions(motionScheme, layoutDirection, pageOffsetPx)
+        }
     NavHost(
         navController = navController,
         startDestination = NavRoute.Main,
@@ -154,6 +149,8 @@ private fun LomoNavigationGraph(
         exitTransition = transitions.standardExit,
         popEnterTransition = transitions.standardPopEnter,
         popExitTransition = transitions.standardPopExit,
+        predictivePopEnterTransition = { transitions.standardPopEnter(this) },
+        predictivePopExitTransition = { transitions.standardPopExit(this) },
     ) {
         addSharedTransitionDestinations(
             transitions = transitions,
@@ -165,6 +162,7 @@ private fun LomoNavigationGraph(
             mainForegroundEntryId = mainForegroundEntryId,
         )
         addNonSharedDestinations(
+            navigateToImage = navigateToImage,
             transitions = transitions,
             navController = navController,
             popBackStackSafely = popBackStackSafely,
@@ -205,7 +203,6 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
             onNavigateToImage = navigateToImage,
             onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
             onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
-            onNavigateToTasks = { navController.navigate(NavRoute.Tasks) },
             onNavigateToStatistics = { navController.navigate(NavRoute.Statistics) },
             onNavigateToShare = navigateToShare,
             lanShareEnabled = lanShareEnabled,
@@ -274,11 +271,16 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
             }
         }
     }
-    addImageViewerDestination(transitions = transitions, popBackStackSafely = popBackStackSafely)
+    addImageViewerDestination(
+        transitions = transitions,
+        popBackStackSafely = popBackStackSafely,
+        navController = navController,
+    )
 }
 
 private fun NavGraphBuilder.addNonSharedDestinations(
     transitions: NavigationTransitions,
+    navigateToImage: (ImageViewerRequest) -> Unit,
     navController: NavHostController,
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
@@ -300,7 +302,12 @@ private fun NavGraphBuilder.addNonSharedDestinations(
     }
 
     composable<NavRoute.Trash> {
-        TrashScreen(onBackClick = popBackStackSafely)
+        val mainViewModel: MainViewModel = activityKoinViewModel()
+        TrashScreen(
+            onBackClick = popBackStackSafely,
+            onNavigateToImage = navigateToImage,
+            onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
+        )
     }
 
     composable<NavRoute.Search>(
@@ -311,6 +318,7 @@ private fun NavGraphBuilder.addNonSharedDestinations(
     ) {
         val mainViewModel: MainViewModel = activityKoinViewModel()
         SearchScreen(
+            onNavigateToImage = navigateToImage,
             onBackClick = popBackStackSafely,
             onNavigateToShare = navigateToShare,
             onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
@@ -325,12 +333,6 @@ private fun NavGraphBuilder.addNonSharedDestinations(
         )
     }
 
-    composable<NavRoute.Tasks> {
-        com.lomo.app.feature.task.TasksScreen(
-            onBackClick = popBackStackSafely,
-        )
-    }
-
     composable<NavRoute.Share> {
         ShareScreen(onBackClick = popBackStackSafely)
     }
@@ -339,6 +341,7 @@ private fun NavGraphBuilder.addNonSharedDestinations(
 @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 private fun NavGraphBuilder.addImageViewerDestination(
     transitions: NavigationTransitions,
+    navController: NavHostController,
     popBackStackSafely: () -> Unit,
 ) {
     composable<NavRoute.ImageViewer>(
@@ -351,28 +354,35 @@ private fun NavGraphBuilder.addImageViewerDestination(
         androidx.compose.animation.SharedTransitionLayout {
             val route = entry.toRoute<NavRoute.ImageViewer>()
             val mainViewModel: MainViewModel = activityKoinViewModel()
-            val galleryMemos = mainViewModel.galleryPagedUiMemos.collectAsLazyPagingItems()
+            val liveMemoFlow = androidx.compose.runtime.remember(mainViewModel, route.memoId) {
+                route.memoId?.let(mainViewModel.observeMemoUiModel)
+                    ?: kotlinx.coroutines.flow.flowOf(null)
+            }
+            val liveMemo by liveMemoFlow.collectAsStateWithLifecycle(initialValue = null)
             val appPreferences by mainViewModel.appPreferences.collectAsStateWithLifecycle()
             val decodedUrl = URLDecoder.decode(route.url, StandardCharsets.UTF_8.toString())
+            val imagePayload = androidx.compose.runtime.remember(route.payloadKey) {
+                ImageViewerRoutePayloadStore.get(route.payloadKey)
+            }
             val imageUrls =
-                androidx.compose.runtime.remember(route.payloadKey, decodedUrl) {
-                    ImageViewerRoutePayloadStore
-                        .getImageUrls(route.payloadKey)
-                        ?.ifEmpty { null }
+                androidx.compose.runtime.remember(imagePayload, decodedUrl) {
+                    imagePayload?.imageUrls
                         ?: decodedUrl.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
                 }
             val (request, memoChromeEnabled) =
                 androidx.compose.runtime.remember(
+                    imagePayload,
                     imageUrls,
                     route.initialIndex,
                     route.memoId,
-                    galleryMemos.itemSnapshotList.items,
+                    liveMemo,
                 ) {
                     buildSingleMemoGalleryReelRequest(
+                        sourceMemo = liveMemo ?: imagePayload?.memo,
                         imageUrls = imageUrls,
                         initialIndex = route.initialIndex,
                         memoId = route.memoId,
-                        galleryMemos = galleryMemos.itemSnapshotList.items,
+                        galleryMemos = listOfNotNull(liveMemo),
                     )
                 }
             ProvideSharedAnimationLocals(
@@ -380,6 +390,7 @@ private fun NavGraphBuilder.addImageViewerDestination(
                 animatedVisibilityScope = animatedVisibilityScope,
             ) {
                 GalleryReelScreen(
+                    onTagClick = { tag -> navController.navigate(NavRoute.Tag(tag)) },
                     request = request,
                     viewerMode = GalleryReelMode.SingleMemo,
                     memoChromeEnabled = memoChromeEnabled,
@@ -394,6 +405,7 @@ private fun NavGraphBuilder.addImageViewerDestination(
 }
 
 private fun buildSingleMemoGalleryReelRequest(
+    sourceMemo: MemoUiModel?,
     imageUrls: List<String>,
     initialIndex: Int,
     memoId: String?,
@@ -405,10 +417,9 @@ private fun buildSingleMemoGalleryReelRequest(
             .map(String::trim)
             .filter(String::isNotEmpty)
             .toList()
-    val matchingMemo =
-        memoId
-            ?.let { id -> galleryMemos.firstOrNull { uiModel -> uiModel.memo.id == id } }
-            ?.takeIf { uiModel -> uiModel.imageUrls.isNotEmpty() }
+    val matchingMemo = sourceMemo ?: memoId
+        ?.let { id -> galleryMemos.firstOrNull { uiModel -> uiModel.memo.id == id } }
+        ?.takeIf { uiModel -> uiModel.imageUrls.isNotEmpty() }
     val viewerMemo = matchingMemo ?: buildFallbackImageViewerMemo(normalizedUrls)
     val requestMemos =
         if (viewerMemo == null) {
@@ -436,23 +447,23 @@ private fun buildFallbackImageViewerMemo(imageUrls: List<String>): MemoUiModel? 
 
     return MemoUiModel(
         memo =
-            Memo(
-                id = "image-viewer:${imageUrls.joinToString(separator = "|").hashCode()}",
-                timestamp = 0L,
-                content = "",
-                rawContent = "",
-                dateKey = "",
-                imageUrls = imageUrls,
-            ),
+        Memo(
+            id = "image-viewer:${imageUrls.joinToString(separator = "|").hashCode()}",
+            timestamp = 0L,
+            content = "",
+            rawContent = "",
+            dateKey = "",
+            imageUrls = imageUrls,
+        ),
         processedContent = "",
         renderDocument =
-            com.lomo.domain.model.markdown.MarkdownRenderDocument(
-                sourceByteLength = 0uL,
-                plainText = "",
-                tagNames = emptyList(),
-                attachments = emptyList(),
-                blocks = emptyList(),
-            ),
+        com.lomo.domain.model.markdown.MarkdownRenderDocument(
+            sourceByteLength = 0uL,
+            plainText = "",
+            tagNames = emptyList(),
+            attachments = emptyList(),
+            blocks = emptyList(),
+        ),
         tags = persistentListOf(),
         imageUrls = imageUrls.toImmutableList(),
     )

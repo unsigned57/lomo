@@ -13,10 +13,7 @@ enum class GalleryAspectKind {
     Landscape,
 }
 
-data class GalleryLayoutInput(
-    val memoId: String,
-    val firstImageUrl: String,
-)
+data class GalleryLayoutInput(val memoId: String, val firstImageUrl: String)
 
 data class GalleryMosaicTile(
     val memoId: String,
@@ -29,24 +26,14 @@ data class GalleryMosaicTile(
     val rowSpan: Int,
 )
 
-data class GalleryMosaicLayout(
-    val tiles: ImmutableList<GalleryMosaicTile>,
-    val rowCount: Int,
+data class GalleryMosaicLayout(val tiles: ImmutableList<GalleryMosaicTile>, val rowCount: Int)
+
+fun galleryLayoutInput(memoId: String, firstImageUrl: String): GalleryLayoutInput = GalleryLayoutInput(
+    memoId = memoId,
+    firstImageUrl = firstImageUrl,
 )
 
-fun galleryLayoutInput(
-    memoId: String,
-    firstImageUrl: String,
-): GalleryLayoutInput =
-    GalleryLayoutInput(
-        memoId = memoId,
-        firstImageUrl = firstImageUrl,
-    )
-
-fun gallerySharedElementKey(
-    memoId: String,
-    imageIndex: Int,
-): String = "gallery:$memoId:$imageIndex"
+fun gallerySharedElementKey(memoId: String, imageIndex: Int): String = "gallery:$memoId:$imageIndex"
 
 internal fun resolveGalleryAspectByMemoIdOrNull(
     layoutInputs: List<GalleryLayoutInput>,
@@ -59,14 +46,12 @@ internal fun resolveGalleryAspectByMemoIdOrNull(
     return aspectByMemoId
 }
 
-internal fun sanitizeGalleryAspect(aspectRatio: Float?): Float =
-    aspectRatio
-        ?.takeIf { it.isFinite() && it > 0f }
-        ?: GALLERY_DEFAULT_ASPECT_RATIO
+internal fun sanitizeGalleryAspect(aspectRatio: Float?): Float = aspectRatio
+    ?.takeIf { it.isFinite() && it > 0f }
+    ?: GALLERY_DEFAULT_ASPECT_RATIO
 
-internal fun galleryAspectKindFor(aspectRatio: Float): GalleryAspectKind =
-    when {
-        aspectRatio < GALLERY_PORTRAIT_ASPECT_MAX -> GalleryAspectKind.Portrait
-        aspectRatio > GALLERY_LANDSCAPE_ASPECT_MIN -> GalleryAspectKind.Landscape
-        else -> GalleryAspectKind.Square
-    }
+internal fun galleryAspectKindFor(aspectRatio: Float): GalleryAspectKind = when {
+    aspectRatio < GALLERY_PORTRAIT_ASPECT_MAX -> GalleryAspectKind.Portrait
+    aspectRatio > GALLERY_LANDSCAPE_ASPECT_MIN -> GalleryAspectKind.Landscape
+    else -> GalleryAspectKind.Square
+}

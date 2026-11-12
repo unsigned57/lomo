@@ -14,26 +14,23 @@ object ShareTransferLimits {
     const val MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES =
         MAX_TOTAL_ATTACHMENT_SIZE_BYTES + (MAX_ATTACHMENTS * GCM_TAG_BYTES)
 
-    fun maxMemoChars(e2eEnabled: Boolean): Int =
-        if (e2eEnabled) {
-            MAX_ENCRYPTED_MEMO_CHARS
-        } else {
-            MAX_MEMO_CHARS
-        }
+    fun maxMemoChars(e2eEnabled: Boolean): Int = if (e2eEnabled) {
+        MAX_ENCRYPTED_MEMO_CHARS
+    } else {
+        MAX_MEMO_CHARS
+    }
 
-    fun maxAttachmentPayloadBytes(e2eEnabled: Boolean): Long =
-        if (e2eEnabled) {
-            MAX_ATTACHMENT_ENCRYPTED_SIZE_BYTES
-        } else {
-            MAX_ATTACHMENT_SIZE_BYTES
-        }
+    fun maxAttachmentPayloadBytes(e2eEnabled: Boolean): Long = if (e2eEnabled) {
+        MAX_ATTACHMENT_ENCRYPTED_SIZE_BYTES
+    } else {
+        MAX_ATTACHMENT_SIZE_BYTES
+    }
 
-    fun maxTotalAttachmentPayloadBytes(e2eEnabled: Boolean): Long =
-        if (e2eEnabled) {
-            MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES
-        } else {
-            MAX_TOTAL_ATTACHMENT_SIZE_BYTES
-        }
+    fun maxTotalAttachmentPayloadBytes(e2eEnabled: Boolean): Long = if (e2eEnabled) {
+        MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES
+    } else {
+        MAX_TOTAL_ATTACHMENT_SIZE_BYTES
+    }
 
     fun isAttachmentCountValid(count: Int): Boolean = count <= MAX_ATTACHMENTS
 }

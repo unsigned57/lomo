@@ -13,10 +13,7 @@ package com.lomo.ui.text
  * other and land after all measured blocks so they don't disrupt active highlights while
  * Compose is still settling layout.
  */
-internal fun resolveMemoBlockOrderByY(
-    registrationOrder: List<Any>,
-    yByKey: Map<Any, Float>,
-): List<Any> {
+internal fun resolveMemoBlockOrderByY(registrationOrder: List<Any>, yByKey: Map<Any, Float>): List<Any> {
     if (registrationOrder.isEmpty()) return emptyList()
     val measured = mutableListOf<Pair<Any, Float>>()
     val unmeasured = mutableListOf<Any>()

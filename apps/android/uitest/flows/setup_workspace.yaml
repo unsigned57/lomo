@@ -1,0 +1,33 @@
+# Ensures the app has a memo directory selected. Runs standalone or invoked by
+# other flows through `runFlow: setup_workspace.yaml`; the pick sequence only
+# executes while the empty-state "Go to Settings" call-to-action is visible, so
+# it is a no-op once a workspace is configured.
+#
+# The DocumentsUI steps are system-UI selectors (com.android.documentsui), not
+# Lomo anchors; they match the API 36 AVD images this project tests against.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow:
+    when:
+      visible: "Go to Settings"
+    commands:
+      - tapOn: "Go to Settings"
+      - assertVisible: "Memo Directory"
+      - tapOn: "Memo Directory"
+      - assertVisible:
+          id: "option_menu_create_dir"
+      - tapOn:
+          id: "option_menu_create_dir"
+      - inputText: "lomo-uitest"
+      - tapOn: "OK"
+      - tapOn: "USE THIS FOLDER"
+      - tapOn: "Allow"
+      - assertVisible:
+          id: "benchmark_settings_root"
+      - waitForAnimationToEnd
+      - tapOn:
+          id: "benchmark_settings_back_button"
+      - waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_main_root"

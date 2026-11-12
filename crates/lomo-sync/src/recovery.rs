@@ -602,6 +602,6 @@ pub fn reset_sync_control_tree(paths: &SyncPaths) -> Result<(), LomoError> {
 /// Helper for tests: workspace-relative check that a path is under the sync control root.
 #[must_use]
 pub fn path_is_sync_control(workspace_root: &Path, candidate: &Path) -> bool {
-    let root = SyncPaths::for_workspace(workspace_root).root;
+    let root = SyncPaths::for_control_root(workspace_root).root;
     candidate.starts_with(root)
 }

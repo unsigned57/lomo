@@ -48,44 +48,38 @@ import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.nativebridge.RenderDocument
 import com.lomo.nativebridge.RenderNode
 import com.lomo.nativebridge.RenderNodeKind
-import com.lomo.nativebridge.WorkspaceMemoContentReference
-import com.lomo.nativebridge.WorkspaceMemoSummary
-import com.lomo.nativebridge.WorkspaceScanPage
-import com.lomo.nativebridge.WorkspaceReminderReference
 import com.lomo.nativebridge.WorkspaceDocumentCommandResult
 import com.lomo.nativebridge.WorkspaceDocumentMemoFacts
-import com.lomo.nativebridge.WorkspaceTrashCommandResult
-import com.lomo.nativebridge.WorkspaceTrashMemoSummary
-import com.lomo.nativebridge.WorkspaceTrashScanPage
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import java.security.MessageDigest
 
-class BoltFfiWorkspaceNativeAdapterTest : FunSpec({
-    test("given a valid typed tag node when converted then kind text and byte span are preserved") {
-        val document =
-            renderDocument(
-                nodes =
+class BoltFfiWorkspaceNativeAdapterTest :
+    FunSpec({
+        test("given a valid typed tag node when converted then kind text and byte span are preserved") {
+            val document =
+                renderDocument(
+                    nodes =
                     listOf(
                         renderNode(kind = RenderNodeKind.PARAGRAPH, text = null, end = 7uL),
                         renderNode(kind = RenderNodeKind.TAG, text = "标签", end = 7uL, depth = 2u),
                     ),
-            ).toDomainDocument(sourceContent = "#标签")
+                ).toDomainDocument(sourceContent = "#标签")
 
-        val paragraph = document.blocks.single().shouldBeInstanceOf<MarkdownRenderBlock.Paragraph>()
-        paragraph.inlines.single() shouldBe
-            MarkdownRenderInline.Tag(
-                sourceSpan = MarkdownSourceSpan(startByte = 0uL, endByte = 7uL),
-                name = "标签",
-            )
-    }
+            val paragraph = document.blocks.single().shouldBeInstanceOf<MarkdownRenderBlock.Paragraph>()
+            paragraph.inlines.single() shouldBe
+                MarkdownRenderInline.Tag(
+                    sourceSpan = MarkdownSourceSpan(startByte = 0uL, endByte = 7uL),
+                    name = "标签",
+                )
+        }
 
-    test("given typed link image and task nodes when converted then nested interaction facts are preserved") {
-        val document =
-            renderDocument(
-                nodes =
+        test("given typed link image and task nodes when converted then nested interaction facts are preserved") {
+            val document =
+                renderDocument(
+                    nodes =
                     listOf(
                         renderNode(kind = RenderNodeKind.PARAGRAPH, text = null, end = 15uL),
                         renderNode(
@@ -116,22 +110,22 @@ class BoltFfiWorkspaceNativeAdapterTest : FunSpec({
                         renderNode(kind = RenderNodeKind.PARAGRAPH, text = null, end = 40uL, depth = 3u),
                         renderNode(text = "task", end = 40uL, depth = 4u),
                     ),
-            ).toDomainDocument(sourceContent = "x".repeat(40))
+                ).toDomainDocument(sourceContent = "x".repeat(40))
 
-        val paragraph = document.blocks[0].shouldBeInstanceOf<MarkdownRenderBlock.Paragraph>()
-        paragraph.inlines[0].shouldBeInstanceOf<MarkdownRenderInline.Link>().destination shouldBe
-            "https://lomo.app"
-        paragraph.inlines[1].shouldBeInstanceOf<MarkdownRenderInline.Image>().destination shouldBe
-            "images/cover.png"
-        val list = document.blocks[1].shouldBeInstanceOf<MarkdownRenderBlock.ListBlock>()
-        list.items.single().actionSpan shouldBe MarkdownSourceSpan(16uL, 19uL)
-        list.items.single().checked shouldBe false
-    }
+            val paragraph = document.blocks[0].shouldBeInstanceOf<MarkdownRenderBlock.Paragraph>()
+            paragraph.inlines[0].shouldBeInstanceOf<MarkdownRenderInline.Link>().destination shouldBe
+                "https://lomo.app"
+            paragraph.inlines[1].shouldBeInstanceOf<MarkdownRenderInline.Image>().destination shouldBe
+                "images/cover.png"
+            val list = document.blocks[1].shouldBeInstanceOf<MarkdownRenderBlock.ListBlock>()
+            list.items.single().actionSpan shouldBe MarkdownSourceSpan(16uL, 19uL)
+            list.items.single().checked shouldBe false
+        }
 
-    test("given typed table cells when converted then header and contiguous rows are reconstructed") {
-        val document =
-            renderDocument(
-                nodes =
+        test("given typed table cells when converted then header and contiguous rows are reconstructed") {
+            val document =
+                renderDocument(
+                    nodes =
                     listOf(
                         renderNode(kind = RenderNodeKind.TABLE, text = null, end = 12uL),
                         renderNode(kind = RenderNodeKind.TABLE_HEADER_CELL, text = null, end = 4uL, depth = 2u),
@@ -145,52 +139,53 @@ class BoltFfiWorkspaceNativeAdapterTest : FunSpec({
                         ),
                         renderNode(text = "cell", end = 12uL, depth = 3u),
                     ),
-            ).toDomainDocument(sourceContent = "x".repeat(12))
+                ).toDomainDocument(sourceContent = "x".repeat(12))
 
-        val table = document.blocks.single().shouldBeInstanceOf<MarkdownRenderBlock.Table>()
-        table.header.single().inlines.single().shouldBeInstanceOf<MarkdownRenderInline.Text>().text shouldBe "head"
-        table.rows.single().single().inlines.single().shouldBeInstanceOf<MarkdownRenderInline.Text>().text shouldBe "cell"
-    }
+            val table = document.blocks.single().shouldBeInstanceOf<MarkdownRenderBlock.Table>()
+            table.header.single().inlines.single().shouldBeInstanceOf<MarkdownRenderInline.Text>().text shouldBe "head"
+            table.rows.single().single().inlines.single().shouldBeInstanceOf<MarkdownRenderInline.Text>().text shouldBe
+                "cell"
+        }
 
-    test("given an unknown schema when converted then it fails closed") {
-        val error =
-            shouldThrow<WorkspaceRenderBoundaryException> {
-                renderDocument(schemaVersion = 2u).toDomainDocument(sourceContent = "text")
-            }
+        test("given an unknown schema when converted then it fails closed") {
+            val error =
+                shouldThrow<WorkspaceRenderBoundaryException> {
+                    renderDocument(schemaVersion = 2u).toDomainDocument(sourceContent = "text")
+                }
 
-        error.code shouldBe "unknown_render_schema"
-    }
+            error.code shouldBe "unknown_render_schema"
+        }
 
-    test("given a mismatched node count when converted then it fails closed") {
-        val error =
-            shouldThrow<WorkspaceRenderBoundaryException> {
-                renderDocument(nodeCount = 3u).toDomainDocument(sourceContent = "text")
-            }
+        test("given a mismatched node count when converted then it fails closed") {
+            val error =
+                shouldThrow<WorkspaceRenderBoundaryException> {
+                    renderDocument(nodeCount = 3u).toDomainDocument(sourceContent = "text")
+                }
 
-        error.code shouldBe "render_node_count_mismatch"
-    }
+            error.code shouldBe "render_node_count_mismatch"
+        }
 
-    test("given an out of source span when converted then it fails closed") {
-        val error =
+        test("given an out of source span when converted then it fails closed") {
+            val error =
+                shouldThrow<WorkspaceRenderBoundaryException> {
+                    renderDocument(
+                        nodes = listOf(renderNode(kind = RenderNodeKind.PARAGRAPH, text = null, end = 5uL)),
+                    ).toDomainDocument(sourceContent = "x")
+                }
+
+            error.code shouldBe "render_span_out_of_bounds"
+        }
+
+        test("given excessive depth or incomplete action span when converted then it fails closed") {
             shouldThrow<WorkspaceRenderBoundaryException> {
                 renderDocument(
-                    nodes = listOf(renderNode(kind = RenderNodeKind.PARAGRAPH, text = null, end = 5uL)),
-                ).toDomainDocument(sourceContent = "x")
-            }
+                    nodes = listOf(renderNode(kind = RenderNodeKind.PARAGRAPH, text = null, depth = 65u)),
+                ).toDomainDocument(sourceContent = "text")
+            }.code shouldBe "render_depth_out_of_bounds"
 
-        error.code shouldBe "render_span_out_of_bounds"
-    }
-
-    test("given excessive depth or incomplete action span when converted then it fails closed") {
-        shouldThrow<WorkspaceRenderBoundaryException> {
-            renderDocument(
-                nodes = listOf(renderNode(kind = RenderNodeKind.PARAGRAPH, text = null, depth = 65u)),
-            ).toDomainDocument(sourceContent = "text")
-        }.code shouldBe "render_depth_out_of_bounds"
-
-        shouldThrow<WorkspaceRenderBoundaryException> {
-            renderDocument(
-                nodes =
+            shouldThrow<WorkspaceRenderBoundaryException> {
+                renderDocument(
+                    nodes =
                     listOf(
                         renderNode(kind = RenderNodeKind.LIST, text = null),
                         renderNode(
@@ -201,17 +196,17 @@ class BoltFfiWorkspaceNativeAdapterTest : FunSpec({
                             actionEnd = null,
                         ),
                     ),
-            ).toDomainDocument(sourceContent = "text")
-        }.code shouldBe "render_action_span_incomplete"
-    }
+                ).toDomainDocument(sourceContent = "text")
+            }.code shouldBe "render_action_span_incomplete"
+        }
 
-    test("given affected memo facts when command result converts then projection facts are preserved") {
-        val result =
-            WorkspaceDocumentCommandResult(
-                path = "2026_08_09.md",
-                resultFingerprint = "a".repeat(64),
-                bytesWritten = 42uL,
-                affectedMemo =
+        test("given affected memo facts when command result converts then projection facts are preserved") {
+            val result =
+                WorkspaceDocumentCommandResult(
+                    path = "2026_08_09.md",
+                    resultFingerprint = "a".repeat(64),
+                    bytesWritten = 42uL,
+                    affectedMemo =
                     WorkspaceDocumentMemoFacts(
                         path = "2026_08_09.md",
                         identity = "2026_08_09_20:44:00_0",
@@ -224,31 +219,29 @@ class BoltFfiWorkspaceNativeAdapterTest : FunSpec({
                         hasUrl = true,
                         content = null,
                     ),
-            )
+                )
 
-        val snapshot = result.toSnapshot()
+            val snapshot = result.toSnapshot()
 
-        snapshot.affectedMemo shouldBe
-            WorkspaceDocumentMemoFactsSnapshot(
-                path = "2026_08_09.md",
-                identity = "2026_08_09_20:44:00_0",
-                timePart = "20:44:00",
-                fingerprint = "a".repeat(64),
-                tags = listOf("rust"),
-                attachments = listOf("images/probe.png"),
-                reminders = emptyList(),
-                hasTodo = true,
-                hasUrl = true,
-            )
-    }
+            snapshot.affectedMemo shouldBe
+                WorkspaceDocumentMemoFactsSnapshot(
+                    path = "2026_08_09.md",
+                    identity = "2026_08_09_20:44:00_0",
+                    timePart = "20:44:00",
+                    fingerprint = "a".repeat(64),
+                    tags = listOf("rust"),
+                    attachments = listOf("images/probe.png"),
+                    reminders = emptyList(),
+                    hasTodo = true,
+                    hasUrl = true,
+                )
+        }
+    })
 
-})
-
-private fun testSha256Hex(bytes: ByteArray): String =
-    MessageDigest
-        .getInstance("SHA-256")
-        .digest(bytes)
-        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+private fun testSha256Hex(bytes: ByteArray): String = MessageDigest
+    .getInstance("SHA-256")
+    .digest(bytes)
+    .joinToString(separator = "") { byte -> "%02x".format(byte) }
 
 private fun renderDocument(
     schemaVersion: UInt = 1u,
@@ -258,15 +251,14 @@ private fun renderDocument(
             renderNode(depth = 2u),
         ),
     nodeCount: UInt = nodes.size.toUInt(),
-): RenderDocument =
-    RenderDocument(
-        schemaVersion = schemaVersion,
-        plainText = "text",
-        nodeCount = nodeCount,
-        tagNames = emptyList(),
-        attachments = emptyList(),
-        nodes = nodes,
-    )
+): RenderDocument = RenderDocument(
+    schemaVersion = schemaVersion,
+    plainText = "text",
+    nodeCount = nodeCount,
+    tagNames = emptyList(),
+    attachments = emptyList(),
+    nodes = nodes,
+)
 
 private fun renderNode(
     kind: RenderNodeKind = RenderNodeKind.TEXT,
@@ -282,20 +274,19 @@ private fun renderNode(
     actionEnd: ULong? = null,
     mediaClass: com.lomo.nativebridge.MediaClass? =
         if (kind == RenderNodeKind.IMAGE) com.lomo.nativebridge.MediaClass.IMAGE else null,
-): RenderNode =
-    RenderNode(
-        kind = kind,
-        sourceStart = 0uL,
-        sourceEnd = end,
-        depth = depth,
-        text = text,
-        destination = destination,
-        title = null,
-        level = level,
-        ordered = ordered,
-        listStart = listStart,
-        checked = checked,
-        actionStart = actionStart,
-        actionEnd = actionEnd,
-        mediaClass = mediaClass,
-    )
+): RenderNode = RenderNode(
+    kind = kind,
+    sourceStart = 0uL,
+    sourceEnd = end,
+    depth = depth,
+    text = text,
+    destination = destination,
+    title = null,
+    level = level,
+    ordered = ordered,
+    listStart = listStart,
+    checked = checked,
+    actionStart = actionStart,
+    actionEnd = actionEnd,
+    mediaClass = mediaClass,
+)

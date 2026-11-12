@@ -1,13 +1,13 @@
 package com.lomo.ui.text
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.ui.text
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.floats.plusOrMinus
@@ -26,11 +25,18 @@ import io.kotest.matchers.shouldBe
  * - Unit under test: MemoTextLayoutEngine in the ui-components text layer.
  * - Behavior focus: Compose-native memo text layout must support CJK justification while keeping
  *   English and English-dominant prose ragged-right, preserving configured base letter spacing,
- *   and respecting parent visible height limits for collapsed previews.
- * - Observable outcomes: line widths, chosen expansion slots, forced long-token breaks, and
- *   protected-range expansion exclusion, ellipsis placement, and resolved max visible lines.
+ *   and respecting parent visible height limits for collapsed previews. CJK justification is
+ *   bounded to 0.15em per expansion slot and falls back to ragged layout beyond that cap, and
+ *   line breaking follows kinsoku rules so closing/neutral punctuation never starts a line and
+ *   opening punctuation never ends one.
+ * - Observable outcomes: line widths, chosen expansion slots, per-slot expansion cap, ragged
+ *   fallback when required expansion exceeds the cap, punctuation hanging on the current line,
+ *   opening punctuation carried to the next line, forced long-token breaks, protected-range
+ *   expansion exclusion, ellipsis placement, and resolved max visible lines.
  * - TDD proof: Fails before the English-layout fix because the layout engine justifies pure
  *   English and English-dominant non-final lines by stretching spaces to the container width.
+ *   The new cap and kinsoku scenarios fail before this change because the engine expands slots
+ *   without bound and lets closing punctuation land at a line start.
  * - Excludes: OEM glyph rasterization, Canvas drawing pixels, Android TextView internals, and
  *   Compose semantics tree inspection.
  */
@@ -46,6 +52,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
                         text = "中文中文中文中文",
                         maxWidthPx = 44f,
                         baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
                     ),
                 )
 
@@ -64,6 +71,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
                         text = "今天设计中文 review 中文排版内容",
                         maxWidthPx = 110f,
                         baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
                     ),
                 )
 
@@ -82,6 +90,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
                         text = "alpha beta gamma delta",
                         maxWidthPx = 60f,
                         baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
                     ),
                 )
 
@@ -98,6 +107,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
                         text = "today review memo 设计",
                         maxWidthPx = 80f,
                         baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
                     ),
                 )
 
@@ -114,6 +124,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
                         text = "中文中文中文中文中文",
                         maxWidthPx = 44f,
                         baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
                     ),
                 )
             val withSpacing =
@@ -122,6 +133,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
                         text = "中文中文中文中文中文",
                         maxWidthPx = 44f,
                         baseLetterSpacingPx = 1f,
+                        fontSizePx = 10f,
                     ),
                 )
 
@@ -137,6 +149,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
                         text = "中文「链接文本」中文",
                         maxWidthPx = 74f,
                         baseLetterSpacingPx = 0f,
+                        fontSizePx = 20f,
                         protectedRanges = listOf(MemoTextProtectedRange(start = 3, end = 7)),
                     ),
                 )
@@ -147,6 +160,104 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
             (firstLine.expansionSlots.none { it.boundaryOffset in 4..6 }) shouldBe true
         }
 
+        test("justified per-slot expansion stays within the 0.15em cap") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文中文中文中文",
+                        maxWidthPx = 44f,
+                        baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
+                    ),
+                )
+
+            val firstLine = layout.lines.first()
+            (firstLine.isJustified) shouldBe true
+            (firstLine.expansionSlots.isNotEmpty()) shouldBe true
+            (firstLine.expansionSlots.all { it.extraWidthPx <= 1.5f }) shouldBe true
+        }
+
+        test("justification exceeding the 0.15em cap falls back to ragged layout") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文中文中文中文",
+                        maxWidthPx = 50f,
+                        baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
+                    ),
+                )
+
+            val firstLine = layout.lines.first()
+            (firstLine.isJustified) shouldBe false
+            (firstLine.expansionSlots.isEmpty()) shouldBe true
+            (firstLine.visualWidthPx) shouldBe ((firstLine.naturalWidthPx) plusOrMinus (FLOAT_DELTA))
+        }
+
+        test("closing cjk punctuation hangs on the overflowing line instead of starting a new line") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文中文。文文",
+                        maxWidthPx = 40f,
+                        baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
+                    ),
+                )
+
+            (layout.lines.size > 1) shouldBe true
+            (layout.lines[0].runs.last().text) shouldBe "。"
+            (layout.lines[1].runs.first().text) shouldBe "文"
+        }
+
+        test("consecutive closing punctuation stays attached to the overflowing line") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文中文。，文",
+                        maxWidthPx = 40f,
+                        baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
+                    ),
+                )
+
+            (layout.lines.size > 1) shouldBe true
+            (layout.lines[0].runs.last().text) shouldBe "，"
+            (layout.lines[1].runs.first().text) shouldBe "文"
+        }
+
+        test("opening punctuation carries to the next line instead of ending the current line") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文中文「文文",
+                        maxWidthPx = 46f,
+                        baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
+                    ),
+                )
+
+            (layout.lines.size > 1) shouldBe true
+            (layout.lines[0].runs.last().text) shouldBe "文"
+            (layout.lines[1].runs.first().text) shouldBe "「"
+        }
+
+        test("ascii punctuation hangs on the overflowing line instead of starting a new line") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "word word, word",
+                        maxWidthPx = 44f,
+                        baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
+                    ),
+                )
+
+            (layout.lines.size > 1) shouldBe true
+            (layout.lines[0].runs.last().text) shouldBe ","
+            (layout.lines[1].runs.first().text) shouldBe "word"
+        }
+
         test("oversized latin token uses forced character breaks instead of overflowing indefinitely") {
             val layout =
                 engine.layout(
@@ -154,6 +265,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
                         text = "supercalifragilistic",
                         maxWidthPx = 25f,
                         baseLetterSpacingPx = 0f,
+                        fontSizePx = 10f,
                     ),
                 )
 
@@ -169,6 +281,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
                         text = "中文中文中文中文中文中文",
                         maxWidthPx = 44f,
                         maxLines = 1,
+                        fontSizePx = 10f,
                         ellipsizeLastVisibleLine = true,
                     ),
                 )
@@ -231,11 +344,7 @@ class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
 }
 
 private class FakeMemoTextMeasurer : MemoTextMeasurer {
-    override fun measureText(
-        text: String,
-        start: Int,
-        end: Int,
-    ): Float {
+    override fun measureText(text: String, start: Int, end: Int): Float {
         var width = 0f
         var index = start
         while (index < end) {
@@ -253,5 +362,4 @@ private class FakeMemoTextMeasurer : MemoTextMeasurer {
     }
 }
 
-private fun Char.isChineseLayoutPunctuationForTest(): Boolean =
-    this == '「' || this == '」' || this == '，' || this == '。'
+private fun Char.isChineseLayoutPunctuationForTest(): Boolean = this == '「' || this == '」' || this == '，' || this == '。'

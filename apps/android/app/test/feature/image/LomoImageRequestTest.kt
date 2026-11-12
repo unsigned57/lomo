@@ -1,6 +1,6 @@
 package com.lomo.app.feature.image
 
-/**
+/*
  * Behavior Contract:
  * - Unit under test: Lomo image request builders.
  * - Owning layer: app.
@@ -30,7 +30,6 @@ package com.lomo.app.feature.image
  * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
  * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
-
 
 import android.content.Context
 import coil3.size.Dimension

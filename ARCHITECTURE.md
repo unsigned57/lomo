@@ -11,10 +11,10 @@ This document defines the immutable architecture and authority model for Lomo. I
 ### Kotlin Modules (`apps/android/`)
 - `domain`: Platform-neutral contracts, use cases, and pure models. Zero Android, persistence, network, DI, or FFI dependencies.
 - `data`: Platform executor and persistence implementations (SAF, Keystore, WorkManager, engine session lifecycle). Sole production consumer of generated `native-bindings`.
-- `app`: UI screens, navigation, and state presentation. Business code consumes domain contracts; reusable UI comes from `ui-components`. The composition root packages `data` as a runtime-only dependency, without a compile-time dependency on its implementations. UI/framework dependencies do not confer domain or storage authority.
+- `app`: UI screens, navigation, and state presentation. Business code consumes domain contracts; reusable UI comes from `ui-components`. The composition root packages `data` as a runtime-only dependency, without a compile-time dependency on its implementations. The app manifest owns APK permissions and OS component registrations, including data-owned background receivers and services; these declarative runtime registrations do not create a Kotlin compile dependency. Data activities/application classes remain forbidden in the app manifest. UI/framework dependencies do not confer domain or storage authority.
 - `ui-components`: Pure, reusable presentation components without business logic or platform integration.
 - `native-bindings`: Generated Kotlin/JNI declarations. Build output only; never committed.
-- `benchmark`: Standalone Gradle instrumented-test harness (AndroidX Macrobenchmark) measuring the installed debug APK through `just android benchmark`. Not an Amper module, ships no product code and holds no domain authority.
+- `benchmark`: Standalone Gradle instrumented-test harness (AndroidX Macrobenchmark) measuring the installed debug APK through `just build android benchmark`. Not an Amper module, ships no product code and holds no domain authority.
 
 ### Rust Crates (`crates/`)
 - `lomo-application`: Sole authority for workspace session orchestration, durable document write transactions, dual-mode retrieval, task aggregation, statistics, daily review, reminder planning, history/trash/archive lifecycle, platform action staging via exchange tokens, operation idempotency journals, private state/cache isolation, and full/incremental SQLite query projection rebuilds.
@@ -27,8 +27,8 @@ This document defines the immutable architecture and authority model for Lomo. I
 - `lomo-platform-fs`: Host filesystem implementation of the core `PlatformActionExecutor` protocol for desktop targets (Linux, macOS, Windows). Owns root capabilities bound to pinned directory anchors, SHA-256 checked atomic file I/O, process file locks, and directory change observation. Per-OS mechanisms live in this crate; its domain evidence contract stays shared. It contains no application, SQLite, UI, or network policy.
 - `lomo-native`: Sole business FFI facade and JNI boundary. Converts foreign DTOs onto `lomo-application` and owner crates; it does not own document, projection, or network policy.
 - `boltffi-facade` (package `boltffi`): Repository-owned facade over `boltffi_core` controlling macro expansion without enabling codec features.
-- `lomo-feasibility`: Corpus extraction, redaction, and offline feasibility analysis tooling.
-- `lomo-xtask`: Build, packaging, and quality orchestration tooling.
+- `lomo-feasibility`: Corpus extraction, redaction, and offline feasibility analysis tooling. May consume platform-neutral `lomo-core` codecs and types.
+- `lomo-xtask`: Build, packaging, and quality orchestration tooling. May consume `lomo-feasibility` and platform-neutral `lomo-core` codecs and types.
 - `lomo-architecture-tests`: Repository and cross-language architecture locks.
 
 ## Irreducible Architectural Invariants
@@ -45,11 +45,24 @@ Selecting a different library does not grant it another module's business author
 4. **Strict Boundary Facade**: Cross-language interactions flow strictly through the single native facade (`lomo-native` -> `native-bindings` -> `data`). No component may bypass this boundary.
 5. **Linux Host Independence**: The host crate closure (`lomo-application`, `lomo-core`, `lomo-workspace`, `lomo-store`, `lomo-media`, `lomo-platform-fs`, `lomo-tui`, `lomo-architecture-tests`, `lomo-xtask`) must have zero dependencies on Android SDK, NDK, JNI, or Android-specific runtime artifacts. Desktop OS backends remain within their owning adapters. The `host_dependency_closure_is_free_from_android_and_jni` architecture test enforces the Android/JNI exclusion in every verification gate.
 
+## Workspace storage
+
+The selected workspace carries Markdown documents, committed attachments, and recoverable memo
+Markdown under `.trash/`. `lomo-application` routes logical `.lomo` records and media lifecycle
+control paths to per-workspace private storage supplied by the host. Identity bindings, history,
+pins, generation fences, journals, sync control and derived indexes do not need to travel with the
+workspace. Android supplies app-private control and media staging roots. The TUI supplies its per-OS
+private control roots and retains its explicit host `media_dir` staging configuration.
+
+Existing external control trees are ignored and left untouched. Fresh private identity, history and
+pin state are rebuilt from user documents; there is no automatic import of old `.lomo` records.
+Export and synchronization carry user documents and attachments, not private control records.
+
 ## Source layout
 
 Kotlin modules use Amper `src/`, `test/` and resource roots without Maven/Java or common package-root
 directories; package declarations remain `com.lomo.*`. Test conventions belong to the language
 guides. The sole source-layout exception is the pair of Android baseline profile inputs:
-`apps/android/app/src/main/baseline-prof.txt` and
-`apps/android/app/src/main/baselineProfiles/generated.txt`. Regeneration and validation belong to
+`apps/android/app/src/main/baselineProfiles/startup-prof.txt` and
+`apps/android/app/src/main/baselineProfiles/generated.txt`. Device collection and validation belong to
 the [Quality Contract](quality/README.md#generated-state-and-failure-triage).

@@ -22,6 +22,36 @@ pub const SCALE_ATTACHMENT_LOGICAL_BYTES: u64 = 256 * 1024 * 1024;
 pub const CAPACITY_MEMO_COUNT: u64 = 1_000;
 pub const CAPACITY_REMOTE_CHANGES: u64 = 1_000;
 pub const CAPACITY_ATTACHMENT_LOGICAL_BYTES: u64 = 20 * 1024 * 1024 * 1024;
+/// Device-injection tier memo count.
+///
+/// A real user-shaped workspace (`yyyy_MM_dd.md` dated documents at the workspace root plus
+/// material `media/` payloads). The size bound is the SAF reconcile a fresh grant must
+/// survive, not `adb push` bytes: activation writes durable `.lomo` records per memo
+/// (history head + object + a share of the doc identity record), each one a single
+/// executor action through the SAF provider. Measured on emulator-5554 (API 36): ~0.35
+/// memos/s, so the original 6k sizing reconciles for ~5 hours -- past any instrumented
+/// wait. 240 memos over 24 dated documents keeps every journey anchor populated
+/// (scroll depth, drawer tags, search hits, dated structure) while a fresh activation
+/// stays inside ~12 minutes; a repeated push reuses retained `.lomo` state and
+/// reconciles read-bound instead.
+pub const DEVICE_MEMO_COUNT: u64 = 240;
+pub const DEVICE_MEMOS_PER_DOC: u64 = 10;
+pub const DEVICE_DOC_COUNT: u64 = DEVICE_MEMO_COUNT / DEVICE_MEMOS_PER_DOC;
+pub const DEVICE_MEDIA_COUNT: u64 = 96;
+pub const DEVICE_MEDIA_BYTES: u64 = 96 * 1024;
+
+/// ≥500-file enumeration workload (audit open item #3 / plan §3-D).
+///
+/// A real `media/bulk/` directory the `listchildren` engine probe walks through the
+/// production `PlatformAction::ListChildren` lane. Unreferenced binary payloads are safe
+/// under `media/` — the D6 orphan sweep is an explicit session call, not part of reconcile,
+/// so the directory survives activation and rebuilds. Small deterministic bodies keep
+/// `adb push` cost negligible while the directory size carries the measurement.
+pub const DEVICE_BULK_COUNT: u64 = 500;
+pub const DEVICE_BULK_BYTES: u64 = 256;
+/// Relative directory the `listchildren` probe targets — pinned here so the generator,
+/// the receiver extras, and the contract test can never disagree on the workload path.
+pub const DEVICE_BULK_DIR: &str = "media/bulk";
 
 /// Fixed-seed generation modes from the stage-0 plan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,6 +62,10 @@ pub enum CorpusMode {
     Scale,
     /// 20 GiB logical attachment capacity without materializing full bytes.
     Capacity,
+    /// Workspace-shaped corpus for device injection: dated documents at the workspace root
+    /// plus material media payloads; every byte is a real file so SAF/Direct indexing sees
+    /// production I/O.
+    Device,
 }
 
 impl CorpusMode {
@@ -45,6 +79,7 @@ impl CorpusMode {
             "quick" => Ok(Self::Quick),
             "scale" => Ok(Self::Scale),
             "capacity" => Ok(Self::Capacity),
+            "device" => Ok(Self::Device),
             other => Err(GenerateError::UnknownMode {
                 mode: other.to_owned(),
             }),
@@ -57,6 +92,7 @@ impl CorpusMode {
             Self::Quick => "quick",
             Self::Scale => "scale",
             Self::Capacity => "capacity",
+            Self::Device => "device",
         }
     }
 
@@ -77,6 +113,13 @@ impl CorpusMode {
                 memo_count: CAPACITY_MEMO_COUNT,
                 remote_change_count: CAPACITY_REMOTE_CHANGES,
                 attachment_logical_bytes: CAPACITY_ATTACHMENT_LOGICAL_BYTES,
+            },
+            // Device corpora materialize every byte as a workspace file; `logical` attachment
+            // weight is a host-tier shortcut that would hide real SAF/Direct I/O.
+            Self::Device => CorpusWorkloadV1 {
+                memo_count: DEVICE_MEMO_COUNT,
+                remote_change_count: 0,
+                attachment_logical_bytes: 0,
             },
         }
     }
@@ -122,34 +165,43 @@ pub fn generate_corpus(request: &GenerateRequest) -> Result<CorpusManifestV1, Ge
     let mut files = Vec::new();
     let mut logical_attachments = Vec::new();
 
-    append_golden_fixtures(
-        &request.fixture_root,
-        &request.output_dir,
-        &mut files,
-        &mut identities,
-    )?;
-    append_synthetic_memos(
-        request,
-        workload.memo_count,
-        &mut files,
-        &mut logical_attachments,
-        &mut identities,
-    )?;
-    append_synthetic_remotes(
-        request,
-        workload.remote_change_count,
-        &mut files,
-        &mut logical_attachments,
-        &mut identities,
-    )?;
-    append_capacity_attachment(
-        request,
-        workload.attachment_logical_bytes,
-        &mut logical_attachments,
-        &mut identities,
-    )?;
-    append_quick_media(request, &mut files, &mut identities)?;
-    append_git_scenarios(request, &mut files, &mut identities)?;
+    if request.mode == CorpusMode::Device {
+        // The device tier is injected into a real workspace, so it must be a user-shaped
+        // vault — dated `yyyy_MM_dd` documents at the root plus `media/` payloads — not the
+        // host-tier fixture/memo/remote/git buckets.
+        append_device_documents(request, &mut files, &mut identities)?;
+        append_device_media(request, &mut files, &mut identities)?;
+        append_device_bulk(request, &mut files, &mut identities)?;
+    } else {
+        append_golden_fixtures(
+            &request.fixture_root,
+            &request.output_dir,
+            &mut files,
+            &mut identities,
+        )?;
+        append_synthetic_memos(
+            request,
+            workload.memo_count,
+            &mut files,
+            &mut logical_attachments,
+            &mut identities,
+        )?;
+        append_synthetic_remotes(
+            request,
+            workload.remote_change_count,
+            &mut files,
+            &mut logical_attachments,
+            &mut identities,
+        )?;
+        append_capacity_attachment(
+            request,
+            workload.attachment_logical_bytes,
+            &mut logical_attachments,
+            &mut identities,
+        )?;
+        append_quick_media(request, &mut files, &mut identities)?;
+        append_git_scenarios(request, &mut files, &mut identities)?;
+    }
 
     let manifest = CorpusManifestV1 {
         schema_version: CorpusManifestV1::SCHEMA_VERSION,
@@ -172,6 +224,10 @@ fn prepare_output_dirs(request: &GenerateRequest) -> Result<(), GenerateError> {
         });
     }
     fs::create_dir_all(&request.output_dir).map_err(io_error)?;
+    if request.mode == CorpusMode::Device {
+        // A pushed device workspace must not carry empty host-tier buckets.
+        return Ok(());
+    }
     for name in ["memo", "remote", "media", "git"] {
         fs::create_dir_all(request.output_dir.join(name)).map_err(io_error)?;
     }
@@ -182,11 +238,13 @@ fn prepare_output_dirs(request: &GenerateRequest) -> Result<(), GenerateError> {
 /// - Quick: contract-size material files.
 /// - Scale: full memo/remote materialization for parse/store benchmarks (gitignored output).
 /// - Capacity: sparse material files; bulk attachment weight stays logical/stream-digested.
+/// - Device: materialized through the workspace-shaped writers, never this bucket path.
 const fn material_memo_count(mode: CorpusMode) -> u64 {
     match mode {
         CorpusMode::Quick => QUICK_MEMO_COUNT,
         CorpusMode::Scale => SCALE_MEMO_COUNT,
         CorpusMode::Capacity => 32,
+        CorpusMode::Device => 0,
     }
 }
 
@@ -195,6 +253,196 @@ const fn material_remote_count(mode: CorpusMode) -> u64 {
         CorpusMode::Quick => QUICK_REMOTE_CHANGES,
         CorpusMode::Scale => SCALE_REMOTE_CHANGES,
         CorpusMode::Capacity => 16,
+        CorpusMode::Device => 0,
+    }
+}
+
+/// Dated `yyyy_MM_dd.md` documents at the workspace root — the production file shape the
+/// storage-filename default (`StorageFilenameFormats.DEFAULT_PATTERN`) indexes.
+fn append_device_documents(
+    request: &GenerateRequest,
+    files: &mut Vec<CorpusFileEntryV1>,
+    identities: &mut BTreeSet<String>,
+) -> Result<(), GenerateError> {
+    let mut date = (2020_u32, 1_u32, 1_u32);
+    for doc_index in 0..DEVICE_DOC_COUNT {
+        let (year, month, day) = date;
+        let relative = format!("{year:04}_{month:02}_{day:02}.md");
+        let identity = format!("device:doc:{doc_index:04}");
+        claim_identity(identities, &identity)?;
+        let bytes = device_document_body(request.seed, doc_index)?.into_bytes();
+        write_relative(&request.output_dir, &relative, &bytes)?;
+        files.push(CorpusFileEntryV1 {
+            relative_path: relative,
+            sha256: lomo_core::hex_encode(&Sha256::digest(&bytes)),
+            byte_length: bytes.len() as u64,
+        });
+        date = next_day(date);
+    }
+    Ok(())
+}
+
+/// A complete, decodable baseline JPEG (96x64, ~440 B).
+///
+/// The corpus media must open in a real image pipeline: memo cards, gallery cells and the
+/// reel only surface an image when the platform decoder accepts the bytes, so SOI/EOI
+/// bookends around noise never exercise the production image path. Deterministic byte
+/// literal; the deterministic tail pads each file to [`DEVICE_MEDIA_BYTES`] so the
+/// attachment weight stays material. libjpeg-class decoders (Skia/BitmapFactory/Coil
+/// on-device) stop at EOI and ignore trailing bytes.
+pub const DEVICE_MEDIA_JPEG_PREFIX: &[u8] = &[
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+    0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x06, 0x04, 0x04, 0x05, 0x04, 0x04, 0x06,
+    0x05, 0x05, 0x05, 0x06, 0x06, 0x06, 0x07, 0x09, 0x0e, 0x09, 0x09, 0x08, 0x08, 0x09, 0x12, 0x0d,
+    0x0d, 0x0a, 0x0e, 0x15, 0x12, 0x16, 0x16, 0x15, 0x12, 0x14, 0x14, 0x17, 0x1a, 0x21, 0x1c, 0x17,
+    0x18, 0x1f, 0x19, 0x14, 0x14, 0x1d, 0x27, 0x1d, 0x1f, 0x22, 0x23, 0x25, 0x25, 0x25, 0x16, 0x1c,
+    0x29, 0x2c, 0x28, 0x24, 0x2b, 0x21, 0x24, 0x25, 0x24, 0xff, 0xdb, 0x00, 0x43, 0x01, 0x06, 0x06,
+    0x06, 0x09, 0x08, 0x09, 0x11, 0x09, 0x09, 0x11, 0x24, 0x18, 0x14, 0x18, 0x24, 0x24, 0x24, 0x24,
+    0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24,
+    0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24,
+    0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0xff, 0xc0,
+    0x00, 0x11, 0x08, 0x00, 0x40, 0x00, 0x60, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11,
+    0x01, 0xff, 0xc4, 0x00, 0x16, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x06, 0xff, 0xc4, 0x00, 0x15, 0x10, 0x01, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12,
+    0xff, 0xc4, 0x00, 0x17, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x05, 0x07, 0xff, 0xc4, 0x00, 0x15, 0x11, 0x01, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14,
+    0xff, 0xda, 0x00, 0x0c, 0x03, 0x01, 0x00, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3f, 0x00, 0xcf, 0x59,
+    0x68, 0xd9, 0x6c, 0x49, 0x5d, 0x4a, 0xa5, 0xac, 0xb4, 0x6c, 0xb2, 0x52, 0xa5, 0xac, 0xb4, 0x6c,
+    0xb2, 0x52, 0xa5, 0xac, 0xb4, 0x6c, 0xb2, 0x52, 0xa5, 0xac, 0xb4, 0x6c, 0xb2, 0x52, 0xa5, 0xac,
+    0xb4, 0x6c, 0xb2, 0x52, 0xa4, 0x6c, 0xb4, 0x2c, 0xb5, 0x1c, 0xa9, 0xda, 0x97, 0xb2, 0xd0, 0xb2,
+    0xc9, 0x4a, 0x97, 0xb2, 0xd0, 0xb2, 0xc9, 0x4a, 0x97, 0xb2, 0xd0, 0xb2, 0xc9, 0x4a, 0x97, 0xb2,
+    0xd0, 0xb2, 0xc9, 0x4a, 0x97, 0xb2, 0xd0, 0xb2, 0xc9, 0x4a, 0x91, 0xb2, 0xd1, 0xb2, 0xd4, 0x52,
+    0xa7, 0x6a, 0x5a, 0xcb, 0x46, 0xcb, 0x25, 0x2a, 0x5a, 0xcb, 0x46, 0xcb, 0x25, 0x2a, 0x5a, 0xcb,
+    0x46, 0xcb, 0x25, 0x2a, 0x5a, 0xcb, 0x46, 0xcb, 0x25, 0x2a, 0x5a, 0xcb, 0x46, 0xcb, 0x25, 0x2a,
+    0x46, 0xcb, 0x46, 0xcb, 0x51, 0xca, 0x9e, 0xa9, 0x6b, 0x2d, 0x1b, 0x2c, 0x94, 0xa9, 0x6b, 0x2d,
+    0x1b, 0x2c, 0x94, 0xa9, 0x6b, 0x2d, 0x1b, 0x2c, 0x94, 0xa9, 0x6b, 0x2d, 0x1b, 0x2c, 0x94, 0xa9,
+    0x6b, 0x2d, 0x1b, 0x2c, 0x94, 0xa9, 0xff, 0xd9,
+];
+
+/// Material media payloads under `media/img/` — real decodable images at the SAF/Direct
+/// attachment weight the device tier is sized around (SAF `adb push` stays feasible at
+/// ~9 MiB). Each file is [`DEVICE_MEDIA_JPEG_PREFIX`] followed by deterministic padding so
+/// on-device surfaces measure the true decode path instead of an error placeholder.
+fn append_device_media(
+    request: &GenerateRequest,
+    files: &mut Vec<CorpusFileEntryV1>,
+    identities: &mut BTreeSet<String>,
+) -> Result<(), GenerateError> {
+    for index in 0..DEVICE_MEDIA_COUNT {
+        let relative = format!("media/img/att-{index:04}.jpg");
+        let identity = format!("device:media:{index:04}");
+        claim_identity(identities, &identity)?;
+        let length = usize::try_from(DEVICE_MEDIA_BYTES).map_err(|error| GenerateError::Io {
+            detail: format!("device media length {DEVICE_MEDIA_BYTES} overflows usize: {error}"),
+        })?;
+        let mut bytes = deterministic_bytes(request.seed ^ 0x4A50_4547 ^ index, length);
+        for (slot, prefix_byte) in bytes.iter_mut().zip(DEVICE_MEDIA_JPEG_PREFIX.iter()) {
+            *slot = *prefix_byte;
+        }
+        write_relative(&request.output_dir, &relative, &bytes)?;
+        files.push(CorpusFileEntryV1 {
+            relative_path: relative,
+            sha256: lomo_core::hex_encode(&Sha256::digest(&bytes)),
+            byte_length: bytes.len() as u64,
+        });
+    }
+    Ok(())
+}
+
+/// `media/bulk/blob-NNNN.bin` — the ≥500-file enumeration workload. Deterministic small
+/// payloads (a `.bin` suffix keeps them out of every `.md` date-key walk and out of the
+/// JPEG attachment surface); the directory itself is the unit under measurement.
+fn append_device_bulk(
+    request: &GenerateRequest,
+    files: &mut Vec<CorpusFileEntryV1>,
+    identities: &mut BTreeSet<String>,
+) -> Result<(), GenerateError> {
+    for index in 0..DEVICE_BULK_COUNT {
+        let relative = format!("{DEVICE_BULK_DIR}/blob-{index:04}.bin");
+        let identity = format!("device:bulk:{index:04}");
+        claim_identity(identities, &identity)?;
+        let length = usize::try_from(DEVICE_BULK_BYTES).map_err(|error| GenerateError::Io {
+            detail: format!("device bulk length {DEVICE_BULK_BYTES} overflows usize: {error}"),
+        })?;
+        let bytes = deterministic_bytes(request.seed ^ 0xB1_2C ^ index, length);
+        write_relative(&request.output_dir, &relative, &bytes)?;
+        files.push(CorpusFileEntryV1 {
+            relative_path: relative,
+            sha256: lomo_core::hex_encode(&Sha256::digest(&bytes)),
+            byte_length: bytes.len() as u64,
+        });
+    }
+    Ok(())
+}
+
+fn device_document_body(seed: u64, doc_index: u64) -> Result<String, GenerateError> {
+    use std::fmt::Write as _;
+
+    let mut rng = SeedRng::new(seed ^ 0xD00C ^ doc_index);
+    let mut body = String::new();
+    for memo_index in 0..DEVICE_MEMOS_PER_DOC {
+        let memo_ordinal = doc_index * DEVICE_MEMOS_PER_DOC + memo_index;
+        let tag = match memo_ordinal % 6 {
+            0 => "#bench",
+            1 => "#work/dev",
+            2 => "#生活/记录",
+            _ => "#notes",
+        };
+        let attachment = if memo_ordinal.is_multiple_of(17) {
+            format!(
+                "\n![shot](media/img/att-{:04}.jpg)",
+                memo_ordinal % DEVICE_MEDIA_COUNT
+            )
+        } else {
+            String::new()
+        };
+        let noise = rng.next_u64();
+        // `- HH:mm:ss` is the production storage timestamp default
+        // (`StorageTimestampFormats.DEFAULT_PATTERN`).
+        let hour = 6 + memo_index;
+        let minute = (memo_ordinal * 7 + doc_index) % 60;
+        let second = (memo_ordinal * 13 + doc_index * 3) % 60;
+        body.write_fmt(format_args!(
+            "- {hour:02}:{minute:02}:{second:02}\nseed={seed} doc={doc_index} memo={memo_index} noise={noise} {tag}{attachment}\nbody line for device memo {memo_ordinal}\n"
+        ))
+        .map_err(io_error)?;
+        if memo_ordinal.is_multiple_of(6) {
+            body.write_fmt(format_args!(
+                "\n- [ ] pending device task {memo_ordinal}\n- [x] completed device task {memo_ordinal}\n"
+            ))
+            .map_err(io_error)?;
+        }
+    }
+    Ok(body)
+}
+
+/// Calendar stepper for the dated document sequence — six hundred consecutive days starting
+/// 2020-01-01 cover roughly twenty months of vault history. Pure `u32` arithmetic keeps the
+/// corpus deterministic without civil-date casts.
+const fn next_day(date: (u32, u32, u32)) -> (u32, u32, u32) {
+    let (year, month, day) = date;
+    if day < days_in_month(year, month) {
+        (year, month, day + 1)
+    } else if month < 12 {
+        (year, month + 1, 1)
+    } else {
+        (year + 1, 1, 1)
+    }
+}
+
+const fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        _ => {
+            if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) {
+                29
+            } else {
+                28
+            }
+        }
     }
 }
 
@@ -264,14 +512,14 @@ fn push_material_or_logical(
         write_relative(&request.output_dir, &relative, bytes)?;
         files.push(CorpusFileEntryV1 {
             relative_path: relative,
-            sha256: format!("{:x}", Sha256::digest(bytes)),
+            sha256: lomo_core::hex_encode(&Sha256::digest(bytes)),
             byte_length: bytes.len() as u64,
         });
     } else {
         logical_attachments.push(LogicalAttachmentEntryV1 {
             identity,
             logical_bytes: bytes.len() as u64,
-            sha256: format!("{:x}", Sha256::digest(bytes)),
+            sha256: lomo_core::hex_encode(&Sha256::digest(bytes)),
         });
     }
     Ok(())
@@ -307,7 +555,7 @@ fn append_quick_media(
     write_relative(&request.output_dir, &relative, &bytes)?;
     files.push(CorpusFileEntryV1 {
         relative_path: relative,
-        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        sha256: lomo_core::hex_encode(&Sha256::digest(&bytes)),
         byte_length: bytes.len() as u64,
     });
     Ok(())
@@ -328,7 +576,7 @@ fn append_git_scenarios(
     claim_identity(identities, "git:scenarios")?;
     files.push(CorpusFileEntryV1 {
         relative_path: relative,
-        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        sha256: lomo_core::hex_encode(&Sha256::digest(&bytes)),
         byte_length: bytes.len() as u64,
     });
     Ok(())
@@ -367,7 +615,7 @@ fn append_golden_fixtures(
             write_relative(output_dir, &out_relative, &bytes)?;
             files.push(CorpusFileEntryV1 {
                 relative_path: out_relative,
-                sha256: format!("{:x}", Sha256::digest(&bytes)),
+                sha256: lomo_core::hex_encode(&Sha256::digest(&bytes)),
                 byte_length: bytes.len() as u64,
             });
         }
@@ -512,7 +760,7 @@ fn stream_digest_full(seed: u64, logical_bytes: u64) -> String {
         hasher.update(block.get(..chunk).unwrap_or(&[]));
         remaining -= chunk as u64;
     }
-    format!("{:x}", hasher.finalize())
+    lomo_core::hex_encode(&hasher.finalize())
 }
 
 fn stream_digest_commitment(seed: u64, logical_bytes: u64) -> String {
@@ -525,7 +773,7 @@ fn stream_digest_commitment(seed: u64, logical_bytes: u64) -> String {
     for _ in 0..64 {
         hasher.update(rng.next_u64().to_le_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    lomo_core::hex_encode(&hasher.finalize())
 }
 
 fn io_error(error: impl std::fmt::Display) -> GenerateError {

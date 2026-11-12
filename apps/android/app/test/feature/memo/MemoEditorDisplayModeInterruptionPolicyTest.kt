@@ -36,5 +36,4 @@ class MemoEditorDisplayModeInterruptionPolicyTest : AppFunSpec() {
             (controller.focusRequestToken) shouldBe (previewToken + 1L)
         }
     }
-
 }

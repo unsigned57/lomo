@@ -16,6 +16,15 @@ use crate::{
     workspace_io::{FileSnapshot, WorkspaceIo},
 };
 
+/// The caller's source knowledge determines the read schedule, never physical existence.
+/// Destinations admit verified absence; mutations of an active memo require both sources.
+#[derive(Clone, Copy)]
+pub enum DocumentRead {
+    UncataloguedDestination,
+    CataloguedDestination,
+    ActiveMemo,
+}
+
 pub struct LoadedDocument {
     pub path: RelativeWorkspacePath,
     pub logical_path: WorkspaceRelativePath,
@@ -33,56 +42,72 @@ pub struct DocumentChange {
 }
 
 impl LoadedDocument {
-    fn require_markdown_path(path: &RelativeWorkspacePath) -> Result<(), LomoError> {
-        let first = path.as_str().split('/').next();
-        let markdown = path
-            .as_str()
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("md"));
-        if matches!(
-            first,
-            Some(lomo_workspace::LOMO_DIR_NAME | lomo_workspace::GIT_ROOT_NAME)
-        ) || !markdown
-        {
-            return Err(validation(
-                "invalid_memo_document_path",
-                "memo commands require a Markdown path outside control directories",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Opens a Markdown document, treating a missing file as an empty new document.
-    ///
-    /// Create and restore use this constructor because the destination file may not exist yet.
-    pub fn load(io: &WorkspaceIo<'_>, path: RelativeWorkspacePath) -> Result<Self, LomoError> {
-        Self::require_markdown_path(&path)?;
-        let original = io.read(&path)?;
-        Self::from_original(io, path, original)
-    }
-
-    /// Opens a Markdown document that an existing memo identity still occupies.
-    ///
-    /// Missing source is `memo_source_missing`. Update, delete, and pin must not invent an empty
-    /// document and then report a stale baseline or a missing identity.
-    pub fn load_existing(
+    /// Loads the actual source pair under the command's presence requirement.
+    pub fn load(
         io: &WorkspaceIo<'_>,
         path: RelativeWorkspacePath,
+        read: DocumentRead,
     ) -> Result<Self, LomoError> {
-        Self::require_markdown_path(&path)?;
-        let Some(original) = io.read(&path)? else {
-            return Err(validation(
-                "memo_source_missing",
-                format!("active memo source is missing: {}", path.as_str()),
-            ));
+        crate::types::validate_document_path(&path)?;
+        let mapping = Self::mapping_path(io, &path)?;
+        let paths = [path.clone(), mapping];
+        let sources = match read {
+            // A fail-fast provider may stop at the first missing source. New destinations
+            // probe separately so an unreported sibling never needs to be resubmitted.
+            DocumentRead::UncataloguedDestination => vec![io.read(&paths[0])?, io.read(&paths[1])?],
+            DocumentRead::CataloguedDestination => io.read_batch(&paths)?,
+            DocumentRead::ActiveMemo => io
+                .require_batch(&paths)
+                .map_err(|error| {
+                    if error.code() == "document_not_found" {
+                        validation(
+                            "memo_source_missing",
+                            format!(
+                                "active memo document or identity source is missing: {}",
+                                path.as_str()
+                            ),
+                        )
+                    } else {
+                        error
+                    }
+                })?
+                .into_iter()
+                .map(Some)
+                .collect(),
         };
-        Self::from_original(io, path, Some(original))
+        let [original, mapping_original]: [Option<FileSnapshot>; 2] =
+            sources
+                .try_into()
+                .map_err(|sources: Vec<Option<FileSnapshot>>| {
+                    crate::error::corruption(
+                        "missing_document_sources",
+                        format!(
+                            "document source batch returned {} observations instead of two",
+                            sources.len()
+                        ),
+                    )
+                })?;
+        Self::from_sources(io, path, original, mapping_original)
     }
 
-    fn from_original(
+    fn mapping_path(
+        io: &WorkspaceIo<'_>,
+        path: &RelativeWorkspacePath,
+    ) -> Result<RelativeWorkspacePath, LomoError> {
+        RelativeWorkspacePath::parse(
+            memo_identity_record_path(
+                io.config.root_id,
+                &WorkspaceRelativePath::parse(path.as_str())?,
+            )?
+            .as_str(),
+        )
+    }
+
+    fn from_sources(
         io: &WorkspaceIo<'_>,
         path: RelativeWorkspacePath,
         original: Option<FileSnapshot>,
+        mapping_original: Option<FileSnapshot>,
     ) -> Result<Self, LomoError> {
         let logical_path = WorkspaceRelativePath::parse(path.as_str())?;
         let bytes = original
@@ -93,9 +118,16 @@ impl LoadedDocument {
         let mapping_path = RelativeWorkspacePath::parse(
             memo_identity_record_path(io.config.root_id, &logical_path)?.as_str(),
         )?;
-        let mapping_original = io.read(&mapping_path)?;
         let identities = if let Some(snapshot) = &mapping_original {
-            MemoIdentityMap::decode(&snapshot.bytes)?
+            let map = MemoIdentityMap::decode(&snapshot.bytes)?;
+            if original.is_none() {
+                map.retire_missing_document(OperationId::parse(&format!(
+                    "absent-{}",
+                    generate_hex_token(16)?
+                ))?)?
+            } else {
+                map
+            }
         } else {
             let ids = document
                 .memos()
@@ -134,10 +166,12 @@ impl LoadedDocument {
         identity_change: MemoIdentityChange,
         command: &DocumentPatchCommand,
     ) -> Result<DocumentChange, LomoError> {
-        // The durable identity record is the terminal witness for an operation id once the
-        // journal's bounded retired-epoch window has evicted it: `replay` returned `None`, yet
-        // the record still knows the id, so the command was consumed and must expire instead of
-        // falling through to a fresh `record_pending` that would re-execute it.
+        // The identity record's retained tail is the cross-device witness for a recent
+        // operation id once the journal's bounded retired-epoch window has evicted it:
+        // `replay` returned `None`, the projection's committed-operation index did not
+        // know the id either, yet the durable tail still does — so the command was
+        // consumed and must expire instead of falling through to a fresh
+        // `record_pending` that would re-execute it.
         if self
             .identities
             .operations()

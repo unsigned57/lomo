@@ -3,9 +3,7 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 
-class FakeSaveImageUseCase(
-    private val mediaRepository: MediaRepository
-) : SaveImageUseCase(mediaRepository) {
+class FakeSaveImageUseCase(private val mediaRepository: MediaRepository) : SaveImageUseCase(mediaRepository) {
     var saveResult: SaveImageResult? = null
     var saveException: Throwable? = null
 

@@ -32,11 +32,7 @@ data class MemoEditDraft(
     }
 
     /** Returns whether this draft can be reopened against the supplied current snapshot. */
-    fun matchesBaseline(
-        currentMemoId: String,
-        currentRevision: Long,
-        currentFingerprint: String,
-    ): Boolean =
+    fun matchesBaseline(currentMemoId: String, currentRevision: Long, currentFingerprint: String): Boolean =
         memoId == currentMemoId &&
             baselineRevision == currentRevision &&
             baselineFingerprint == currentFingerprint

@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 /*
  * Behavior Contract:
  * - Unit under test: validate_ndk_directory.
@@ -11,7 +20,7 @@
  * - Given an NDK directory missing source.properties, when validated, then returns missing source.properties error.
  *
  * Observable outcomes:
- * - Returns Ok(()) when Pkg.Revision matches 29.0.14206865.
+ * - Returns Ok(()) when Pkg.Revision matches 30.0.16248370.
  * - Returns Err with version mismatch message when Pkg.Revision does not match.
  * - Returns Err with missing source.properties message when source.properties does not exist.
  *
@@ -37,7 +46,7 @@ mod tests {
         }
         fs::create_dir_all(&path)?;
         let props = path.join("source.properties");
-        fs::write(&props, "Pkg.Revision = 29.0.14206865\n")?;
+        fs::write(&props, "Pkg.Revision = 30.0.16248370\n")?;
         let res = validate_ndk_directory(&path);
         let _clean: std::io::Result<()> = fs::remove_dir_all(&path);
         res?;
@@ -59,7 +68,7 @@ mod tests {
         };
         let _clean: std::io::Result<()> = fs::remove_dir_all(&path);
         let msg = err.to_string();
-        if !msg.contains("has version 28.0.12433566, expected 29.0.14206865") {
+        if !msg.contains("has version 28.0.12433566, expected 30.0.16248370") {
             bail!("unexpected error message: {msg}");
         }
         Ok(())

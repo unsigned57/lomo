@@ -18,21 +18,12 @@ internal object ReminderRequestCodePolicy {
      */
     fun occurrenceTag(occurrenceId: String): String = "$NOTIFICATION_TAG_PREFIX$occurrenceId"
 
-    fun notificationId(
-        memoId: String,
-        reminderId: String,
-    ): Int = stableInt(NOTIFICATION_NAMESPACE, memoId, reminderId)
+    fun notificationId(memoId: String, reminderId: String): Int = stableInt(NOTIFICATION_NAMESPACE, memoId, reminderId)
 
-    fun actionRequestCode(
-        memoId: String,
-        reminderId: String,
-        action: String,
-    ): Int = stableInt(ACTION_NAMESPACE, memoId, reminderId, action)
+    fun actionRequestCode(memoId: String, reminderId: String, action: String): Int =
+        stableInt(ACTION_NAMESPACE, memoId, reminderId, action)
 
-    private fun stableInt(
-        namespace: String,
-        vararg parts: String,
-    ): Int {
+    private fun stableInt(namespace: String, vararg parts: String): Int {
         val digest = MessageDigest.getInstance("SHA-256")
         digest.update(namespace.toByteArray(StandardCharsets.UTF_8))
         parts.forEach { part ->

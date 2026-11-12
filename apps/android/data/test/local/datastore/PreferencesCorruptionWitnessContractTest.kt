@@ -57,7 +57,9 @@ import java.nio.file.Files
  */
 class PreferencesCorruptionWitnessContractTest : DataFunSpec() {
     init {
-        test("given a corrupted store when reopened under a fresh process then absent lock key still reads Unreadable") {
+        test(
+            "given a corrupted store when reopened under a fresh process then absent lock key still reads Unreadable",
+        ) {
             runTest {
                 val backing = corruptBackingFile()
                 val firstProcess = processScope(coroutineContext)
@@ -109,7 +111,9 @@ class PreferencesCorruptionWitnessContractTest : DataFunSpec() {
             }
         }
 
-        test("given an acknowledged corruption notice when reopened then it stays consumed while the witness still guards absent keys") {
+        test(
+            "given an acknowledged corruption notice when reopened then it stays consumed while the witness still guards absent keys",
+        ) {
             runTest {
                 val backing = corruptBackingFile()
                 val firstProcess = processScope(coroutineContext)
@@ -130,7 +134,9 @@ class PreferencesCorruptionWitnessContractTest : DataFunSpec() {
             }
         }
 
-        test("given an explicitly recorded choice after corruption when reopened then the stored value wins over the witness") {
+        test(
+            "given an explicitly recorded choice after corruption when reopened then the stored value wins over the witness",
+        ) {
             runTest {
                 val backing = corruptBackingFile()
                 val firstProcess = processScope(coroutineContext)
@@ -181,21 +187,19 @@ class PreferencesCorruptionWitnessContractTest : DataFunSpec() {
         backing: File,
         scope: CoroutineScope,
         registry: PreferencesCorruptionRegistry,
-    ): DataStore<Preferences> =
-        PreferenceDataStoreFactory.create(
-            scope = scope,
-            corruptionHandler =
-                lomoPreferencesCorruptionHandler(
-                    corruptionFile = { backing },
-                    registry = registry,
-                ),
-            produceFile = { backing },
-        )
+    ): DataStore<Preferences> = PreferenceDataStoreFactory.create(
+        scope = scope,
+        corruptionHandler =
+        lomoPreferencesCorruptionHandler(
+            corruptionFile = { backing },
+            registry = registry,
+        ),
+        produceFile = { backing },
+    )
 }
 
-private fun tempPreferencesFile(): File =
-    Files
-        .createTempDirectory("lomo-prefs-witness")
-        .toFile()
-        .apply { deleteOnExit() }
-        .let { File(it, "lomo.preferences_pb") }
+private fun tempPreferencesFile(): File = Files
+    .createTempDirectory("lomo-prefs-witness")
+    .toFile()
+    .apply { deleteOnExit() }
+    .let { File(it, "lomo.preferences_pb") }

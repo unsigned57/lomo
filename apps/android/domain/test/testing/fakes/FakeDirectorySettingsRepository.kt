@@ -10,9 +10,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
-class FakeDirectorySettingsRepository(
-    private val eventLog: MutableList<String>? = null,
-) : DirectorySettingsRepository {
+class FakeDirectorySettingsRepository(private val eventLog: MutableList<String>? = null) :
+    DirectorySettingsRepository {
     private val locations =
         MutableStateFlow<MutableMap<StorageArea, StorageLocation?>>(mutableMapOf())
     private val displayNames =
@@ -23,22 +22,15 @@ class FakeDirectorySettingsRepository(
     private var pendingTransition: WorkspaceRootTransition? = null
     private var transitionSequence = 0
 
-    fun setLocation(
-        area: StorageArea,
-        location: StorageLocation?,
-    ) {
+    fun setLocation(area: StorageArea, location: StorageLocation?) {
         locations.value = locations.value.toMutableMap().also { values -> values[area] = location }
     }
 
-    fun setDisplayName(
-        area: StorageArea,
-        displayName: String?,
-    ) {
+    fun setDisplayName(area: StorageArea, displayName: String?) {
         displayNames.value = displayNames.value.toMutableMap().also { values -> values[area] = displayName }
     }
 
-    override fun observeLocation(area: StorageArea): Flow<StorageLocation?> =
-        locations.map { values -> values[area] }
+    override fun observeLocation(area: StorageArea): Flow<StorageLocation?> = locations.map { values -> values[area] }
 
     override suspend fun currentLocation(area: StorageArea): StorageLocation? = locations.value[area]
 
@@ -49,10 +41,12 @@ class FakeDirectorySettingsRepository(
         setLocation(area = update.area, location = update.location)
     }
 
-    override fun observeDisplayName(area: StorageArea): Flow<String?> =
-        displayNames.map { values -> values[area] }
+    override fun observeDisplayName(area: StorageArea): Flow<String?> = displayNames.map { values -> values[area] }
 
-    override suspend fun prepareRootTransition(candidate: StorageLocation): WorkspaceRootTransition {
+    override suspend fun prepareRootTransition(
+        candidate: StorageLocation,
+        mediaChange: com.lomo.domain.model.MediaDirectoryChange?,
+    ): WorkspaceRootTransition {
         applyFailure?.let { throw it }
         check(pendingTransition == null) { "Workspace transition already pending" }
         val transition =
@@ -61,6 +55,7 @@ class FakeDirectorySettingsRepository(
                 previous = currentRootLocation(),
                 candidate = candidate,
                 phase = WorkspaceRootTransitionPhase.PREPARED,
+                mediaChange = mediaChange,
             )
         pendingTransition = transition
         eventLog?.add("directory.prepareRootTransition")
@@ -80,6 +75,7 @@ class FakeDirectorySettingsRepository(
         val transition = requirePending(transitionId)
         check(transition.phase == WorkspaceRootTransitionPhase.ACTIVATED)
         setLocation(StorageArea.ROOT, transition.candidate)
+        transition.mediaChange?.let { setLocation(it.area, it.candidate) }
         pendingTransition = null
         eventLog?.add("directory.commitRootTransition")
     }

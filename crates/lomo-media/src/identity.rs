@@ -42,7 +42,7 @@ impl ContentDigest {
     #[must_use]
     pub fn of_slice(bytes: &[u8]) -> Self {
         let digest = Sha256::digest(bytes);
-        Self(format!("{digest:x}"))
+        Self(lomo_core::hex_encode(&digest))
     }
 
     /// Streams `reader` with a bounded buffer and returns the digest + byte count.
@@ -73,7 +73,7 @@ impl ContentDigest {
             hasher.update(chunk);
             total = total.saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
         }
-        Ok((Self(format!("{:x}", hasher.finalize())), total))
+        Ok((Self(lomo_core::hex_encode(&hasher.finalize())), total))
     }
 
     /// Opens `path` and streams a digest without loading the whole file.

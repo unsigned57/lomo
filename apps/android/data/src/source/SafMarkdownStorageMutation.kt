@@ -16,13 +16,12 @@ internal suspend fun safSaveFile(
     content: String,
     append: Boolean,
     uri: Uri?,
-): String? =
-    withContext(documentAccess.ioDispatcher) {
-        documentAccess.withSecurityRetryOrThrow(operation = "saveFile($filename)") {
-            safWriteUsingKnownUri(documentAccess, uri, content, append)
-                ?: safWriteUsingResolvedFile(rootUri, documentAccess, filename, content, append)
-        }
+): String? = withContext(documentAccess.ioDispatcher) {
+    documentAccess.withSecurityRetryOrThrow(operation = "saveFile($filename)") {
+        safWriteUsingKnownUri(documentAccess, uri, content, append)
+            ?: safWriteUsingResolvedFile(rootUri, documentAccess, filename, content, append)
     }
+}
 
 internal suspend fun safSaveTrashFile(
     documentAccess: SafDocumentAccess,
@@ -39,49 +38,43 @@ internal suspend fun safSaveTrashFile(
     }
 }
 
-internal suspend fun safDeleteFile(
-    context: Context,
-    documentAccess: SafDocumentAccess,
-    filename: String,
-    uri: Uri?,
-) = withContext(documentAccess.ioDispatcher) {
-    documentAccess.withSecurityRetry(
-        operation = "deleteFile($filename)",
-        fallbackValue = Unit,
-    ) {
-        if (
-            uri != null &&
-            try {
-                android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
-                true
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-                // behavior-contract: silent-result-ok: DocumentsContract delete miss falls back to findFile
-                false
-            }
+internal suspend fun safDeleteFile(context: Context, documentAccess: SafDocumentAccess, filename: String, uri: Uri?) =
+    withContext(documentAccess.ioDispatcher) {
+        documentAccess.withSecurityRetry(
+            operation = "deleteFile($filename)",
+            fallbackValue = Unit,
         ) {
-            return@withSecurityRetry Unit
+            if (
+                uri != null &&
+                try {
+                    android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+                    true
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    // behavior-contract: silent-result-ok: DocumentsContract delete miss falls back to findFile
+                    false
+                }
+            ) {
+                return@withSecurityRetry Unit
+            }
+            if (uri != null) {
+                Timber.w("Failed to delete using cached URI, falling back to findFile")
+            }
+            documentAccess.root() ?: throw SecurityException("Cannot access SAF root for deleteFile")
+            safResolveRelativeDocument(documentAccess, filename)?.let { resolved ->
+                android.provider.DocumentsContract.deleteDocument(documentAccess.contentResolver, resolved.uri)
+            }
+            Unit
         }
-        if (uri != null) {
-            Timber.w("Failed to delete using cached URI, falling back to findFile")
-        }
-        documentAccess.root() ?: throw SecurityException("Cannot access SAF root for deleteFile")
-        safResolveRelativeDocument(documentAccess, filename)?.let { resolved ->
+    }
+
+internal suspend fun safDeleteTrashFile(documentAccess: SafDocumentAccess, filename: String) =
+    withContext(documentAccess.ioDispatcher) {
+        safResolveTrashDocument(documentAccess, filename)?.let { resolved ->
             android.provider.DocumentsContract.deleteDocument(documentAccess.contentResolver, resolved.uri)
         }
         Unit
     }
-}
-
-internal suspend fun safDeleteTrashFile(
-    documentAccess: SafDocumentAccess,
-    filename: String,
-) = withContext(documentAccess.ioDispatcher) {
-    safResolveTrashDocument(documentAccess, filename)?.let { resolved ->
-        android.provider.DocumentsContract.deleteDocument(documentAccess.contentResolver, resolved.uri)
-    }
-    Unit
-}
 
 private fun safWriteUsingKnownUri(
     documentAccess: SafDocumentAccess,
@@ -118,20 +111,11 @@ private fun safWriteUsingResolvedFile(
     }
 }
 
-private fun safResolveOrCreateFileUri(
-    parent: DocumentFile,
-    filename: String,
-): Uri =
-    parent.findFile(filename)?.uri
-        ?: parent.createFile("text/markdown", filename)?.uri
-        ?: throw IOException("Failed to resolve SAF file for $filename")
+private fun safResolveOrCreateFileUri(parent: DocumentFile, filename: String): Uri = parent.findFile(filename)?.uri
+    ?: parent.createFile("text/markdown", filename)?.uri
+    ?: throw IOException("Failed to resolve SAF file for $filename")
 
-private fun safWriteMarkdownContent(
-    documentAccess: SafDocumentAccess,
-    uri: Uri,
-    content: String,
-    append: Boolean,
-) {
+private fun safWriteMarkdownContent(documentAccess: SafDocumentAccess, uri: Uri, content: String, append: Boolean) {
     if (append) {
         documentAccess.writeTextToUri(uri, "wa", content)
     } else {

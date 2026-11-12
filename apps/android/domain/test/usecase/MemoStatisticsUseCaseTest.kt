@@ -1,17 +1,17 @@
 package com.lomo.domain.usecase
 
-import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.model.MemoSidebarStatistics
+import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoStatisticsRepository
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
-import java.time.LocalDate
-import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import java.time.LocalDate
+import java.time.ZoneId
 
 /*
  * Behavior Contract:
@@ -113,23 +113,15 @@ class MemoStatisticsUseCaseTest : DomainFunSpec() {
         }
     }
 
-    private class RecordingMemoStatisticsRepository(
-        private val result: MemoStatistics,
-    ) : MemoStatisticsRepository {
+    private class RecordingMemoStatisticsRepository(private val result: MemoStatistics) : MemoStatisticsRepository {
         val calls = mutableListOf<Pair<ZoneId, LocalDate>>()
 
-        override suspend fun getMemoStatistics(
-            zone: ZoneId,
-            today: LocalDate,
-        ): MemoStatistics {
+        override suspend fun getMemoStatistics(zone: ZoneId, today: LocalDate): MemoStatistics {
             calls += zone to today
             return result
         }
 
-        override fun observeMemoStatistics(
-            zone: ZoneId,
-            today: LocalDate,
-        ): Flow<MemoStatistics> {
+        override fun observeMemoStatistics(zone: ZoneId, today: LocalDate): Flow<MemoStatistics> {
             calls += zone to today
             return flowOf(result)
         }

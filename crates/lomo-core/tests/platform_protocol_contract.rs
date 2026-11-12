@@ -16,6 +16,9 @@
 //! - Given listing evidence, when content was not hashed, then the digest is `Unknown` and is not
 //!   the SHA-256 of empty bytes used as a missing-hash sentinel.
 //!
+//! - Given Inspect, metadata-only evidence for its exact target is accepted, while verified
+//!   content evidence or another target is rejected before the batch advances.
+//!
 //! Observable outcomes: batch fields, exact action order, structured validation errors, and a
 //! validated ordered result prefix.
 //! TDD proof: the first run fails because the versioned platform protocol types do not exist;
@@ -150,6 +153,65 @@ mod tests {
             .must_succeed("evidence"),
         )
         .must_succeed("metadata")
+    }
+
+    #[test]
+    fn inspect_requires_metadata_depth_and_rejects_content_evidence_or_a_foreign_target() {
+        let target = WorkspaceTarget::Relative(path("memo.md"));
+        let batch = PlatformActionBatch::new(
+            JobId::parse("inspect-job").must_succeed("job"),
+            BatchId::parse("inspect-batch").must_succeed("batch"),
+            1,
+            1_800_000_000_000,
+            vec![PlatformAction::inspect(
+                action_id(20),
+                CapabilityToken::parse("root-capability").must_succeed("capability"),
+                target.clone(),
+            )],
+        )
+        .must_succeed("inspect batch");
+        for (location, evidence, valid) in [
+            (
+                target.clone(),
+                ActionEvidence::unknown(12, "listing-token").must_succeed("metadata"),
+                true,
+            ),
+            (target, metadata().evidence().clone(), false),
+            (
+                WorkspaceTarget::Relative(path("foreign.md")),
+                ActionEvidence::unknown(12, "listing-token").must_succeed("metadata"),
+                false,
+            ),
+        ] {
+            let observed = DocumentMetadata::new(location, DocumentKind::File, None, evidence)
+                .must_succeed("observation");
+            let result = PlatformBatchResult::new(
+                1,
+                batch.job_id().clone(),
+                batch.batch_id().clone(),
+                1,
+                vec![ActionResult::new(
+                    action_id(20),
+                    ActionOutcome::Applied(PlatformActionOutput::Stat { metadata: observed }),
+                )],
+            );
+            if valid {
+                assert_eq!(
+                    result
+                        .validate_against(&batch)
+                        .must_succeed("metadata accepted"),
+                    1
+                );
+            } else {
+                assert_eq!(
+                    result
+                        .validate_against(&batch)
+                        .must_fail("invalid metadata observation")
+                        .code(),
+                    "platform_result_output_mismatch"
+                );
+            }
+        }
     }
 
     #[test]

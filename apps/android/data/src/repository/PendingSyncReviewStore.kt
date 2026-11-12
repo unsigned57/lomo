@@ -35,112 +35,106 @@ data class PendingSyncReviewItemDescriptor(
 )
 class FileBackedPendingSyncReviewStore(
     private val table: PendingReviewTable,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : PendingSyncReviewStore {
-        private val json =
-            Json {
-                ignoreUnknownKeys = true
-                encodeDefaults = true
-            }
-        override suspend fun readDescriptor(source: SyncBackendType): PendingSyncReviewDescriptor? {
-            if (source == SyncBackendType.NONE) return null
-            val generation = activeGeneration()
-            return table
-                .getByBackend(
-                    backend = source.name,
-                    workspaceGeneration = generation,
-                )?.toReviewDescriptor(json = json, workspaceGeneration = generation)
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : PendingSyncReviewStore {
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
         }
-        override suspend fun write(review: SyncReviewSession) {
-            if (review.source == SyncBackendType.NONE) return
-            review.requireExplicitS3BinaryDescriptors()
-            table.upsert(review.toRecord(json = json, workspaceGeneration = activeGeneration()))
-        }
-        override suspend fun writeDescriptor(descriptor: PendingSyncReviewDescriptor) {
-            if (descriptor.source == SyncBackendType.NONE) return
-            table.upsert(descriptor.toRecord(json = json, workspaceGeneration = activeGeneration()))
-        }
-        override suspend fun clear(source: SyncBackendType) {
-            if (source == SyncBackendType.NONE) return
-            table.deleteByBackend(
+    override suspend fun readDescriptor(source: SyncBackendType): PendingSyncReviewDescriptor? {
+        if (source == SyncBackendType.NONE) return null
+        val generation = activeGeneration()
+        return table
+            .getByBackend(
                 backend = source.name,
-                workspaceGeneration = activeGeneration(),
-            )
-        }
-        private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
+                workspaceGeneration = generation,
+            )?.toReviewDescriptor(json = json, workspaceGeneration = generation)
     }
-private fun SyncReviewSession.toRecord(
-    json: Json,
-    workspaceGeneration: String,
-): PendingSyncReviewRecord =
+    override suspend fun write(review: SyncReviewSession) {
+        if (review.source == SyncBackendType.NONE) return
+        review.requireExplicitS3BinaryDescriptors()
+        table.upsert(review.toRecord(json = json, workspaceGeneration = activeGeneration()))
+    }
+    override suspend fun writeDescriptor(descriptor: PendingSyncReviewDescriptor) {
+        if (descriptor.source == SyncBackendType.NONE) return
+        table.upsert(descriptor.toRecord(json = json, workspaceGeneration = activeGeneration()))
+    }
+    override suspend fun clear(source: SyncBackendType) {
+        if (source == SyncBackendType.NONE) return
+        table.deleteByBackend(
+            backend = source.name,
+            workspaceGeneration = activeGeneration(),
+        )
+    }
+    private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
+}
+private fun SyncReviewSession.toRecord(json: Json, workspaceGeneration: String): PendingSyncReviewRecord =
     PendingSyncReviewRecord(
         workspaceGeneration = workspaceGeneration,
         backend = source.name,
         reviewKind = kind.name,
         timestamp = timestamp,
         payloadJson =
-            json.encodeToString(
-                PendingSyncReviewPayload(
-                    validationStatus = PendingSyncValidationStatus.PENDING_RELOAD.name,
-                    items =
-                        items.map { item ->
-                            PendingSyncReviewItemPayload(
-                                relativePath = item.relativePath,
-                                isBinary = item.isBinary,
-                                local =
-                                    PendingSyncReviewSideMetadataPayload(
-                                        locator = item.relativePath,
-                                        contentHash = item.localContent?.pendingContentHash(),
-                                        lastModified = item.localLastModified,
-                                        size = item.localContent?.run { toByteArray(Charsets.UTF_8).size.toLong() },
-                                        etag = item.localContent?.pendingContentHash(),
-                                    ),
-                                incoming =
-                                    PendingSyncReviewSideMetadataPayload(
-                                        locator = item.relativePath,
-                                        contentHash = item.incomingContent?.pendingContentHash(),
-                                        lastModified = item.incomingLastModified,
-                                        size = item.incomingContent?.run { toByteArray(Charsets.UTF_8).size.toLong() },
-                                        etag = item.incomingContent?.pendingContentHash(),
-                                    ),
-                                state = item.state.name,
-                                message = item.message,
-                            )
-                        },
-                ),
+        json.encodeToString(
+            PendingSyncReviewPayload(
+                validationStatus = PendingSyncValidationStatus.PENDING_RELOAD.name,
+                items =
+                items.map { item ->
+                    PendingSyncReviewItemPayload(
+                        relativePath = item.relativePath,
+                        isBinary = item.isBinary,
+                        local =
+                        PendingSyncReviewSideMetadataPayload(
+                            locator = item.relativePath,
+                            contentHash = item.localContent?.pendingContentHash(),
+                            lastModified = item.localLastModified,
+                            size = item.localContent?.run { toByteArray(Charsets.UTF_8).size.toLong() },
+                            etag = item.localContent?.pendingContentHash(),
+                        ),
+                        incoming =
+                        PendingSyncReviewSideMetadataPayload(
+                            locator = item.relativePath,
+                            contentHash = item.incomingContent?.pendingContentHash(),
+                            lastModified = item.incomingLastModified,
+                            size = item.incomingContent?.run { toByteArray(Charsets.UTF_8).size.toLong() },
+                            etag = item.incomingContent?.pendingContentHash(),
+                        ),
+                        state = item.state.name,
+                        message = item.message,
+                    )
+                },
             ),
+        ),
     )
 private fun SyncReviewSession.requireExplicitS3BinaryDescriptors() {
     require(source != SyncBackendType.S3 || items.none(SyncReviewItem::isBinary)) {
         "S3 binary/non-memo pending reviews require explicit side descriptors from materialization"
     }
 }
-private fun PendingSyncReviewDescriptor.toRecord(
-    json: Json,
-    workspaceGeneration: String,
-): PendingSyncReviewRecord =
+private fun PendingSyncReviewDescriptor.toRecord(json: Json, workspaceGeneration: String): PendingSyncReviewRecord =
     PendingSyncReviewRecord(
         workspaceGeneration = workspaceGeneration,
         backend = source.name,
         reviewKind = kind.name,
         timestamp = timestamp,
         payloadJson =
-            json.encodeToString(
-                PendingSyncReviewPayload(
-                    validationStatus = PendingSyncValidationStatus.PENDING_RELOAD.name,
-                    items =
-                        items.map { item ->
-                            PendingSyncReviewItemPayload(
-                                relativePath = item.relativePath,
-                                isBinary = item.isBinary,
-                                local = item.local.toReviewPayload(),
-                                incoming = item.incoming.toReviewPayload(),
-                                state = item.state.name,
-                                message = item.message,
-                            )
-                        },
-                ),
+        json.encodeToString(
+            PendingSyncReviewPayload(
+                validationStatus = PendingSyncValidationStatus.PENDING_RELOAD.name,
+                items =
+                items.map { item ->
+                    PendingSyncReviewItemPayload(
+                        relativePath = item.relativePath,
+                        isBinary = item.isBinary,
+                        local = item.local.toReviewPayload(),
+                        incoming = item.incoming.toReviewPayload(),
+                        state = item.state.name,
+                        message = item.message,
+                    )
+                },
             ),
+        ),
     )
 private fun PendingSyncReviewRecord.toReviewDescriptor(
     json: Json,
@@ -152,28 +146,30 @@ private fun PendingSyncReviewRecord.toReviewDescriptor(
         // (unavailable), never a throw from valueOf and never a collapse into NONE.
         source = SyncBackendType.fromStorageValue(backend),
         items =
-            payload.items.map { item ->
-                PendingSyncReviewItemDescriptor(
-                    relativePath = item.relativePath,
-                    isBinary = item.isBinary,
-                    local = item.local.toModel(),
-                    incoming = item.incoming.toModel(),
-                    state = SyncReviewItemState.valueOf(item.state),
-                    message = item.message,
-                )
-            },
+        payload.items.map { item ->
+            PendingSyncReviewItemDescriptor(
+                relativePath = item.relativePath,
+                isBinary = item.isBinary,
+                local = item.local.toModel(),
+                incoming = item.incoming.toModel(),
+                state = SyncReviewItemState.valueOf(item.state),
+                message = item.message,
+            )
+        },
         timestamp = timestamp,
         kind = SyncReviewSessionKind.valueOf(reviewKind),
         workspaceGeneration = workspaceGeneration,
         validationStatus = PendingSyncValidationStatus.valueOf(payload.validationStatus),
     )
 }
+
 @Serializable
 private data class PendingSyncReviewPayload(
     val schemaVersion: Int = 2,
     val validationStatus: String = PendingSyncValidationStatus.PENDING_RELOAD.name,
     val items: List<PendingSyncReviewItemPayload>,
 )
+
 @Serializable
 private data class PendingSyncReviewItemPayload(
     val relativePath: String,
@@ -183,6 +179,7 @@ private data class PendingSyncReviewItemPayload(
     val state: String,
     val message: String? = null,
 )
+
 @Serializable
 private data class PendingSyncReviewSideMetadataPayload(
     val locator: String,
@@ -191,14 +188,13 @@ private data class PendingSyncReviewSideMetadataPayload(
     val size: Long? = null,
     val etag: String? = null,
 )
-private fun PendingSyncReviewSideMetadataPayload.toModel(): PendingSyncSideMetadata =
-    PendingSyncSideMetadata(
-        locator = locator,
-        contentHash = contentHash,
-        lastModified = lastModified,
-        size = size,
-        etag = etag,
-    )
+private fun PendingSyncReviewSideMetadataPayload.toModel(): PendingSyncSideMetadata = PendingSyncSideMetadata(
+    locator = locator,
+    contentHash = contentHash,
+    lastModified = lastModified,
+    size = size,
+    etag = etag,
+)
 private fun PendingSyncSideMetadata.toReviewPayload(): PendingSyncReviewSideMetadataPayload =
     PendingSyncReviewSideMetadataPayload(
         locator = locator,
@@ -207,5 +203,4 @@ private fun PendingSyncSideMetadata.toReviewPayload(): PendingSyncReviewSideMeta
         size = size,
         etag = etag,
     )
-private fun String.pendingContentHash(): String =
-    toByteArray(Charsets.UTF_8).md5Hex()
+private fun String.pendingContentHash(): String = toByteArray(Charsets.UTF_8).md5Hex()

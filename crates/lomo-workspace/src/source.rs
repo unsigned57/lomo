@@ -21,7 +21,7 @@ impl SourceFingerprint {
     #[must_use]
     pub fn of_bytes(bytes: &[u8]) -> Self {
         let digest = Sha256::digest(bytes);
-        Self(format!("{digest:x}"))
+        Self(lomo_core::hex_encode(&digest))
     }
 
     /// Parses a lowercase hexadecimal SHA-256 digest.

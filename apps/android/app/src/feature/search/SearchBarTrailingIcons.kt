@@ -1,97 +1,170 @@
 package com.lomo.app.feature.search
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.rounded.FilterAlt
+import androidx.compose.material.icons.automirrored.rounded.ManageSearch
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonShapes
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.lomo.app.R
-import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.domain.model.MemoSearchMode
-import com.lomo.ui.benchmark.benchmarkAnchor
-import com.lomo.ui.util.AppHapticFeedback
+import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.component.common.lomoCompactInteractiveHeight
+import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.theme.LocalLomoMotion
+import com.lomo.ui.util.LocalAppHapticFeedback
 
+/**
+ * Determines whether the floating search mode capsule should be visible.
+ *
+ * Contract:
+ * - Hidden when on the search page without software keyboard active.
+ * - Visible when the IME is active and no query text has been typed.
+ * - Hidden after typing begins (query text non-empty), when IME hides, or when bars hide.
+ */
+internal fun isSearchModeCapsuleVisible(
+    isBarsVisible: Boolean,
+    isImeVisible: Boolean,
+    hasQueryText: Boolean,
+): Boolean = isBarsVisible && isImeVisible && !hasQueryText
+
+/**
+ * Material 3 Expressive floating search mode capsule.
+ * Positioned above the software keyboard / bottom navigation bar for effortless thumb reach.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun SearchBarTrailingIcons(
-    query: String,
+internal fun SearchModeFloatingCapsule(
     searchMode: MemoSearchMode,
-    isFilterActive: Boolean,
-    haptic: AppHapticFeedback,
-    onClearQuery: () -> Unit,
     onToggleSearchMode: () -> Unit,
-    onOpenFilter: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        if (query.isNotEmpty()) {
-            IconButton(
+    val isFuzzy = searchMode == MemoSearchMode.Fuzzy
+    val haptic = LocalAppHapticFeedback.current
+    val modeDescription =
+        stringResource(
+            if (isFuzzy) {
+                R.string.search_mode_switch_to_fulltext
+            } else {
+                R.string.search_mode_switch_to_fuzzy
+            },
+        )
+
+    Surface(
+        shape = AppShapes.Full,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+        tonalElevation = 6.dp,
+        shadowElevation = 8.dp,
+        border =
+        BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+        ),
+        modifier =
+        modifier
+            .semantics { contentDescription = modeDescription },
+    ) {
+        Row(
+            modifier = Modifier.padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            SearchModeSegmentOption(
+                selected = !isFuzzy,
+                icon = Icons.Rounded.Search,
+                label = stringResource(R.string.search_mode_fulltext),
                 onClick = {
-                    haptic.medium()
-                    onClearQuery()
-                },
-                modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SEARCH_CLEAR),
-            ) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = stringResource(R.string.cd_clear_search),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        val modeDescription =
-            stringResource(
-                if (searchMode == MemoSearchMode.Fuzzy) {
-                    R.string.search_mode_switch_to_fulltext
-                } else {
-                    R.string.search_mode_switch_to_fuzzy
+                    if (isFuzzy) {
+                        haptic.medium()
+                        onToggleSearchMode()
+                    }
                 },
             )
-        TextButton(
-            onClick = {
-                haptic.medium()
-                onToggleSearchMode()
-            },
-            modifier = Modifier.semantics { contentDescription = modeDescription },
-        ) {
-            Text(
-                text = stringResource(R.string.search_mode_fuzzy),
-                style = MaterialTheme.typography.labelLarge,
-                color =
-                    if (searchMode == MemoSearchMode.Fuzzy) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+            SearchModeSegmentOption(
+                selected = isFuzzy,
+                icon = Icons.AutoMirrored.Rounded.ManageSearch,
+                label = stringResource(R.string.search_mode_fuzzy),
+                onClick = {
+                    if (!isFuzzy) {
+                        haptic.medium()
+                        onToggleSearchMode()
+                    }
+                },
             )
         }
-        IconButton(
-            onClick = {
-                haptic.medium()
-                onOpenFilter()
-            },
-        ) {
-            val descriptionRes =
-                if (isFilterActive) R.string.search_filter_active_cd else R.string.search_filter_open
-            val iconTint =
-                if (isFilterActive) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            Icon(
-                Icons.Rounded.FilterAlt,
-                contentDescription = stringResource(descriptionRes),
-                tint = iconTint,
-            )
-        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SearchModeSegmentOption(selected: Boolean, icon: ImageVector, label: String, onClick: () -> Unit) {
+    val componentMotion = LocalLomoMotion.current.component
+    val containerColor by animateColorAsState(
+        targetValue =
+        if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            Color.Transparent
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "SearchModeSegmentContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue =
+        if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "SearchModeSegmentContent",
+    )
+
+    LomoFilledTonalButton(
+        onClick = onClick,
+        shapes = ButtonShapes(AppShapes.Full, AppShapes.Full),
+        colors =
+        ButtonDefaults.filledTonalButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+        modifier = Modifier.lomoCompactInteractiveHeight(34.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+        )
     }
 }

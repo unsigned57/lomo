@@ -34,9 +34,7 @@ internal data class MainListSessionSnapshot(
 
 internal sealed interface MainListSessionRestoreAction {
     /** The mounted workspace owns the snapshot: restore query and filter, then the anchor. */
-    data class Apply(
-        val snapshot: MainListSessionSnapshot,
-    ) : MainListSessionRestoreAction
+    data class Apply(val snapshot: MainListSessionSnapshot) : MainListSessionRestoreAction
 
     /** The mounted workspace does not own the snapshot: bind it and start at the top. */
     data object Reset : MainListSessionRestoreAction
@@ -48,12 +46,11 @@ internal sealed interface MainListSessionRestoreAction {
 internal fun resolveMainListSessionRestore(
     snapshot: MainListSessionSnapshot,
     workspacePath: String?,
-): MainListSessionRestoreAction =
-    when {
-        workspacePath == null -> MainListSessionRestoreAction.Wait
-        snapshot.workspacePath == workspacePath -> MainListSessionRestoreAction.Apply(snapshot)
-        else -> MainListSessionRestoreAction.Reset
-    }
+): MainListSessionRestoreAction = when {
+    workspacePath == null -> MainListSessionRestoreAction.Wait
+    snapshot.workspacePath == workspacePath -> MainListSessionRestoreAction.Apply(snapshot)
+    else -> MainListSessionRestoreAction.Reset
+}
 
 private const val SESSION_FIELD_COUNT = 11
 
@@ -84,15 +81,15 @@ internal val mainListSessionSnapshotSaver =
                 anchorIndex = restored[2] as Int,
                 anchorOffset = restored[3] as Int,
                 filter =
-                    MemoListFilter(
-                        sortOption = MemoSortOption.valueOf(restored[4] as String),
-                        sortAscending = restored[5] as Boolean,
-                        startDate = (restored[6] as String?)?.let(LocalDate::parse),
-                        endDate = (restored[7] as String?)?.let(LocalDate::parse),
-                        hasTodo = restored[8] as Boolean?,
-                        hasAttachment = restored[9] as Boolean?,
-                        hasUrl = restored[10] as Boolean?,
-                    ),
+                MemoListFilter(
+                    sortOption = MemoSortOption.valueOf(restored[4] as String),
+                    sortAscending = restored[5] as Boolean,
+                    startDate = (restored[6] as String?)?.let(LocalDate::parse),
+                    endDate = (restored[7] as String?)?.let(LocalDate::parse),
+                    hasTodo = restored[8] as Boolean?,
+                    hasAttachment = restored[9] as Boolean?,
+                    hasUrl = restored[10] as Boolean?,
+                ),
             )
         },
     )

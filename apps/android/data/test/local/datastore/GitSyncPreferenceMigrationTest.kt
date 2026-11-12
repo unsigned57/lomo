@@ -29,45 +29,46 @@ import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 
-class GitSyncPreferenceMigrationTest : FunSpec({
-    test("existing git remote without a branch receives the explicit default") {
-        runTest {
-            val prefs =
-                mutablePreferencesOf(
-                    LomoDataStoreKeys.GIT_REMOTE_URL to "https://example.com/repo.git",
-                )
+class GitSyncPreferenceMigrationTest :
+    FunSpec({
+        test("existing git remote without a branch receives the explicit default") {
+            runTest {
+                val prefs =
+                    mutablePreferencesOf(
+                        LomoDataStoreKeys.GIT_REMOTE_URL to "https://example.com/repo.git",
+                    )
 
-            GitSyncPreferenceMigration.shouldMigrate(prefs) shouldBe true
-            val migrated = GitSyncPreferenceMigration.migrate(prefs)
+                GitSyncPreferenceMigration.shouldMigrate(prefs) shouldBe true
+                val migrated = GitSyncPreferenceMigration.migrate(prefs)
 
-            migrated[LomoDataStoreKeys.GIT_BRANCH] shouldBe "main"
-            migrated[LomoDataStoreKeys.GIT_REMOTE_URL] shouldBe "https://example.com/repo.git"
+                migrated[LomoDataStoreKeys.GIT_BRANCH] shouldBe "main"
+                migrated[LomoDataStoreKeys.GIT_REMOTE_URL] shouldBe "https://example.com/repo.git"
+            }
         }
-    }
 
-    test("a stored branch is never overwritten") {
-        runTest {
-            val prefs =
-                mutablePreferencesOf(
-                    LomoDataStoreKeys.GIT_REMOTE_URL to "https://example.com/repo.git",
-                    LomoDataStoreKeys.GIT_BRANCH to "master",
-                )
+        test("a stored branch is never overwritten") {
+            runTest {
+                val prefs =
+                    mutablePreferencesOf(
+                        LomoDataStoreKeys.GIT_REMOTE_URL to "https://example.com/repo.git",
+                        LomoDataStoreKeys.GIT_BRANCH to "master",
+                    )
 
-            GitSyncPreferenceMigration.shouldMigrate(prefs) shouldBe false
+                GitSyncPreferenceMigration.shouldMigrate(prefs) shouldBe false
+            }
         }
-    }
 
-    test("no remote means nothing to migrate") {
-        runTest {
-            GitSyncPreferenceMigration.shouldMigrate(emptyPreferences()) shouldBe false
+        test("no remote means nothing to migrate") {
+            runTest {
+                GitSyncPreferenceMigration.shouldMigrate(emptyPreferences()) shouldBe false
+            }
         }
-    }
 
-    test("remote without value stays absent when migration was never needed") {
-        runTest {
-            val migrated = GitSyncPreferenceMigration.migrate(emptyPreferences())
+        test("remote without value stays absent when migration was never needed") {
+            runTest {
+                val migrated = GitSyncPreferenceMigration.migrate(emptyPreferences())
 
-            migrated[LomoDataStoreKeys.GIT_BRANCH].shouldBeNull()
+                migrated[LomoDataStoreKeys.GIT_BRANCH].shouldBeNull()
+            }
         }
-    }
-})
+    })

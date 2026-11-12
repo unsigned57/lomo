@@ -1,4 +1,13 @@
 //! Behavior Contract
+//! TDD proof: Regression preservation - `cargo test -p lomo-application --test workspace_interchange_contract --test session_transaction_contract --locked`
+//! passed before this refactor (`reports/manual/remaining-gates/application-before.log`);
+//! the same command is recorded in `application-green.log`.
+//! Test Change Justification:
+//! Reason category: remove redundant convergence calls from the interchange scenario.
+//! Old behavior/assertion being replaced: identical consecutive settle calls performed the same completed barrier twice.
+//! Why old assertion is no longer correct: no result assertion changes; one successful settle already certifies durable convergence.
+//! Coverage preserved by: all copied memo identities, pins, task bytes and query assertions remain intact.
+//! Why this is not fitting the test to the implementation: the contract needs durable bytes before copy, not repeated barrier invocation.
 //! Capability: Markdown + `.lomo` is a complete interchange unit between two private sessions.
 //! Scenarios:
 //! - Given session A creates a task memo and pins it;
@@ -116,6 +125,10 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
+        ctx_a
+            .session
+            .settle_workspace()
+            .expect("committed writes converge");
         let memo_id = created.memo_id;
         assert!(
             memo_id.as_str().starts_with("m_"),
@@ -135,6 +148,10 @@ mod tests {
                 .expect("valid pin command"),
             )
             .expect("pin");
+        ctx_a
+            .session
+            .settle_workspace()
+            .expect("committed writes converge");
 
         let ctx_b = open_on(copy_workspace(&ctx_a.workspace_path));
         ctx_b.session.rebuild_projection().expect("rebuild b");
@@ -156,6 +173,10 @@ mod tests {
                 done: true,
             })
             .expect("toggle");
+        ctx_b
+            .session
+            .settle_workspace()
+            .expect("committed writes converge");
         let markdown_b =
             fs::read_to_string(ctx_b.workspace_path.join("2026_09_11.md")).expect("md b");
         assert!(

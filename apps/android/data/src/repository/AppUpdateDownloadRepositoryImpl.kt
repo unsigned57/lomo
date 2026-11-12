@@ -9,7 +9,6 @@ import com.lomo.domain.model.AppUpdateInstallerOutcome
 import com.lomo.domain.repository.AppUpdateDownloadRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
-
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -20,7 +19,6 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.io.File
 import java.io.IOException
-
 
 class AppUpdateDownloadRepositoryImpl internal constructor(
     private val context: android.content.Context,
@@ -34,233 +32,231 @@ class AppUpdateDownloadRepositoryImpl internal constructor(
         FileProviderAppUpdateInstallerLauncher(context, resources),
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : AppUpdateDownloadRepository {
-        @Volatile
-        // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
-        private var currentDownloadJob: Job? = null
+    @Volatile
+    // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
+    private var currentDownloadJob: Job? = null
 
-        override fun observeInstallAttempt(): Flow<AppUpdateInstallAttempt?> = attemptStore.observe()
+    override fun observeInstallAttempt(): Flow<AppUpdateInstallAttempt?> = attemptStore.observe()
 
-        override fun downloadAndInstall(updateInfo: AppUpdateInfo): Flow<AppUpdateInstallState> =
-            flow {
-                try {
-                    currentDownloadJob = currentCoroutineContext()[Job]
-                    attemptStore.save(
-                        AppUpdateInstallAttempt(
-                            updateInfo = updateInfo,
-                            phase = AppUpdateInstallPhase.Recorded,
-                        ),
-                    )
-                    val downloadUrl =
-                        updateInfo.apkDownloadUrl?.takeIf { it.isNotBlank() }
-                            ?: run {
-                                val message = resources.getString(resources.appUpdateMissingApk)
-                                attemptStore.save(
-                                    AppUpdateInstallAttempt(
-                                        updateInfo = updateInfo,
-                                        phase = AppUpdateInstallPhase.Failed,
-                                        failureMessage = message,
-                                    ),
-                                )
-                                emit(AppUpdateInstallState.Failed(message))
-                                return@flow
-                            }
-
-                    if (!context.packageManager.canRequestPackageInstalls()) {
-                        val message = resources.getString(resources.appUpdateEnableInstalls)
+    override fun downloadAndInstall(updateInfo: AppUpdateInfo): Flow<AppUpdateInstallState> = flow {
+        try {
+            currentDownloadJob = currentCoroutineContext()[Job]
+            attemptStore.save(
+                AppUpdateInstallAttempt(
+                    updateInfo = updateInfo,
+                    phase = AppUpdateInstallPhase.Recorded,
+                ),
+            )
+            val downloadUrl =
+                updateInfo.apkDownloadUrl?.takeIf { it.isNotBlank() }
+                    ?: run {
+                        val message = resources.getString(resources.appUpdateMissingApk)
                         attemptStore.save(
                             AppUpdateInstallAttempt(
                                 updateInfo = updateInfo,
-                                phase = AppUpdateInstallPhase.WaitingForInstallPermission,
-                                permissionMessage = message,
+                                phase = AppUpdateInstallPhase.Failed,
+                                failureMessage = message,
                             ),
                         )
-                        emit(AppUpdateInstallState.RequiresInstallPermission(message = message))
+                        emit(AppUpdateInstallState.Failed(message))
                         return@flow
                     }
 
-                    attemptStore.save(
-                        AppUpdateInstallAttempt(
-                            updateInfo = updateInfo,
-                            phase = AppUpdateInstallPhase.Preparing,
-                        ),
-                    )
-                    emit(AppUpdateInstallState.Preparing)
-                    val targetFile =
-                        downloadApk(
-                            downloadUrl = downloadUrl,
-                            fileName = updateInfo.apkFileName ?: defaultApkName(updateInfo.version),
-                        ) { progress ->
-                            attemptStore.save(
-                                AppUpdateInstallAttempt(
-                                    updateInfo = updateInfo,
-                                    phase = AppUpdateInstallPhase.Downloading,
-                                    progress = progress,
-                                ),
-                            )
-                            emit(AppUpdateInstallState.Downloading(progress))
-                        }
-                    val downloadedPath = targetFile.absolutePath
-                    // Terminal record — the loop above already emitted measured per-byte progress.
-                    // behavior-contract: constant-status-ok: Downloaded carries the completed 100%.
-                    attemptStore.save(
-                        AppUpdateInstallAttempt(
-                            updateInfo = updateInfo,
-                            phase = AppUpdateInstallPhase.Downloaded,
-                            progress = 100,
-                            downloadedFilePath = downloadedPath,
-                        ),
-                    )
-
-                    emitPersistedInstallStatesAfterDownload(
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                val message = resources.getString(resources.appUpdateEnableInstalls)
+                attemptStore.save(
+                    AppUpdateInstallAttempt(
                         updateInfo = updateInfo,
-                        targetFile = targetFile,
-                        downloadedPath = downloadedPath,
-                    )
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    recordCurrentAttemptFailure(error)
-                    throw error
-                } finally {
-                    currentDownloadJob = null
-                }
-            }.flowOn(dispatcherProvider.io)
-
-        override fun cancelCurrentDownload() {
-            currentDownloadJob?.cancel()
-            attemptStore.update { existing ->
-                existing?.copy(phase = AppUpdateInstallPhase.Cancelled)
-            }
-        }
-
-        private suspend fun downloadApk(
-            downloadUrl: String,
-            fileName: String,
-            onProgress: suspend (Int) -> Unit,
-        ): File {
-            currentCoroutineContext().ensureActive()
-            val outputDir = File(context.cacheDir, UPDATE_DOWNLOAD_DIRECTORY).apply { mkdirs() }
-            val outputFile = File(outputDir, sanitizeFileName(fileName))
-            outputFile.delete()
-
-            try {
-                downloader.download(
-                    outputFile = outputFile,
-                    downloadUrl = downloadUrl,
-                    onProgress = onProgress,
+                        phase = AppUpdateInstallPhase.WaitingForInstallPermission,
+                        permissionMessage = message,
+                    ),
                 )
+                emit(AppUpdateInstallState.RequiresInstallPermission(message = message))
+                return@flow
+            }
 
-                if (outputFile.length() <= 0L) {
-                    throw IOException(resources.getString(resources.appUpdateEmptyFile))
+            attemptStore.save(
+                AppUpdateInstallAttempt(
+                    updateInfo = updateInfo,
+                    phase = AppUpdateInstallPhase.Preparing,
+                ),
+            )
+            emit(AppUpdateInstallState.Preparing)
+            val targetFile =
+                downloadApk(
+                    downloadUrl = downloadUrl,
+                    fileName = updateInfo.apkFileName ?: defaultApkName(updateInfo.version),
+                ) { progress ->
+                    attemptStore.save(
+                        AppUpdateInstallAttempt(
+                            updateInfo = updateInfo,
+                            phase = AppUpdateInstallPhase.Downloading,
+                            progress = progress,
+                        ),
+                    )
+                    emit(AppUpdateInstallState.Downloading(progress))
                 }
-                return outputFile
-            } catch (error: AppUpdateDownloadHttpException) {
-                throw IOException(resources.getString(resources.appUpdateHttpFailed, error.statusCode), error)
+            val downloadedPath = targetFile.absolutePath
+            // Terminal record — the loop above already emitted measured per-byte progress.
+            // behavior-contract: constant-status-ok: Downloaded carries the completed 100%.
+            attemptStore.save(
+                AppUpdateInstallAttempt(
+                    updateInfo = updateInfo,
+                    phase = AppUpdateInstallPhase.Downloaded,
+                    progress = 100,
+                    downloadedFilePath = downloadedPath,
+                ),
+            )
+
+            emitPersistedInstallStatesAfterDownload(
+                updateInfo = updateInfo,
+                targetFile = targetFile,
+                downloadedPath = downloadedPath,
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            recordCurrentAttemptFailure(error)
+            throw error
+        } finally {
+            currentDownloadJob = null
+        }
+    }.flowOn(dispatcherProvider.io)
+
+    override fun cancelCurrentDownload() {
+        currentDownloadJob?.cancel()
+        attemptStore.update { existing ->
+            existing?.copy(phase = AppUpdateInstallPhase.Cancelled)
+        }
+    }
+
+    private suspend fun downloadApk(downloadUrl: String, fileName: String, onProgress: suspend (Int) -> Unit): File {
+        currentCoroutineContext().ensureActive()
+        val outputDir = File(context.cacheDir, UPDATE_DOWNLOAD_DIRECTORY).apply { mkdirs() }
+        val outputFile = File(outputDir, sanitizeFileName(fileName))
+        outputFile.delete()
+
+        try {
+            downloader.download(
+                outputFile = outputFile,
+                downloadUrl = downloadUrl,
+                onProgress = onProgress,
+            )
+
+            if (outputFile.length() <= 0L) {
+                throw IOException(resources.getString(resources.appUpdateEmptyFile))
+            }
+            return outputFile
+        } catch (error: AppUpdateDownloadHttpException) {
+            throw IOException(resources.getString(resources.appUpdateHttpFailed, error.statusCode), error)
+        }
+    }
+
+    private fun launchInstaller(apkFile: File) {
+        installerLauncher.launch(apkFile)
+    }
+
+    private fun recordCurrentAttemptFailure(error: Throwable) {
+        attemptStore.update { existing ->
+            when {
+                existing == null -> null
+
+                existing.phase.isTerminal() -> existing
+
+                existing.phase == AppUpdateInstallPhase.WaitingForInstallPermission -> existing
+
+                else ->
+                    existing.copy(
+                        phase = AppUpdateInstallPhase.Failed,
+                        installerOutcome = null,
+                        failureMessage = error.toInstallAttemptFailureMessage(),
+                    )
             }
         }
+    }
 
-        private fun launchInstaller(apkFile: File) {
-            installerLauncher.launch(apkFile)
-        }
+    private suspend fun FlowCollector<AppUpdateInstallState>.emitPersistedInstallStatesAfterDownload(
+        updateInfo: AppUpdateInfo,
+        targetFile: File,
+        downloadedPath: String,
+    ) {
+        when (val verification = apkVerifier.verify(targetFile, updateInfo)) {
+            is DownloadedApkVerificationResult.Invalid -> {
+                attemptStore.save(
+                    AppUpdateInstallAttempt(
+                        updateInfo = updateInfo,
+                        phase = AppUpdateInstallPhase.Failed,
+                        downloadedFilePath = downloadedPath,
+                        failureMessage = verification.message,
+                    ),
+                )
+                emit(AppUpdateInstallState.Failed(verification.message))
+                return
+            }
 
-        private fun recordCurrentAttemptFailure(error: Throwable) {
-            attemptStore.update { existing ->
-                when {
-                    existing == null -> null
-                    existing.phase.isTerminal() -> existing
-                    existing.phase == AppUpdateInstallPhase.WaitingForInstallPermission -> existing
-                    else ->
-                        existing.copy(
-                            phase = AppUpdateInstallPhase.Failed,
-                            installerOutcome = null,
-                            failureMessage = error.toInstallAttemptFailureMessage(),
+            is DownloadedApkVerificationResult.Valid -> {
+                val verifiedMetadata = verification.metadata.toDomainMetadata()
+                attemptStore.save(
+                    AppUpdateInstallAttempt(
+                        updateInfo = updateInfo,
+                        phase = AppUpdateInstallPhase.Installing,
+                        downloadedFilePath = downloadedPath,
+                        verifiedPackageMetadata = verifiedMetadata,
+                    ),
+                )
+                emit(AppUpdateInstallState.Installing)
+                launchInstaller(targetFile)
+                attemptStore.save(
+                    AppUpdateInstallAttempt(
+                        updateInfo = updateInfo,
+                        phase = AppUpdateInstallPhase.WaitingForInstallerResult,
+                        downloadedFilePath = downloadedPath,
+                        verifiedPackageMetadata = verifiedMetadata,
+                    ),
+                )
+                emit(AppUpdateInstallState.WaitingForInstallerResult)
+                when (
+                    val installerResult =
+                        installerResultObserver.awaitInstallerResult(
+                            verifiedDownloadedApk = verification.metadata,
+                            updateInfo = updateInfo,
                         )
-                }
-            }
-        }
-
-        private suspend fun FlowCollector<AppUpdateInstallState>.emitPersistedInstallStatesAfterDownload(
-            updateInfo: AppUpdateInfo,
-            targetFile: File,
-            downloadedPath: String,
-        ) {
-            when (val verification = apkVerifier.verify(targetFile, updateInfo)) {
-                is DownloadedApkVerificationResult.Invalid -> {
-                    attemptStore.save(
-                        AppUpdateInstallAttempt(
-                            updateInfo = updateInfo,
-                            phase = AppUpdateInstallPhase.Failed,
-                            downloadedFilePath = downloadedPath,
-                            failureMessage = verification.message,
-                        ),
-                    )
-                    emit(AppUpdateInstallState.Failed(verification.message))
-                    return
-                }
-
-                is DownloadedApkVerificationResult.Valid -> {
-                    val verifiedMetadata = verification.metadata.toDomainMetadata()
-                    attemptStore.save(
-                        AppUpdateInstallAttempt(
-                            updateInfo = updateInfo,
-                            phase = AppUpdateInstallPhase.Installing,
-                            downloadedFilePath = downloadedPath,
-                            verifiedPackageMetadata = verifiedMetadata,
-                        ),
-                    )
-                    emit(AppUpdateInstallState.Installing)
-                    launchInstaller(targetFile)
-                    attemptStore.save(
-                        AppUpdateInstallAttempt(
-                            updateInfo = updateInfo,
-                            phase = AppUpdateInstallPhase.WaitingForInstallerResult,
-                            downloadedFilePath = downloadedPath,
-                            verifiedPackageMetadata = verifiedMetadata,
-                        ),
-                    )
-                    emit(AppUpdateInstallState.WaitingForInstallerResult)
-                    when (
-                        val installerResult =
-                            installerResultObserver.awaitInstallerResult(
-                                verifiedDownloadedApk = verification.metadata,
+                ) {
+                    AppUpdateInstallerResult.Installed -> {
+                        attemptStore.save(
+                            AppUpdateInstallAttempt(
                                 updateInfo = updateInfo,
-                            )
-                    ) {
-                        AppUpdateInstallerResult.Installed -> {
-                            attemptStore.save(
-                                AppUpdateInstallAttempt(
-                                    updateInfo = updateInfo,
-                                    phase = AppUpdateInstallPhase.Completed,
-                                    downloadedFilePath = downloadedPath,
-                                    verifiedPackageMetadata = verifiedMetadata,
-                                    installerOutcome = AppUpdateInstallerOutcome.Installed,
-                                ),
-                            )
-                            emit(AppUpdateInstallState.Completed)
-                        }
+                                phase = AppUpdateInstallPhase.Completed,
+                                downloadedFilePath = downloadedPath,
+                                verifiedPackageMetadata = verifiedMetadata,
+                                installerOutcome = AppUpdateInstallerOutcome.Installed,
+                            ),
+                        )
+                        emit(AppUpdateInstallState.Completed)
+                    }
 
-                        is AppUpdateInstallerResult.Failed -> {
-                            attemptStore.save(
-                                AppUpdateInstallAttempt(
-                                    updateInfo = updateInfo,
-                                    phase = AppUpdateInstallPhase.Failed,
-                                    downloadedFilePath = downloadedPath,
-                                    verifiedPackageMetadata = verifiedMetadata,
-                                    installerOutcome = AppUpdateInstallerOutcome.Failed(installerResult.message),
-                                    failureMessage = installerResult.message,
-                                ),
-                            )
-                            emit(AppUpdateInstallState.Failed(installerResult.message))
-                        }
+                    is AppUpdateInstallerResult.Failed -> {
+                        attemptStore.save(
+                            AppUpdateInstallAttempt(
+                                updateInfo = updateInfo,
+                                phase = AppUpdateInstallPhase.Failed,
+                                downloadedFilePath = downloadedPath,
+                                verifiedPackageMetadata = verifiedMetadata,
+                                installerOutcome = AppUpdateInstallerOutcome.Failed(installerResult.message),
+                                failureMessage = installerResult.message,
+                            ),
+                        )
+                        emit(AppUpdateInstallState.Failed(installerResult.message))
                     }
                 }
             }
         }
-
-        private companion object {
-            const val UPDATE_DOWNLOAD_DIRECTORY = "updates"
-        }
     }
+
+    private companion object {
+        const val UPDATE_DOWNLOAD_DIRECTORY = "updates"
+    }
+}
 
 private fun Throwable.toInstallAttemptFailureMessage(): String {
     val messageText = message?.takeIf { it.isNotBlank() }
@@ -271,10 +267,8 @@ private fun Throwable.toInstallAttemptFailureMessage(): String {
     }
 }
 
-private fun sanitizeFileName(rawName: String): String =
-    rawName
-        .replace(Regex("[^A-Za-z0-9._-]"), "-")
-        .ifBlank { "lomo-update.apk" }
+private fun sanitizeFileName(rawName: String): String = rawName
+    .replace(Regex("[^A-Za-z0-9._-]"), "-")
+    .ifBlank { "lomo-update.apk" }
 
-private fun defaultApkName(version: String): String =
-    "lomo-v${version.ifBlank { "latest" }}.apk"
+private fun defaultApkName(version: String): String = "lomo-v${version.ifBlank { "latest" }}.apk"

@@ -1,9 +1,9 @@
 package com.lomo.ui.component.navigation
 
-import com.lomo.ui.testing.UiComponentsFunSpec
-import io.kotest.matchers.shouldBe
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -23,75 +23,75 @@ class ApplyReorderableTagMoveTest : UiComponentsFunSpec() {
 
     init {
         test("swaps two tags by fullPath and reports applied") {
-        val tagTree = tree("work", "personal", "travel")
+            val tagTree = tree("work", "personal", "travel")
 
-        val applied =
-            applyReorderableTagMove(
-                tagTree = tagTree,
-                fromKey = "travel",
-                toKey = "work",
-            )
+            val applied =
+                applyReorderableTagMove(
+                    tagTree = tagTree,
+                    fromKey = "travel",
+                    toKey = "work",
+                )
 
-        (applied) shouldBe true
-        (tagTree.map { it.fullPath }) shouldBe (listOf("travel", "work", "personal"))
+            (applied) shouldBe true
+            (tagTree.map { it.fullPath }) shouldBe (listOf("travel", "work", "personal"))
         }
     }
 
     init {
         test("rejects move when from key is not in tree") {
-        val tagTree = tree("work", "personal")
+            val tagTree = tree("work", "personal")
 
-        val applied =
-            applyReorderableTagMove(
-                tagTree = tagTree,
-                fromKey = "sidebar_tags_header",
-                toKey = "work",
-            )
+            val applied =
+                applyReorderableTagMove(
+                    tagTree = tagTree,
+                    fromKey = "sidebar_tags_header",
+                    toKey = "work",
+                )
 
-        (applied) shouldBe false
-        (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
+            (applied) shouldBe false
+            (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
         }
     }
 
     init {
         test("rejects move when to key is not in tree") {
-        val tagTree = tree("work", "personal")
+            val tagTree = tree("work", "personal")
 
-        val applied =
-            applyReorderableTagMove(
-                tagTree = tagTree,
-                fromKey = "work",
-                toKey = "sidebar_tags_header",
-            )
+            val applied =
+                applyReorderableTagMove(
+                    tagTree = tagTree,
+                    fromKey = "work",
+                    toKey = "sidebar_tags_header",
+                )
 
-        (applied) shouldBe false
-        (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
+            (applied) shouldBe false
+            (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
         }
     }
 
     init {
         test("rejects move when either key is null") {
-        val tagTree = tree("work", "personal")
+            val tagTree = tree("work", "personal")
 
-        (applyReorderableTagMove(tagTree, fromKey = null, toKey = "work")) shouldBe false
-        (applyReorderableTagMove(tagTree, fromKey = "work", toKey = null)) shouldBe false
-        (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
+            (applyReorderableTagMove(tagTree, fromKey = null, toKey = "work")) shouldBe false
+            (applyReorderableTagMove(tagTree, fromKey = "work", toKey = null)) shouldBe false
+            (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
         }
     }
 
     init {
         test("no-op when from equals to") {
-        val tagTree = tree("work", "personal")
+            val tagTree = tree("work", "personal")
 
-        val applied =
-            applyReorderableTagMove(
-                tagTree = tagTree,
-                fromKey = "work",
-                toKey = "work",
-            )
+            val applied =
+                applyReorderableTagMove(
+                    tagTree = tagTree,
+                    fromKey = "work",
+                    toKey = "work",
+                )
 
-        (applied) shouldBe false
-        (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
+            (applied) shouldBe false
+            (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
         }
     }
 }

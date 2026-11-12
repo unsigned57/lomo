@@ -1,13 +1,13 @@
 package com.lomo.detektrules
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.detektrules
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
@@ -51,17 +50,18 @@ import kotlin.io.path.writeText
  * Excludes:
  * - full Toolchain static-analysis integration and Kotlin type resolution.
  */
-class ShouldBeInstanceOfAssertionRuleTest : FunSpec({
-    test("registers the shouldBeInstanceOf assertion guard") {
-        val rules = LomoTestStyleRuleSetProvider().instance().rules
+class ShouldBeInstanceOfAssertionRuleTest :
+    FunSpec({
+        test("registers the shouldBeInstanceOf assertion guard") {
+            val rules = LomoTestStyleRuleSetProvider().instance().rules
 
-        rules[RuleName("ShouldBeInstanceOfAssertion")].shouldNotBeNull()
-    }
+            rules[RuleName("ShouldBeInstanceOfAssertion")].shouldNotBeNull()
+        }
 
-    test("reports parenthesized type check asserted with shouldBe true") {
-        val findings =
-            rule("ShouldBeInstanceOfAssertion").findingsForTestSource(
-                """
+        test("reports parenthesized type check asserted with shouldBe true") {
+            val findings =
+                rule("ShouldBeInstanceOfAssertion").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.matchers.shouldBe
@@ -70,16 +70,17 @@ class ShouldBeInstanceOfAssertionRuleTest : FunSpec({
                     (result is IllegalStateException) shouldBe true
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldBe "Use shouldBeInstanceOf<T>() instead of asserting `(x is T) shouldBe true`."
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldBe
+                "Use shouldBeInstanceOf<T>() instead of asserting `(x is T) shouldBe true`."
+        }
 
-    test("allows ordinary boolean assertions and negative type checks") {
-        val findings =
-            rule("ShouldBeInstanceOfAssertion").findingsForTestSource(
-                """
+        test("allows ordinary boolean assertions and negative type checks") {
+            val findings =
+                rule("ShouldBeInstanceOfAssertion").findingsForTestSource(
+                    """
                 package com.lomo.sample
 
                 import io.kotest.matchers.shouldBe
@@ -89,16 +90,13 @@ class ShouldBeInstanceOfAssertionRuleTest : FunSpec({
                     (result is IllegalArgumentException) shouldBe false
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
-})
+            findings.shouldHaveSize(0)
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoTestStyleRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)

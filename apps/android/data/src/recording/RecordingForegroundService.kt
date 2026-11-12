@@ -5,18 +5,20 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.model.RecordingSessionState
+import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.usecase.DispatcherProvider
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
-class RecordingForegroundService : Service(), KoinComponent {
+class RecordingForegroundService :
+    Service(),
+    KoinComponent {
     private val recordingSession: RecordingSession by inject()
 
     private val recordingNotifier: RecordingNotifier by inject()
@@ -41,11 +43,7 @@ class RecordingForegroundService : Service(), KoinComponent {
             }
     }
 
-    override fun onStartCommand(
-        intent: Intent?,
-        flags: Int,
-        startId: Int,
-    ): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         promoteToForeground()
         return START_STICKY
     }

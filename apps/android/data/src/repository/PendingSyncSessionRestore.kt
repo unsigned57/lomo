@@ -4,17 +4,11 @@ import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncReviewSession
 
 sealed interface PendingSyncRestoreResult<out T> {
-    data class Restored<T>(
-        val session: T,
-    ) : PendingSyncRestoreResult<T>
+    data class Restored<T>(val session: T) : PendingSyncRestoreResult<T>
 
-    data class Invalidated(
-        val reason: PendingSyncInvalidationReason,
-    ) : PendingSyncRestoreResult<Nothing>
+    data class Invalidated(val reason: PendingSyncInvalidationReason) : PendingSyncRestoreResult<Nothing>
 
-    data class Failed(
-        val error: PendingSyncRestoreError,
-    ) : PendingSyncRestoreResult<Nothing>
+    data class Failed(val error: PendingSyncRestoreError) : PendingSyncRestoreResult<Nothing>
 }
 
 enum class PendingSyncInvalidationReason {
@@ -26,11 +20,7 @@ enum class PendingSyncInvalidationReason {
     CORRUPT_DESCRIPTOR,
 }
 
-data class PendingSyncRestoreError(
-    val message: String,
-    val cause: Throwable? = null,
-    val category: String? = null,
-)
+data class PendingSyncRestoreError(val message: String, val cause: Throwable? = null, val category: String? = null)
 
 /** Conflict restore port retained as type shell; production conflicts live in Sync Center / Rust. */
 interface PendingSyncConflictSessionRestorer {
@@ -55,6 +45,5 @@ internal fun PendingSyncSideMetadata.matchesRemote(
 internal fun PendingSyncSideMetadata.hasCompleteRemoteMetadata(): Boolean =
     etag != null || (lastModified != null && size != null)
 
-internal fun PendingSyncSideMetadata.matchesContent(content: String?): Boolean =
-    contentHash == null ||
-        content?.run { toByteArray(Charsets.UTF_8).md5Hex() } == contentHash
+internal fun PendingSyncSideMetadata.matchesContent(content: String?): Boolean = contentHash == null ||
+    content?.run { toByteArray(Charsets.UTF_8).md5Hex() } == contentHash

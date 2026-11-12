@@ -10,10 +10,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
-use crate::limits::{MAX_EDITABLE_MEMO_UTF8_CHARS, validation};
-use crate::lomo_record::{
-    LomoPayload, LomoRecordKind, decode_record, encode_record, read_record, write_record_atomic,
-};
+use crate::limits::{MAX_EDITABLE_MEMO_UTF8_CHARS, corruption, storage, validation};
+use crate::lomo_record::{LOMO_MAX_PAYLOAD_BYTES, write_bytes_atomic};
+
 use crate::reminder::{ReminderRef, ReminderReference};
 use crate::source::SourceFingerprint;
 use crate::types::{MemoIdentity, WorkspaceRelativePath};
@@ -198,126 +197,176 @@ impl TrashRecordV1 {
     }
 }
 
-/// Encodes a trash record using the workspace's framed checksum envelope.
+/// A readable Markdown body with a checked recovery header. The header carries metadata only;
+/// the memo body occurs exactly once and remains directly readable by any Markdown tool.
+#[derive(Serialize, Deserialize)]
+struct TrashMarkdownHeader {
+    facts: serde_json::Value,
+    checksum: String,
+}
+
+const MARKDOWN_HEADER: &str = "<!-- lomo-trash-v1 ";
+const MARKDOWN_BODY: &str = " -->\n\n";
+
+/// Encodes one recoverable memo as Markdown with a checksummed recovery header.
 ///
 /// # Errors
-///
-/// Returns a validation error when the record is invalid or cannot be serialized into the framed
-/// checksum envelope.
+/// Rejects invalid or oversized facts before publication.
 pub fn encode_trash_record(record: &TrashRecordV1) -> Result<Vec<u8>, LomoError> {
     record.validate()?;
-    let body_json = serde_json::to_string(record).map_err(|error| {
-        validation(
-            "trash_record_encode_failed",
-            &format!("cannot encode trash record: {error}"),
-        )
-    })?;
-    encode_record(&LomoPayload {
-        kind: LomoRecordKind::Trash,
-        record_id: record.memo_id.clone(),
-        body_json,
+    let serialized = serde_json::to_vec(record)
+        .map_err(|error| validation("trash_record_encode_failed", &error.to_string()))?;
+    let mut facts = serde_json::to_value(record)
+        .map_err(|error| validation("trash_record_encode_failed", &error.to_string()))?;
+    facts
+        .as_object_mut()
+        .ok_or_else(|| {
+            validation(
+                "trash_record_encode_failed",
+                "trash facts require an object",
+            )
+        })?
+        .remove("body");
+    let header = serde_json::to_string(&TrashMarkdownHeader {
+        facts,
+        checksum: SourceFingerprint::of_bytes(&serialized).as_str().to_owned(),
     })
+    .map_err(|error| validation("trash_record_encode_failed", &error.to_string()))?;
+    // HTML comments must not be terminated by a user-supplied metadata string.
+    let header = header.replace('<', "\\u003c").replace('>', "\\u003e");
+    let markdown = format!("{MARKDOWN_HEADER}{header}{MARKDOWN_BODY}{}", record.body);
+    if markdown.len() > LOMO_MAX_PAYLOAD_BYTES {
+        return Err(validation(
+            "trash_record_too_large",
+            "trash Markdown exceeds its byte budget",
+        ));
+    }
+    Ok(markdown.into_bytes())
 }
 
-/// Decodes and validates one framed trash record.
+/// Decodes a complete trash Markdown document, rejecting corrupt metadata or body bytes.
 ///
 /// # Errors
-///
-/// Returns a validation or corruption error when the checksum envelope, payload kind, payload
-/// identity, JSON body, or record fields are invalid.
+/// Malformed headers, schema, checksum and invalid domain facts remain observable failures.
 pub fn decode_trash_record(bytes: &[u8]) -> Result<TrashRecordV1, LomoError> {
-    let record = decode_record(bytes)?;
-    if record.payload.kind != LomoRecordKind::Trash {
+    if bytes.len() > LOMO_MAX_PAYLOAD_BYTES {
         return Err(validation(
-            "trash_record_kind_mismatch",
-            "trash record envelope kind is not Trash",
+            "trash_record_too_large",
+            "trash Markdown exceeds its byte budget",
         ));
     }
-    let trash: TrashRecordV1 =
-        serde_json::from_str(&record.payload.body_json).map_err(|error| {
-            validation(
+    let markdown = std::str::from_utf8(bytes)
+        .map_err(|error| corruption("trash_record_payload_invalid", &error.to_string()))?;
+    let (header, body) = markdown
+        .strip_prefix(MARKDOWN_HEADER)
+        .and_then(|text| text.split_once(MARKDOWN_BODY))
+        .ok_or_else(|| {
+            corruption(
                 "trash_record_payload_invalid",
-                &format!("cannot decode trash record payload: {error}"),
+                "trash Markdown requires its recovery header",
             )
         })?;
-    if record.payload.record_id != trash.memo_id {
-        return Err(validation(
-            "trash_record_id_mismatch",
-            "trash record envelope id does not match its payload",
-        ));
-    }
-    trash.validate()?;
-    Ok(trash)
-}
-
-/// Reads one canonical trash record from a durable path.
-///
-/// The path is supplied by the caller only after it has been resolved through
-/// [`trash_record_relative_path`]. This helper still validates the framed kind and payload id so
-/// a copied or swapped marker cannot cross the authority boundary.
-///
-/// # Errors
-///
-/// Returns an error when reading the record fails, the envelope does not match
-/// the trash payload kind or id, or validation fails.
-pub fn read_trash_record(path: &Path) -> Result<TrashRecordV1, LomoError> {
-    let record = read_record(path)?;
-    if record.payload.kind != LomoRecordKind::Trash {
-        return Err(validation(
-            "trash_record_kind_mismatch",
-            "trash record path does not contain a Trash record",
-        ));
-    }
-    let trash: TrashRecordV1 =
-        serde_json::from_str(&record.payload.body_json).map_err(|error| {
-            validation(
-                "trash_record_payload_invalid",
-                &format!("cannot decode trash record payload: {error}"),
-            )
-        })?;
-    if record.payload.record_id != trash.memo_id {
-        return Err(validation(
-            "trash_record_id_mismatch",
-            "trash record envelope id does not match its payload",
-        ));
-    }
-    trash.validate()?;
-    Ok(trash)
-}
-
-/// Atomically writes one canonical trash record to a durable path.
-///
-/// # Errors
-///
-/// Returns an error when record validation, JSON serialization, or atomic write fails.
-pub fn write_trash_record_atomic(path: &Path, record: &TrashRecordV1) -> Result<(), LomoError> {
-    record.validate()?;
-    let body_json = serde_json::to_string(record).map_err(|error| {
-        validation(
-            "trash_record_encode_failed",
-            &format!("cannot encode trash record payload: {error}"),
+    let mut header: TrashMarkdownHeader = serde_json::from_str(header)
+        .map_err(|error| corruption("trash_record_payload_invalid", &error.to_string()))?;
+    let facts = header.facts.as_object_mut().ok_or_else(|| {
+        corruption(
+            "trash_record_payload_invalid",
+            "trash metadata must be an object",
         )
     })?;
-    write_record_atomic(
-        path,
-        &LomoPayload {
-            kind: LomoRecordKind::Trash,
-            record_id: record.memo_id.clone(),
-            body_json,
-        },
-    )
+    if facts.contains_key("body") {
+        return Err(corruption(
+            "trash_record_payload_invalid",
+            "trash metadata cannot contain a second body",
+        ));
+    }
+    facts.insert(
+        "body".to_owned(),
+        serde_json::Value::String(body.to_owned()),
+    );
+    let trash: TrashRecordV1 = serde_json::from_value(header.facts)
+        .map_err(|error| corruption("trash_record_payload_invalid", &error.to_string()))?;
+    let serialized = serde_json::to_vec(&trash)
+        .map_err(|error| validation("trash_record_encode_failed", &error.to_string()))?;
+    if SourceFingerprint::of_bytes(&serialized).as_str() != header.checksum {
+        return Err(corruption(
+            "lomo_checksum_mismatch",
+            "trash Markdown checksum does not match",
+        ));
+    }
+    trash.validate()?;
+    Ok(trash)
 }
 
-/// Returns the canonical, identity-hiding relative path for one memo's trash record.
+/// Reads a bounded trash Markdown document.
 ///
 /// # Errors
+/// Propagates storage, decode and checksum failures.
+pub fn read_trash_record(path: &Path) -> Result<TrashRecordV1, LomoError> {
+    use std::io::Read;
+    let file = std::fs::File::open(path)
+        .map_err(|error| storage("trash_read_failed", &error.to_string()))?;
+    let mut bytes = Vec::new();
+    file.take(LOMO_MAX_PAYLOAD_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| storage("trash_read_failed", &error.to_string()))?;
+    decode_trash_record(&bytes)
+}
+
+/// Atomically writes the recoverable Markdown document.
 ///
-/// Returns a validation error when the memo identity or resulting workspace-relative path is
-/// invalid.
-pub fn trash_record_relative_path(memo_id: &str) -> Result<WorkspaceRelativePath, LomoError> {
+/// # Errors
+/// Propagates validation, encode and durable publication failures.
+pub fn write_trash_record_atomic(path: &Path, record: &TrashRecordV1) -> Result<(), LomoError> {
+    write_bytes_atomic(path, &encode_trash_record(record)?)
+}
+
+/// Returns the canonical Markdown path under `.trash`, prefixed by the original document name.
+///
+/// # Errors
+/// Rejects invalid memo identities and source paths before path construction.
+pub fn trash_record_relative_path(
+    memo_id: &str,
+    source_path: &str,
+) -> Result<WorkspaceRelativePath, LomoError> {
     classify_memo_identity(memo_id)?;
+    let source = WorkspaceRelativePath::parse(source_path)?;
+    let filename =
+        source.as_str().rsplit('/').next().ok_or_else(|| {
+            validation("invalid_trash_source", "trash source requires a filename")
+        })?;
+    let stem = filename.strip_suffix(".md").unwrap_or(filename);
+    // The label is for people; the digest owns uniqueness. Bound even a long imported filename
+    // below filesystem component limits (32 Unicode scalars occupy at most 128 UTF-8 bytes).
+    let label: String = stem.chars().take(32).collect();
     let digest = Sha256::digest(memo_id.as_bytes());
-    WorkspaceRelativePath::parse(&format!("{TRASH_RECORD_DIRECTORY}/{digest:x}.rec"))
+    WorkspaceRelativePath::parse(&format!(
+        "{TRASH_RECORD_DIRECTORY}/{label}-{}.md",
+        lomo_core::hex_encode(&digest)
+    ))
+}
+
+/// Whether a path is recovery Markdown (including earlier unlabelled record names).
+#[must_use]
+pub fn is_trash_record_path(path: &str) -> bool {
+    path.strip_prefix(crate::layout::relative::TRASH_PREFIX)
+        .and_then(|name| name.strip_suffix(".md"))
+        .is_some_and(|stem| {
+            let digest = stem.rsplit_once('-').map_or(stem, |(_, digest)| digest);
+            !stem.contains('/')
+                && digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+}
+
+/// Matches an identity suffix when the source document is no longer projected (e.g. after purge).
+/// Record readers additionally validate the complete path against the checksummed source facts.
+#[must_use]
+pub fn trash_record_path_matches_identity(path: &str, memo_id: &str) -> bool {
+    let digest = Sha256::digest(memo_id.as_bytes());
+    is_trash_record_path(path) && path.ends_with(&format!("-{}.md", lomo_core::hex_encode(&digest)))
 }
 
 /// The two admitted identity forms for a durable trash record.

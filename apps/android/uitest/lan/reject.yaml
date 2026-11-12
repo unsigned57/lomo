@@ -1,0 +1,16 @@
+# Part of the opt-in two-device LAN journey; run via just uitest lan_share.
+appId: com.lomo.app
+---
+- extendedWaitUntil:
+    visible:
+      id: "benchmark_lan_batch_reject"
+    timeout: 15000
+- assertNotVisible:
+    id: "benchmark_lan_pairing_root"
+- takeScreenshot: reject-incoming
+- tapOn:
+    id: "benchmark_lan_batch_reject"
+- extendedWaitUntil:
+    notVisible:
+      id: "benchmark_lan_batch_root"
+    timeout: 15000

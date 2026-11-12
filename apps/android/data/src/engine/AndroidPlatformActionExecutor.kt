@@ -54,7 +54,7 @@ internal class AndroidPlatformActionExecutor(
     }
 
     private fun executeVerifiedPrefix(actions: List<PlatformAction>): List<ActionResult> =
-        if (actions.size > 1 && actions.all { action -> action is PlatformAction.ReadToExchange }) {
+        if (actions.size > 1 && actions.all { action -> action.isIndependentRead() }) {
             executeIndependentReads(actions)
         } else {
             executeSequentialPrefix(actions)
@@ -99,28 +99,48 @@ private fun List<ActionResult>.takeThroughFirstFailure(): List<ActionResult> {
     return if (failureIndex < 0) this else subList(0, failureIndex + 1)
 }
 
-private fun batchDeadlineFailure(jobId: String): EngineFailure =
-    EngineFailure(
-        category = "timeout",
-        code = "platform_batch_deadline_exceeded",
-        retryDisposition = "after_user_action",
-        operationId = null,
-        jobId = jobId,
-        diagnostic = "Platform batch deadline expired before Android execution",
-    )
+private fun batchDeadlineFailure(jobId: String): EngineFailure = EngineFailure(
+    category = "timeout",
+    code = "platform_batch_deadline_exceeded",
+    retryDisposition = "after_user_action",
+    operationId = null,
+    jobId = jobId,
+    diagnostic = "Platform batch deadline expired before Android execution",
+)
 
-private fun PlatformAction.actionId(): String =
-    when (this) {
-        is PlatformAction.Stat -> actionId
-        is PlatformAction.ListChildren -> actionId
-        is PlatformAction.EnsureDirectory -> actionId
-        is PlatformAction.ReadToExchange -> actionId
-        is PlatformAction.Read -> actionId
-        is PlatformAction.WriteFromExchange -> actionId
-        is PlatformAction.ArtifactWrite -> actionId
-        is PlatformAction.Move -> actionId
-        is PlatformAction.Delete -> actionId
-    }
+/**
+ * Read-only actions carry no workspace side effects, so a batch made only of them can fan out
+ * over the shared read lane and still report the ordered verified prefix; any write-capable
+ * action keeps the whole batch on the sequential path.
+ */
+private fun PlatformAction.isIndependentRead(): Boolean = when (this) {
+    is PlatformAction.Stat,
+    is PlatformAction.Inspect,
+    is PlatformAction.ListChildren,
+    is PlatformAction.ReadToExchange,
+    is PlatformAction.Read,
+    -> true
+
+    is PlatformAction.EnsureDirectory,
+    is PlatformAction.WriteFromExchange,
+    is PlatformAction.ArtifactWrite,
+    is PlatformAction.Move,
+    is PlatformAction.Delete,
+    -> false
+}
+
+private fun PlatformAction.actionId(): String = when (this) {
+    is PlatformAction.Stat -> actionId
+    is PlatformAction.Inspect -> actionId
+    is PlatformAction.ListChildren -> actionId
+    is PlatformAction.EnsureDirectory -> actionId
+    is PlatformAction.ReadToExchange -> actionId
+    is PlatformAction.Read -> actionId
+    is PlatformAction.WriteFromExchange -> actionId
+    is PlatformAction.ArtifactWrite -> actionId
+    is PlatformAction.Move -> actionId
+    is PlatformAction.Delete -> actionId
+}
 
 private const val PLATFORM_SCHEMA_VERSION = 1u
 private const val MAX_PLATFORM_ACTIONS = 64

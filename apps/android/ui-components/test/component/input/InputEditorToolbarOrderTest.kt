@@ -83,12 +83,11 @@ class InputEditorToolbarOrderTest : UiComponentsFunSpec() {
         }
     }
 
-    private fun contractTool(id: String): InputToolbarTool =
-        InputToolbarTool(
-            id = InputToolbarActionId(id),
-            icon = Icons.Rounded.Image,
-            contentDescriptionRes = android.R.string.ok,
-            command = InputEditorCommand.Action(InputToolbarActionId(id)),
-            enabled = true,
-        )
+    private fun contractTool(id: String): InputToolbarTool = InputToolbarTool(
+        id = InputToolbarActionId(id),
+        icon = Icons.Rounded.Image,
+        contentDescriptionRes = android.R.string.ok,
+        command = InputEditorCommand.Action(InputToolbarActionId(id)),
+        enabled = true,
+    )
 }

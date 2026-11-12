@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -14,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import com.lomo.ui.component.markdown.MarkdownIrRenderer
 import com.lomo.ui.component.markdown.MarkdownPresentationPolicy
 import com.lomo.ui.text.MemoTextSelectionRegistrar
@@ -34,11 +36,10 @@ internal fun MemoCardBodyContent(
             MemoCardBodyTransitionMode.Snap -> {
                 MemoCardBodyStateContent(
                     visualState =
-                        resolveMemoCardBodyVisualState(
-                            isExpanded = !isCollapsedPreview,
-                            collapsedPreviewMode = collapsedPreviewMode,
-                        ),
-                    collapsedPreviewMode = collapsedPreviewMode,
+                    resolveMemoCardBodyVisualState(
+                        isExpanded = !isCollapsedPreview,
+                        collapsedPreviewMode = collapsedPreviewMode,
+                    ),
                     collapsedSummary = collapsedSummary,
                     state = state,
                     selectionRegistrar = selectionRegistrar,
@@ -50,16 +51,15 @@ internal fun MemoCardBodyContent(
                     resolveMemoCardBodyVisualState(
                         isExpanded = isExpanded,
                         collapsedPreviewMode =
-                            resolveMemoCardBodyCollapsedTargetPreviewMode(
-                                bodyTransitionMode = bodyTransitionMode,
-                                currentPreviewMode = collapsedPreviewMode,
-                                hasProcessedContent = processedContent.isNotBlank(),
-                                collapsedSummary = collapsedSummary,
-                            ),
+                        resolveMemoCardBodyCollapsedTargetPreviewMode(
+                            bodyTransitionMode = bodyTransitionMode,
+                            currentPreviewMode = collapsedPreviewMode,
+                            hasProcessedContent = processedContent.isNotBlank(),
+                            collapsedSummary = collapsedSummary,
+                        ),
                     )
                 MemoCardBodyStateContent(
                     visualState = targetVisualState,
-                    collapsedPreviewMode = collapsedPreviewMode,
                     collapsedSummary = collapsedSummary,
                     state = state,
                     selectionRegistrar = selectionRegistrar,
@@ -79,7 +79,6 @@ internal fun MemoCardBodyContent(
 @Composable
 private fun MemoCardBodyStateContent(
     visualState: MemoCardBodyVisualState,
-    collapsedPreviewMode: MemoCardCollapsedPreviewMode,
     collapsedSummary: String,
     state: MemoCardBodyState,
     selectionRegistrar: MemoTextSelectionRegistrar?,
@@ -88,7 +87,6 @@ private fun MemoCardBodyStateContent(
         MemoCardBodyVisualState.Expanded -> {
             MemoCardMarkdownContent(
                 state = state,
-                isCollapsedPreview = false,
                 selectionRegistrar = selectionRegistrar,
             )
         }
@@ -98,9 +96,7 @@ private fun MemoCardBodyStateContent(
                 MemoCardCollapsedSummary(
                     collapsedSummary = collapsedSummary,
                     allowFreeTextCopy = state.allowFreeTextCopy,
-                    onTapFeedback = state.onTapFeedback,
                     onBodyClick = state.onBodyClick,
-                    onDoubleClick = state.onDoubleClick,
                     onLongClick = state.onLongClick,
                     selectionRegistrar = selectionRegistrar,
                 )
@@ -111,7 +107,6 @@ private fun MemoCardBodyStateContent(
             MemoCardCollapsedBody {
                 MemoCardMarkdownContent(
                     state = state,
-                    isCollapsedPreview = collapsedPreviewMode == MemoCardCollapsedPreviewMode.MarkdownPreview,
                     selectionRegistrar = selectionRegistrar,
                 )
             }
@@ -123,10 +118,10 @@ private fun MemoCardBodyStateContent(
 private fun MemoCardCollapsedBody(content: @Composable BoxScope.() -> Unit) {
     Box(
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .heightIn(max = MemoCardTokens.CollapsedBodyMaxHeight)
-                .clipToBounds(),
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = MemoCardTokens.CollapsedBodyMaxHeight)
+            .clipToBounds(),
     ) {
         content()
         MemoCardCollapsedOverlay()
@@ -134,25 +129,21 @@ private fun MemoCardCollapsedBody(content: @Composable BoxScope.() -> Unit) {
 }
 
 @Composable
-private fun MemoCardMarkdownContent(
-    state: MemoCardBodyState,
-    isCollapsedPreview: Boolean,
-    selectionRegistrar: MemoTextSelectionRegistrar?,
-) {
+private fun MemoCardMarkdownContent(state: MemoCardBodyState, selectionRegistrar: MemoTextSelectionRegistrar?) {
     MarkdownIrRenderer(
         document = state.renderDocument,
         presentationPlan = state.presentationPlan,
         presentationPolicy = MarkdownPresentationPolicy.MEMO_CARD,
-        modifier = Modifier.fillMaxWidth().padding(vertical = MemoCardTokens.BodyVerticalPadding),
-        maxVisibleBlocks = if (isCollapsedPreview) COLLAPSED_MAX_VISIBLE_BLOCKS else Int.MAX_VALUE,
+        modifier = Modifier.fillMaxWidth()
+            .wrapContentHeight(align = Alignment.Top, unbounded = true)
+            .onSizeChanged { state.onBodyHeightChanged(it.height) }
+            .padding(vertical = MemoCardTokens.BodyVerticalPadding),
         onTaskClick = state.onTodoClick,
         onImageClick = state.onImageClick,
         mediaPresentationResolver = state.mediaPresentationResolver,
         enableTextSelection = state.allowFreeTextCopy,
         textSelectionRegistrar = selectionRegistrar,
-        onTextTapFeedback = state.onTapFeedback,
         onTextBodyClick = state.onBodyClick,
-        onTextDoubleClick = state.onDoubleClick,
         onTextLongClick = state.onLongClick,
         mediaContent = state.mediaContent,
     )
@@ -162,19 +153,19 @@ private fun MemoCardMarkdownContent(
 private fun BoxScope.MemoCardCollapsedOverlay() {
     Box(
         modifier =
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(MemoCardTokens.CollapsedBodyOverlayHeight)
-                .background(
-                    brush =
-                        Brush.verticalGradient(
-                            colors =
-                                listOf(
-                                    Color.Transparent,
-                                    MaterialTheme.colorScheme.surfaceContainer,
-                                    ),
-                        ),
+        Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .height(MemoCardTokens.CollapsedBodyOverlayHeight)
+            .background(
+                brush =
+                Brush.verticalGradient(
+                    colors =
+                    listOf(
+                        Color.Transparent,
+                        MaterialTheme.colorScheme.surfaceContainerLow,
+                    ),
                 ),
+            ),
     )
 }

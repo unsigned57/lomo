@@ -1,16 +1,12 @@
 package com.lomo.ui.component.menu
 
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SheetState
-import com.lomo.ui.util.copyPlainTextAsync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MemoMenuActionLifecycle internal constructor(
-    private val context: Context,
     private val scope: CoroutineScope,
     private val sheetState: SheetState,
     private val activeStateProvider: () -> MemoMenuState?,
@@ -37,33 +33,6 @@ class MemoMenuActionLifecycle internal constructor(
             handler = handler,
         )
     }
-
-    fun copyTextAndHide(
-        label: String,
-        text: String,
-    ) {
-        copyPlainText(
-            context = context,
-            scope = scope,
-            label = label,
-            text = text,
-        )
-        hideAndConsume {}
-    }
-}
-
-private fun copyPlainText(
-    context: Context,
-    scope: CoroutineScope,
-    label: String,
-    text: String,
-) {
-    val clipboard =
-        androidx.core.content.ContextCompat.getSystemService(
-            context,
-            ClipboardManager::class.java,
-        )
-    clipboard?.copyPlainTextAsync(scope = scope, label = label, text = text)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

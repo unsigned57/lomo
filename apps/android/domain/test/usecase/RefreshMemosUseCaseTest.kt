@@ -18,14 +18,14 @@
 
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -33,7 +33,6 @@ package com.lomo.domain.usecase
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeMemoStore
@@ -60,10 +59,10 @@ class RefreshMemosUseCaseTest : DomainFunSpec() {
     init {
         test("invoke delegates refresh to maintenance use case") {
             runTest {
-                        useCase()
+                useCase()
 
-                        memoRepository.refreshMemosCallCount shouldBe 1
-                    }
+                memoRepository.refreshMemosCallCount shouldBe 1
+            }
         }
     }
 }

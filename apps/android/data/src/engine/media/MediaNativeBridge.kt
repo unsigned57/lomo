@@ -25,12 +25,7 @@ internal interface MediaNativeBridge {
         humanNameHint: String,
     ): BridgeStaged
 
-    fun recordStageLease(
-        workspaceRoot: String?,
-        staged: BridgeStaged,
-        ownerKind: BridgeStageOwnerKind,
-        ownerId: String,
-    ): BridgeStageRecord
+    fun recordStageLease(staged: BridgeStaged, ownerKind: BridgeStageOwnerKind, ownerId: String): BridgeStageRecord
 
     fun stageRecordsForOwner(
         mediaRoot: String,
@@ -38,32 +33,15 @@ internal interface MediaNativeBridge {
         ownerId: String,
     ): List<BridgeStageRecord>
 
-    fun transferStageLease(
-        mediaRoot: String,
-        from: BridgeStageLease,
-        to: BridgeStageLease,
-    ): BridgeStageRelease
+    fun transferStageLease(mediaRoot: String, from: BridgeStageLease, to: BridgeStageLease): BridgeStageRelease
 
-    fun releaseStageLease(
-        mediaRoot: String,
-        lease: BridgeStageLease,
-    ): BridgeStageRelease
+    fun releaseStageLease(mediaRoot: String, lease: BridgeStageLease): BridgeStageRelease
 
-    fun allocateRecordingTarget(
-        mediaRoot: String,
-        extension: String,
-    ): String
+    fun allocateRecordingTarget(mediaRoot: String, extension: String): String
 
-    fun finalizeRecording(
-        mediaRoot: String,
-        recordingPath: String,
-        humanNameHint: String,
-    ): BridgeStaged
+    fun finalizeRecording(mediaRoot: String, recordingPath: String, humanNameHint: String): BridgeStaged
 
-    fun queryMediaManifest(
-        workspaceRoot: String,
-        verifiedEntries: List<BridgeCommitted>,
-    ): BridgeManifest
+    fun queryMediaManifest(workspaceRoot: String, verifiedEntries: List<BridgeCommitted>): BridgeManifest
 
     /**
      * Session-owned two-phase media orphan sweep; the Rust session proves the protection set

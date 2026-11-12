@@ -6,6 +6,7 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 
@@ -62,7 +63,7 @@ class InteractionBehaviorPreferencesRepositoryImplTest : DataFunSpec() {
         }
     }
 
-    private fun kotlinx.coroutines.test.TestScope.setUpTest(): Pair<LomoDataStore, InteractionBehaviorPreferencesRepositoryImpl> {
+    private fun TestScope.setUpTest(): Pair<LomoDataStore, InteractionBehaviorPreferencesRepositoryImpl> {
         val dataStore = createLomoDataStore(backgroundScope)
         val repository = InteractionBehaviorPreferencesRepositoryImpl(dataStore)
         return Pair(dataStore, repository)
@@ -76,7 +77,9 @@ class InteractionBehaviorPreferencesRepositoryImplTest : DataFunSpec() {
             scope = scope,
             produceFile = { backingFile },
         )
-        val constructor = LomoDataStore::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+        val constructor = LomoDataStore::class.java.getDeclaredConstructor(
+            androidx.datastore.core.DataStore::class.java,
+        )
         constructor.isAccessible = true
         return constructor.newInstance(realDataStore)
     }

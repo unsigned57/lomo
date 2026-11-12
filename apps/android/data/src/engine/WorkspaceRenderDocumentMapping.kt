@@ -6,7 +6,7 @@ import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.nativebridge.RenderDocument
 import com.lomo.nativebridge.RenderNode
 
-/**
+/*
  Transport-level render document conversion and node validation.
  */
 
@@ -15,13 +15,12 @@ import com.lomo.nativebridge.RenderNode
  * The native enum is closed, so this `when` is exhaustive; a new owner variant fails the build
  * rather than being silently reclassified.
  */
-internal fun com.lomo.nativebridge.MediaClass.toDomainMediaClass(): MediaClass =
-    when (this) {
-        com.lomo.nativebridge.MediaClass.IMAGE -> MediaClass.IMAGE
-        com.lomo.nativebridge.MediaClass.VIDEO -> MediaClass.VIDEO
-        com.lomo.nativebridge.MediaClass.AUDIO -> MediaClass.AUDIO
-        com.lomo.nativebridge.MediaClass.FILE -> MediaClass.FILE
-    }
+internal fun com.lomo.nativebridge.MediaClass.toDomainMediaClass(): MediaClass = when (this) {
+    com.lomo.nativebridge.MediaClass.IMAGE -> MediaClass.IMAGE
+    com.lomo.nativebridge.MediaClass.VIDEO -> MediaClass.VIDEO
+    com.lomo.nativebridge.MediaClass.AUDIO -> MediaClass.AUDIO
+    com.lomo.nativebridge.MediaClass.FILE -> MediaClass.FILE
+}
 
 internal fun RenderDocument.toDomainDocument(sourceContent: String): MarkdownRenderDocument {
     requireRenderBoundary(schemaVersion == MarkdownRenderDocument.SCHEMA_VERSION, "unknown_render_schema") {
@@ -50,11 +49,11 @@ internal fun RenderDocument.toDomainDocument(sourceContent: String): MarkdownRen
     val blocks = nodes.toRenderTrees(sourceLength).map(RenderTree::toBlock)
     val document =
         MarkdownRenderDocument(
-        sourceByteLength = sourceLength,
-        plainText = plainText,
-        tagNames = tagNames,
-        attachments = domainAttachments,
-        blocks = blocks,
+            sourceByteLength = sourceLength,
+            plainText = plainText,
+            tagNames = tagNames,
+            attachments = domainAttachments,
+            blocks = blocks,
         )
     requireRenderBoundary(document.nodeCount == nodeCount.toInt(), "render_tree_node_count_mismatch") {
         "nested render tree must preserve every transport node"

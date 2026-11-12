@@ -1,13 +1,13 @@
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.domain.usecase
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
@@ -55,11 +54,11 @@ class WebDavSyncSettingsUseCaseTest : DomainFunSpec() {
                     webDavSyncRepository = webDavSyncRepository,
                     syncPolicyRepository = syncPolicyRepository,
                     syncAndRebuildUseCase =
-                        SyncAndRebuildUseCase(
-                            memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                            syncProviderRegistry = SyncProviderRegistry(emptySet()),
-                            syncPolicyRepository = syncPolicyRepository,
-                        ),
+                    SyncAndRebuildUseCase(
+                        memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
+                        syncProviderRegistry = SyncProviderRegistry(emptySet()),
+                        syncPolicyRepository = syncPolicyRepository,
+                    ),
                 )
         }
 

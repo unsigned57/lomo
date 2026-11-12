@@ -6,10 +6,7 @@ import timber.log.Timber
 
 private const val NON_POLICY_SYNC_WORKER_MAX_RETRY_ATTEMPTS = 3
 
-internal fun CoroutineWorker.successWorkResult(
-    workerName: String,
-    detail: String? = null,
-): ListenableWorker.Result {
+internal fun CoroutineWorker.successWorkResult(workerName: String, detail: String? = null): ListenableWorker.Result {
     if (detail == null) {
         Timber.d("%s success", workerName)
     } else {
@@ -32,18 +29,12 @@ internal fun CoroutineWorker.errorWorkResult(
     return retryOrFailure(maxRetryAttempts)
 }
 
-internal fun CoroutineWorker.conflictWorkResult(
-    workerName: String,
-    message: String,
-): ListenableWorker.Result {
+internal fun CoroutineWorker.conflictWorkResult(workerName: String, message: String): ListenableWorker.Result {
     Timber.w("%s conflict detected: %s", workerName, message)
     return ListenableWorker.Result.success()
 }
 
-internal fun skipWorkResult(
-    workerName: String,
-    detail: Any? = null,
-): ListenableWorker.Result {
+internal fun skipWorkResult(workerName: String, detail: Any? = null): ListenableWorker.Result {
     if (detail == null) {
         Timber.d("%s skipped", workerName)
     } else {
@@ -52,9 +43,7 @@ internal fun skipWorkResult(
     return ListenableWorker.Result.success()
 }
 
-internal fun CoroutineWorker.retryOrFailure(
-    maxRetryAttempts: Int,
-): ListenableWorker.Result =
+internal fun CoroutineWorker.retryOrFailure(maxRetryAttempts: Int): ListenableWorker.Result =
     if (runAttemptCount < maxRetryAttempts) {
         ListenableWorker.Result.retry()
     } else {

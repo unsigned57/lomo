@@ -17,10 +17,10 @@ internal fun shouldAutoRequestAppLockUnlock(
     session: SecuritySessionState,
     hasRequestedAutoUnlock: Boolean,
     unlockPromptInProgress: Boolean,
-): Boolean =
-    session is SecuritySessionState.Locked &&
-        !hasRequestedAutoUnlock &&
-        !unlockPromptInProgress
+): Boolean = session is SecuritySessionState.Locked &&
+    !hasRequestedAutoUnlock &&
+    !unlockPromptInProgress
 
-internal fun resolveAppLockConfigLoading(session: SecuritySessionState): Boolean =
-    session.showsLockConfigLoading()
+internal fun resolveAppLockConfigLoading(session: SecuritySessionState): Boolean = session.showsLockConfigLoading()
+
+internal fun shouldKeepMainSplashVisible(session: SecuritySessionState): Boolean = session.showsLockConfigLoading()

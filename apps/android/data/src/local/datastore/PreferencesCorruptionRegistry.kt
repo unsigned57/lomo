@@ -102,8 +102,7 @@ class PreferencesCorruptionRegistry : PreferencesHealthRepository {
  * Readers of keys whose absence is ambiguous ("never recorded" vs "recorded state was
  * destroyed") consult this before collapsing an absent key into a default.
  */
-internal fun Preferences.corruptionWitnessed(): Boolean =
-    this[LomoDataStoreKeys.PREFERENCES_CORRUPTION_WITNESS] != null
+internal fun Preferences.corruptionWitnessed(): Boolean = this[LomoDataStoreKeys.PREFERENCES_CORRUPTION_WITNESS] != null
 
 /**
  * Quarantines a corrupted preferences file as evidence instead of letting it be silently
@@ -123,28 +122,27 @@ internal fun Preferences.corruptionWitnessed(): Boolean =
 internal fun lomoPreferencesCorruptionHandler(
     corruptionFile: () -> File,
     registry: PreferencesCorruptionRegistry,
-): ReplaceFileCorruptionHandler<Preferences> =
-    ReplaceFileCorruptionHandler { ex ->
-        val file = corruptionFile()
-        val quarantined =
-            File(file.parentFile, "${file.name}.corrupt-${System.currentTimeMillis()}")
-        val evidenceName =
-            try {
-                file.copyTo(quarantined, overwrite = false).name
-            } catch (error: IOException) {
-                // Evidence could not be preserved; the corrupt original stays in place so the
-                // persisted replacement still carries the witness sentinel.
-                Timber.tag(LOMO_DATA_STORE_TAG).w(error, "Could not quarantine corrupted preferences file")
-                file.name
-            }
-        val diagnostic = ex.message ?: ex.javaClass.simpleName.orEmpty()
-        registry.publish(
-            PreferencesCorruptionNotice(
-                quarantinedFileName = evidenceName,
-                diagnostic = diagnostic,
-            ),
-        )
-        mutablePreferencesOf(
-            LomoDataStoreKeys.PREFERENCES_CORRUPTION_WITNESS to "$evidenceName\n$diagnostic",
-        )
-    }
+): ReplaceFileCorruptionHandler<Preferences> = ReplaceFileCorruptionHandler { ex ->
+    val file = corruptionFile()
+    val quarantined =
+        File(file.parentFile, "${file.name}.corrupt-${System.currentTimeMillis()}")
+    val evidenceName =
+        try {
+            file.copyTo(quarantined, overwrite = false).name
+        } catch (error: IOException) {
+            // Evidence could not be preserved; the corrupt original stays in place so the
+            // persisted replacement still carries the witness sentinel.
+            Timber.tag(LOMO_DATA_STORE_TAG).w(error, "Could not quarantine corrupted preferences file")
+            file.name
+        }
+    val diagnostic = ex.message ?: ex.javaClass.simpleName.orEmpty()
+    registry.publish(
+        PreferencesCorruptionNotice(
+            quarantinedFileName = evidenceName,
+            diagnostic = diagnostic,
+        ),
+    )
+    mutablePreferencesOf(
+        LomoDataStoreKeys.PREFERENCES_CORRUPTION_WITNESS to "$evidenceName\n$diagnostic",
+    )
+}

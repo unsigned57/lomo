@@ -1,8 +1,6 @@
 package com.lomo.domain.model
 
-enum class ThemeMode(
-    val value: String,
-) {
+enum class ThemeMode(val value: String) {
     SYSTEM("system"),
     LIGHT("light"),
     DARK("dark"),

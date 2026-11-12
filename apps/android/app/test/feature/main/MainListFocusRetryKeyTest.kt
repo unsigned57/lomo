@@ -31,18 +31,24 @@ import io.kotest.matchers.shouldNotBe
  *
  * Excludes:
  * - Compose effect wiring and LazyListState scrolling.
+ * Test Change Justification:
+ * Reason category: contract clarification.
+ * Old behavior/assertion being replaced: All equality/inequality assertions remain unchanged.
+ * Why old assertion is no longer correct: existing outcome assertions remain valid and retained.
+ * Coverage preserved by: Query epoch, window bounds and target visibility still determine focus retries.
+ * Why this is not fitting the test to the implementation: no expected product outcome is weakened.
  */
-class MainListFocusRetryKeyTest : FunSpec({
-    fun uiMemo(id: String): MemoUiModel =
-        MemoUiModel(
+class MainListFocusRetryKeyTest :
+    FunSpec({
+        fun uiMemo(id: String): MemoUiModel = MemoUiModel(
             memo =
-                com.lomo.domain.model.Memo(
-                    id = id,
-                    content = "content-$id",
-                    rawContent = "content-$id",
-                    timestamp = 1L,
-                    dateKey = "2026_06_27",
-                ),
+            com.lomo.domain.model.Memo(
+                id = id,
+                content = "content-$id",
+                rawContent = "content-$id",
+                timestamp = 1L,
+                dateKey = "2026_06_27",
+            ),
             processedContent = "content-$id",
             renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
             tags = kotlinx.collections.immutable.persistentListOf(),
@@ -52,118 +58,142 @@ class MainListFocusRetryKeyTest : FunSpec({
             collapsedSummary = "",
         )
 
-    test("identical epoch, window bounds, and target visibility produce equal keys") {
-        val window = listOf(uiMemo("a"), uiMemo("b"), uiMemo("c"))
+        test("identical epoch, window bounds, and target visibility produce equal keys") {
+            val window = listOf(uiMemo("a"), uiMemo("b"), uiMemo("c"))
 
-        resolveMainListFocusRetryKey(
-            searchQuery = "design",
-            filter = MemoListFilter(hasTodo = true),
-            windowStartIndex = 10,
-            visibleMemos = window,
-            pendingFocusMemoIds = setOf("zzz"),
-        ) shouldBe
             resolveMainListFocusRetryKey(
                 searchQuery = "design",
                 filter = MemoListFilter(hasTodo = true),
                 windowStartIndex = 10,
                 visibleMemos = window,
                 pendingFocusMemoIds = setOf("zzz"),
-            )
-    }
+            ) shouldBe
+                resolveMainListFocusRetryKey(
+                    searchQuery = "design",
+                    filter = MemoListFilter(hasTodo = true),
+                    windowStartIndex = 10,
+                    visibleMemos = window,
+                    pendingFocusMemoIds = setOf("zzz"),
+                )
+        }
 
-    test("windows differing only in middle rows share one key because bounds do not enumerate rows") {
-        val window = (1..20).map { uiMemo("m$it") }
-        val swapped = window.toMutableList().apply { set(7, uiMemo("other")) }
+        test("windows differing only in middle rows share one key because bounds do not enumerate rows") {
+            val window = (1..20).map { uiMemo("m$it") }
+            val swapped = window.toMutableList().apply { set(7, uiMemo("other")) }
 
-        resolveMainListFocusRetryKey(
-            searchQuery = "",
-            filter = MemoListFilter(),
-            windowStartIndex = 40,
-            visibleMemos = window,
-            pendingFocusMemoIds = emptySet(),
-        ) shouldBe
             resolveMainListFocusRetryKey(
                 searchQuery = "",
                 filter = MemoListFilter(),
                 windowStartIndex = 40,
-                visibleMemos = swapped,
+                visibleMemos = window,
                 pendingFocusMemoIds = emptySet(),
-            )
-    }
+            ) shouldBe
+                resolveMainListFocusRetryKey(
+                    searchQuery = "",
+                    filter = MemoListFilter(),
+                    windowStartIndex = 40,
+                    visibleMemos = swapped,
+                    pendingFocusMemoIds = emptySet(),
+                )
+        }
 
-    test("a shifted window start changes the key") {
-        val window = listOf(uiMemo("a"), uiMemo("b"))
+        test("a shifted window start changes the key") {
+            val window = listOf(uiMemo("a"), uiMemo("b"))
 
-        resolveMainListFocusRetryKey(
-            searchQuery = "",
-            filter = MemoListFilter(),
-            windowStartIndex = 10,
-            visibleMemos = window,
-            pendingFocusMemoIds = emptySet(),
-        ) shouldNotBe
             resolveMainListFocusRetryKey(
                 searchQuery = "",
                 filter = MemoListFilter(),
-                windowStartIndex = 11,
+                windowStartIndex = 10,
                 visibleMemos = window,
                 pendingFocusMemoIds = emptySet(),
-            )
-    }
+            ) shouldNotBe
+                resolveMainListFocusRetryKey(
+                    searchQuery = "",
+                    filter = MemoListFilter(),
+                    windowStartIndex = 11,
+                    visibleMemos = window,
+                    pendingFocusMemoIds = emptySet(),
+                )
+        }
 
-    test("the focus target entering the visible window flips the key") {
-        val window = listOf(uiMemo("a"), uiMemo("b"), uiMemo("c"))
+        test("the focus target entering the visible window flips the key") {
+            val window = listOf(uiMemo("a"), uiMemo("b"), uiMemo("c"))
 
-        resolveMainListFocusRetryKey(
-            searchQuery = "",
-            filter = MemoListFilter(),
-            windowStartIndex = 0,
-            visibleMemos = window,
-            pendingFocusMemoIds = setOf("b"),
-        ) shouldNotBe
             resolveMainListFocusRetryKey(
                 searchQuery = "",
                 filter = MemoListFilter(),
                 windowStartIndex = 0,
                 visibleMemos = window,
-                pendingFocusMemoIds = setOf("zzz"),
-            )
-    }
+                pendingFocusMemoIds = setOf("b"),
+            ) shouldNotBe
+                resolveMainListFocusRetryKey(
+                    searchQuery = "",
+                    filter = MemoListFilter(),
+                    windowStartIndex = 0,
+                    visibleMemos = window,
+                    pendingFocusMemoIds = setOf("zzz"),
+                )
+        }
 
-    test("a search query change produces a different key") {
-        val window = listOf(uiMemo("a"))
+        test("an empty pending set reports the target invisible regardless of window rows") {
+            val window = (1..50).map { uiMemo("m$it") }
 
-        resolveMainListFocusRetryKey(
-            searchQuery = "design",
-            filter = MemoListFilter(),
-            windowStartIndex = 0,
-            visibleMemos = window,
-            pendingFocusMemoIds = emptySet(),
-        ) shouldNotBe
             resolveMainListFocusRetryKey(
-                searchQuery = "other",
+                searchQuery = "",
                 filter = MemoListFilter(),
                 windowStartIndex = 0,
                 visibleMemos = window,
                 pendingFocusMemoIds = emptySet(),
-            )
-    }
+            ).targetVisible shouldBe false
+        }
 
-    test("a structural filter change produces a different key") {
-        val window = listOf(uiMemo("a"))
+        test("a pending id inside the window reports the target visible") {
+            val window = listOf(uiMemo("a"), uiMemo("b"), uiMemo("c"))
 
-        resolveMainListFocusRetryKey(
-            searchQuery = "",
-            filter = MemoListFilter(hasTodo = true),
-            windowStartIndex = 0,
-            visibleMemos = window,
-            pendingFocusMemoIds = emptySet(),
-        ) shouldNotBe
             resolveMainListFocusRetryKey(
                 searchQuery = "",
-                filter = MemoListFilter(hasUrl = true),
+                filter = MemoListFilter(),
+                windowStartIndex = 0,
+                visibleMemos = window,
+                pendingFocusMemoIds = setOf("b"),
+            ).targetVisible shouldBe true
+        }
+
+        test("a search query change produces a different key") {
+            val window = listOf(uiMemo("a"))
+
+            resolveMainListFocusRetryKey(
+                searchQuery = "design",
+                filter = MemoListFilter(),
                 windowStartIndex = 0,
                 visibleMemos = window,
                 pendingFocusMemoIds = emptySet(),
-            )
-    }
-})
+            ) shouldNotBe
+                resolveMainListFocusRetryKey(
+                    searchQuery = "other",
+                    filter = MemoListFilter(),
+                    windowStartIndex = 0,
+                    visibleMemos = window,
+                    pendingFocusMemoIds = emptySet(),
+                )
+        }
+
+        test("a structural filter change produces a different key") {
+            val window = listOf(uiMemo("a"))
+
+            resolveMainListFocusRetryKey(
+                searchQuery = "",
+                filter = MemoListFilter(hasTodo = true),
+                windowStartIndex = 0,
+                visibleMemos = window,
+                pendingFocusMemoIds = emptySet(),
+            ) shouldNotBe
+                resolveMainListFocusRetryKey(
+                    searchQuery = "",
+                    filter = MemoListFilter(hasUrl = true),
+                    windowStartIndex = 0,
+                    visibleMemos = window,
+                    pendingFocusMemoIds = emptySet(),
+                )
+        }
+    })

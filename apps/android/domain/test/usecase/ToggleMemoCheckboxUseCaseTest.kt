@@ -3,21 +3,26 @@
  * - Unit under test: ToggleMemoCheckboxUseCase
  * - Owning layer: domain
  * - Priority tier: P0
- * - Capability: route one Rust-issued task action span to the workspace owner and refresh the
- *   query projection only after the owner command succeeds.
+ * - Capability: route one Rust-issued task action span through the owner session transaction.
  *
  * Scenarios:
  * - Given a memo identity and typed action span, when toggled, then the exact span is forwarded and
- *   the owner-returned content is observable before one projection refresh.
+ *   the committed content is returned without issuing a second write.
  * - Given the owner rejects a stale fingerprint/span, when toggled, then the structured failure is
  *   propagated and refresh is not attempted.
  *
- * Observable outcomes: forwarded memo identity/span, returned content, refresh count, exception.
+ * Observable outcomes: forwarded memo identity/span, returned content, unchanged refresh count, exception.
  * TDD proof: RED because the prior use case accepted a Kotlin line index and rewrote Markdown with
  * a regex instead of accepting MarkdownSourceSpan and calling MarkdownWorkspaceRepository.
  * Excludes: Rust patch planning, Android platform batches, and Compose rendering.
- 
+
  * Test Change Justification:
+ * Reason category: fix duplicate task commit after the session transaction.
+ * Old behavior/assertion being replaced: one separate document-projection mutation after toggle.
+ * Why old assertion is no longer correct: the session commits source, history and projection together.
+ * Coverage preserved by: exact span and returned body plus owner rejection propagation remain asserted.
+ * Why this is not fitting the test to the implementation: no second durable write is the user-visible law.
+
  * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
  * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
  *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
@@ -31,18 +36,15 @@
 
 package com.lomo.domain.usecase
 
-import com.lomo.domain.model.Memo
-import com.lomo.domain.model.MemoDocumentFacts
-import com.lomo.domain.model.MemoDocumentMutation
-import com.lomo.domain.model.markdown.MarkdownRenderDocument
-import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.model.EngineCommandFailure
 import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.Memo
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoMutationRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
@@ -54,11 +56,9 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
             runTest {
                 val store = FakeMemoStore()
                 val workspace = FakeMarkdownWorkspaceRepository(updatedContent = "- [x] task")
-                val mutationRepository = FakeMemoMutationRepository(store)
                 val useCase =
                     ToggleMemoCheckboxUseCase(
                         workspaceRepository = workspace,
-                        memoMutationRepository = mutationRepository,
                     )
                 val span = MarkdownSourceSpan(startByte = 2uL, endByte = 5uL)
 
@@ -67,7 +67,6 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                 result shouldBe "- [x] task"
                 workspace.lastIdentity shouldBe "memo"
                 workspace.lastSpan shouldBe span
-                mutationRepository.documentMutationCallCount shouldBe 1
                 store.refreshMemosCallCount shouldBe 0
             }
         }
@@ -78,21 +77,20 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                 val workspace =
                     FakeMarkdownWorkspaceRepository(
                         failure =
-                            EngineCommandFailureException(
-                                EngineCommandFailure(
-                                    category = EngineFailureCategory.CONFLICT,
-                                    code = "stale_snapshot",
-                                    retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-                                    operationId = null,
-                                    jobId = null,
-                                    diagnostic = "document changed",
-                                ),
+                        EngineCommandFailureException(
+                            EngineCommandFailure(
+                                category = EngineFailureCategory.CONFLICT,
+                                code = "stale_snapshot",
+                                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                                operationId = null,
+                                jobId = null,
+                                diagnostic = "document changed",
                             ),
+                        ),
                     )
                 val useCase =
                     ToggleMemoCheckboxUseCase(
                         workspaceRepository = workspace,
-                        memoMutationRepository = FakeMemoMutationRepository(store),
                     )
 
                 val error =
@@ -109,14 +107,13 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
         }
     }
 
-    private fun memo(): Memo =
-        Memo(
-            id = "memo",
-            timestamp = 1L,
-            content = "- [ ] task",
-            rawContent = "- [ ] task",
-            dateKey = "2026_02_24",
-        )
+    private fun memo(): Memo = Memo(
+        id = "memo",
+        timestamp = 1L,
+        content = "- [ ] task",
+        rawContent = "- [ ] task",
+        dateKey = "2026_02_24",
+    )
 }
 
 private class FakeMarkdownWorkspaceRepository(
@@ -129,29 +126,13 @@ private class FakeMarkdownWorkspaceRepository(
     override fun renderMarkdown(content: String): MarkdownRenderDocument = error("render not expected")
 
     override suspend fun toggleTask(
+        operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,
         actionSpan: MarkdownSourceSpan,
-    ): MemoDocumentMutation {
+    ): String {
         lastIdentity = memoIdentity
         lastSpan = actionSpan
         failure?.let { throw it }
-        return MemoDocumentMutation(
-            operationId = "fake-toggle",
-            expectedRevision = 1L,
-            expectedFingerprint = "before",
-            facts =
-                MemoDocumentFacts(
-                    memoId = memoIdentity,
-                    sourcePath = "memos/$memoIdentity.md",
-                    fileFingerprint = "after",
-                    chronologyEpochMs = 1L,
-                    content = updatedContent,
-                    tags = emptyList(),
-                    attachmentPaths = emptyList(),
-                    reminders = emptyList(),
-                    hasTodo = true,
-                    hasUrl = false,
-                ),
-        )
+        return updatedContent
     }
 }

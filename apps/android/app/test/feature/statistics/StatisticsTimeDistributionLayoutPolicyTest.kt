@@ -21,14 +21,14 @@
 
 package com.lomo.app.feature.statistics
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -36,7 +36,6 @@ package com.lomo.app.feature.statistics
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
@@ -49,8 +48,16 @@ class StatisticsTimeDistributionLayoutPolicyTest : AppFunSpec() {
         }
 
         test("tablet widths use balanced two column time charts") {
-            (resolveStatisticsTimeDistributionLayout(widthDp = 720)) shouldBe (StatisticsTimeDistributionLayout.TwoColumn)
-            (resolveStatisticsTimeDistributionLayout(widthDp = 840)) shouldBe (StatisticsTimeDistributionLayout.TwoColumn)
+            (
+                resolveStatisticsTimeDistributionLayout(
+                    widthDp = 720,
+                )
+                ) shouldBe (StatisticsTimeDistributionLayout.TwoColumn)
+            (
+                resolveStatisticsTimeDistributionLayout(
+                    widthDp = 840,
+                )
+                ) shouldBe (StatisticsTimeDistributionLayout.TwoColumn)
         }
     }
 }

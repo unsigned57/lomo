@@ -40,10 +40,8 @@ open class FakeCustomFontStore : CustomFontStore {
 
     override fun observeFonts(): Flow<List<CustomFontInfo>> = fonts.asStateFlow()
 
-    override suspend fun importFont(
-        source: CustomFontSource,
-        originalFileName: String,
-    ): CustomFontImportResult = importResult
+    override suspend fun importFont(source: CustomFontSource, originalFileName: String): CustomFontImportResult =
+        importResult
 
     override suspend fun deleteFont(id: String) {
         paths.remove(id)
@@ -54,12 +52,11 @@ open class FakeCustomFontStore : CustomFontStore {
 }
 
 /** [CustomFontHost] for tests: no platform font construction; every id resolves to the fallback. */
-fun testCustomFontHost(store: CustomFontStore): CustomFontHost =
-    CustomFontHost(
-        customFontStore = store,
-        dispatcherProvider = SingleDispatcherProvider(Dispatchers.Unconfined),
-        loader = FontFamilyLoader { null },
-    )
+fun testCustomFontHost(store: CustomFontStore): CustomFontHost = CustomFontHost(
+    customFontStore = store,
+    dispatcherProvider = SingleDispatcherProvider(Dispatchers.Unconfined),
+    loader = FontFamilyLoader { null },
+)
 
 /** In-memory [PreferencesHealthRepository] double for tests. */
 class FakePreferencesHealthRepository : PreferencesHealthRepository {

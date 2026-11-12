@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract (P3-06)
 //!
 //! Capability: rebuild enters read-only (mutations rejected), scans Markdown + durable
@@ -6,6 +15,9 @@
 //! Retired `.lomo/state` and `.lomo/history` trees are migration-owned and are not rebuild inputs.
 //!
 //! Scenarios:
+//! - Given scanned Markdown with empty, escaping, external and valid local image links, when
+//!   rebuilding, then the complete body survives and only canonical local paths enter the index.
+//!   Valid typed paths longer than 1024 bytes remain indexable.
 //! - Given memos on disk, when rebuild runs, then projections restore and queries succeed.
 //! - Given a direct Markdown memo with a reminder token, when rebuild runs, then the reminder
 //!   projection keeps the filename-backed memo identity and typed token facts.
@@ -35,6 +47,16 @@
 //! - Given an active SAF memo and its durable trash record, when projection rebuild publishes, then
 //!   the trash snapshot is recoverable, the memo remains trashed, and the active document's current
 //!   sibling fingerprint is not rolled back by the older deletion snapshot.
+//!
+//! TDD proof: RED `cargo test -p lomo-store --test rebuild_contract scanned_memo_with_malformed_attachments --locked`
+//! failed with `invalid_attachment_path` (`reports/manual/remaining-gates/store-red.log`);
+//! GREEN uses the same command in `store-green.log` after removing duplicate raw-link validation.
+//! Test Change Justification:
+//! Reason category: regression coverage for canonical attachment parsing.
+//! Old behavior/assertion being replaced: no existing assertion is replaced.
+//! Why old assertion is no longer correct: existing locks remain valid; raw links need an additional boundary case.
+//! Coverage preserved by: existing rebuild locks plus body preservation and exact canonical attachment references.
+//! Why this is not fitting the test to the implementation: malformed links are rendering facts, not valid local paths.
 //!
 //! Observable outcomes: query rows and complete snapshots, error codes, rebuild evidence, durable
 //! `.lomo` preservation, and absence of a user Markdown document mirror under the projection root.
@@ -67,6 +89,53 @@ mod tests {
     };
     use lomo_workspace::trash_record_relative_path;
     use tempfile::tempdir;
+
+    #[test]
+    fn scanned_memo_with_malformed_attachments_preserves_body_and_indexes_only_local_keys() {
+        let root = tempdir().expect("projection root");
+        let long_path = format!("{}image.png", "nested/".repeat(200));
+        let body = format!(
+            "alpha ![]() ![](../escape.png) ![](https://example.com/image.png) ![](./media/real.png) ![]({long_path}) omega"
+        );
+        let memo = ScannedMemoProjection {
+            memo_id: "memo-with-malformed-attachments".to_owned(),
+            source_path: "2026_11_08.md".to_owned(),
+            file_fingerprint: fingerprint_content(&body),
+            chronology_epoch_ms: 1_700_000_000_000,
+            body: body.clone(),
+            tags: Vec::new(),
+            attachment_paths: vec![
+                String::new(),
+                "../escape.png".to_owned(),
+                "https://example.com/image.png".to_owned(),
+                "./media/real.png".to_owned(),
+                long_path.clone(),
+            ],
+            has_todo: false,
+            has_url: true,
+            reminders: Vec::new(),
+        };
+
+        rebuild_scanned_projection(root.path(), std::slice::from_ref(&memo))
+            .expect("an invalid image must not poison the memo");
+        let store = Store::open_projection(root.path()).expect("open projection");
+        let loaded = store
+            .get_projected_memo(&memo.memo_id)
+            .expect("query")
+            .expect("memo survives");
+        drop(store);
+        assert_eq!(loaded.body, body);
+        let refs = lomo_store::StoreReader::open(root.path())
+            .expect("reader")
+            .list_projected_attachment_refs()
+            .expect("attachment references");
+        assert_eq!(
+            refs.into_iter()
+                .map(|entry| entry.relative_path)
+                .collect::<Vec<_>>(),
+            vec!["media/real.png".to_owned(), long_path],
+        );
+    }
 
     fn seed_memo(root: &Path, memo: &str, content: &str, tags: &[&str]) {
         let dir = root.join("memos");
@@ -102,7 +171,8 @@ mod tests {
             has_url: false,
         })
         .expect("trash record");
-        let relative = trash_record_relative_path(memo_id).expect("record path");
+        let relative =
+            trash_record_relative_path(memo_id, &record.source_path).expect("record path");
         let marker = root.join(relative.as_str());
         fs::create_dir_all(marker.parent().expect("trash parent")).expect("trash dir");
         fs::write(
@@ -1215,7 +1285,7 @@ mod tests {
             .expect("pin publication");
         assert_pin_and_trash_live(&store);
         // The durable trash record — not a retired v1 state file — is the rebuild authority.
-        let relative = trash_record_relative_path("tp1").expect("record path");
+        let relative = trash_record_relative_path("tp1", "memos/tp1.md").expect("record path");
         assert!(dir.path().join(relative.as_str()).is_file());
 
         let db_path = store.open_info().database_path;
@@ -1507,7 +1577,7 @@ mod tests {
         assert!(result.rewritten);
         assert!(result.memos_indexed >= 1);
         assert_eq!(result.file_count, result.memos_indexed);
-        assert!(!result.workspace_digest.is_empty());
+        assert_ne!(result.workspace_digest, "");
         assert_eq!(result.workspace_digest, result.store_digest);
         // Rebuild replaces the SQLite projection (meta counters reset) then the wrapper
         // publishes exactly one new high-water + event sequence for the completed rebuild.

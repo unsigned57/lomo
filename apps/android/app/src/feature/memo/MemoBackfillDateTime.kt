@@ -24,6 +24,7 @@ import com.lomo.ui.component.picker.ExpressivePickerStep
 import com.lomo.ui.component.picker.ExpressiveSteppedPickerDialog
 import com.lomo.ui.component.picker.ExpressiveTimePickerSurface
 import com.lomo.ui.component.picker.SecondsWheelPicker
+import kotlinx.collections.immutable.persistentListOf
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -31,7 +32,6 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import kotlinx.collections.immutable.persistentListOf
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,28 +79,25 @@ internal fun MemoBackfillDateTimeDialog(
         },
         onDismiss = onDismiss,
         steps =
-            persistentListOf(
-                ExpressivePickerStep(confirmEnabled = selectedDate != null) {
-                    ExpressiveDatePickerSurface(state = datePickerState)
-                },
-                ExpressivePickerStep {
-                    ExpressiveTimePickerSurface(state = timePickerState)
-                },
-                ExpressivePickerStep {
-                    MemoBackfillSecondsPage(
-                        selectedSecond = selectedSecond,
-                        onSecondChange = { selectedSecond = it },
-                    )
-                },
-            ),
+        persistentListOf(
+            ExpressivePickerStep(confirmEnabled = selectedDate != null) {
+                ExpressiveDatePickerSurface(state = datePickerState)
+            },
+            ExpressivePickerStep {
+                ExpressiveTimePickerSurface(state = timePickerState)
+            },
+            ExpressivePickerStep {
+                MemoBackfillSecondsPage(
+                    selectedSecond = selectedSecond,
+                    onSecondChange = { selectedSecond = it },
+                )
+            },
+        ),
     )
 }
 
 @Composable
-private fun MemoBackfillSecondsPage(
-    selectedSecond: Int,
-    onSecondChange: (Int) -> Unit,
-) {
+private fun MemoBackfillSecondsPage(selectedSecond: Int, onSecondChange: (Int) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -124,47 +121,41 @@ private fun MemoBackfillSecondsPage(
     }
 }
 
-internal fun LocalDate.toMemoBackfillDatePickerMillis(): Long =
-    atStartOfDay(ZoneOffset.UTC)
-        .toInstant()
-        .toEpochMilli()
+internal fun LocalDate.toMemoBackfillDatePickerMillis(): Long = atStartOfDay(ZoneOffset.UTC)
+    .toInstant()
+    .toEpochMilli()
 
-internal fun Long.toMemoBackfillLocalDate(): LocalDate =
-    Instant
-        .ofEpochMilli(this)
-        .atZone(ZoneOffset.UTC)
-        .toLocalDate()
+internal fun Long.toMemoBackfillLocalDate(): LocalDate = Instant
+    .ofEpochMilli(this)
+    .atZone(ZoneOffset.UTC)
+    .toLocalDate()
 
 internal fun combineMemoBackfillDateTimeMillis(
     date: LocalDate,
     time: LocalTime,
     zone: ZoneId = ZoneId.systemDefault(),
-): Long =
-    date
-        .atTime(time)
-        .atZone(zone)
-        .toInstant()
-        .toEpochMilli()
+): Long = date
+    .atTime(time)
+    .atZone(zone)
+    .toInstant()
+    .toEpochMilli()
 
 internal fun formatMemoBackfillBadgeText(
     timestampMillis: Long,
     dateFormat: String,
     timeFormat: String,
     zone: ZoneId = ZoneId.systemDefault(),
-): String =
-    DateTimeFormatter
-        .ofPattern("$dateFormat ${timeFormat.withSecondsPattern()}")
-        .withZone(zone)
-        .format(Instant.ofEpochMilli(timestampMillis))
+): String = DateTimeFormatter
+    .ofPattern("$dateFormat ${timeFormat.withSecondsPattern()}")
+    .withZone(zone)
+    .format(Instant.ofEpochMilli(timestampMillis))
 
-private fun String.withSecondsPattern(): String =
-    if (contains('s')) {
-        this
-    } else if (contains(" a")) {
-        replace(" a", ":ss a")
-    } else {
-        "$this:ss"
-    }
+private fun String.withSecondsPattern(): String = if (contains('s')) {
+    this
+} else if (contains(" a")) {
+    replace(" a", ":ss a")
+} else {
+    "$this:ss"
+}
 
-internal fun shouldOpenMemoBackfillDialog(isEditingExistingMemo: Boolean): Boolean =
-    !isEditingExistingMemo
+internal fun shouldOpenMemoBackfillDialog(isEditingExistingMemo: Boolean): Boolean = !isEditingExistingMemo

@@ -1,7 +1,7 @@
-//! Portable identity mappings and operation evidence, encoded with the existing LOMO envelope.
+//! Private identity mappings and operation evidence, encoded with the existing LOMO envelope.
 //! This module plans facts only. The application persists them through its platform executor.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::limits::{conflict, validation};
 use lomo_core::{LomoError, OperationId};
@@ -18,6 +18,15 @@ use integrity::IdentityMapWire;
 
 const IDENTITY_SCHEMA: u32 = 1;
 const IDENTITY_RECORD_ID: &str = "memo-identity-map-v1";
+
+/// Retained durable operation witness per document.
+///
+/// The tail answers "was this operation id already consumed" for cross-device replays
+/// within the retained window and keeps `is_replay`/validation work bounded. Operations
+/// older than the window are still witnessed by the session projection's committed-
+/// operation index and the intent journal's retired epochs, so the record never needs
+/// unbounded growth to stay honest.
+pub const MAX_RETAINED_OPERATIONS: usize = 64;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MemoBinding {
@@ -104,6 +113,7 @@ enum IdentityTransition {
     Patch(MemoIdentityChange),
     External,
     Discover(Vec<MemoId>),
+    RetireAbsent(Vec<MemoId>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -121,6 +131,49 @@ impl MemoIdentityOperation {
     }
 }
 
+/// Allocation and fingerprint state proven at the start of the retained operation tail.
+///
+/// When the journal outgrows [`MAX_RETAINED_OPERATIONS`], evicted operations fold into
+/// this checkpoint: `after` is the source fingerprint the first retained operation must
+/// cite as `before`, and the two ID sets are the allocation accounting immediately
+/// before it. Validation replays the tail on top of this state, so truncation cannot
+/// silently rewrite the record's identity accounting.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IdentityJournalCheckpoint {
+    after: SourceFingerprint,
+    allocated_ids: BTreeSet<MemoId>,
+    retired_ids: BTreeSet<MemoId>,
+}
+
+impl IdentityJournalCheckpoint {
+    /// Folds one evicted operation into the checkpoint: the anchor advances to the
+    /// operation's result fingerprint and its identity transition is applied to the
+    /// retained allocation sets.
+    fn apply(&mut self, operation: &MemoIdentityOperation) {
+        self.after = operation.after.clone();
+        match &operation.transition {
+            IdentityTransition::Initialize(ids) | IdentityTransition::Discover(ids) => {
+                self.allocated_ids.extend(ids.iter().cloned());
+            }
+            IdentityTransition::Patch(MemoIdentityChange::Append(id)) => {
+                self.allocated_ids.insert(id.clone());
+            }
+            IdentityTransition::RetireAbsent(ids) => {
+                self.retired_ids.extend(ids.iter().cloned());
+            }
+            IdentityTransition::Patch(MemoIdentityChange::Remove(id)) => {
+                self.retired_ids.insert(id.clone());
+            }
+            IdentityTransition::Patch(MemoIdentityChange::Restore(id)) => {
+                self.retired_ids.remove(id);
+            }
+            IdentityTransition::Patch(MemoIdentityChange::Update(_))
+            | IdentityTransition::External => {}
+        }
+    }
+}
+
 /// One document's identity authority. Unbound blocks and conflicts are explicit scan states.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "IdentityMapWire")]
@@ -134,7 +187,15 @@ pub struct MemoIdentityMap {
     conflicts: Vec<MemoIdentityConflict>,
     allocated_ids: BTreeSet<MemoId>,
     retired_ids: BTreeSet<MemoId>,
+    /// Retained replay-witness tail. Bounded by [`MAX_RETAINED_OPERATIONS`]; records
+    /// written before the bound existed still deserialize at full depth and fold on
+    /// their next proven transition.
     operations: Vec<MemoIdentityOperation>,
+    /// Durable accounting for the history evicted from `operations`. Absent until the
+    /// first truncation — older readers reject a truncated record through
+    /// `deny_unknown_fields` rather than validating it silently.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    journal_checkpoint: Option<IdentityJournalCheckpoint>,
 }
 
 impl MemoIdentityMap {
@@ -171,6 +232,7 @@ impl MemoIdentityMap {
                 after: fingerprint,
                 transition: IdentityTransition::Initialize(ids),
             }],
+            journal_checkpoint: None,
         };
         map.validate()?;
         Ok(map)
@@ -182,6 +244,30 @@ impl MemoIdentityMap {
             .iter()
             .map(|binding| binding.memo_id.clone())
             .collect()
+    }
+
+    /// Chooses the identity transition attested by a recoverable trash document.
+    /// Fresh private maps admit its ID once; existing maps still require a retired allocation.
+    ///
+    /// # Errors
+    /// Rejects malformed trash facts and recovery into a different source document.
+    pub fn trash_restore_change(
+        &self,
+        trash: &crate::TrashRecordV1,
+    ) -> Result<MemoIdentityChange, LomoError> {
+        trash.validate()?;
+        if trash.source_path != self.path.as_str() {
+            return Err(validation(
+                "trash_restore_source_mismatch",
+                "trash recovery must target its original document",
+            ));
+        }
+        let id = MemoId::parse(&trash.memo_id)?;
+        Ok(if self.allocated_ids.contains(&id) {
+            MemoIdentityChange::Restore(id)
+        } else {
+            MemoIdentityChange::Append(id)
+        })
     }
 
     /// Looks up the current physical location of a durable ID.
@@ -238,6 +324,35 @@ impl MemoIdentityMap {
     #[must_use]
     pub const fn retired_ids(&self) -> &BTreeSet<MemoId> {
         &self.retired_ids
+    }
+
+    /// Proves that every retained transition since a baseline patched another identity.
+    /// Unknown/evicted baselines and external changes never authorize rebasing a delete.
+    #[must_use]
+    pub fn unchanged_since(
+        &self,
+        id: &MemoId,
+        baseline: &SourceFingerprint,
+        current: &SourceFingerprint,
+    ) -> bool {
+        if &self.fingerprint != current {
+            return false;
+        }
+        let Some(start) = self
+            .operations
+            .iter()
+            .rposition(|op| op.before.as_ref() == Some(baseline))
+        else {
+            return false;
+        };
+        self.operations.iter().skip(start).all(|op| {
+            matches!(&op.transition, IdentityTransition::Patch(
+                MemoIdentityChange::Append(other)
+                | MemoIdentityChange::Update(other)
+                | MemoIdentityChange::Remove(other)
+                | MemoIdentityChange::Restore(other)
+            ) if other != id)
+        })
     }
 
     #[must_use]
@@ -311,6 +426,7 @@ impl MemoIdentityMap {
         }
         next.fingerprint = after.source().fingerprint().clone();
         next.operations.push(operation);
+        next.retain_witness_window();
         next.validate()?;
         Ok(IdentityPatchOutcome {
             map: next,
@@ -484,6 +600,54 @@ impl MemoIdentityMap {
         Ok(())
     }
 
+    /// Retires all identities after the platform has proved the source file absent.
+    ///
+    /// Unlike an edited document, absence leaves no blocks whose ownership could be ambiguous.
+    /// Allocation and operation witnesses survive so recreating the path cannot reuse old IDs.
+    ///
+    /// # Errors
+    /// Rejects a reused operation ID or an invalid journal transition.
+    pub fn retire_missing_document(&self, operation_id: OperationId) -> Result<Self, LomoError> {
+        let empty = crate::SourceBytes::try_from_bytes(Vec::new())?;
+        if let Some(previous) = self
+            .operations
+            .iter()
+            .find(|op| op.operation_id == operation_id)
+        {
+            if matches!(previous.transition, IdentityTransition::RetireAbsent(_))
+                && previous.after == *empty.fingerprint()
+                && self.fingerprint == *empty.fingerprint()
+            {
+                return Ok(self.clone());
+            }
+            return Err(conflict(
+                "identity_operation_mismatch",
+                "operation ID was already used with other identity facts",
+            ));
+        }
+        let ids: Vec<_> = self
+            .allocated_ids
+            .difference(&self.retired_ids)
+            .cloned()
+            .collect();
+        let operation = MemoIdentityOperation {
+            operation_id,
+            before: Some(self.fingerprint.clone()),
+            after: empty.fingerprint().clone(),
+            transition: IdentityTransition::RetireAbsent(ids.clone()),
+        };
+        let mut next = self.clone();
+        next.bindings.clear();
+        next.conflicts.clear();
+        next.unbound.clear();
+        next.retired_ids.extend(ids);
+        next.fingerprint = empty.fingerprint().clone();
+        next.operations.push(operation);
+        next.retain_witness_window();
+        next.validate()?;
+        Ok(next)
+    }
+
     /// Reconciles external edits only with unique, equal raw block bytes. Ambiguity is recorded.
     ///
     /// # Errors
@@ -523,33 +687,43 @@ impl MemoIdentityMap {
             .iter()
             .chain(self.conflicts.iter().map(|conflict| &conflict.previous))
             .collect();
+        // Identity survives exactly when this raw-block fingerprint is unique on both sides.
+        // Index the equivalence classes once instead of re-scanning both documents per ID.
+        let mut candidates_by_hash: BTreeMap<&str, Vec<_>> = BTreeMap::new();
+        for (locator, hash) in &candidates {
+            candidates_by_hash
+                .entry(hash.as_str())
+                .or_default()
+                .push((locator, hash));
+        }
+        let mut prior_counts = BTreeMap::new();
+        for binding in &previous {
+            *prior_counts
+                .entry(binding.block_fingerprint.as_str())
+                .or_insert(0usize) += 1;
+        }
         let mut next = self.clone();
         next.bindings.clear();
         next.conflicts.clear();
         next.fingerprint = document.source().fingerprint().clone();
         for old in &previous {
-            let matches: Vec<_> = candidates
-                .iter()
-                .filter(|(_, hash)| hash == &old.block_fingerprint)
-                .collect();
-            let prior_count = previous
-                .iter()
-                .filter(|binding| binding.block_fingerprint == old.block_fingerprint)
-                .count();
-            if let [(locator, hash)] = matches.as_slice()
-                && prior_count == 1
+            let matches = candidates_by_hash
+                .get(old.block_fingerprint.as_str())
+                .map_or(&[][..], Vec::as_slice);
+            if let [(locator, hash)] = matches
+                && prior_counts.get(old.block_fingerprint.as_str()) == Some(&1)
             {
                 next.bindings.push(MemoBinding {
                     memo_id: old.memo_id.clone(),
-                    locator: locator.clone(),
-                    block_fingerprint: hash.clone(),
+                    locator: (*locator).clone(),
+                    block_fingerprint: (*hash).clone(),
                 });
             } else {
                 next.conflicts.push(MemoIdentityConflict {
                     previous: (*old).clone(),
                     candidates: matches
-                        .into_iter()
-                        .map(|(locator, _)| locator.clone())
+                        .iter()
+                        .map(|(locator, _)| (*locator).clone())
                         .collect(),
                     observed_fingerprint: next.fingerprint.clone(),
                 });
@@ -568,6 +742,7 @@ impl MemoIdentityMap {
             .filter(|locator| !bound.contains(&locator.block_index()))
             .collect();
         next.operations.push(operation);
+        next.retain_witness_window();
         next.validate()?;
         Ok(next)
     }
@@ -618,6 +793,7 @@ impl MemoIdentityMap {
         next.bindings
             .sort_by_key(|binding| binding.locator.block_index());
         next.operations.push(operation);
+        next.retain_witness_window();
         next.validate()?;
         Ok(next)
     }
@@ -625,9 +801,9 @@ impl MemoIdentityMap {
     /// Encodes portable identity facts using the authoritative checksummed LOMO record codec.
     ///
     /// # Errors
-    /// Rejects invalid state and oversized records.
+    /// Rejects serialization failures and oversized records. Private fields can only be
+    /// constructed by validated transitions or the checked deserializer.
     pub fn encode(&self) -> Result<Vec<u8>, LomoError> {
-        self.validate()?;
         encode_record(&LomoPayload {
             kind: LomoRecordKind::Manifest,
             record_id: IDENTITY_RECORD_ID.to_owned(),
@@ -653,10 +829,37 @@ impl MemoIdentityMap {
                 "unsupported memo identity record version",
             ));
         }
-        let map: Self =
-            serde_json::from_str(&record.payload.body_json).map_err(|error| json_error(&error))?;
-        map.validate()?;
-        Ok(map)
+        // IdentityMapWire::try_from is the single semantic validation boundary, including
+        // direct JSON callers. A decoded map already satisfies the same invariant as a patch.
+        serde_json::from_str(&record.payload.body_json).map_err(|error| json_error(&error))
+    }
+
+    /// Bounds the retained witness tail: every operation evicted from the front folds
+    /// its transition into the durable checkpoint, so `validate` can still replay the
+    /// record's complete allocation accounting on top of the checkpoint anchor.
+    ///
+    /// A single `drain` fold keeps the one-time truncation of a pre-bound record
+    /// linear in its history instead of paying a front-shift per evicted operation.
+    fn retain_witness_window(&mut self) {
+        let evicted: Vec<MemoIdentityOperation> = self
+            .operations
+            .drain(
+                ..self
+                    .operations
+                    .len()
+                    .saturating_sub(MAX_RETAINED_OPERATIONS),
+            )
+            .collect();
+        for operation in evicted {
+            let checkpoint =
+                self.journal_checkpoint
+                    .get_or_insert_with(|| IdentityJournalCheckpoint {
+                        after: operation.after.clone(),
+                        allocated_ids: BTreeSet::new(),
+                        retired_ids: BTreeSet::new(),
+                    });
+            checkpoint.apply(&operation);
+        }
     }
 
     fn is_replay(&self, candidate: &MemoIdentityOperation) -> Result<bool, LomoError> {

@@ -6,9 +6,7 @@ sealed interface TileClickAction {
     data object LaunchStartRecording : TileClickAction
 
     /** The stop intent is bound to the displayed capture so a stale tap can never stop another session. */
-    data class LaunchStopRecording(
-        val captureId: String,
-    ) : TileClickAction
+    data class LaunchStopRecording(val captureId: String) : TileClickAction
 }
 
 enum class RecordingTilePresentation {
@@ -17,15 +15,13 @@ enum class RecordingTilePresentation {
 }
 
 class RecordingTileClickPolicy {
-    fun decide(state: RecordingSessionState): TileClickAction =
-        when (state) {
-            RecordingSessionState.Idle -> TileClickAction.LaunchStartRecording
-            is RecordingSessionState.Recording -> TileClickAction.LaunchStopRecording(state.draftId.value)
-        }
+    fun decide(state: RecordingSessionState): TileClickAction = when (state) {
+        RecordingSessionState.Idle -> TileClickAction.LaunchStartRecording
+        is RecordingSessionState.Recording -> TileClickAction.LaunchStopRecording(state.captureId.value)
+    }
 
-    fun presentation(state: RecordingSessionState): RecordingTilePresentation =
-        when (state) {
-            RecordingSessionState.Idle -> RecordingTilePresentation.Start
-            is RecordingSessionState.Recording -> RecordingTilePresentation.Stop
-        }
+    fun presentation(state: RecordingSessionState): RecordingTilePresentation = when (state) {
+        RecordingSessionState.Idle -> RecordingTilePresentation.Start
+        is RecordingSessionState.Recording -> RecordingTilePresentation.Stop
+    }
 }

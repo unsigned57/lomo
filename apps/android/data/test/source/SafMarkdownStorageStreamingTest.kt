@@ -42,7 +42,9 @@ class SafMarkdownStorageStreamingTest : DataFunSpec() {
             unmockkStatic(DocumentFile::class)
         }
 
-        test("given unavailable saf root when main metadata streams then empty state is emitted without list fallback") {
+        test(
+            "given unavailable saf root when main metadata streams then empty state is emitted without list fallback",
+        ) {
             runTest {
                 val context = mockk<Context>()
                 val rootUri = mockk<Uri>()
@@ -59,7 +61,9 @@ class SafMarkdownStorageStreamingTest : DataFunSpec() {
             }
         }
 
-        test("given unavailable saf trash when trash metadata streams then empty state is emitted without list fallback") {
+        test(
+            "given unavailable saf trash when trash metadata streams then empty state is emitted without list fallback",
+        ) {
             runTest {
                 val context = mockk<Context>()
                 val rootUri = mockk<Uri>()

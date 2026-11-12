@@ -2,6 +2,22 @@ package com.lomo.domain.usecase
 
 /*
  * Behavior Contract:
+ * Test Change Justification:
+ * Reason category: explicit activation input adaptation.
+ * Old behavior/assertion being replaced: root-only activations implicitly read attachment candidates from a journal.
+ * Why old assertion is no longer correct: activation now receives a prepared attachment change explicitly;
+ * these existing root-only calls select the committed attachment configuration with a null change.
+ * Coverage preserved by: every existing mount, state and failure assertion is retained without weakening.
+ * Why this is not fitting the test to the implementation: stale pending candidates must not influence restoration.
+ * TDD proof: Regression preservation - transaction-green-first.log and verification-green.log under
+ * target/lomo/reports/manual/directory-selection/; index-validation-red.log exposes premature activation.
+ * Test Change Justification:
+ * Reason category: unified storage transaction fixture adaptation.
+ * Old behavior/assertion being replaced: root-only journal fixtures supplied a single candidate parameter.
+ * Why old assertion is no longer correct: journal preparation also accepts a candidate attachment binding; these scenarios select only notes.
+ * Coverage preserved by: every existing root transition outcome, journal-order and failure assertion is retained verbatim.
+ * Why this is not fitting the test to the implementation: the added argument explicitly keeps these scenarios on their original root-only path.
+ * TDD proof (transaction): target/lomo/reports/manual/directory-selection/transaction-red.log and verification-green.log.
  * - Unit under test: SwitchRootStorageUseCase.
  * - Owning layer: domain.
  * - Priority tier: P0.
@@ -24,6 +40,8 @@ package com.lomo.domain.usecase
  *   activation generation runs without opening another root-transition journal.
  * - Given Ready on the committed location, when the same location is requested again, then activation
  *   is skipped.
+ * - Given a prepared transition whose caller is cancelled mid-activation, when the caller abandons
+ *   the wait, then the durable journal still reaches commit rather than staying prepared.
  *
  * Observable outcomes: ordered event log, transition count, admissibility, applied updates, activate calls,
  * absence of duplicate rebuilds.
@@ -48,18 +66,21 @@ import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.StorageArea
-import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.WorkspaceCandidateValidator
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.testing.fakes.FakeEngineReadinessRepository
-import com.lomo.domain.testing.fakes.FakeWorkspaceStateResolver
 import com.lomo.domain.testing.fakes.FakeWorkspaceMutationLease
+import com.lomo.domain.testing.fakes.FakeWorkspaceStateResolver
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SwitchRootStorageUseCaseTest : DomainFunSpec() {
     private val eventLog = mutableListOf<String>()
     private val directorySettingsRepository = FakeDirectorySettingsRepository(eventLog)
@@ -75,7 +96,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
             workspaceStateResolver.rebuildFailure = null
             workspaceStateResolver.remainingRebuildFailures = 0
             workspaceStateResolver.remainingRebuildFailure = null
-                        engineReadinessRepository.remainingActivateFailures = 0
+            engineReadinessRepository.remainingActivateFailures = 0
             engineReadinessRepository.activateCount = 0
             engineReadinessRepository.clearCount = 0
             engineReadinessRepository.activateFailure = IllegalStateException("open failed")
@@ -86,10 +107,10 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                     workspaceMutationLease = workspaceMutationLease,
                     engineReadinessRepository = engineReadinessRepository,
                     workspaceCandidateValidator =
-                        WorkspaceCandidateValidator { location ->
-                            eventLog += "workspace.validateCandidate"
-                            require(location.raw.isNotBlank()) { "blank candidate" }
-                        },
+                    WorkspaceCandidateValidator { location ->
+                        eventLog += "workspace.validateCandidate"
+                        require(location.raw.isNotBlank()) { "blank candidate" }
+                    },
                 )
         }
 
@@ -117,6 +138,37 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
             }
         }
 
+        test("updateRootLocation still commits the durable transition when the caller is cancelled mid-activation") {
+            runTest {
+                val location = StorageLocation("/tmp/lomo")
+                val activationGate = CompletableDeferred<Unit>()
+                engineReadinessRepository.activateCheckpoint = { activationGate.await() }
+
+                val job = launch { useCase.updateRootLocation(location) }
+                advanceUntilIdle()
+                // The journal is prepared and the switch is parked inside engine activation.
+                directorySettingsRepository.pendingRootTransition()?.candidate shouldBe location
+                engineReadinessRepository.activateCount shouldBe 0
+
+                // Caller abandons the wait (screen navigated away / viewModelScope cancelled).
+                job.cancel()
+                activationGate.complete(Unit)
+                advanceUntilIdle()
+
+                // The durable journal still reaches commit; no prepared transition is abandoned.
+                directorySettingsRepository.pendingRootTransition() shouldBe null
+                directorySettingsRepository.currentRootLocation() shouldBe location
+                engineReadinessRepository.activateCount shouldBe 1
+                eventLog shouldBe
+                    listOf(
+                        "workspace.validateCandidate",
+                        "directory.prepareRootTransition",
+                        "directory.markRootTransitionActivated",
+                        "directory.commitRootTransition",
+                    )
+            }
+        }
+
         test("updateRootLocation takes no transition and persists nothing when candidate validation fails") {
             runTest {
                 val failing =
@@ -126,10 +178,10 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                         workspaceMutationLease = workspaceMutationLease,
                         engineReadinessRepository = engineReadinessRepository,
                         workspaceCandidateValidator =
-                            WorkspaceCandidateValidator {
-                                eventLog += "workspace.validateCandidate"
-                                error("candidate unavailable")
-                            },
+                        WorkspaceCandidateValidator {
+                            eventLog += "workspace.validateCandidate"
+                            error("candidate unavailable")
+                        },
                     )
 
                 val error = runCatching { failing.updateRootLocation(StorageLocation("/tmp/bad")) }.exceptionOrNull()
@@ -182,6 +234,32 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
             }
         }
 
+        test(
+            "given a retained verified previous mount when candidate activation fails then rollback keeps its sole owner",
+        ) {
+            runTest {
+                val previous = StorageLocation("/tmp/previous")
+                directorySettingsRepository.setLocation(StorageArea.ROOT, previous)
+                engineReadinessRepository.activateWorkspace(previous, mediaChange = null)
+                val authority = engineReadinessRepository.workspaceAuthority.value
+                engineReadinessRepository.activateCount = 0
+                engineReadinessRepository.remainingActivateFailures = 2
+                engineReadinessRepository.activateFailure = IllegalStateException("candidate rejected")
+
+                val error = runCatching {
+                    useCase.updateRootLocation(
+                        StorageLocation("/tmp/candidate"),
+                    )
+                }.exceptionOrNull()
+
+                error.shouldBeInstanceOf<IllegalStateException>().message shouldBe "candidate rejected"
+                engineReadinessRepository.mount.value.authority shouldBe authority
+                engineReadinessRepository.activateCount shouldBe 1
+                directorySettingsRepository.currentRootLocation() shouldBe previous
+                workspaceMutationLease.isWritable() shouldBe true
+            }
+        }
+
         test("updateRootLocation surfaces restore failure when previous engine cannot reopen") {
             runTest {
                 val previous = StorageLocation("/tmp/previous")
@@ -205,7 +283,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
             runTest {
                 val location = StorageLocation("/tmp/lomo")
                 directorySettingsRepository.setLocation(StorageArea.ROOT, location)
-                engineReadinessRepository.activateWorkspace(location)
+                engineReadinessRepository.activateWorkspace(location, mediaChange = null)
                 engineReadinessRepository.publish(
                     EngineReadiness.ReadOnlyRecovery(
                         category = EngineFailureCategory.STORAGE,
@@ -231,7 +309,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
             runTest {
                 val location = StorageLocation("/tmp/lomo")
                 directorySettingsRepository.setLocation(StorageArea.ROOT, location)
-                engineReadinessRepository.activateWorkspace(location)
+                engineReadinessRepository.activateWorkspace(location, mediaChange = null)
                 eventLog.clear()
                 engineReadinessRepository.activateCount = 0
 
@@ -257,7 +335,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 // An interrupted earlier attempt left a PREPARED transition for the same target;
                 // retrying is the same operation and must not mint a second transition journal.
                 val candidate = StorageLocation("/tmp/candidate")
-                val interrupted = directorySettingsRepository.prepareRootTransition(candidate)
+                val interrupted = directorySettingsRepository.prepareRootTransition(candidate, mediaChange = null)
                 eventLog.clear()
 
                 useCase.updateRootLocation(candidate)
@@ -280,7 +358,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 // A crash after activation left an ACTIVATED transition: resume re-asserts engine
                 // activation and commits under the original operation id.
                 val candidate = StorageLocation("/tmp/candidate")
-                val interrupted = directorySettingsRepository.prepareRootTransition(candidate)
+                val interrupted = directorySettingsRepository.prepareRootTransition(candidate, mediaChange = null)
                 directorySettingsRepository.markRootTransitionActivated(interrupted.id)
                 eventLog.clear()
 
@@ -300,7 +378,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
         test("updateRootLocation clears stale pending transition before starting a new transition") {
             runTest {
                 // Simulate a leftover transition in datastore from a prior crash
-                directorySettingsRepository.prepareRootTransition(StorageLocation("/tmp/stale"))
+                directorySettingsRepository.prepareRootTransition(StorageLocation("/tmp/stale"), mediaChange = null)
                 eventLog.clear()
 
                 val location = StorageLocation("/tmp/fresh")

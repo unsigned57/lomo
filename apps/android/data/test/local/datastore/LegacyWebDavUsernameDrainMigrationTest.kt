@@ -28,7 +28,6 @@ package com.lomo.data.local.datastore
  */
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import com.lomo.data.security.SecureStringReadResult
 import com.lomo.data.security.SecureStringStore
@@ -44,7 +43,9 @@ import java.nio.file.Files
 
 class LegacyWebDavUsernameDrainMigrationTest : DataFunSpec() {
     init {
-        test("given legacy plaintext username when store opens then credential store receives it and plaintext is removed") {
+        test(
+            "given legacy plaintext username when store opens then credential store receives it and plaintext is removed",
+        ) {
             runTest {
                 val backing = seedStoreFile(backgroundScope) { it[LomoDataStoreKeys.WEBDAV_USERNAME] = "alice" }
                 val credentials = InMemorySecureStringStore()
@@ -112,34 +113,26 @@ class LegacyWebDavUsernameDrainMigrationTest : DataFunSpec() {
         return backing
     }
 
-    private fun migratedStore(
-        backing: File,
-        scope: CoroutineScope,
-        credentials: InMemorySecureStringStore,
-    ) = PreferenceDataStoreFactory.create(
-        scope = scope,
-        migrations =
+    private fun migratedStore(backing: File, scope: CoroutineScope, credentials: InMemorySecureStringStore) =
+        PreferenceDataStoreFactory.create(
+            scope = scope,
+            migrations =
             listOf(
                 LegacyWebDavUsernameDrainMigration(
                     credentialStoreFactory = { WebDavCredentialStore(credentials) },
                 ),
             ),
-        produceFile = { backing },
-    )
+            produceFile = { backing },
+        )
 }
 
-private class InMemorySecureStringStore(
-    val strings: MutableMap<String, String> = mutableMapOf(),
-) : SecureStringStore {
+private class InMemorySecureStringStore(val strings: MutableMap<String, String> = mutableMapOf()) : SecureStringStore {
     var failWrites: Boolean = false
 
     override fun readString(key: String): SecureStringReadResult =
         strings[key]?.let(SecureStringReadResult::Present) ?: SecureStringReadResult.Missing
 
-    override fun putString(
-        key: String,
-        value: String?,
-    ) {
+    override fun putString(key: String, value: String?) {
         if (failWrites) error("credential write failure")
         if (value.isNullOrBlank()) {
             strings.remove(key)

@@ -22,6 +22,8 @@ data class StoreMemoFilters(
 enum class StoreMemoSortField {
     CreatedAt,
     UpdatedAt,
+    ReviewMonth,
+    ReviewRandom,
 }
 
 enum class StoreSortDirection {
@@ -32,6 +34,8 @@ enum class StoreSortDirection {
 data class StoreMemoSort(
     val field: StoreMemoSortField = StoreMemoSortField.CreatedAt,
     val direction: StoreSortDirection = StoreSortDirection.Descending,
+    val seed: Long = 0L,
+    val timeZone: String = "UTC",
 )
 
 /** Inclusive upper bound for a stable ordering window (used by Daily Review sessions). */
@@ -49,9 +53,7 @@ data class StoreMemoQuery(
     val boundary: StoreMemoQueryBoundary? = null,
 )
 
-data class StorePageCursor(
-    val encoded: String,
-)
+data class StorePageCursor(val encoded: String)
 
 data class StoreMemoSummary(
     val memoId: String,
@@ -86,10 +88,7 @@ data class StoreMemoPage(
     val itemsAfter: Long = 0,
 )
 
-data class StoreMemoSnapshot(
-    val summary: StoreMemoSummary,
-    val body: String,
-)
+data class StoreMemoSnapshot(val summary: StoreMemoSummary, val body: String)
 
 /** Rust-owned projection domains attached to each committed store mutation. */
 enum class StoreInvalidationScope {
@@ -103,15 +102,9 @@ enum class StoreInvalidationScope {
     Full,
 }
 
-data class StoreSidebarDateCount(
-    val date: String,
-    val count: Int,
-)
+data class StoreSidebarDateCount(val date: String, val count: Int)
 
-data class StoreSidebarTagCount(
-    val name: String,
-    val count: Int,
-)
+data class StoreSidebarTagCount(val name: String, val count: Int)
 
 data class StoreSidebarProjection(
     val schemaVersion: UInt,
@@ -131,6 +124,17 @@ data class StoreMemoCommit(
     val idempotentReplay: Boolean,
 )
 
+/** A projection publication a memo command emits before it returns. */
+sealed interface StoreMemoCommandPublication {
+    val commit: StoreMemoCommit
+
+    /** The create was admitted: its pending row is queryable at [commit]'s clock. */
+    data class Accepted(override val commit: StoreMemoCommit) : StoreMemoCommandPublication
+
+    /** The admitted create failed: its pending row was removed at [commit]'s clock. */
+    data class Withdrawn(override val commit: StoreMemoCommit) : StoreMemoCommandPublication
+}
+
 /** CAS facts captured from one trash projection row for an atomic permanent-delete batch. */
 data class StoreMemoDeleteTarget(
     val memoId: String,
@@ -139,10 +143,7 @@ data class StoreMemoDeleteTarget(
     val expectedFingerprint: String,
 )
 
-data class StoreMemoDeletedMemo(
-    val memoId: String,
-    val reminderIds: List<String>,
-)
+data class StoreMemoDeletedMemo(val memoId: String, val reminderIds: List<String>)
 
 /** One logical batch publication; all target rows share this revision/event pair. */
 data class StoreMemoBatchCommit(
@@ -240,25 +241,18 @@ interface StoreWritePort {
      * Applies one memo command.
      *
      * [onPublication] receives projection publications the engine emits while the command is still
-     * executing — currently the pending-create publication a SAF create publishes before its
-     * durable platform I/O. [PublishingStorePort] observes those stamps; command callers must not
-     * publish them onto the invalidation bus. The command's own commit is still the returned value.
+     * executing: a create's acceptance — its pending row, published before durable platform I/O —
+     * and, when the durable commit then fails, its withdrawal. [PublishingStorePort] observes those
+     * stamps; command callers must not publish them onto the invalidation bus. The command's own
+     * commit is still the returned value.
      */
     fun applyMemoCommand(
         command: StoreMemoCommand,
-        onPublication: (StoreMemoCommit) -> Unit,
+        onPublication: (StoreMemoCommandPublication) -> Unit,
     ): StoreMemoCommit
 
     /** Permanently deletes a bounded trash batch and publishes one projection revision. */
-    fun permanentDeleteMany(
-        operationId: String,
-        targets: List<StoreMemoDeleteTarget>,
-    ): StoreMemoBatchCommit
-
-    /** Converges Rust workspace-command facts without rewriting the already-committed document. */
-    fun commitDocumentMutation(
-        mutation: com.lomo.domain.model.MemoDocumentMutation,
-    ): StoreMemoCommit
+    fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit
 
     fun startRebuild(batchSize: Int): StoreRebuildResult
 
@@ -267,14 +261,13 @@ interface StoreWritePort {
      * supplies an owner-vocabulary [ReminderInterval] option; the deadline instant is computed on
      * the owner clock and durations outside the option set are unrepresentable.
      */
-    fun snoozeReminder(
-        opaqueId: String,
-        interval: com.lomo.domain.model.ReminderInterval,
-    )
+    fun snoozeReminder(opaqueId: String, interval: com.lomo.domain.model.ReminderInterval)
 
     /** Explicitly recovers corrupt durable snooze state (quarantine + fresh store). */
     fun recoverReminderSnooze()
 }
 
 /** Complete boundary retained for callers that need both read and write capabilities. */
-interface StorePort : StoreReadPort, StoreWritePort
+interface StorePort :
+    StoreReadPort,
+    StoreWritePort

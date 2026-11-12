@@ -36,10 +36,7 @@ internal class KeystoreBackedPreferences(
             )
     }
 
-    override fun putString(
-        key: String,
-        value: String?,
-    ) {
+    override fun putString(key: String, value: String?) {
         prefs.edit().apply {
             if (value.isNullOrBlank()) {
                 remove(key)

@@ -2,6 +2,7 @@ package com.lomo.app.feature.conflict
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
@@ -9,7 +10,6 @@ import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.RemoteSyncConflictDialogUseCase
-import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.usecase.SyncReviewResolutionUseCase
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,10 +84,7 @@ class SyncConflictViewModel(
         _state.value = SyncConflictDialogState.Hidden
     }
 
-    fun setFileChoice(
-        path: String,
-        choice: SyncConflictResolutionChoice,
-    ) {
+    fun setFileChoice(path: String, choice: SyncConflictResolutionChoice) {
         _state.update { current ->
             if (current is SyncConflictDialogState.Showing) {
                 current.copy(perFileChoices = (current.perFileChoices + (path to choice)).toImmutableMap())
@@ -97,10 +94,7 @@ class SyncConflictViewModel(
         }
     }
 
-    fun setReviewItemChoice(
-        path: String,
-        choice: SyncReviewResolutionChoice,
-    ) {
+    fun setReviewItemChoice(path: String, choice: SyncReviewResolutionChoice) {
         _state.update { current ->
             if (current is SyncConflictDialogState.ReviewShowing && path !in current.blockedPaths) {
                 current.copy(perItemChoices = (current.perItemChoices + (path to choice)).toImmutableMap())
@@ -145,15 +139,15 @@ class SyncConflictViewModel(
                 is SyncConflictDialogState.Showing ->
                     current.copy(
                         perFileChoices =
-                            (current.perFileChoices + buildSuggestedChoices(current.conflictSet)).toImmutableMap(),
+                        (current.perFileChoices + buildSuggestedChoices(current.conflictSet)).toImmutableMap(),
                     )
 
                 is SyncConflictDialogState.ReviewShowing ->
                     current.copy(
                         perItemChoices =
-                            (
-                                current.perItemChoices +
-                                    buildReviewSuggestedChoices(current.reviewSession, current.blockedPaths)
+                        (
+                            current.perItemChoices +
+                                buildReviewSuggestedChoices(current.reviewSession, current.blockedPaths)
                             ).toImmutableMap(),
                     )
 
@@ -256,21 +250,20 @@ internal suspend fun resolveRemoteConflictDialogState(
     session: RemoteSyncConflictDialogUseCase.OpenSession,
     useCase: RemoteSyncConflictDialogUseCase,
     onSessionUpdated: (RemoteSyncConflictDialogUseCase.OpenSession?) -> Unit,
-): SyncConflictDialogState =
-    when (
-        val result =
-            useCase.resolveSuspending(
-                session = session,
-                resolution = SyncConflictResolution(current.perFileChoices),
-            )
-    ) {
-        RemoteSyncConflictDialogUseCase.DialogResolveResult.Resolved -> {
-            onSessionUpdated(null)
-            SyncConflictDialogState.Hidden
-        }
-
-        is RemoteSyncConflictDialogUseCase.DialogResolveResult.Pending -> {
-            onSessionUpdated(result.session)
-            pendingConflictState(current, result.session.conflictSet)
-        }
+): SyncConflictDialogState = when (
+    val result =
+        useCase.resolveSuspending(
+            session = session,
+            resolution = SyncConflictResolution(current.perFileChoices),
+        )
+) {
+    RemoteSyncConflictDialogUseCase.DialogResolveResult.Resolved -> {
+        onSessionUpdated(null)
+        SyncConflictDialogState.Hidden
     }
+
+    is RemoteSyncConflictDialogUseCase.DialogResolveResult.Pending -> {
+        onSessionUpdated(result.session)
+        pendingConflictState(current, result.session.conflictSet)
+    }
+}

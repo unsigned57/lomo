@@ -1,27 +1,23 @@
 package com.lomo.app.feature.trash
 
-import com.lomo.app.testing.fakes.testMemoUiMapper
-
 import androidx.lifecycle.ViewModel
 import androidx.paging.PagingData
 import com.lomo.app.feature.common.AppConfigUiCoordinator
-import com.lomo.app.feature.common.DeleteAnimationItem
+import com.lomo.app.feature.common.WorkspaceProjectionStateProvider
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
-import com.lomo.app.feature.common.WorkspaceProjectionStateProvider
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.collectWhileSubscribed
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
+import com.lomo.app.testing.fakes.testMemoUiMapper
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.MemoTrashUseCase
-import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
 import io.kotest.matchers.shouldBe
-import java.time.LocalDate
-import java.time.ZoneId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -32,6 +28,8 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.time.LocalDate
+import java.time.ZoneId
 
 /*
  * Behavior Contract:
@@ -41,7 +39,7 @@ import kotlinx.coroutines.test.runTest
  * - Capability: Trash list management, batch clear dispatching, permanent item deletions, and restore animations.
  *
  * Scenarios:
- * - Given clearTrash is called with multiple memos, when the operation runs, then all memos transition into the deleting state and one batch clear command is issued to the repository.
+ * - Given clearTrash is called with multiple memos, when the operation runs, then no row animation is retained and one batch clear command is issued to the repository.
  * - Given deletePermanently is triggered for a memo, when the repository completes removal, then the row deletion indicator is retained until animation and source absence have both settled.
  * - Given restoreMemo is triggered for a memo, when the repository completes the restore, then the row deletion indicator is retained until animation and source absence have both settled.
  * - Given the SAF projection is not verified, when the trash screen is created, then its paging read admission remains closed.
@@ -52,6 +50,15 @@ import kotlinx.coroutines.test.runTest
  * TDD proof:
  * - Asserts timing alignment, mutation commit, animation settlement, source-absence cleanup, and
  *   single-batch repo actions were not present before the LomoList exit animation contract.
+ *
+ * TDD proof (instant clear): reports/manual/trash-index-picker/trash-red.log:
+ * expected empty deletion ids but received trash-1 and trash-2; GREEN: trash-green.log.
+ * Test Change Justification:
+ * Reason category: requested behavior change.
+ * Old behavior/assertion being replaced: bulk clear retained each row until its exit animation settled.
+ * Why old assertion is no longer correct: clear is a collection action and must not animate every row.
+ * Coverage preserved by: single batch dispatch, item delete and restore settlement checks remain.
+ * Why this is not fitting the test to the implementation: the regression checks visible deletion state.
  *
  * Excludes:
  * - Compose UI trash layouts and pixel details.
@@ -74,7 +81,7 @@ class TrashViewModelTest : AppFunSpec() {
     private val memoUiMapper: MemoUiMapper =
         testMemoUiMapper(
             dispatcherProvider =
-                com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher),
+            com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher),
         )
     private val engineReadinessRepository = FakeEngineReadinessRepository()
 
@@ -96,7 +103,7 @@ class TrashViewModelTest : AppFunSpec() {
             createdViewModels.clear()
         }
 
-        test("clearTrash marks all memos deleting before issuing one batch clear command") {
+        test("given trash rows when clearing then one batch clears without retaining row animations") {
             runTest {
                 val firstMemo = memo("trash-1", LocalDate.of(2026, 3, 8), 9)
                 val secondMemo = memo("trash-2", LocalDate.of(2026, 3, 8), 10)
@@ -109,33 +116,11 @@ class TrashViewModelTest : AppFunSpec() {
                 }
                 advanceUntilIdle()
 
-                viewModel.clearTrash(
-                    listOf(
-                        DeleteAnimationItem(
-                            id = firstMemo.id,
-                            snapshot = firstMemo,
-                            anchoredAfterKey = null,
-                        ),
-                        DeleteAnimationItem(
-                            id = secondMemo.id,
-                            snapshot = secondMemo,
-                            anchoredAfterKey = null,
-                        ),
-                    ),
-                )
+                viewModel.clearTrash()
                 runCurrent()
 
-                viewModel.deletingMemoIds.value shouldBe setOf(firstMemo.id, secondMemo.id)
+                viewModel.deletingMemoIds.value shouldBe emptySet()
                 repository.clearTrashCallCount shouldBe 1
-
-                viewModel.onDeleteAnimationSettled(firstMemo.id)
-                viewModel.onDeleteAnimationSettled(secondMemo.id)
-                runCurrent()
-                viewModel.deletingMemoIds.value shouldBe setOf(firstMemo.id, secondMemo.id)
-
-                viewModel.exitAnimationRegistry.updateSourceKeys(emptySet())
-                runCurrent()
-                viewModel.deletingMemoIds.value.isEmpty() shouldBe true
                 collectJob.cancel()
             }
         }
@@ -237,53 +222,49 @@ class TrashViewModelTest : AppFunSpec() {
         }
     }
 
-    private fun TestScope.createViewModel(): TrashViewModel =
-        TrashViewModel(
-            memoTrashUseCase =
-                MemoTrashUseCase(
-                    com.lomo.app.testing.fakes.FakeMemoTrashRepository(repository),
-                ),
-            appConfigStateProvider =
-                com.lomo.app.feature.common.AppConfigStateProvider(
-                    appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                    appPreferencesSnapshotRepository = appConfigRepository,
-                    customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                    customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
-                    preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
-                    appScope = CoroutineScope(SupervisorJob() + testDispatcher),
-                ),
-            imageMapProvider = imageMapProvider,
-            memoUiMapper = memoUiMapper,
-            workspaceProjectionStateProvider = WorkspaceProjectionStateProvider(engineReadinessRepository),
-        ).also { viewModel ->
-            createdViewModels.add(viewModel)
-            collectWhileSubscribed(
-                viewModel.deletingMemoIds,
-                viewModel.projectionReadable,
-            )
-        }
+    private fun TestScope.createViewModel(): TrashViewModel = TrashViewModel(
+        memoTrashUseCase =
+        MemoTrashUseCase(
+            com.lomo.app.testing.fakes.FakeMemoTrashRepository(repository),
+        ),
+        appConfigStateProvider =
+        com.lomo.app.feature.common.AppConfigStateProvider(
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            appPreferencesSnapshotRepository = appConfigRepository,
+            customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+            customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(
+                com.lomo.app.testing.fakes.FakeCustomFontStore(),
+            ),
+            preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
+            appScope = CoroutineScope(SupervisorJob() + testDispatcher),
+        ),
+        imageMapProvider = imageMapProvider,
+        memoUiMapper = memoUiMapper,
+        workspaceProjectionStateProvider = WorkspaceProjectionStateProvider(engineReadinessRepository),
+    ).also { viewModel ->
+        createdViewModels.add(viewModel)
+        collectWhileSubscribed(
+            viewModel.deletingMemoIds,
+            viewModel.projectionReadable,
+        )
+    }
 
     private fun clearViewModel(viewModel: TrashViewModel) {
         ViewModel::class.java.getDeclaredMethod("clear\$lifecycle_viewmodel").invoke(viewModel)
         testDispatcher.scheduler.advanceUntilIdle()
     }
 
-    private fun memo(
-        id: String,
-        date: LocalDate,
-        hour: Int,
-    ): Memo =
-        Memo(
-            id = id,
-            timestamp =
-                date
-                    .atTime(hour, 0)
-                    .atZone(ZoneId.systemDefault())
-                    .toInstant()
-                    .toEpochMilli(),
-            content = id,
-            rawContent = id,
-            dateKey = date.toString().replace("-", "_"),
-            localDate = date,
-        )
+    private fun memo(id: String, date: LocalDate, hour: Int): Memo = Memo(
+        id = id,
+        timestamp =
+        date
+            .atTime(hour, 0)
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli(),
+        content = id,
+        rawContent = id,
+        dateKey = date.toString().replace("-", "_"),
+        localDate = date,
+    )
 }

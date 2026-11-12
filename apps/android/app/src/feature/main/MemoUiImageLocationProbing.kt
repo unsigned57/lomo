@@ -1,28 +1,24 @@
 package com.lomo.app.feature.main
 
-import android.net.Uri
 import java.io.File
 import java.net.URI
 
-private val MANAGED_IMAGE_FILENAME_REGEX = Regex("""img_\d+\.(png|jpg|jpeg|gif|webp)""")
-
 /**
- * Verified filesystem probe targets: every directory surface the destination
- * may legitimately occupy. A bare name probes the root, the configured image
- * root, and every file named like it at any depth under the managed attachment
- * roots; a qualified path probes it under each configured base. Content-URI
- * bases skip — SAF trees cannot be stat'ed here.
+ * A dedicated image root owns images/ paths and selected bare names.
+ * Without a selection, bare names pool workspace claims and qualified paths join the workspace.
  */
 internal fun fileProbeTargets(
     canonical: String,
-    isBareName: Boolean,
+    isImageRootRelative: Boolean,
     rootPath: String?,
     imagePath: String?,
 ): List<File> {
     val targets = LinkedHashSet<File>()
     val root = usableFileBase(rootPath)
 
-    if (isBareName) {
+    if (isImageRootRelative && !imagePath.isNullOrBlank()) {
+        usableFileBase(imagePath)?.let { targets += File(it, canonical) }
+    } else if (isImageRootRelative) {
         root?.let { targets += File(it, canonical) }
         for (dir in MANAGED_ATTACHMENT_ROOTS) {
             val managedDir = root?.let { File(it, dir) } ?: continue
@@ -32,10 +28,8 @@ internal fun fileProbeTargets(
                 .filter { entry -> entry.name == canonical }
                 .forEach { entry -> targets += entry }
         }
-        usableFileBase(imagePath)?.let { targets += File(it, canonical) }
     } else {
         root?.let { targets += File(it, canonical) }
-        usableFileBase(imagePath)?.let { targets += File(it, canonical) }
     }
     return targets.toList()
 }
@@ -53,73 +47,17 @@ private fun usableFileBase(basePath: String?): File? {
     return File(normalizeBasePath(base))
 }
 
-/**
- * Content-URI bases in deterministic order. Bare names keep the historical
- * convention — managed `img_\d+` names probe the managed image root first,
- * other bare names the workspace root first — because docId joins cannot be
- * existence-verified at this layer; the first join is a guess that fails closed
- * in Coil when wrong, never a wrong-directory load. Qualified destinations are
- * identities: workspace root first.
- */
-private fun contentUriBases(
-    canonical: String,
-    isBareName: Boolean,
-    rootPath: String?,
-    imagePath: String?,
-): List<String> {
-    val ordered = LinkedHashSet<String>()
-
-    fun add(base: String?) {
-        val value = base?.trim().orEmpty()
-        if (value.isNotEmpty() && value.startsWith(CONTENT_URI_PREFIX)) {
-            ordered += value
-        }
-    }
-
-    if (isBareName && looksLikeManagedImageFilename(canonical)) {
-        add(imagePath)
-        add(rootPath)
-    } else {
-        add(rootPath)
-        add(imagePath)
-    }
-    return ordered.toList()
-}
-
-internal fun resolveRelativeContentUri(
-    canonical: String,
-    isBareName: Boolean,
-    rootPath: String?,
-    imagePath: String?,
-): String? =
-    contentUriBases(canonical, isBareName, rootPath, imagePath).firstNotNullOfOrNull { basePath ->
-        // behavior-contract: silent-result-ok: non-tree URI or malformed URI syntax falls back to next candidate
-        runCatching {
-            val rootUri = Uri.parse(basePath)
-            val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(rootUri)
-                ?: return@firstNotNullOfOrNull null
-            val docId = if (treeDocId.endsWith('/')) "$treeDocId$canonical" else "$treeDocId/$canonical"
-            android.provider.DocumentsContract.buildDocumentUriUsingTree(rootUri, docId).toString()
-        }.getOrNull()
-    }
-
 internal fun resolveFallbackRelativeFile(
     canonical: String,
-    isBareName: Boolean,
+    isImageRootRelative: Boolean,
     rootPath: String?,
     imagePath: String?,
-): File? =
-    fileBasesInOrder(canonical, isBareName, rootPath, imagePath)
-        .firstOrNull()
-        ?.let { base -> File(normalizeBasePath(base), canonical) }
+): File? = fileBasesInOrder(isImageRootRelative, rootPath, imagePath)
+    .firstOrNull()
+    ?.let { base -> File(normalizeBasePath(base), canonical) }
 
-/** All configured bases in the same deterministic order as [contentUriBases]. */
-private fun fileBasesInOrder(
-    canonical: String,
-    isBareName: Boolean,
-    rootPath: String?,
-    imagePath: String?,
-): List<String> {
+/** Selects the physical image root only for paths routed to that mount. */
+private fun fileBasesInOrder(isImageRootRelative: Boolean, rootPath: String?, imagePath: String?): List<String> {
     val ordered = LinkedHashSet<String>()
 
     fun add(base: String?) {
@@ -129,30 +67,18 @@ private fun fileBasesInOrder(
         }
     }
 
-    if (isBareName && looksLikeManagedImageFilename(canonical)) {
-        add(imagePath)
-        add(rootPath)
-    } else {
-        add(rootPath)
-        add(imagePath)
-    }
+    if (isImageRootRelative && !imagePath.isNullOrBlank()) add(imagePath) else add(rootPath)
     return ordered.toList()
 }
 
-private fun normalizeBasePath(basePath: String): String =
-    if (basePath.startsWith(FILE_URI_PREFIX)) {
-        parseUriPath(basePath) ?: basePath
-    } else {
-        basePath
-    }
+private fun normalizeBasePath(basePath: String): String = if (basePath.startsWith(FILE_URI_PREFIX)) {
+    parseUriPath(basePath) ?: basePath
+} else {
+    basePath
+}
 
 internal fun parseUriPath(value: String): String? =
     // behavior-contract: silent-result-ok: URISyntaxException on malformed input means "no path component"
     runCatching {
         URI(value).path
     }.getOrNull()
-
-private fun looksLikeManagedImageFilename(path: String): Boolean {
-    val candidate = path.substringAfterLast(PATH_SEPARATOR).lowercase(java.util.Locale.ROOT)
-    return candidate.matches(MANAGED_IMAGE_FILENAME_REGEX)
-}

@@ -83,15 +83,22 @@ def aar_classpath(path, build):
     return result
 
 
-def export_model(repo, build, module):
-    platform, task, variant, fragment = task_identity(module)
-    candidates = list((build / "incremental.state").glob(f"_{module}_{task}-*"))
-    require(len(candidates) == 1, f"analysis prerequisite: expected exactly one {module}/{task} compile state, found {len(candidates)}")
+def load_task_state(repo, build, task):
+    candidates = list((build / "incremental.state").glob(f"_{task}-*"))
+    require(len(candidates) == 1, f"analysis prerequisite: expected exactly one {task} state, found {len(candidates)}")
     state_path = candidates[0]
     state = json.loads(state_path.read_text())
     required_keys = {"codeVersion", "inputValues", "inputFiles", "inputFilesState", "outputValues", "outputFiles", "outputFilesState", "excludedOutputFiles", "dynamicInputs"}
     require(set(state) == required_keys, f"unsupported Toolchain compile-state schema: {state_path}")
     require(state["codeVersion"] == toolchain_version(repo), "analysis prerequisite: stale Toolchain compile model")
+    require(state["outputFiles"] and all(Path(path).exists() for path in state["outputFiles"]), "compiled output missing")
+    require(isinstance(state["inputFiles"], list) and len(state["inputFiles"]) == len(set(state["inputFiles"])), "invalid compile inputs")
+    return state
+
+
+def export_model(repo, build, module):
+    platform, task, variant, fragment = task_identity(module)
+    state = load_task_state(repo, build, f"{module}_{task}")
     values = state["inputValues"]
     expected_output = build / "artifacts/CompiledJvmArtifact" / fragment
     require(Path(values["task.output.root"]) == expected_output, "compile model module/variant mismatch")
@@ -100,8 +107,6 @@ def export_model(repo, build, module):
     settings = json.loads(values["user.settings"])
     require(isinstance(settings["kotlin"]["compilerPlugins"], list), "compiler plugin model missing")
     require(json.loads(state["outputValues"]["jvmCompilerBuildProblems"]) == [], "compile model records unsuccessful compilation")
-    require(state["outputFiles"] and all(Path(path).exists() for path in state["outputFiles"]), "compiled output missing")
-    require(isinstance(state["inputFiles"], list) and len(state["inputFiles"]) == len(set(state["inputFiles"])), "invalid compile inputs")
     source_root = repo / "apps/android" / ("quality/detekt-rules" if module == "detekt-rules" else module) / "src"
     source_roots, generated_roots, absent_roots, classpath = [], [], [], []
     for raw in state["inputFiles"]:
@@ -244,13 +249,74 @@ def load_model(build, module):
     return model
 
 
+
+def runtime_inputs(build_dir: Path, modules: list[str]) -> list[Path]:
+    build_dir = build_dir.resolve(strict=True)
+    repo = Path(__file__).resolve().parents[2]
+    paths = []
+    for module in modules:
+        require(module and all(c.isascii() and (c.isalnum() or c == '-') for c in module),
+                f"invalid runtime module: {module}")
+        state = load_task_state(repo, build_dir, f"{module}_compileAndroidDebug")
+        expected = build_dir / 'artifacts/CompiledJvmArtifact' / f'{module}androiddebug'
+        require(Path(state['inputValues']['task.output.root']) == expected,
+                f"runtime compile model module/variant mismatch: {module}")
+        require(json.loads(state['outputValues']['jvmCompilerBuildProblems']) == [],
+                f"unsuccessful runtime module compilation: {module}")
+        outputs = [Path(path) for path in state['outputFiles']]
+        require(all(path.is_relative_to(expected) and path.is_dir() for path in outputs),
+                f"invalid compiled runtime outputs: {module}")
+        paths.extend(outputs)
+    prepare = load_task_state(repo, build_dir, 'app_prepareAndroidDebug')
+    for raw in prepare['inputFiles'] + prepare['outputFiles']:
+        path = Path(raw)
+        if path.suffix not in {'.jar', '.aar'}:
+            continue
+        require(path.is_file(), f"missing Android runtime archive: {path}")
+        if path.suffix == '.aar':
+            paths.extend(Path(item) for item in aar_classpath(path, build_dir))
+        else:
+            paths.append(path)
+    return sorted(set(paths))
+
+
+def runtime_lint_check_jars(build_dir: Path) -> list[Path]:
+    """Lint checks shipped inside packaged runtime AARs (`lint.jar`), e.g. the Compose runtime.
+
+    The standalone lint CLI only loads checks it is told about; classes.jar extraction alone
+    silently drops every library-provided rule.
+    """
+    build_dir = build_dir.resolve(strict=True)
+    repo = Path(__file__).resolve().parents[2]
+    prepare = load_task_state(repo, build_dir, 'app_prepareAndroidDebug')
+    jars = []
+    for raw in prepare['inputFiles'] + prepare['outputFiles']:
+        path = Path(raw)
+        if path.suffix != '.aar':
+            continue
+        require(path.is_file(), f"missing Android runtime archive: {path}")
+        with zipfile.ZipFile(path) as archive:
+            if 'lint.jar' not in archive.namelist():
+                continue
+            target = build_dir / 'analysis-input' / 'lint-checks' / digest_path(path) / 'lint.jar'
+            data = archive.read('lint.jar')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists() or target.read_bytes() != data:
+                target.write_bytes(data)
+            with zipfile.ZipFile(target) as jar:
+                require(jar.testzip() is None, f"corrupt AAR lint checks: {target}")
+            jars.append(target)
+    require(jars, "no packaged runtime AAR provides lint checks; the Compose runtime ships them")
+    return sorted(set(jars))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["prepare", "detekt-args", "lint-classpath", "validate"])
     parser.add_argument("modules", nargs="+")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[2]
-    build = Path(os.environ.get("LOMO_KOTLIN_BUILD_DIR", repo / ".kotlin/toolchain-build/shared")).resolve()
+    build = Path(os.environ.get("LOMO_KOTLIN_BUILD_DIR", Path(os.environ.get("LOMO_GENERATED_ROOT", repo / "target/lomo")) / "build/kotlin")).resolve()
     if args.action == "prepare":
         tasks = [f":{module}:{task_identity(module)[1]}" for module in args.modules]
         wrapper = os.environ["LOMO_KOTLIN_WRAPPER"]

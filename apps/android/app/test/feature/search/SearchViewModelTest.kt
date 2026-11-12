@@ -1,18 +1,11 @@
 package com.lomo.app.feature.search
 
-import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
-
-import com.lomo.app.testing.fakes.testMemoUiMapper
-
 import androidx.lifecycle.ViewModel
 import androidx.paging.PagingData
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.Job
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoCollectionProjectionMapper
-import com.lomo.app.feature.main.MemoUiMapper
-import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.MainWorkspaceCoordinator
+import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
@@ -20,6 +13,8 @@ import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.collectWhileSubscribed
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
+import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
+import com.lomo.app.testing.fakes.testMemoUiMapper
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoQuerySpec
@@ -28,7 +23,6 @@ import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SearchMemosPageUseCase
-import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.kotest.matchers.collections.shouldContain
@@ -37,9 +31,12 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -49,38 +46,23 @@ import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
- * - Unit under test: SearchViewModel
- * - Owning layer: app
- * - Priority tier: P1
- * - Capability: Debounced search query loading, search result filtering, mutation errors, and image storage flows.
- *
+ * Capability: Normalized search inputs avoid duplicate queries; clearing cancels the search generation immediately, while mutations and errors remain observable.
+ * Owning layer / priority: SearchViewModel; app; P1.
  * Scenarios:
- * - Given search query input changes, when the ViewModel observes the change, then it debounces and shows a loading indicator appropriately.
- * - Given a non-blank query, when search mode is toggled to pinyin fuzzy, then the search
- *   paging contract is requested with Fuzzy mode for that query.
- * - Given the page-backed search boundary fails, when the failure occurs, then it is surfaced as an error to the user instead of becoming a silent empty result.
- * - Given delete or update memo calls are invoked, when they complete or fail, then search state flow updates and reports exception mappings.
- * - Given a page-backed visible search result, when a todo is toggled, then both persistence and the currently emitted search result snapshot are updated.
- * - Given saveImage is executed, when the save completes, then save path output, caching outcomes, and error hooks are managed.
- *
- * Observable outcomes:
- * - isSearching, pagedUiMemos, showLoading, errorMessage, deletingMemoIds StateFlow values, and recorded repository page calls.
- *
- * TDD proof:
- * - RED before the fix because SearchViewModel called MemoUiCoordinator.searchMemos(), which delegated to the removed full-list search port instead of recording a main-list query.
- * - RED for the search failure scenario because SearchViewModel logged page-load failures and emitted an empty state without setting errorMessage.
- * - RED for the collection-state migration because SearchViewModel still exposes local error/deleting/searchUiModels flows instead of one MemoCollectionUiState owned by the common holder.
- * - RED for page-backed todo toggles because the repository updates but searchResults keeps the stale page snapshot.
- *
- * Excludes:
- * - Actual Compose UI widgets and graphics components.
- *
+ * - Given the same trimmed query, when only outer whitespace changes, then the existing paging generation is reused.
+ * - Given a nonblank search, when cleared, then an empty generation arrives without the 300ms debounce.
+ * - Given a non-blank search query, when in the debounce window before results load, then isSearching remains true until results are emitted.
+ * - Given query/mode/filter changes, when searched, then the requested result page and mode are delivered.
+ * - Given mutation or paging failures, when encountered, then the user error state is emitted.
+ * Observable outcomes: returned locations, emitted paging/map state, retained identities and surfaced errors.
+ * TDD proof: target/lomo/reports/manual/media-toolbar-search/search-red.log: whitespace created 2 generations instead of 1; clear emitted no immediate generation; GREEN search-green.log: 21/21.
+ * Excludes: physical device timing, Compose pixel styling and remote provider behavior.
  * Test Change Justification:
- * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
- * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
- * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
- * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
- * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
+ * Reason category: regression coverage and platform fixture correction.
+ * Old behavior/assertion being replaced: no existing result assertions are removed or weakened.
+ * Why old assertion is no longer correct: Existing assertions are retained; the two new scenarios lock query work and clear latency.
+ * Coverage preserved by: every existing scenario plus the explicit directory/query regressions.
+ * Why this is not fitting the test to the implementation: expected results follow selected-directory identity and normalized-query behavior.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest : AppFunSpec() {
@@ -98,7 +80,9 @@ class SearchViewModelTest : AppFunSpec() {
         repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
         validator = ValidateMemoContentUseCase(),
     )
-    private val deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository))
+    private val deleteMemoUseCase = DeleteMemoUseCase(
+        com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
+    )
     private val toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository)
 
     private val saveImageUseCase = com.lomo.domain.usecase.FakeSaveImageUseCase(mediaRepository)
@@ -107,10 +91,8 @@ class SearchViewModelTest : AppFunSpec() {
             com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository),
         )
 
-    private fun CoroutineScope.collectPagedData(
-        flow: kotlinx.coroutines.flow.Flow<PagingData<MemoUiModel>>
-    ): Job {
-        return launch(testDispatcher) {
+    private fun CoroutineScope.collectPagedData(flow: kotlinx.coroutines.flow.Flow<PagingData<MemoUiModel>>): Job =
+        launch(testDispatcher) {
             flow.collectLatest { pagingData ->
                 try {
                     val flowField = PagingData::class.java.getDeclaredField("flow")
@@ -122,7 +104,6 @@ class SearchViewModelTest : AppFunSpec() {
                 }
             }
         }
-    }
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
@@ -143,6 +124,40 @@ class SearchViewModelTest : AppFunSpec() {
                 .asReversed()
                 .forEach(::clearViewModel)
             createdViewModels.clear()
+        }
+
+        test("given the same normalized query when whitespace changes then the active search page is reused") {
+            runTest {
+                memoRepository.setActiveMemos(listOf(sampleMemo(id = "same-query", content = "search-hit")))
+                val viewModel = createViewModel()
+                var generations = 0
+                backgroundScope.collectPagedData(viewModel.pagedUiMemos.onEach { generations++ })
+                viewModel.onSearchQueryChanged("search-hit")
+                testDispatcher.scheduler.advanceTimeBy(350)
+                advanceUntilIdle()
+                val before = generations
+                viewModel.onSearchQueryChanged(" search-hit ")
+                testDispatcher.scheduler.advanceTimeBy(350)
+                advanceUntilIdle()
+                generations shouldBe before
+                memoRepository.mainListCalls.last().query shouldBe "search-hit"
+            }
+        }
+
+        test("given visible search results when query is cleared then the empty generation arrives without debounce") {
+            runTest {
+                memoRepository.setActiveMemos(listOf(sampleMemo(id = "clear-query", content = "search-hit")))
+                val viewModel = createViewModel()
+                var generations = 0
+                backgroundScope.collectPagedData(viewModel.pagedUiMemos.onEach { generations++ })
+                viewModel.onSearchQueryChanged("search-hit")
+                testDispatcher.scheduler.advanceTimeBy(350)
+                advanceUntilIdle()
+                val before = generations
+                viewModel.onSearchQueryChanged("")
+                runCurrent()
+                generations shouldBe before + 1
+            }
         }
 
         test("blank query keeps empty results and does not trigger repository search") {
@@ -336,6 +351,27 @@ class SearchViewModelTest : AppFunSpec() {
 
                 memoRepository.mainListCalls.isEmpty() shouldBe true
                 memoRepository.mainListPageLoads.isEmpty() shouldBe true
+            }
+        }
+
+        test("non blank query marks isSearching true through debounce window until results load") {
+            runTest {
+                val expectedMemo = sampleMemo(id = "memo-1", content = "search-hit")
+                memoRepository.setActiveMemos(listOf(expectedMemo))
+                val viewModel = createViewModel()
+                val differ = backgroundScope.collectPagedData(viewModel.pagedUiMemos)
+
+                viewModel.isSearching.value shouldBe false
+
+                viewModel.onSearchQueryChanged("search-hit")
+                runCurrent()
+
+                viewModel.isSearching.value shouldBe true
+
+                testDispatcher.scheduler.advanceTimeBy(350)
+                advanceUntilIdle()
+
+                viewModel.isSearching.value shouldBe false
             }
         }
 
@@ -552,59 +588,60 @@ class SearchViewModelTest : AppFunSpec() {
         }
     }
 
-    private fun TestScope.createViewModel(): SearchViewModel =
-        SearchViewModel(
-            SearchViewModelDependencies(
-                observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
-                appConfigStateProvider =
-                    com.lomo.app.feature.common.AppConfigStateProvider(
-                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                        appPreferencesSnapshotRepository = appConfigRepository,
-                        customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
-                        preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
-                        appScope = CoroutineScope(SupervisorJob() + testDispatcher),
-                    ),
+    private fun TestScope.createViewModel(): SearchViewModel = SearchViewModel(
+        SearchViewModelDependencies(
+            observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
+            appConfigStateProvider =
+            com.lomo.app.feature.common.AppConfigStateProvider(
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                imageMapProvider = imageMapProvider,
-                projectionMapper = MemoCollectionProjectionMapper(testMemoUiMapper(dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher))),
-                searchMemosPageUseCase = SearchMemosPageUseCase(searchRepository),
-                deleteMemoUseCase = deleteMemoUseCase,
-                updateMemoContentUseCase = updateMemoContentUseCase,
-                saveImageUseCase = saveImageUseCase,
-                toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
-                loadEditableMemoUseCase = loadEditableMemoUseCase,
-                workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
-                    every { mount } returns engineReadinessRepository.mount
-                },
+                appPreferencesSnapshotRepository = appConfigRepository,
+                customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(
+                    com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                ),
+                preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
+                appScope = CoroutineScope(SupervisorJob() + testDispatcher),
             ),
-        ).also { viewModel ->
-            createdViewModels.add(viewModel)
-            collectWhileSubscribed(viewModel.deletingMemoIds)
-        }
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            imageMapProvider = imageMapProvider,
+            projectionMapper = MemoCollectionProjectionMapper(
+                testMemoUiMapper(
+                    dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher),
+                ),
+            ),
+            searchMemosPageUseCase = SearchMemosPageUseCase(searchRepository),
+            deleteMemoUseCase = deleteMemoUseCase,
+            updateMemoContentUseCase = updateMemoContentUseCase,
+            saveImageUseCase = saveImageUseCase,
+            toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
+            loadEditableMemoUseCase = loadEditableMemoUseCase,
+            workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
+                every { mount } returns engineReadinessRepository.mount
+            },
+        ),
+    ).also { viewModel ->
+        createdViewModels.add(viewModel)
+        collectWhileSubscribed(viewModel.deletingMemoIds)
+        collectWhileSubscribed(viewModel.isSearching)
+    }
 
     private fun clearViewModel(viewModel: SearchViewModel) {
         ViewModel::class.java.getDeclaredMethod("clear\$lifecycle_viewmodel").invoke(viewModel)
         testDispatcher.scheduler.advanceUntilIdle()
     }
 
-    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =
-        ObserveActiveDayCountUseCase(
-            com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
-        )
+    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase = ObserveActiveDayCountUseCase(
+        com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
+    )
 
-    private fun sampleMemo(
-        id: String = "memo-0",
-        content: String = "content",
-    ): Memo =
-        Memo(
-            id = id,
-            timestamp = 1L,
-            content = content,
-            rawContent = "- 10:00 $content",
-            dateKey = "2026_03_24",
-            contentRevision = 1L,
-            fileFingerprint = "fp-$id",
-            projectedCharCount = "- 10:00 $content".length.toLong(),
-        )
+    private fun sampleMemo(id: String = "memo-0", content: String = "content"): Memo = Memo(
+        id = id,
+        timestamp = 1L,
+        content = content,
+        rawContent = "- 10:00 $content",
+        dateKey = "2026_03_24",
+        contentRevision = 1L,
+        fileFingerprint = "fp-$id",
+        projectedCharCount = "- 10:00 $content".length.toLong(),
+    )
 }

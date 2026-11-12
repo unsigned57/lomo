@@ -13,25 +13,16 @@ import com.lomo.domain.model.RecoverableDraftFailure
  * Identities are artifact ids (content digests), never basenames. A destination only selects which
  * record a discarding draft is referring to; it is never the storage identity.
  */
-class PendingMediaStageRegistry(
-    private val mediaPort: MediaPort,
-    private val stageRoot: () -> String,
-) {
+class PendingMediaStageRegistry(private val mediaPort: MediaPort, private val stageRoot: () -> String) {
     /**
      * Records a freshly staged artifact against the importing draft.
      * Returns the owner-resolved, collision-free destination the caller must embed in markdown.
      */
-    fun record(
-        staged: MediaStagedFacts,
-        draftId: DraftId,
-        workspaceRoot: String?,
-    ): MediaStageRecord =
-        mediaPort.recordStageLease(
-            workspaceRoot = workspaceRoot,
-            staged = staged,
-            ownerKind = MediaStageOwnerKind.Draft,
-            ownerId = draftId.value,
-        )
+    fun record(staged: MediaStagedFacts, draftId: DraftId): MediaStageRecord = mediaPort.recordStageLease(
+        staged = staged,
+        ownerKind = MediaStageOwnerKind.Draft,
+        ownerId = draftId.value,
+    )
 
     /**
      * Transfers this draft's claims to the frozen operation and returns the promote plans.
@@ -39,10 +30,7 @@ class PendingMediaStageRegistry(
      * Records already transferred to the same operation are included, so a retried submit keeps
      * the identical frozen plans instead of losing them.
      */
-    fun plansForOperation(
-        operationId: String,
-        draftId: DraftId,
-    ): List<MediaPromotePlan> {
+    fun plansForOperation(operationId: String, draftId: DraftId): List<MediaPromotePlan> {
         require(operationId.isNotBlank()) { "media promote operationId must be non-blank" }
         val root = stageRoot()
         val byArtifact = LinkedHashMap<String, MediaStageRecord>()
@@ -73,42 +61,29 @@ class PendingMediaStageRegistry(
     }
 
     /** Stages a caller-owned temp file (inbox drop) under the shared media stage root. */
-    fun stageIncoming(
-        tempPath: String,
-        humanNameHint: String,
-    ): MediaStagedFacts =
-        mediaPort.stageMedia(
-            mediaRoot = stageRoot(),
-            sourceKind = MediaSourceKind.StagedTemp,
-            sourcePath = tempPath,
-            humanNameHint = humanNameHint,
-        )
+    fun stageIncoming(tempPath: String, humanNameHint: String): MediaStagedFacts = mediaPort.stageMedia(
+        mediaRoot = stageRoot(),
+        sourceKind = MediaSourceKind.StagedTemp,
+        sourcePath = tempPath,
+        humanNameHint = humanNameHint,
+    )
 
     /**
      * Records a freshly staged artifact against an incoming transfer (sync inbox drop). The file's
      * staged bytes stay alive under this owner until its import commits or the drop is discarded.
      */
-    fun recordIncoming(
-        staged: MediaStagedFacts,
-        ownerId: String,
-        workspaceRoot: String?,
-    ): MediaStageRecord =
-        mediaPort.recordStageLease(
-            workspaceRoot = workspaceRoot,
-            staged = staged,
-            ownerKind = MediaStageOwnerKind.IncomingTransfer,
-            ownerId = ownerId,
-        )
+    fun recordIncoming(staged: MediaStagedFacts, ownerId: String): MediaStageRecord = mediaPort.recordStageLease(
+        staged = staged,
+        ownerKind = MediaStageOwnerKind.IncomingTransfer,
+        ownerId = ownerId,
+    )
 
     /**
      * Transfers an incoming transfer's claims to the frozen operation and returns the promote plans.
      * Mirrors [plansForOperation]: records already transferred to the same operation are included,
      * so a retried resolution keeps the identical frozen plans.
      */
-    fun plansForIncomingOperation(
-        operationId: String,
-        ownerId: String,
-    ): List<MediaPromotePlan> {
+    fun plansForIncomingOperation(operationId: String, ownerId: String): List<MediaPromotePlan> {
         require(operationId.isNotBlank()) { "media promote operationId must be non-blank" }
         val root = stageRoot()
         val byArtifact = LinkedHashMap<String, MediaStageRecord>()
@@ -122,17 +97,17 @@ class PendingMediaStageRegistry(
             mediaPort.transferStageLease(
                 mediaRoot = root,
                 from =
-                    MediaStageLease(
-                        record.artifactId,
-                        MediaStageOwnerKind.IncomingTransfer,
-                        ownerId,
-                    ),
+                MediaStageLease(
+                    record.artifactId,
+                    MediaStageOwnerKind.IncomingTransfer,
+                    ownerId,
+                ),
                 to =
-                    MediaStageLease(
-                        record.artifactId,
-                        MediaStageOwnerKind.PendingOperation,
-                        operationId,
-                    ),
+                MediaStageLease(
+                    record.artifactId,
+                    MediaStageOwnerKind.PendingOperation,
+                    operationId,
+                ),
             )
             MediaPromotePlan(
                 operationId = operationId,
@@ -151,11 +126,11 @@ class PendingMediaStageRegistry(
                 mediaPort.releaseStageLease(
                     mediaRoot = root,
                     lease =
-                        MediaStageLease(
-                            record.artifactId,
-                            MediaStageOwnerKind.IncomingTransfer,
-                            ownerId,
-                        ),
+                    MediaStageLease(
+                        record.artifactId,
+                        MediaStageOwnerKind.IncomingTransfer,
+                        ownerId,
+                    ),
                 )
             }
     }
@@ -190,10 +165,7 @@ class PendingMediaStageRegistry(
      * [destinationKey]. Returns the resolved destination when a draft-owned record matched,
      * else null. Matching is exact — a basename never releases another directory's record.
      */
-    fun releaseDraftDestination(
-        draftId: DraftId,
-        destinationKey: String,
-    ): String? {
+    fun releaseDraftDestination(draftId: DraftId, destinationKey: String): String? {
         val key = destinationKey.trim()
         if (key.isEmpty()) return null
         val root = stageRoot()

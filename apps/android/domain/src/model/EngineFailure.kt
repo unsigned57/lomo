@@ -6,9 +6,7 @@ package com.lomo.domain.model
  * The same twelve tokens cross every boundary (engine readiness, job failures, memo command
  * rejections), so they are modeled once here instead of once per consumer.
  */
-enum class EngineFailureCategory(
-    val wireValue: String,
-) {
+enum class EngineFailureCategory(val wireValue: String) {
     VALIDATION("validation"),
     PERMISSION("permission"),
     CORRUPTION("corruption"),
@@ -35,9 +33,7 @@ enum class EngineFailureCategory(
 }
 
 /** Stable retry vocabulary published by the Rust kernel alongside [EngineFailureCategory]. */
-enum class EngineRetryDisposition(
-    val wireValue: String,
-) {
+enum class EngineRetryDisposition(val wireValue: String) {
     NEVER("never"),
     AFTER_USER_ACTION("after_user_action"),
     TRANSIENT("transient"),
@@ -80,7 +76,5 @@ data class EngineCommandFailure(
  * unlike a bare native exception its message is always non-blank and its typed [failure] survives.
  * [cause] keeps the original native carrier so its stack trace is not lost at the conversion edge.
  */
-class EngineCommandFailureException(
-    val failure: EngineCommandFailure,
-    cause: Throwable? = null,
-) : IllegalStateException(failure.describe(), cause)
+class EngineCommandFailureException(val failure: EngineCommandFailure, cause: Throwable? = null) :
+    IllegalStateException(failure.describe(), cause)

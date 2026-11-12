@@ -14,18 +14,13 @@ import com.lomo.domain.repository.MarkdownWorkspaceRepository
  * Prefer [invoke] with an already-rendered [MarkdownRenderDocument] when the caller owns one parse
  * for both IR body lines and share tags — free-content entry still renders once via the repository.
  */
-class PrepareShareCardContentUseCase(
-    private val markdownWorkspaceRepository: MarkdownWorkspaceRepository,
-) {
+class PrepareShareCardContentUseCase(private val markdownWorkspaceRepository: MarkdownWorkspaceRepository) {
     operator fun invoke(input: ShareCardTextInput): ShareCardContent {
         val document = markdownWorkspaceRepository.renderMarkdown(input.content)
         return invoke(document = document, sourceTags = input.sourceTags)
     }
 
-    operator fun invoke(
-        document: MarkdownRenderDocument,
-        sourceTags: List<String>,
-    ): ShareCardContent {
+    operator fun invoke(document: MarkdownRenderDocument, sourceTags: List<String>): ShareCardContent {
         val tags = buildShareTags(sourceTags, document.tagNames)
         val bodyText = removeTagTokens(document.plainText, tags).trim()
         return ShareCardContent(
@@ -34,10 +29,7 @@ class PrepareShareCardContentUseCase(
         )
     }
 
-    private fun buildShareTags(
-        sourceTags: List<String>,
-        renderTags: List<String>,
-    ): List<String> {
+    private fun buildShareTags(sourceTags: List<String>, renderTags: List<String>): List<String> {
         val normalized =
             sourceTags
                 .asSequence()
@@ -54,10 +46,7 @@ class PrepareShareCardContentUseCase(
             .toList()
     }
 
-    private fun removeTagTokens(
-        plainText: String,
-        tags: List<String>,
-    ): String {
+    private fun removeTagTokens(plainText: String, tags: List<String>): String {
         var stripped = plainText
         tags
             .asSequence()

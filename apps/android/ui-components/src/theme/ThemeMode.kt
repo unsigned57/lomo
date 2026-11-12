@@ -2,9 +2,7 @@ package com.lomo.ui.theme
 
 import java.util.Locale
 
-enum class ThemeMode(
-    val storageValue: String,
-) {
+enum class ThemeMode(val storageValue: String) {
     SYSTEM("system"),
     LIGHT("light"),
     DARK("dark"),

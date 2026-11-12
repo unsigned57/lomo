@@ -88,3 +88,16 @@ impl DocumentPublication {
         Ok(())
     }
 }
+
+/// Evidence supplied after the application replays a frozen plan and rebuilds its source facts.
+#[derive(Clone, Copy)]
+pub enum RebuiltPublicationEvidence<'a> {
+    /// The indexed memo is exactly this operation's result.
+    Current,
+    /// A consecutive edit batch ended at this memo version and document fingerprint.
+    /// Earlier members must still have their exact immutable history revision indexed.
+    EditChain {
+        terminal_memo: &'a DocumentPublication,
+        document_fingerprint: &'a str,
+    },
+}

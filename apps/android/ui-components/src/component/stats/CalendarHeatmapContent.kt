@@ -37,16 +37,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
-import org.jetbrains.compose.resources.pluralStringResource
-import org.jetbrains.compose.resources.stringResource
+import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.calendar_heatmap_memo_count
 import com.lomo.ui.generated.resources.calendar_heatmap_year_format
+import com.lomo.ui.theme.LocalLomoMotion
+import kotlinx.collections.immutable.ImmutableMap
+import org.jetbrains.compose.resources.pluralStringResource
+import org.jetbrains.compose.resources.stringResource
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import kotlinx.collections.immutable.ImmutableMap
-import androidx.compose.ui.unit.dp
 
 private const val YEAR_GRADIENT_SOLID_STOP = 0.7f
 
@@ -104,16 +105,16 @@ internal fun HeatmapInteractiveContent(
                     brush = Brush.horizontalGradient(
                         0.0f to yearBackgroundColor,
                         YEAR_GRADIENT_SOLID_STOP to yearBackgroundColor,
-                        1.0f to Color.Transparent
-                    )
-                )
+                        1.0f to Color.Transparent,
+                    ),
+                ),
         )
         val yearText = stringResource(Res.string.calendar_heatmap_year_format, visibleYear)
         Canvas(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .width(56.dp)
-                .height(StatsChartTokens.CalendarMonthLabelHeight)
+                .height(StatsChartTokens.CalendarMonthLabelHeight),
         ) {
             val wasFakeBold = textPaint.isFakeBoldText
             textPaint.isFakeBoldText = true
@@ -121,7 +122,7 @@ internal fun HeatmapInteractiveContent(
                 yearText,
                 0f,
                 layout.monthLabelHeightPx - StatsChartTokens.MonthLabelBaselineInset.toPx(),
-                textPaint
+                textPaint,
             )
             textPaint.isFakeBoldText = wasFakeBold
         }
@@ -164,15 +165,15 @@ private fun HeatmapScrollableCanvas(
 
     Box(
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(horizontalScrollState),
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(horizontalScrollState),
     ) {
         Box(
             modifier =
-                Modifier
-                    .width(with(density) { layout.totalWidth.toDp() })
-                    .height(with(density) { layout.totalHeight.toDp() }),
+            Modifier
+                .width(with(density) { layout.totalWidth.toDp() })
+                .height(with(density) { layout.totalHeight.toDp() }),
         ) {
             Canvas(modifier = Modifier.fillMaxSize().then(gestureModifier)) {
                 drawHeatmapMonthLabels(layout, textPaint)
@@ -191,7 +192,7 @@ private fun HeatmapSelectionPopup(
     density: androidx.compose.ui.unit.Density,
     onDismiss: () -> Unit,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
+    val motionScheme = LocalLomoMotion.current.component
     var activePopupData by remember { mutableStateOf<HeatmapPopupData?>(null) }
     var isPopupVisible by remember { mutableStateOf(false) }
 
@@ -227,17 +228,17 @@ private fun HeatmapSelectionPopup(
         transition.AnimatedVisibility(
             visible = { it },
             enter =
-                fadeIn(animationSpec = motionScheme.fastEffectsSpec()) +
-                    scaleIn(
-                        initialScale = 0.8f,
-                        animationSpec = motionScheme.fastSpatialSpec(),
-                    ),
+            fadeIn(animationSpec = motionScheme.fastEffectsSpec()) +
+                scaleIn(
+                    initialScale = 0.8f,
+                    animationSpec = motionScheme.fastSpatialSpec(),
+                ),
             exit =
-                fadeOut(animationSpec = motionScheme.fastEffectsSpec()) +
-                    scaleOut(
-                        targetScale = 0.8f,
-                        animationSpec = motionScheme.fastSpatialSpec(),
-                    ),
+            fadeOut(animationSpec = motionScheme.fastEffectsSpec()) +
+                scaleOut(
+                    targetScale = 0.8f,
+                    animationSpec = motionScheme.fastSpatialSpec(),
+                ),
         ) {
             HeatmapPopupCard(
                 formattedDate = popupData.date.format(dateFormatter),
@@ -267,11 +268,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeatmapMonthLab
     }
 }
 
-internal data class ResolvedMonthLabelPlacement(
-    val text: String,
-    val drawX: Float,
-    val widthPx: Float,
-)
+internal data class ResolvedMonthLabelPlacement(val text: String, val drawX: Float, val widthPx: Float)
 
 internal fun resolveMonthLabelPlacements(
     labels: List<MonthLabel>,
@@ -324,19 +321,15 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeatmapCells(
                 size = Size(layout.cellSizePx, layout.cellSizePx),
                 cornerRadius = CornerRadius(layout.cornerRadiusPx),
                 style =
-                    androidx.compose.ui.graphics.drawscope.Stroke(
-                        width = StatsChartTokens.SelectionStrokeWidth.toPx(),
-                    ),
+                androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = StatsChartTokens.SelectionStrokeWidth.toPx(),
+                ),
             )
         }
     }
 }
 
-private fun resolveHeatmapColor(
-    count: Int,
-    colors: HeatmapColors,
-    thresholds: CalendarHeatmapThresholds,
-): Color =
+private fun resolveHeatmapColor(count: Int, colors: HeatmapColors, thresholds: CalendarHeatmapThresholds): Color =
     when (resolveHeatmapIntensity(count, thresholds)) {
         HeatmapIntensity.Empty -> colors.empty
         HeatmapIntensity.Level1 -> colors.level1
@@ -346,10 +339,7 @@ private fun resolveHeatmapColor(
     }
 
 @Composable
-private fun HeatmapPopupCard(
-    formattedDate: String,
-    countLabel: String,
-) {
+private fun HeatmapPopupCard(formattedDate: String, countLabel: String) {
     Surface(
         shape = StatsChartTokens.PopupShape,
         color = MaterialTheme.colorScheme.surface,
@@ -359,10 +349,10 @@ private fun HeatmapPopupCard(
     ) {
         Column(
             modifier =
-                Modifier.padding(
-                    horizontal = StatsChartTokens.PopupHorizontalPadding,
-                    vertical = StatsChartTokens.PopupVerticalPadding,
-                ),
+            Modifier.padding(
+                horizontal = StatsChartTokens.PopupHorizontalPadding,
+                vertical = StatsChartTokens.PopupVerticalPadding,
+            ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(

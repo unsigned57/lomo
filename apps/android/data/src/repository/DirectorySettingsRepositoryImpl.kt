@@ -16,10 +16,9 @@ class DirectorySettingsRepositoryImpl(
     private val dataSource: WorkspaceConfigSource,
     private val dataStore: LomoDataStore,
 ) : DirectorySettingsRepository {
-    override fun observeLocation(area: StorageArea): Flow<StorageLocation?> =
-        dataSource
-            .getRootFlow(area.toStorageRootType())
-            .map { raw -> raw?.let(::StorageLocation) }
+    override fun observeLocation(area: StorageArea): Flow<StorageLocation?> = dataSource
+        .getRootFlow(area.toStorageRootType())
+        .map { raw -> raw?.let(::StorageLocation) }
 
     override suspend fun currentLocation(area: StorageArea): StorageLocation? =
         dataStore.readStorageRootConfig(area.toStorageRootType()).preferredLocation()?.let(::StorageLocation)
@@ -28,14 +27,22 @@ class DirectorySettingsRepositoryImpl(
         dataSource.getRootDisplayNameFlow(area.toStorageRootType())
 
     override suspend fun applyLocation(update: StorageAreaUpdate) {
-        dataSource.setRoot(
-            type = update.area.toStorageRootType(),
-            pathOrUri = update.location.raw,
-        )
+        val location = update.location
+        if (location == null) {
+            when (update.area) {
+                StorageArea.IMAGE -> dataStore.updateImageUri(null)
+                StorageArea.VOICE -> dataStore.updateVoiceUri(null)
+                StorageArea.ROOT, StorageArea.SYNC_INBOX -> error("Only media locations can be reset")
+            }
+        } else {
+            dataSource.setRoot(type = update.area.toStorageRootType(), pathOrUri = location.raw)
+        }
     }
 
-    override suspend fun prepareRootTransition(candidate: StorageLocation): WorkspaceRootTransition =
-        dataStore.prepareRootTransition(currentRootLocation(), candidate)
+    override suspend fun prepareRootTransition(
+        candidate: StorageLocation,
+        mediaChange: com.lomo.domain.model.MediaDirectoryChange?,
+    ): WorkspaceRootTransition = dataStore.prepareRootTransition(currentRootLocation(), candidate, mediaChange)
 
     override suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition =
         dataStore.markRootTransitionActivated(transitionId)
@@ -48,17 +55,14 @@ class DirectorySettingsRepositoryImpl(
         dataStore.rollbackRootTransition(transitionId)
     }
 
-    override suspend fun pendingRootTransition(): WorkspaceRootTransition? =
-        dataStore.pendingRootTransition()
+    override suspend fun pendingRootTransition(): WorkspaceRootTransition? = dataStore.pendingRootTransition()
 
-    override suspend fun recoverRootLocation(): StorageLocation? =
-        dataStore.recoverRootLocation()
+    override suspend fun recoverRootLocation(): StorageLocation? = dataStore.recoverRootLocation()
 }
 
-internal fun StorageArea.toStorageRootType(): StorageRootType =
-    when (this) {
-        StorageArea.ROOT -> StorageRootType.MAIN
-        StorageArea.IMAGE -> StorageRootType.IMAGE
-        StorageArea.VOICE -> StorageRootType.VOICE
-        StorageArea.SYNC_INBOX -> StorageRootType.SYNC_INBOX
-    }
+internal fun StorageArea.toStorageRootType(): StorageRootType = when (this) {
+    StorageArea.ROOT -> StorageRootType.MAIN
+    StorageArea.IMAGE -> StorageRootType.IMAGE
+    StorageArea.VOICE -> StorageRootType.VOICE
+    StorageArea.SYNC_INBOX -> StorageRootType.SYNC_INBOX
+}

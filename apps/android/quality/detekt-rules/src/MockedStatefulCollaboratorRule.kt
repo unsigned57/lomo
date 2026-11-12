@@ -2,15 +2,12 @@ package com.lomo.detektrules
 
 import dev.detekt.api.Config
 import org.jetbrains.kotlin.psi.KtCallExpression
-import org.jetbrains.kotlin.psi.KtFile
-import org.jetbrains.kotlin.psi.KtProperty
 
-internal class MockedStatefulCollaboratorRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "MockK is forbidden for stateful collaborators (Dao / Repository / DataSource). Prefer hand-written Fake* under app/test/.../testing/fakes/.",
-) {
+internal class MockedStatefulCollaboratorRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "MockK is forbidden for stateful collaborators (Dao / Repository / DataSource). Prefer hand-written Fake* under app/test/.../testing/fakes/.",
+    ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
         if (!expression.containingKtFile.isTestFile()) return

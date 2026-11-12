@@ -2,50 +2,54 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.SyncProblem
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
+import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
+import com.lomo.ui.component.settings.SettingsGroupScope
 import com.lomo.ui.component.settings.SwitchPreferenceItem
 
 @Composable
 fun SyncSettingsSection(
     storageState: StorageSectionState,
-    gitContent: @Composable () -> Unit,
-    webDavContent: @Composable () -> Unit,
-    s3Content: @Composable () -> Unit,
+    gitContent: SettingsGroupScope.() -> Unit,
+    webDavContent: SettingsGroupScope.() -> Unit,
+    s3Content: SettingsGroupScope.() -> Unit,
     onToggleSyncInbox: (Boolean) -> Unit,
     onSelectSyncInbox: () -> Unit,
+    modifier: Modifier = Modifier,
     onOpenSyncCenter: (() -> Unit)? = null,
 ) {
-    SettingsGroup(title = stringResource(R.string.settings_group_sync)) {
+    SettingsGroup(title = stringResource(R.string.settings_group_sync), modifier = modifier) {
         if (onOpenSyncCenter != null) {
-            PreferenceItem(
-                title = stringResource(R.string.sync_center_title),
-                subtitle = stringResource(R.string.sync_center_open_conflicts),
-                icon = Icons.Outlined.Sync,
-                onClick = onOpenSyncCenter,
-            )
-            SettingsDivider()
+            item {
+                PreferenceItem(
+                    title = stringResource(R.string.sync_center_title),
+                    subtitle = stringResource(R.string.sync_center_open_conflicts),
+                    icon = Icons.Outlined.SyncProblem,
+                    onClick = onOpenSyncCenter,
+                    modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_SYNC_CENTER),
+                )
+            }
         }
-        SyncInboxSettingsSection(
+        syncInboxSettingsSection(
             state = storageState,
             onToggleEnabled = onToggleSyncInbox,
             onSelectDirectory = onSelectSyncInbox,
         )
-        SettingsDivider()
         gitContent()
-        SettingsDivider()
         webDavContent()
-        SettingsDivider()
         s3Content()
     }
 }
 
-@Composable
-private fun SyncInboxSettingsSection(
+private fun SettingsGroupScope.syncInboxSettingsSection(
     state: StorageSectionState,
     onToggleEnabled: (Boolean) -> Unit,
     onSelectDirectory: () -> Unit,
@@ -54,25 +58,28 @@ private fun SyncInboxSettingsSection(
     if (!policy.showSectionHeader) {
         return
     }
-    val notSetLabel = stringResource(R.string.settings_not_set)
-    SwitchPreferenceItem(
-        title = stringResource(R.string.settings_sync_inbox_enabled),
-        subtitle = stringResource(R.string.settings_sync_inbox_enabled_subtitle),
-        icon = Icons.Outlined.Sync,
-        checked = state.syncInboxEnabled,
-        onCheckedChange = onToggleEnabled,
-    )
-    SettingsExpandableContent(
+    item {
+        SwitchPreferenceItem(
+            title = stringResource(R.string.settings_sync_inbox_enabled),
+            subtitle = stringResource(R.string.settings_sync_inbox_enabled_subtitle),
+            icon = Icons.Outlined.Inbox,
+            checked = state.syncInboxEnabled,
+            onCheckedChange = onToggleEnabled,
+        )
+    }
+    expandable(
         visible = policy.showDirectoryPreference,
         label = "SyncInboxDirectoryVisibility",
     ) {
-        SettingsDivider()
-        PreferenceItem(
-            title = stringResource(R.string.settings_sync_inbox_directory),
-            subtitle = state.syncInboxDirectory.subtitle(notSetLabel),
-            icon = Icons.Outlined.FolderOpen,
-            enabled = policy.headerInteractive,
-            onClick = onSelectDirectory,
-        )
+        item {
+            val notSetLabel = stringResource(R.string.settings_not_set)
+            PreferenceItem(
+                title = stringResource(R.string.settings_sync_inbox_directory),
+                subtitle = state.syncInboxDirectory.subtitle(notSetLabel),
+                icon = Icons.Outlined.FolderOpen,
+                enabled = policy.headerInteractive,
+                onClick = onSelectDirectory,
+            )
+        }
     }
 }

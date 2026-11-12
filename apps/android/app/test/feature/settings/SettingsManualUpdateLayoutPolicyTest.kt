@@ -22,11 +22,11 @@ class SettingsManualUpdateLayoutPolicyTest : AppFunSpec() {
                     SettingsManualUpdateState.UpToDate,
                     SettingsManualUpdateState.UpdateAvailable(
                         dialogState =
-                            AppUpdateDialogState(
-                                url = "https://example.com/releases/1.0.0",
-                                version = "1.0.0",
-                                releaseNotes = "notes",
-                            ),
+                        AppUpdateDialogState(
+                            url = "https://example.com/releases/1.0.0",
+                            version = "1.0.0",
+                            releaseNotes = "notes",
+                        ),
                     ),
                     SettingsManualUpdateState.Error("network timeout"),
                 )
@@ -36,5 +36,4 @@ class SettingsManualUpdateLayoutPolicyTest : AppFunSpec() {
             (reservedLines) shouldBe (listOf(2, 2, 2, 2, 2))
         }
     }
-
 }

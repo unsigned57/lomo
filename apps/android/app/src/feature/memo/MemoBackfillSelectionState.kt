@@ -10,21 +10,17 @@ internal class MemoBackfillSelectionState {
     var timestampMillis: Long? by mutableStateOf(null)
         private set
 
-    fun setTimestampForCreate(
-        timestampMillis: Long,
-        isEditingExistingMemo: Boolean,
-    ) {
+    fun setTimestampForCreate(timestampMillis: Long, isEditingExistingMemo: Boolean) {
         if (!isEditingExistingMemo) {
             this.timestampMillis = timestampMillis
         }
     }
 
-    fun timestampMillisForCreateSubmit(isEditingExistingMemo: Boolean): Long? =
-        if (isEditingExistingMemo) {
-            null
-        } else {
-            timestampMillis
-        }
+    fun timestampMillisForCreateSubmit(isEditingExistingMemo: Boolean): Long? = if (isEditingExistingMemo) {
+        null
+    } else {
+        timestampMillis
+    }
 
     fun clear() {
         timestampMillis = null

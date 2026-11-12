@@ -49,9 +49,9 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 import kotlin.io.path.createTempDirectory
-import kotlinx.coroutines.Dispatchers
 
 private class FakeAlarmSchedulePort(
     private var canExact: Boolean = true,
@@ -73,11 +73,7 @@ private class FakeAlarmSchedulePort(
         )
     }
 
-    override fun cancel(
-        occurrenceId: String,
-        memoId: String,
-        reminderId: String,
-    ) {
+    override fun cancel(occurrenceId: String, memoId: String, reminderId: String) {
         cancels += Triple(occurrenceId, memoId, reminderId)
     }
 
@@ -97,124 +93,129 @@ private fun alarm(
     isCatchUp: Boolean = false,
 ) = PlannedReminderAlarm(occurrenceId, memoId, reminderId, triggerAtUtcMillis, isCatchUp)
 
-class AlarmSchedulePortTest : FunSpec({
-    test("given a rolling window plan when applied then schedule is invoked per alarm with modes") {
-        val dir = createTempDirectory().toFile()
-        val port = FakeAlarmSchedulePort(scheduleMode = AlarmTriggerMode.AlarmClock)
-        val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
+class AlarmSchedulePortTest :
+    FunSpec({
+        test("given a rolling window plan when applied then schedule is invoked per alarm with modes") {
+            val dir = createTempDirectory().toFile()
+            val port = FakeAlarmSchedulePort(scheduleMode = AlarmTriggerMode.AlarmClock)
+            val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
 
-        val result =
+            val result =
+                scheduler.applyPlan(
+                    listOf(
+                        alarm("occ-1", "m1", "r1", 1_000L),
+                        alarm("occ-2", "m2", "r2", 2_000L, isCatchUp = true),
+                    ),
+                )
+
+            result.scheduled shouldHaveSize 2
+            result.scheduled.map { it.mode }.toSet() shouldBe setOf(AlarmTriggerMode.AlarmClock)
+            port.schedules.map { it.occurrenceId } shouldBe listOf("occ-1", "occ-2")
+            port.schedules[0].triggerAtUtcMillis shouldBe 1_000L
+        }
+
+        test("given plan drops an occurrence when reapplied then cancel is reported for the stale occurrence") {
+            val dir = createTempDirectory().toFile()
+            val port = FakeAlarmSchedulePort()
+            val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
+
+            scheduler.applyPlan(listOf(alarm("occ-1", "m1", "r1", 1_000L)))
+            port.cancels.clear()
+            val result = scheduler.applyPlan(listOf(alarm("occ-2", "m2", "r2", 2_000L)))
+
+            result.cancelledCount shouldBe 1
+            port.cancels.map { it.first } shouldBe listOf("occ-1")
+            port.schedules.last().occurrenceId shouldBe "occ-2"
+        }
+
+        test(
+            "given a new scheduler instance on the same ledger when a plan applies then stale occurrences cancel durably",
+        ) {
+            val dir = createTempDirectory().toFile()
+            val port = FakeAlarmSchedulePort()
+            // First "process": schedules occurrences, then dies.
+            ReminderRollingWindowScheduler(port, ledgerAt(dir))
+                .applyPlan(listOf(alarm("occ-old", "m1", "r1", 1_000L)))
+            port.cancels.clear()
+
+            // Second "process": fresh scheduler, same durable ledger directory.
+            val restarted = ReminderRollingWindowScheduler(port, ledgerAt(dir))
+            restarted.applyPlan(listOf(alarm("occ-new", "m1", "r1", 2_000L)))
+
+            port.cancels.map { it.first } shouldBe listOf("occ-old")
+            port.schedules.last().occurrenceId shouldBe "occ-new"
+        }
+
+        test("given a memo delete after restart when cancelForMemo runs then recorded occurrences are cancelled") {
+            val dir = createTempDirectory().toFile()
+            val port = FakeAlarmSchedulePort()
+            ReminderRollingWindowScheduler(port, ledgerAt(dir))
+                .applyPlan(
+                    listOf(
+                        alarm("occ-a", "memo-1", "reminder-a", 1_000L),
+                        alarm("occ-b", "memo-1", "reminder-b", 2_000L),
+                        alarm("occ-other", "memo-2", "reminder-c", 3_000L),
+                    ),
+                )
+            port.cancels.clear()
+
+            // Fresh scheduler instance: the durable ledger, not a process-local map, is the authority.
+            ReminderRollingWindowScheduler(port, ledgerAt(dir))
+                .cancelForMemo("memo-1", setOf("reminder-a", "reminder-b"))
+
+            port.cancels.map { it.first }.toSet() shouldBe setOf("occ-a", "occ-b")
+            port.cancels.any { it.first == "occ-other" } shouldBe false
+        }
+
+        test(
+            "given one reminder with catch-up and future occurrences when applied then both schedule under distinct identities",
+        ) {
+            val dir = createTempDirectory().toFile()
+            val port = FakeAlarmSchedulePort()
+            val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
+
             scheduler.applyPlan(
                 listOf(
-                    alarm("occ-1", "m1", "r1", 1_000L),
-                    alarm("occ-2", "m2", "r2", 2_000L, isCatchUp = true),
+                    alarm("gen␟r1␟1000", "m1", "r1", 1_000L, isCatchUp = true),
+                    alarm("gen␟r1␟2000", "m1", "r1", 2_000L),
                 ),
             )
 
-        result.scheduled shouldHaveSize 2
-        result.scheduled.map { it.mode }.toSet() shouldBe setOf(AlarmTriggerMode.AlarmClock)
-        port.schedules.map { it.occurrenceId } shouldBe listOf("occ-1", "occ-2")
-        port.schedules[0].triggerAtUtcMillis shouldBe 1_000L
-    }
+            port.schedules.map { it.occurrenceId }.toSet() shouldBe setOf("gen␟r1␟1000", "gen␟r1␟2000")
+        }
 
-    test("given plan drops an occurrence when reapplied then cancel is reported for the stale occurrence") {
-        val dir = createTempDirectory().toFile()
-        val port = FakeAlarmSchedulePort()
-        val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
+        test("given exact alarm capability when queried then port value is returned") {
+            val dir = createTempDirectory().toFile()
+            val port = FakeAlarmSchedulePort(canExact = false)
+            val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
+            scheduler.capability().canScheduleExactAlarms shouldBe false
+            port.setCanExact(true)
+            scheduler.capability().canScheduleExactAlarms shouldBe true
+        }
 
-        scheduler.applyPlan(listOf(alarm("occ-1", "m1", "r1", 1_000L)))
-        port.cancels.clear()
-        val result = scheduler.applyPlan(listOf(alarm("occ-2", "m2", "r2", 2_000L)))
+        test("given platform error on schedule when applied then result carries the diagnostic") {
+            val dir = createTempDirectory().toFile()
+            val port =
+                FakeAlarmSchedulePort(
+                    scheduleMode = AlarmTriggerMode.AllowWhileIdle,
+                    platformError = "exact alarm denied",
+                )
+            val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
+            val result = scheduler.applyPlan(listOf(alarm("occ-e", "m", "r", 9L)))
+            result.scheduled.single().mode shouldBe AlarmTriggerMode.AllowWhileIdle
+            result.scheduled.single().platformError shouldBe "exact alarm denied"
+            result.scheduled.single().platformError shouldNotBe null
+        }
 
-        result.cancelledCount shouldBe 1
-        port.cancels.map { it.first } shouldBe listOf("occ-1")
-        port.schedules.last().occurrenceId shouldBe "occ-2"
-    }
+        test("given a corrupt ledger file when a scheduler opens it then it is quarantined and rebuilt") {
+            val dir = createTempDirectory().toFile()
+            File(dir, "execution_ledger.v1.json").writeText("{not json")
+            val port = FakeAlarmSchedulePort()
+            val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
 
-    test("given a new scheduler instance on the same ledger when a plan applies then stale occurrences cancel durably") {
-        val dir = createTempDirectory().toFile()
-        val port = FakeAlarmSchedulePort()
-        // First "process": schedules occurrences, then dies.
-        ReminderRollingWindowScheduler(port, ledgerAt(dir))
-            .applyPlan(listOf(alarm("occ-old", "m1", "r1", 1_000L)))
-        port.cancels.clear()
+            scheduler.applyPlan(listOf(alarm("occ-fresh", "m1", "r1", 1_000L)))
 
-        // Second "process": fresh scheduler, same durable ledger directory.
-        val restarted = ReminderRollingWindowScheduler(port, ledgerAt(dir))
-        restarted.applyPlan(listOf(alarm("occ-new", "m1", "r1", 2_000L)))
-
-        port.cancels.map { it.first } shouldBe listOf("occ-old")
-        port.schedules.last().occurrenceId shouldBe "occ-new"
-    }
-
-    test("given a memo delete after restart when cancelForMemo runs then recorded occurrences are cancelled") {
-        val dir = createTempDirectory().toFile()
-        val port = FakeAlarmSchedulePort()
-        ReminderRollingWindowScheduler(port, ledgerAt(dir))
-            .applyPlan(
-                listOf(
-                    alarm("occ-a", "memo-1", "reminder-a", 1_000L),
-                    alarm("occ-b", "memo-1", "reminder-b", 2_000L),
-                    alarm("occ-other", "memo-2", "reminder-c", 3_000L),
-                ),
-            )
-        port.cancels.clear()
-
-        // Fresh scheduler instance: the durable ledger, not a process-local map, is the authority.
-        ReminderRollingWindowScheduler(port, ledgerAt(dir))
-            .cancelForMemo("memo-1", setOf("reminder-a", "reminder-b"))
-
-        port.cancels.map { it.first }.toSet() shouldBe setOf("occ-a", "occ-b")
-        port.cancels.any { it.first == "occ-other" } shouldBe false
-    }
-
-    test("given one reminder with catch-up and future occurrences when applied then both schedule under distinct identities") {
-        val dir = createTempDirectory().toFile()
-        val port = FakeAlarmSchedulePort()
-        val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
-
-        scheduler.applyPlan(
-            listOf(
-                alarm("gen␟r1␟1000", "m1", "r1", 1_000L, isCatchUp = true),
-                alarm("gen␟r1␟2000", "m1", "r1", 2_000L),
-            ),
-        )
-
-        port.schedules.map { it.occurrenceId }.toSet() shouldBe setOf("gen␟r1␟1000", "gen␟r1␟2000")
-    }
-
-    test("given exact alarm capability when queried then port value is returned") {
-        val dir = createTempDirectory().toFile()
-        val port = FakeAlarmSchedulePort(canExact = false)
-        val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
-        scheduler.capability().canScheduleExactAlarms shouldBe false
-        port.setCanExact(true)
-        scheduler.capability().canScheduleExactAlarms shouldBe true
-    }
-
-    test("given platform error on schedule when applied then result carries the diagnostic") {
-        val dir = createTempDirectory().toFile()
-        val port =
-            FakeAlarmSchedulePort(
-                scheduleMode = AlarmTriggerMode.AllowWhileIdle,
-                platformError = "exact alarm denied",
-            )
-        val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
-        val result = scheduler.applyPlan(listOf(alarm("occ-e", "m", "r", 9L)))
-        result.scheduled.single().mode shouldBe AlarmTriggerMode.AllowWhileIdle
-        result.scheduled.single().platformError shouldBe "exact alarm denied"
-        result.scheduled.single().platformError shouldNotBe null
-    }
-
-    test("given a corrupt ledger file when a scheduler opens it then it is quarantined and rebuilt") {
-        val dir = createTempDirectory().toFile()
-        File(dir, "execution_ledger.v1.json").writeText("{not json")
-        val port = FakeAlarmSchedulePort()
-        val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
-
-        scheduler.applyPlan(listOf(alarm("occ-fresh", "m1", "r1", 1_000L)))
-
-        port.schedules.map { it.occurrenceId } shouldBe listOf("occ-fresh")
-        dir.listFiles().orEmpty().any { it.name.contains(".corrupt-") } shouldBe true
-    }
-})
+            port.schedules.map { it.occurrenceId } shouldBe listOf("occ-fresh")
+            dir.listFiles().orEmpty().any { it.name.contains(".corrupt-") } shouldBe true
+        }
+    })

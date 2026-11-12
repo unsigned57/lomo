@@ -1,23 +1,5 @@
 package com.lomo.data.source
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- *
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import android.content.ContentResolver
 import android.content.Context
 import android.content.UriPermission
@@ -25,6 +7,8 @@ import android.net.Uri
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -35,21 +19,102 @@ import kotlinx.coroutines.test.runTest
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
-import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.types.shouldBeInstanceOf
 
 /*
  * Behavior Contract:
+ * TDD proof (candidate grant pinning): target/lomo/reports/manual/directory-selection/transaction-red.log
+ * exposes unjournaled media changes; verification-green.log covers both notes and attachment candidate grants.
+ * Test Change Justification:
+ * Reason category: candidate grant lifecycle within the unified storage journal.
+ * Old behavior/assertion being replaced: root-only preparation supplied no explicit attachment binding.
+ * Why old assertion is no longer correct: attachment preparation now shares this protocol and must pin its candidate grant.
+ * Coverage preserved by: all existing grant sets and stored-location assertions are retained; pending media grant coverage is added.
+ * Why this is not fitting the test to the implementation: Android may revoke a released grant, so uncommitted candidates remain live resources.
  * - Unit under test: FileWorkspaceConfigSourceDelegate
  * - Behavior focus: root path or URI persistence, root-flow precedence, display-name mapping, and directory creation failure policy.
  * - Observable outcomes: persisted root values in a real preference store, observed root values,
  *   created filesystem directories, and thrown IOException messages.
+ * - Given a pending note-root transition, when an independent image folder is configured,
+ *   then both notes grants survive while genuinely orphaned grants are released.
+ * - TDD proof (pending grant): RED this suite removed the candidate notes grant;
+ *   GREEN after pending root transitions participate in the active-grant set.
  * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: SAF `DocumentFile` lookups (mocked Android framework seams), and DataStore persistence internals.
  */
 class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
     init {
+        beforeTest { grantHarness.permissions = emptyList() }
+        test(
+            "given a prepared image rebind when orphan grants are pruned then both attachment grants survive until commit",
+        ) {
+            runTest {
+                val notes = uriReturning("content://provider/tree/notes")
+                val previous = uriReturning("content://provider/tree/previous-images")
+                val candidate = uriReturning("content://provider/tree/new-images")
+                val inbox = uriReturning("content://provider/tree/inbox")
+                val orphan = uriReturning("content://provider/tree/orphan")
+                val harness = PersistedGrantHarness()
+                harness.permissions = listOf(notes, previous, candidate, inbox, orphan).map(::permissionFor)
+                val store = createLomoDataStore(backgroundScope)
+                store.updateRootUri(notes.toString())
+                store.updateImageUri(previous.toString())
+                val location = com.lomo.domain.model.StorageLocation(notes.toString())
+                store.prepareRootTransition(
+                    location,
+                    location,
+                    com.lomo.domain.model.MediaDirectoryChange(
+                        com.lomo.domain.model.StorageArea.IMAGE,
+                        com.lomo.domain.model.StorageLocation(previous.toString()),
+                        com.lomo.domain.model.StorageLocation(candidate.toString()),
+                    ),
+                )
+                FileWorkspaceConfigSourceDelegate(
+                    harness.context,
+                    store,
+                    FileStorageBackendResolver(harness.context, store),
+                ).setRoot(StorageRootType.SYNC_INBOX, inbox.toString())
+
+                harness.permissions.map { it.uri.toString() }.toSet() shouldBe
+                    setOf(notes.toString(), previous.toString(), candidate.toString(), inbox.toString())
+                store.imageUri.first() shouldBe previous.toString()
+            }
+        }
+        test(
+            "given a pending notes import when sibling media folders are selected then its read write grant survives",
+        ) {
+            runTest {
+                val previous = uriReturning("content://provider/tree/previous-notes")
+                val candidate = uriReturning("content://provider/tree/notes")
+                val images = uriReturning("content://provider/tree/pictures")
+                val orphan = uriReturning("content://provider/tree/orphan")
+                val grantHarness = PersistedGrantHarness()
+                val resolver = grantHarness.resolver
+                val host = grantHarness.context
+                grantHarness.permissions = listOf(previous, candidate, images, orphan).map(::permissionFor)
+                val dataStore = createLomoDataStore(backgroundScope)
+                dataStore.updateRootUri(previous.toString())
+                val transition = dataStore.prepareRootTransition(
+                    com.lomo.domain.model.StorageLocation(previous.toString()),
+                    com.lomo.domain.model.StorageLocation(candidate.toString()),
+                    mediaChange = null,
+                )
+                val delegate = FileWorkspaceConfigSourceDelegate(
+                    host,
+                    dataStore,
+                    FileStorageBackendResolver(host, dataStore),
+                )
+                delegate.setRoot(StorageRootType.IMAGE, images.toString())
+                grantHarness.permissions.map { it.uri.toString() }.toSet() shouldBe setOf(
+                    previous.toString(),
+                    candidate.toString(),
+                    images.toString(),
+                )
+                dataStore.markRootTransitionActivated(transition.id)
+                dataStore.commitRootTransition(transition.id)
+                dataStore.rootUri.first() shouldBe candidate.toString()
+            }
+        }
+
         test("setRoot stores direct path for main storage and clears uri") {
             runTest {
                 val (delegate, dataStore) = setUpDelegate()
@@ -147,8 +212,9 @@ class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
         }
     }
 
-    private val context = mockk<Context>(relaxed = true)
-    private val contentResolver = mockk<ContentResolver>(relaxed = true)
+    private val grantHarness = PersistedGrantHarness()
+    private val context get() = grantHarness.context
+    private val contentResolver get() = grantHarness.resolver
 
     private fun TestScope.setUpDelegate(): Pair<FileWorkspaceConfigSourceDelegate, LomoDataStore> {
         val dataStore = createLomoDataStore(backgroundScope)
@@ -162,8 +228,7 @@ class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
     }
 
     private fun stubPersistedUriPermissions(permissions: List<UriPermission>) {
-        every { context.contentResolver } returns contentResolver
-        every { contentResolver.persistedUriPermissions } returns permissions
+        grantHarness.permissions = permissions
     }
 
     private fun uriReturning(value: String): Uri {
@@ -186,8 +251,25 @@ class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
             scope = scope,
             produceFile = { backingFile },
         )
-        val constructor = LomoDataStore::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+        val constructor = LomoDataStore::class.java.getDeclaredConstructor(
+            androidx.datastore.core.DataStore::class.java,
+        )
         constructor.isAccessible = true
         return constructor.newInstance(realDataStore)
+    }
+}
+
+private class PersistedGrantHarness {
+    val context = mockk<Context>()
+    val resolver = mockk<ContentResolver>()
+    var permissions = emptyList<UriPermission>()
+
+    init {
+        every { context.contentResolver } returns resolver
+        every { resolver.persistedUriPermissions } answers { permissions }
+        every { resolver.releasePersistableUriPermission(any(), any()) } answers {
+            val released = firstArg<Uri>()
+            permissions = permissions.filterNot { it.uri == released }
+        }
     }
 }

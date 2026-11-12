@@ -11,14 +11,7 @@ internal interface ArchiveNativeBridge {
      * Session-owned export: the artifact path is derived inside Rust from the frozen session
      * exchange environment; [fileNameHint] may contribute only a bare file-name stem.
      */
-    fun sessionExportArchive(
-        workspaceRoot: String,
-        fileNameHint: String?,
-    ): BridgeExport
+    fun sessionExportArchive(fileNameHint: String?, mediaCapabilities: List<String>): BridgeExport
 
-    fun sessionImportArchive(
-        workspaceRoot: String,
-        archivePath: String,
-        stagingRoot: String,
-    ): BridgeRebuild
+    fun sessionImportArchive(workspaceRoot: String, archivePath: String, stagingRoot: String): BridgeRebuild
 }

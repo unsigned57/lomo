@@ -17,10 +17,7 @@ class FakeExternalAppCommandStore : ExternalAppCommandStore {
     private val mutableCommands = MutableStateFlow<List<ExternalAppCommand>>(emptyList())
     override val commands: StateFlow<List<ExternalAppCommand>> = mutableCommands
 
-    override fun enqueue(
-        command: ExternalAppCommand,
-        nowMillis: Long,
-    ): ExternalAppCommand? {
+    override fun enqueue(command: ExternalAppCommand, nowMillis: Long): ExternalAppCommand? {
         val result =
             ExternalAppCommandQueuePolicy.enqueue(
                 commands = mutableCommands.value,
@@ -31,10 +28,7 @@ class FakeExternalAppCommandStore : ExternalAppCommandStore {
         return result.enqueuedCommand
     }
 
-    override fun updateStatus(
-        commandId: String,
-        status: ExternalAppCommandStatus,
-    ) {
+    override fun updateStatus(commandId: String, status: ExternalAppCommandStatus) {
         mutableCommands.value =
             ExternalAppCommandQueuePolicy.updateStatus(
                 commands = mutableCommands.value,
@@ -43,10 +37,7 @@ class FakeExternalAppCommandStore : ExternalAppCommandStore {
             )
     }
 
-    override fun complete(
-        commandId: String,
-        result: ExternalAppCommandTerminalResult,
-    ) {
+    override fun complete(commandId: String, result: ExternalAppCommandTerminalResult) {
         mutableCommands.value =
             ExternalAppCommandQueuePolicy.complete(
                 commands = mutableCommands.value,

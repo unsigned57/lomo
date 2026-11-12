@@ -4,12 +4,12 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.EngineRetryDisposition
-import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
@@ -18,11 +18,18 @@ import com.lomo.domain.model.WorkspaceMount
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 
 /*
  * Behavior Contract:
@@ -33,6 +40,9 @@ import kotlinx.coroutines.test.runTest
  *   through one provider-keyed wrapper plus provider-specific extension actions.
  *
  * Scenarios:
+ * - Given a selected root, when the settings scope is cancelled before queued work dispatches,
+ *   then the switch owner has already been entered and its durable commit still completes.
+ *   TDD: root-navigation-red.log observes committed=false; GREEN uses the same scheduler gate.
  * - Given LAN feature actions, when wrapper methods are invoked, then LAN actions and support hooks forward directly.
  * - Given Git/WebDAV/S3 common provider actions, when wrapper provider methods are invoked,
  *   then one shared provider-keyed action path receives the provider identity.
@@ -40,6 +50,10 @@ import kotlinx.coroutines.test.runTest
  *   then only provider-specific action interfaces receive those values.
  * - Given initial projection Revalidating or Recovery, when settings observes root status, then it
  *   exposes Indexing or Failed without inventing a second scanning state.
+ * - Given a memo root switch still in flight, when image and voice directories are picked, then each
+ *   area is exposed as pending until its own queued command finishes, so the row never reads "Not set".
+ *   TDD proof: target/lomo/reports/manual/directory-selection/media-pending-red.log expected
+ *   [IMAGE, VOICE] but was []; media-pending-green.log passes the same scenario.
  *
  * Observable outcomes:
  * - Captured provider-keyed action arguments, provider-specific action arguments, validation helper results,
@@ -50,7 +64,7 @@ import kotlinx.coroutines.test.runTest
  *   duplicated provider-local common action bags.
  *
  * Excludes:
- * - Coordinator/use-case execution, DataStore internals, coroutine dispatch, and UI rendering.
+ * - Production DataStore internals, native index execution and UI rendering.
  *
  * Test Change Justification:
  * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
@@ -62,6 +76,69 @@ import kotlinx.coroutines.test.runTest
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsFeatureViewModelsTest : AppFunSpec() {
     init {
+        test("given a picked root when settings closes immediately then the admitted switch still commits") {
+            runTest {
+                val coordinator = mockk<SettingsAppConfigCoordinator>()
+                val gate = CompletableDeferred<Unit>()
+                val committed = CompletableDeferred<String>()
+                coEvery { coordinator.updateRootUri(any()) } coAnswers {
+                    val root = firstArg<String>()
+                    // The production switch owner becomes uncancellable once entered.
+                    withContext(NonCancellable) {
+                        gate.await()
+                        committed.complete(root)
+                    }
+                }
+                val settingsScope = CoroutineScope(Job() + StandardTestDispatcher(testScheduler))
+                val viewModel = SettingsStorageFeatureViewModel(
+                    scope = settingsScope,
+                    appConfigCoordinator = coordinator,
+                    mount = MutableStateFlow(verifiedStorageMount()),
+                    onError = { throw it },
+                )
+                viewModel.updateRootUri("content://tree/empty-root")
+                settingsScope.cancel()
+                gate.complete(Unit)
+                runCurrent()
+                committed.isCompleted shouldBe true
+                committed.await() shouldBe "content://tree/empty-root"
+            }
+        }
+        test(
+            "given a root switch in flight when media directories are picked then each area stays pending until committed",
+        ) {
+            runTest {
+                val coordinator = mockk<SettingsAppConfigCoordinator>()
+                val rootGate = CompletableDeferred<Unit>()
+                val imageGate = CompletableDeferred<Unit>()
+                val voiceGate = CompletableDeferred<Unit>()
+                coEvery { coordinator.updateRootUri(any()) } coAnswers { rootGate.await() }
+                coEvery { coordinator.updateImageUri(any()) } coAnswers { imageGate.await() }
+                coEvery { coordinator.updateVoiceUri(any()) } coAnswers { voiceGate.await() }
+                val viewModel = SettingsStorageFeatureViewModel(
+                    scope = backgroundScope,
+                    appConfigCoordinator = coordinator,
+                    mount = MutableStateFlow(verifiedStorageMount()),
+                    onError = { throw it },
+                )
+                backgroundScope.launch { viewModel.pendingMediaAreas.collect {} }
+
+                viewModel.updateRootUri("content://tree/memos")
+                viewModel.updateImageUri("content://tree/images")
+                viewModel.updateVoiceUri("content://tree/voice")
+                runCurrent()
+                viewModel.pendingMediaAreas.value shouldBe setOf(StorageArea.IMAGE, StorageArea.VOICE)
+
+                rootGate.complete(Unit)
+                imageGate.complete(Unit)
+                runCurrent()
+                viewModel.pendingMediaAreas.value shouldBe setOf(StorageArea.VOICE)
+
+                voiceGate.complete(Unit)
+                runCurrent()
+                viewModel.pendingMediaAreas.value shouldBe emptySet()
+            }
+        }
         test("lan-share feature viewmodel forwards actions to delegates") {
             val actionCoordinator = FakeSettingsActionCoordinator()
 
@@ -85,7 +162,7 @@ class SettingsFeatureViewModelsTest : AppFunSpec() {
                         appConfigCoordinator = coordinator,
                         mount = MutableStateFlow(verifiedStorageMount()),
                         onError = errors::add,
-                )
+                    )
 
                 viewModel.updateRootUri("content://tree/root")
                 runCurrent()
@@ -104,7 +181,7 @@ class SettingsFeatureViewModelsTest : AppFunSpec() {
                         appConfigCoordinator = coordinator,
                         mount = mount,
                         onError = {},
-                )
+                    )
                 backgroundScope.launch { viewModel.rootOperationState.collect {} }
                 runCurrent()
 
@@ -116,12 +193,12 @@ class SettingsFeatureViewModelsTest : AppFunSpec() {
                 mount.value =
                     WorkspaceMount(
                         readiness =
-                            EngineReadiness.ReadOnlyRecovery(
-                                category = EngineFailureCategory.STORAGE,
-                                code = "projection_scan_deadline_exceeded",
-                                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-                                diagnostic = "scan deadline exceeded",
-                            ),
+                        EngineReadiness.ReadOnlyRecovery(
+                            category = EngineFailureCategory.STORAGE,
+                            code = "projection_scan_deadline_exceeded",
+                            retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                            diagnostic = "scan deadline exceeded",
+                        ),
                         location = StorageLocation("/vault"),
                         authority = null,
                         freshness = ProjectionFreshness.Unavailable,
@@ -210,7 +287,6 @@ class SettingsFeatureViewModelsTest : AppFunSpec() {
             ((viewModel.isValidEndpointUrl("https://s3.example.com"))) shouldBe true
         }
     }
-
 }
 
 private class FakeSettingsActionCoordinator :
@@ -279,7 +355,9 @@ private class FakeSettingsActionCoordinator :
     override val updateS3EncryptionMode: (S3EncryptionMode) -> Unit = { s3EncryptionModeArg = it }
     override val updateS3EncryptionPassword: (String) -> Unit = {}
     override val updateS3EncryptionPassword2: (String) -> Unit = { s3EncryptionPassword2Arg = it }
-    override val updateS3RcloneFilenameEncryption: (S3RcloneFilenameEncryption) -> Unit = { s3FilenameEncryptionArg = it }
+    override val updateS3RcloneFilenameEncryption: (S3RcloneFilenameEncryption) -> Unit = {
+        s3FilenameEncryptionArg = it
+    }
     override val updateS3RcloneFilenameEncoding: (S3RcloneFilenameEncoding) -> Unit = { s3FilenameEncodingArg = it }
     override val updateS3RcloneDirectoryNameEncryption: (Boolean) -> Unit = { s3DirectoryNameEncryptionArg = it }
     override val updateS3RcloneDataEncryptionEnabled: (Boolean) -> Unit = { s3DataEncryptionArg = it }
@@ -316,9 +394,7 @@ private class FakeS3Support : SettingsS3FeatureSupport {
     override fun isValidEndpointUrl(url: String): Boolean = url.startsWith("https://")
 }
 
-private fun verifiedStorageMount(
-    freshness: ProjectionFreshness = ProjectionFreshness.Verified(1uL),
-): WorkspaceMount =
+private fun verifiedStorageMount(freshness: ProjectionFreshness = ProjectionFreshness.Verified(1uL)): WorkspaceMount =
     WorkspaceMount(
         readiness = EngineReadiness.Ready,
         location = StorageLocation("/vault"),

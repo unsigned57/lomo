@@ -11,9 +11,7 @@ import com.lomo.nativebridge.PlatformBatchResult
 internal sealed interface NativeJobStep {
     data object Running : NativeJobStep
 
-    data class NeedsPlatformBatch(
-        val batch: com.lomo.nativebridge.PlatformActionBatch,
-    ) : NativeJobStep
+    data class NeedsPlatformBatch(val batch: com.lomo.nativebridge.PlatformActionBatch) : NativeJobStep
 
     /**
      * Actor-external native task is in-flight (P5-02).
@@ -21,53 +19,49 @@ internal sealed interface NativeJobStep {
      * Attempt and dispatch generation stay unsigned: narrowing them to Int/Long wraps large
      * generations negative and turns a legitimate retry into a nonsensical identity.
      */
-    data class RunningNative(
-        val taskKind: String,
-        val attempt: UInt,
-        val dispatchGeneration: ULong,
-    ) : NativeJobStep
+    data class RunningNative(val taskKind: String, val attempt: UInt, val dispatchGeneration: ULong) : NativeJobStep
 
-    data class BlockedByConflict(
-        val failure: EngineFailureSnapshot,
-    ) : NativeJobStep
+    data class BlockedByConflict(val failure: EngineFailureSnapshot) : NativeJobStep
 
     data object Completed : NativeJobStep
 
-    data class Failed(
-        val failure: EngineFailureSnapshot,
-    ) : NativeJobStep
+    data class Failed(val failure: EngineFailureSnapshot) : NativeJobStep
 }
 
-internal fun JobStep.toNative(): NativeJobStep =
-    when (this) {
-        JobStep.Running -> NativeJobStep.Running
-        is JobStep.NeedsPlatformBatch -> NativeJobStep.NeedsPlatformBatch(batch)
-        is JobStep.RunningNative ->
-            NativeJobStep.RunningNative(
-                taskKind = taskKind,
-                attempt = attempt,
-                dispatchGeneration = dispatchGeneration,
-            )
-        is JobStep.BlockedByConflict ->
-            NativeJobStep.BlockedByConflict(
-                EngineFailureSnapshot(
-                    category = failure.category,
-                    code = failure.code,
-                    retryDisposition = failure.retryDisposition,
-                    diagnostic = failure.diagnostic,
-                ),
-            )
-        JobStep.Completed -> NativeJobStep.Completed
-        is JobStep.Failed ->
-            NativeJobStep.Failed(
-                EngineFailureSnapshot(
-                    category = failure.category,
-                    code = failure.code,
-                    retryDisposition = failure.retryDisposition,
-                    diagnostic = failure.diagnostic,
-                ),
-            )
-    }
+internal fun JobStep.toNative(): NativeJobStep = when (this) {
+    JobStep.Running -> NativeJobStep.Running
+
+    is JobStep.NeedsPlatformBatch -> NativeJobStep.NeedsPlatformBatch(batch)
+
+    is JobStep.RunningNative ->
+        NativeJobStep.RunningNative(
+            taskKind = taskKind,
+            attempt = attempt,
+            dispatchGeneration = dispatchGeneration,
+        )
+
+    is JobStep.BlockedByConflict ->
+        NativeJobStep.BlockedByConflict(
+            EngineFailureSnapshot(
+                category = failure.category,
+                code = failure.code,
+                retryDisposition = failure.retryDisposition,
+                diagnostic = failure.diagnostic,
+            ),
+        )
+
+    JobStep.Completed -> NativeJobStep.Completed
+
+    is JobStep.Failed ->
+        NativeJobStep.Failed(
+            EngineFailureSnapshot(
+                category = failure.category,
+                code = failure.code,
+                retryDisposition = failure.retryDisposition,
+                diagnostic = failure.diagnostic,
+            ),
+        )
+}
 
 /**
  * Drives a Rust job that is waiting on Android platform batches until a terminal step.
@@ -105,6 +99,7 @@ internal class PlatformBatchRunner(
                     step = native.submitPlatformResult(jobId, result)
                     waitMillis = INITIAL_POLL_INTERVAL_MILLIS
                 }
+
                 is NativeJobStep.Running,
                 is NativeJobStep.RunningNative,
                 -> {
@@ -115,6 +110,7 @@ internal class PlatformBatchRunner(
                     // behavior-contract: loop-io-ok: no bulk poll API; each iteration is one bounded job poll
                     step = native.pollJob(jobId)
                 }
+
                 is NativeJobStep.BlockedByConflict,
                 is NativeJobStep.Completed,
                 is NativeJobStep.Failed,

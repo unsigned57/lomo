@@ -61,13 +61,12 @@ class MemoMetadataPillColorsTest : UiComponentsFunSpec() {
         }
     }
 
-    private fun sampleColorScheme() =
-        lightColorScheme(
-            primaryContainer = Color(0xFFCCE5FF),
-            onPrimaryContainer = Color(0xFF001D34),
-            secondaryContainer = Color(0xFFE6DEFF),
-            onSecondaryContainer = Color(0xFF1F1735),
-            surfaceContainerHigh = Color(0xFFF0F0F0),
-            onSurfaceVariant = Color(0xFF46464F),
-        )
+    private fun sampleColorScheme() = lightColorScheme(
+        primaryContainer = Color(0xFFCCE5FF),
+        onPrimaryContainer = Color(0xFF001D34),
+        secondaryContainer = Color(0xFFE6DEFF),
+        onSecondaryContainer = Color(0xFF1F1735),
+        surfaceContainerHigh = Color(0xFFF0F0F0),
+        onSurfaceVariant = Color(0xFF46464F),
+    )
 }

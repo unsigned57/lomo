@@ -31,27 +31,26 @@ internal data class MainForegroundAutoInputFacts(
 
 internal fun resolveMainForegroundAutoInputDecision(
     facts: MainForegroundAutoInputFacts,
-): MainForegroundAutoInputPolicy =
-    when {
-        facts.foregroundEntryId <= 0L ||
-            facts.foregroundEntryId == facts.handledForegroundEntryId ->
-            MainForegroundAutoInputPolicy.Ignore
+): MainForegroundAutoInputPolicy = when {
+    facts.foregroundEntryId <= 0L ||
+        facts.foregroundEntryId == facts.handledForegroundEntryId ->
+        MainForegroundAutoInputPolicy.Ignore
 
-        !facts.enabled ||
-            facts.explicitEntryPending ||
-            facts.isRecording ||
-            facts.hasPendingNewMemoCreation ->
-            MainForegroundAutoInputPolicy.Suppress
+    !facts.enabled ||
+        facts.explicitEntryPending ||
+        facts.isRecording ||
+        facts.hasPendingNewMemoCreation ->
+        MainForegroundAutoInputPolicy.Suppress
 
-        !facts.isReady ->
-            MainForegroundAutoInputPolicy.WaitForReady
+    !facts.isReady ->
+        MainForegroundAutoInputPolicy.WaitForReady
 
-        facts.editorVisible ->
-            MainForegroundAutoInputPolicy.RefocusEditor
+    facts.editorVisible ->
+        MainForegroundAutoInputPolicy.RefocusEditor
 
-        else ->
-            MainForegroundAutoInputPolicy.OpenDraftEditor
-    }
+    else ->
+        MainForegroundAutoInputPolicy.OpenDraftEditor
+}
 
 @Composable
 internal fun MainForegroundAutoInputEffect(

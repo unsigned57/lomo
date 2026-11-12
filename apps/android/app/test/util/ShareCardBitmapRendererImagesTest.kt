@@ -33,8 +33,12 @@ import io.mockk.mockk
 class ShareCardBitmapRendererImagesTest : AppFunSpec() {
     init {
         test("given remote image paths when resolving decode source then share card skips network image loading") {
-            resolveShareCardImageDecodeSource("https://example.invalid/card.png") shouldBe ShareCardImageDecodeSource.Unsupported
-            resolveShareCardImageDecodeSource("HTTP://example.invalid/card.png") shouldBe ShareCardImageDecodeSource.Unsupported
+            resolveShareCardImageDecodeSource(
+                "https://example.invalid/card.png",
+            ) shouldBe ShareCardImageDecodeSource.Unsupported
+            resolveShareCardImageDecodeSource(
+                "HTTP://example.invalid/card.png",
+            ) shouldBe ShareCardImageDecodeSource.Unsupported
         }
 
         test("given only remote image slots when loading share images then no bitmap is loaded") {
@@ -44,10 +48,10 @@ class ShareCardBitmapRendererImagesTest : AppFunSpec() {
                 loadShareImages(
                     context = context,
                     resolvedImagePaths =
-                        listOf(
-                            "https://example.invalid/card.png",
-                            "http://example.invalid/card-2.png",
-                        ),
+                    listOf(
+                        "https://example.invalid/card.png",
+                        "http://example.invalid/card-2.png",
+                    ),
                     totalImageSlots = 2,
                     targetWidth = 320,
                 )

@@ -3,19 +3,22 @@ package com.lomo.app.feature.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.WebDavProvider
+import com.lomo.ui.component.common.LomoTextButton
 
 @Composable
 internal fun ProviderSettingsDialogs(
@@ -32,6 +35,7 @@ internal fun ProviderSettingsDialogs(
                 features = features,
                 dialogState = dialogState,
             )
+
         is SettingsDialogRoute.RemoteProviderSelection ->
             ProviderSelectionDialog(
                 route = route,
@@ -40,6 +44,7 @@ internal fun ProviderSettingsDialogs(
                 dialogState = dialogState,
                 options = options,
             )
+
         is SettingsDialogRoute.RemoteProviderConfirmation ->
             ProviderConfirmationDialog(
                 route = route,
@@ -47,6 +52,7 @@ internal fun ProviderSettingsDialogs(
                 features = features,
                 dialogState = dialogState,
             )
+
         null -> Unit
     }
 }
@@ -75,7 +81,7 @@ private fun ProviderTextDialog(
             )
         },
         confirmButton = {
-            TextButton(
+            LomoTextButton(
                 onClick = {
                     submitProviderText(route, value.trim(), features)
                     dialogState.dismissProviderDialog()
@@ -86,7 +92,7 @@ private fun ProviderTextDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = dialogState::dismissProviderDialog) {
+            LomoTextButton(onClick = dialogState::dismissProviderDialog) {
                 Text(stringResource(R.string.action_cancel))
             }
         },
@@ -102,6 +108,10 @@ private fun ProviderTextDialogContent(
     onValueChange: (String) -> Unit,
     onToggleVisibility: () -> Unit,
 ) {
+    val textState = remember(route.field) { TextFieldState(form.value) }
+    LaunchedEffect(textState) {
+        snapshotFlow { textState.text.toString() }.collect { onValueChange(it) }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         route.field.messageResId(uiState)?.let { messageResId ->
             Text(
@@ -110,25 +120,20 @@ private fun ProviderTextDialogContent(
             )
         }
         OutlinedTextField(
-            value = form.value,
-            onValueChange = onValueChange,
+            state = textState,
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
+            lineLimits = TextFieldLineLimits.SingleLine,
             label = { Text(stringResource(route.field.labelResId())) },
-            visualTransformation =
-                if (route.secret && !form.secretVisible) {
-                    PasswordVisualTransformation()
-                } else {
-                    VisualTransformation.None
-                },
+            outputTransformation =
+            if (route.secret && !form.secretVisible) PasswordOutputTransformation else null,
             isError = validation.showError,
             supportingText =
-                validation.errorResId?.let { errorResId ->
-                    { Text(stringResource(errorResId)) }
-                },
+            validation.errorResId?.let { errorResId ->
+                { Text(stringResource(errorResId)) }
+            },
         )
         if (route.secret) {
-            TextButton(onClick = onToggleVisibility) {
+            LomoTextButton(onClick = onToggleVisibility) {
                 Text(
                     stringResource(
                         if (form.secretVisible) {
@@ -157,7 +162,7 @@ private fun ProviderConfirmationDialog(
                 title = { Text(stringResource(R.string.settings_git_reset_repo_confirm_title)) },
                 text = { Text(stringResource(R.string.settings_git_reset_repo_confirm_message)) },
                 confirmButton = {
-                    TextButton(
+                    LomoTextButton(
                         onClick = {
                             features.git.resetGitRepository()
                             dialogState.dismissProviderDialog()
@@ -168,7 +173,7 @@ private fun ProviderConfirmationDialog(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = dialogState::dismissProviderDialog) {
+                    LomoTextButton(onClick = dialogState::dismissProviderDialog) {
                         Text(stringResource(R.string.action_cancel))
                     }
                 },
@@ -186,58 +191,62 @@ private fun providerTextValidation(
     route: SettingsDialogRoute.RemoteProviderText,
     value: String,
     features: SettingsFeatures,
-): ProviderTextValidation =
-    when (route.field) {
-        RemoteProviderTextField.GitRemoteUrl -> {
-            val valid = features.git.isValidGitRemoteUrl(value)
-            ProviderTextValidation(
-                confirmEnabled = valid,
-                showError = value.isNotBlank() && !valid,
-                errorResId =
-                    if (value.isNotBlank() && !valid) {
-                        R.string.settings_git_remote_url_error_https_required
-                    } else {
-                        null
-                    },
-            )
-        }
-        RemoteProviderTextField.GitBranch -> {
-            val valid = features.git.isValidGitBranch(value)
-            ProviderTextValidation(
-                confirmEnabled = valid,
-                showError = value.isNotBlank() && !valid,
-                errorResId =
-                    if (value.isNotBlank() && !valid) {
-                        R.string.settings_git_branch_error
-                    } else {
-                        null
-                    },
-            )
-        }
-        RemoteProviderTextField.WebDavBaseUrl,
-        RemoteProviderTextField.WebDavEndpointUrl,
-        -> {
-            val valid = features.webDav.isValidWebDavUrl(value)
-            ProviderTextValidation(confirmEnabled = valid, showError = value.isNotBlank() && !valid)
-        }
-        RemoteProviderTextField.WebDavUsername,
-        RemoteProviderTextField.WebDavPassword,
-        -> ProviderTextValidation(confirmEnabled = value.isNotBlank())
-        RemoteProviderTextField.S3EndpointUrl -> {
-            val valid = value.isBlank() || features.s3.isValidEndpointUrl(value)
-            ProviderTextValidation(
-                confirmEnabled = valid,
-                showError = value.isNotBlank() && !valid,
-                errorResId =
-                    if (value.isNotBlank() && !valid) {
-                        R.string.settings_git_remote_url_error_https_required
-                    } else {
-                        null
-                    },
-            )
-        }
-        else -> ProviderTextValidation(confirmEnabled = true)
+): ProviderTextValidation = when (route.field) {
+    RemoteProviderTextField.GitRemoteUrl -> {
+        val valid = features.git.isValidGitRemoteUrl(value)
+        ProviderTextValidation(
+            confirmEnabled = valid,
+            showError = value.isNotBlank() && !valid,
+            errorResId =
+            if (value.isNotBlank() && !valid) {
+                R.string.settings_git_remote_url_error_https_required
+            } else {
+                null
+            },
+        )
     }
+
+    RemoteProviderTextField.GitBranch -> {
+        val valid = features.git.isValidGitBranch(value)
+        ProviderTextValidation(
+            confirmEnabled = valid,
+            showError = value.isNotBlank() && !valid,
+            errorResId =
+            if (value.isNotBlank() && !valid) {
+                R.string.settings_git_branch_error
+            } else {
+                null
+            },
+        )
+    }
+
+    RemoteProviderTextField.WebDavBaseUrl,
+    RemoteProviderTextField.WebDavEndpointUrl,
+    -> {
+        val valid = features.webDav.isValidWebDavUrl(value)
+        ProviderTextValidation(confirmEnabled = valid, showError = value.isNotBlank() && !valid)
+    }
+
+    RemoteProviderTextField.WebDavUsername,
+    RemoteProviderTextField.WebDavPassword,
+    -> ProviderTextValidation(confirmEnabled = value.isNotBlank())
+
+    RemoteProviderTextField.S3EndpointUrl -> {
+        val valid = value.isBlank() || features.s3.isValidEndpointUrl(value)
+        ProviderTextValidation(
+            confirmEnabled = valid,
+            showError = value.isNotBlank() && !valid,
+            errorResId =
+            if (value.isNotBlank() && !valid) {
+                R.string.settings_git_remote_url_error_https_required
+            } else {
+                null
+            },
+        )
+    }
+
+    else -> ProviderTextValidation(confirmEnabled = true)
+}
 
 private fun submitProviderText(
     route: SettingsDialogRoute.RemoteProviderText,
@@ -267,65 +276,61 @@ private fun submitProviderText(
     }
 }
 
-private fun RemoteProviderTextField.titleResId(): Int =
-    when (this) {
-        RemoteProviderTextField.GitRemoteUrl -> R.string.settings_git_remote_url
-        RemoteProviderTextField.GitBranch -> R.string.settings_git_branch
-        RemoteProviderTextField.GitPat -> R.string.settings_git_pat_dialog_title
-        RemoteProviderTextField.GitAuthorName -> R.string.settings_git_author_name
-        RemoteProviderTextField.GitAuthorEmail -> R.string.settings_git_author_email
-        RemoteProviderTextField.WebDavBaseUrl -> R.string.settings_webdav_base_url
-        RemoteProviderTextField.WebDavEndpointUrl -> R.string.settings_webdav_endpoint_url
-        RemoteProviderTextField.WebDavUsername -> R.string.settings_webdav_username
-        RemoteProviderTextField.WebDavPassword -> R.string.settings_webdav_password_dialog_title
-        RemoteProviderTextField.S3EndpointUrl -> R.string.settings_s3_endpoint_url
-        RemoteProviderTextField.S3Region -> R.string.settings_s3_region
-        RemoteProviderTextField.S3Bucket -> R.string.settings_s3_bucket
-        RemoteProviderTextField.S3Prefix -> R.string.settings_s3_prefix
-        RemoteProviderTextField.S3AccessKeyId -> R.string.settings_s3_access_key_id
-        RemoteProviderTextField.S3SecretAccessKey -> R.string.settings_s3_secret_access_key
-        RemoteProviderTextField.S3SessionToken -> R.string.settings_s3_session_token
-        RemoteProviderTextField.S3EncryptionPassword -> R.string.settings_s3_encryption_password
-        RemoteProviderTextField.S3EncryptionPassword2 -> R.string.settings_s3_encryption_password2
-        RemoteProviderTextField.S3RcloneEncryptedSuffix -> R.string.settings_s3_rclone_encrypted_suffix
-    }
+private fun RemoteProviderTextField.titleResId(): Int = when (this) {
+    RemoteProviderTextField.GitRemoteUrl -> R.string.settings_git_remote_url
+    RemoteProviderTextField.GitBranch -> R.string.settings_git_branch
+    RemoteProviderTextField.GitPat -> R.string.settings_git_pat_dialog_title
+    RemoteProviderTextField.GitAuthorName -> R.string.settings_git_author_name
+    RemoteProviderTextField.GitAuthorEmail -> R.string.settings_git_author_email
+    RemoteProviderTextField.WebDavBaseUrl -> R.string.settings_webdav_base_url
+    RemoteProviderTextField.WebDavEndpointUrl -> R.string.settings_webdav_endpoint_url
+    RemoteProviderTextField.WebDavUsername -> R.string.settings_webdav_username
+    RemoteProviderTextField.WebDavPassword -> R.string.settings_webdav_password_dialog_title
+    RemoteProviderTextField.S3EndpointUrl -> R.string.settings_s3_endpoint_url
+    RemoteProviderTextField.S3Region -> R.string.settings_s3_region
+    RemoteProviderTextField.S3Bucket -> R.string.settings_s3_bucket
+    RemoteProviderTextField.S3Prefix -> R.string.settings_s3_prefix
+    RemoteProviderTextField.S3AccessKeyId -> R.string.settings_s3_access_key_id
+    RemoteProviderTextField.S3SecretAccessKey -> R.string.settings_s3_secret_access_key
+    RemoteProviderTextField.S3SessionToken -> R.string.settings_s3_session_token
+    RemoteProviderTextField.S3EncryptionPassword -> R.string.settings_s3_encryption_password
+    RemoteProviderTextField.S3EncryptionPassword2 -> R.string.settings_s3_encryption_password2
+    RemoteProviderTextField.S3RcloneEncryptedSuffix -> R.string.settings_s3_rclone_encrypted_suffix
+}
 
-private fun RemoteProviderTextField.labelResId(): Int =
-    when (this) {
-        RemoteProviderTextField.GitRemoteUrl -> R.string.settings_git_remote_url_hint
-        RemoteProviderTextField.GitBranch -> R.string.settings_git_branch_hint
-        RemoteProviderTextField.GitPat -> R.string.settings_git_pat_hint
-        RemoteProviderTextField.GitAuthorName -> R.string.settings_git_author_name_hint
-        RemoteProviderTextField.GitAuthorEmail -> R.string.settings_git_author_email_hint
-        RemoteProviderTextField.WebDavBaseUrl -> R.string.settings_webdav_base_url_hint
-        RemoteProviderTextField.WebDavEndpointUrl -> R.string.settings_webdav_endpoint_url_hint
-        RemoteProviderTextField.WebDavUsername -> R.string.settings_webdav_username_hint
-        RemoteProviderTextField.WebDavPassword -> R.string.settings_webdav_password_hint
-        RemoteProviderTextField.S3EndpointUrl -> R.string.settings_s3_endpoint_url_hint
-        RemoteProviderTextField.S3Region -> R.string.settings_s3_region_hint
-        RemoteProviderTextField.S3Bucket -> R.string.settings_s3_bucket_hint
-        RemoteProviderTextField.S3Prefix -> R.string.settings_s3_prefix_hint
-        RemoteProviderTextField.S3AccessKeyId -> R.string.settings_s3_access_key_id_hint
-        RemoteProviderTextField.S3SecretAccessKey -> R.string.settings_s3_secret_access_key_hint
-        RemoteProviderTextField.S3SessionToken -> R.string.settings_s3_session_token_hint
-        RemoteProviderTextField.S3EncryptionPassword -> R.string.settings_s3_encryption_password_hint
-        RemoteProviderTextField.S3EncryptionPassword2 -> R.string.settings_s3_encryption_password2_hint
-        RemoteProviderTextField.S3RcloneEncryptedSuffix -> R.string.settings_s3_rclone_encrypted_suffix_hint
-    }
+private fun RemoteProviderTextField.labelResId(): Int = when (this) {
+    RemoteProviderTextField.GitRemoteUrl -> R.string.settings_git_remote_url_hint
+    RemoteProviderTextField.GitBranch -> R.string.settings_git_branch_hint
+    RemoteProviderTextField.GitPat -> R.string.settings_git_pat_hint
+    RemoteProviderTextField.GitAuthorName -> R.string.settings_git_author_name_hint
+    RemoteProviderTextField.GitAuthorEmail -> R.string.settings_git_author_email_hint
+    RemoteProviderTextField.WebDavBaseUrl -> R.string.settings_webdav_base_url_hint
+    RemoteProviderTextField.WebDavEndpointUrl -> R.string.settings_webdav_endpoint_url_hint
+    RemoteProviderTextField.WebDavUsername -> R.string.settings_webdav_username_hint
+    RemoteProviderTextField.WebDavPassword -> R.string.settings_webdav_password_hint
+    RemoteProviderTextField.S3EndpointUrl -> R.string.settings_s3_endpoint_url_hint
+    RemoteProviderTextField.S3Region -> R.string.settings_s3_region_hint
+    RemoteProviderTextField.S3Bucket -> R.string.settings_s3_bucket_hint
+    RemoteProviderTextField.S3Prefix -> R.string.settings_s3_prefix_hint
+    RemoteProviderTextField.S3AccessKeyId -> R.string.settings_s3_access_key_id_hint
+    RemoteProviderTextField.S3SecretAccessKey -> R.string.settings_s3_secret_access_key_hint
+    RemoteProviderTextField.S3SessionToken -> R.string.settings_s3_session_token_hint
+    RemoteProviderTextField.S3EncryptionPassword -> R.string.settings_s3_encryption_password_hint
+    RemoteProviderTextField.S3EncryptionPassword2 -> R.string.settings_s3_encryption_password2_hint
+    RemoteProviderTextField.S3RcloneEncryptedSuffix -> R.string.settings_s3_rclone_encrypted_suffix_hint
+}
 
-private fun RemoteProviderTextField.messageResId(uiState: SettingsScreenUiState): Int? =
-    when (this) {
-        RemoteProviderTextField.GitPat -> R.string.settings_git_pat_dialog_message
-        RemoteProviderTextField.WebDavPassword -> webDavPasswordMessageRes(uiState.webDav.provider)
-        RemoteProviderTextField.S3EncryptionPassword -> R.string.settings_s3_encryption_password_message
-        RemoteProviderTextField.S3EncryptionPassword2 -> R.string.settings_s3_encryption_password2_message
-        RemoteProviderTextField.S3RcloneEncryptedSuffix -> R.string.settings_s3_rclone_encrypted_suffix_message
-        else -> null
-    }
+private fun RemoteProviderTextField.messageResId(uiState: SettingsScreenUiState): Int? = when (this) {
+    RemoteProviderTextField.GitPat -> R.string.settings_git_pat_dialog_message
+    RemoteProviderTextField.WebDavPassword -> webDavPasswordMessageRes(uiState.webDav.provider)
+    RemoteProviderTextField.S3EncryptionPassword -> R.string.settings_s3_encryption_password_message
+    RemoteProviderTextField.S3EncryptionPassword2 -> R.string.settings_s3_encryption_password2_message
+    RemoteProviderTextField.S3RcloneEncryptedSuffix -> R.string.settings_s3_rclone_encrypted_suffix_message
+    else -> null
+}
 
-private fun webDavPasswordMessageRes(provider: WebDavProvider): Int =
-    when (provider) {
-        WebDavProvider.NUTSTORE -> R.string.settings_webdav_password_dialog_message_nutstore
-        WebDavProvider.NEXTCLOUD -> R.string.settings_webdav_password_dialog_message_nextcloud
-        WebDavProvider.CUSTOM -> R.string.settings_webdav_password_dialog_message_custom
-    }
+private fun webDavPasswordMessageRes(provider: WebDavProvider): Int = when (provider) {
+    WebDavProvider.NUTSTORE -> R.string.settings_webdav_password_dialog_message_nutstore
+    WebDavProvider.NEXTCLOUD -> R.string.settings_webdav_password_dialog_message_nextcloud
+    WebDavProvider.CUSTOM -> R.string.settings_webdav_password_dialog_message_custom
+}

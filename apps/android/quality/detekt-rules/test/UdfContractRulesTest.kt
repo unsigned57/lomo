@@ -10,7 +10,6 @@ import dev.detekt.test.utils.compileForTest
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -61,19 +60,20 @@ import kotlin.io.path.writeText
  * Why this is not fitting the test to the implementation: only the cited directory changed; the rule
  *   detection logic, finding counts, and the "finding must cite the contract" guard are unchanged.
  */
-class UdfContractRulesTest : FunSpec({
-    test("registers PagingDataCachedIn, NoWriteOnlyStateFlow, and NoCollaboratorDefaultArg in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("PagingDataCachedIn")].shouldNotBeNull()
-        rules[RuleName("NoWriteOnlyStateFlow")].shouldNotBeNull()
-        rules[RuleName("NoCollaboratorDefaultArg")].shouldNotBeNull()
-    }
+class UdfContractRulesTest :
+    FunSpec({
+        test("registers PagingDataCachedIn, NoWriteOnlyStateFlow, and NoCollaboratorDefaultArg in rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("PagingDataCachedIn")].shouldNotBeNull()
+            rules[RuleName("NoWriteOnlyStateFlow")].shouldNotBeNull()
+            rules[RuleName("NoCollaboratorDefaultArg")].shouldNotBeNull()
+        }
 
-    test("PagingDataCachedIn: flags Flow<PagingData> property whose chain lacks cachedIn") {
-        val findings =
-            rule("PagingDataCachedIn").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("PagingDataCachedIn: flags Flow<PagingData> property whose chain lacks cachedIn") {
+            val findings =
+                rule("PagingDataCachedIn").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.paging.PagingData
@@ -86,20 +86,20 @@ class UdfContractRulesTest : FunSpec({
                     val pagedMemos: Flow<PagingData<Memo>> = pager.flow.map { it }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "'pagedMemos'"
-        findings.single().message shouldContain "cachedIn"
-        findings.single().message shouldContain "quality/udf-contract.md"
-        findings.single().message shouldContain "F10"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "'pagedMemos'"
+            findings.single().message shouldContain "cachedIn"
+            findings.single().message shouldContain "quality/udf-contract.md"
+            findings.single().message shouldContain "F10"
+        }
 
-    test("PagingDataCachedIn: allows Flow<PagingData> property whose chain applies cachedIn") {
-        val findings =
-            rule("PagingDataCachedIn").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("PagingDataCachedIn: allows Flow<PagingData> property whose chain applies cachedIn") {
+            val findings =
+                rule("PagingDataCachedIn").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.paging.PagingData
@@ -112,16 +112,16 @@ class UdfContractRulesTest : FunSpec({
                     val pagedMemos: Flow<PagingData<Memo>> = pager.flow.cachedIn(viewModelScope)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("PagingDataCachedIn: allows uncached private intermediate with uncached-paging-ok marker") {
-        val findings =
-            rule("PagingDataCachedIn").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("PagingDataCachedIn: allows uncached private intermediate with uncached-paging-ok marker") {
+            val findings =
+                rule("PagingDataCachedIn").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.paging.PagingData
@@ -137,16 +137,16 @@ class UdfContractRulesTest : FunSpec({
                     val pagedMemos: Flow<PagingData<Memo>> = memoPagingData.filterNotNull().cachedIn(scope)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("PagingDataCachedIn: allows pure pass-through PagingData delegation without any call") {
-        val findings =
-            rule("PagingDataCachedIn").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("PagingDataCachedIn: allows pure pass-through PagingData delegation without any call") {
+            val findings =
+                rule("PagingDataCachedIn").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.paging.PagingData
@@ -158,16 +158,16 @@ class UdfContractRulesTest : FunSpec({
                     val pagedMemos: Flow<PagingData<Memo>> = listStateHolder.pagedMemos
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("PagingDataCachedIn: flags function returning uncached Flow<PagingData> and allows cachedIn body") {
-        val findings =
-            rule("PagingDataCachedIn").findingsForSource(
-                "app/src/feature/SamplePager.kt",
-                """
+        test("PagingDataCachedIn: flags function returning uncached Flow<PagingData> and allows cachedIn body") {
+            val findings =
+                rule("PagingDataCachedIn").findingsForSource(
+                    "app/src/feature/SamplePager.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.paging.PagingData
@@ -182,18 +182,18 @@ class UdfContractRulesTest : FunSpec({
                     fun cachedPaging(): Flow<PagingData<Memo>> = pager.flow.cachedIn(scope)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "'uncachedPaging'"
-        findings.single().message shouldContain "quality/udf-contract.md"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "'uncachedPaging'"
+            findings.single().message shouldContain "quality/udf-contract.md"
+        }
 
-    test("PagingDataCachedIn: ignores non-Flow PagingData types") {
-        val findings =
-            rule("PagingDataCachedIn").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("PagingDataCachedIn: ignores non-Flow PagingData types") {
+            val findings =
+                rule("PagingDataCachedIn").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.paging.PagingData
@@ -204,16 +204,16 @@ class UdfContractRulesTest : FunSpec({
                     val snapshot: PagingData<Memo> = PagingData.empty()
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("PagingDataCachedIn: ignores Flow<PagingData> outside /app/src/") {
-        val findings =
-            rule("PagingDataCachedIn").findingsForSource(
-                "data/src/paging/SamplePagerRepository.kt",
-                """
+        test("PagingDataCachedIn: ignores Flow<PagingData> outside /app/src/") {
+            val findings =
+                rule("PagingDataCachedIn").findingsForSource(
+                    "data/src/paging/SamplePagerRepository.kt",
+                    """
                 package com.lomo.data.paging
 
                 import androidx.paging.PagingData
@@ -226,16 +226,16 @@ class UdfContractRulesTest : FunSpec({
                     val pagedMemos: Flow<PagingData<Memo>> = pager.flow.map { it }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoWriteOnlyStateFlow: flags private MutableStateFlow that is only written") {
-        val findings =
-            rule("NoWriteOnlyStateFlow").findingsForSource(
-                "app/src/feature/common/SampleReplacementHolder.kt",
-                """
+        test("NoWriteOnlyStateFlow: flags private MutableStateFlow that is only written") {
+            val findings =
+                rule("NoWriteOnlyStateFlow").findingsForSource(
+                    "app/src/feature/common/SampleReplacementHolder.kt",
+                    """
                 package com.lomo.app.feature.common
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -253,20 +253,20 @@ class UdfContractRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Write-only StateFlow '_contentReplacements'"
-        findings.single().message shouldContain "RF4"
-        findings.single().message shouldContain "quality/udf-contract.md"
-        findings.single().message shouldContain "write-only-flow-ok"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Write-only StateFlow '_contentReplacements'"
+            findings.single().message shouldContain "RF4"
+            findings.single().message shouldContain "quality/udf-contract.md"
+            findings.single().message shouldContain "write-only-flow-ok"
+        }
 
-    test("NoWriteOnlyStateFlow: allows MutableStateFlow that is read in its class") {
-        val findings =
-            rule("NoWriteOnlyStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("NoWriteOnlyStateFlow: allows MutableStateFlow that is read in its class") {
+            val findings =
+                rule("NoWriteOnlyStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -281,16 +281,16 @@ class UdfContractRulesTest : FunSpec({
                     fun normalizedQuery(): String = _query.value
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoWriteOnlyStateFlow: allows write-only MutableStateFlow with write-only-flow-ok marker") {
-        val findings =
-            rule("NoWriteOnlyStateFlow").findingsForSource(
-                "app/src/feature/common/SampleReplacementHolder.kt",
-                """
+        test("NoWriteOnlyStateFlow: allows write-only MutableStateFlow with write-only-flow-ok marker") {
+            val findings =
+                rule("NoWriteOnlyStateFlow").findingsForSource(
+                    "app/src/feature/common/SampleReplacementHolder.kt",
+                    """
                 package com.lomo.app.feature.common
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -304,16 +304,16 @@ class UdfContractRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoWriteOnlyStateFlow: ignores non-private MutableStateFlow") {
-        val findings =
-            rule("NoWriteOnlyStateFlow").findingsForSource(
-                "app/src/feature/common/SampleReplacementHolder.kt",
-                """
+        test("NoWriteOnlyStateFlow: ignores non-private MutableStateFlow") {
+            val findings =
+                rule("NoWriteOnlyStateFlow").findingsForSource(
+                    "app/src/feature/common/SampleReplacementHolder.kt",
+                    """
                 package com.lomo.app.feature.common
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -326,16 +326,16 @@ class UdfContractRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoWriteOnlyStateFlow: ignores write-only MutableStateFlow outside /app/src/") {
-        val findings =
-            rule("NoWriteOnlyStateFlow").findingsForSource(
-                "data/src/cache/SampleCache.kt",
-                """
+        test("NoWriteOnlyStateFlow: ignores write-only MutableStateFlow outside /app/src/") {
+            val findings =
+                rule("NoWriteOnlyStateFlow").findingsForSource(
+                    "data/src/cache/SampleCache.kt",
+                    """
                 package com.lomo.data.cache
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -353,19 +353,19 @@ class UdfContractRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoCollaboratorDefaultArg: flags constructor default arg whose type matches configured token") {
-        val findings =
-            rule(
-                "NoCollaboratorDefaultArg",
-                TestConfig("forbiddenTypeTokens" to listOf("Bus", "Registry", "Coordinator")),
-            ).findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoCollaboratorDefaultArg: flags constructor default arg whose type matches configured token") {
+            val findings =
+                rule(
+                    "NoCollaboratorDefaultArg",
+                    TestConfig("forbiddenTypeTokens" to listOf("Bus", "Registry", "Coordinator")),
+                ).findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class StoreInvalidationBus {
@@ -376,23 +376,23 @@ class UdfContractRulesTest : FunSpec({
                     private val bus: StoreInvalidationBus = StoreInvalidationBus(),
                 )
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "'bus'"
-        findings.single().message shouldContain "Q6"
-        findings.single().message shouldContain "quality/udf-contract.md"
-        findings.single().message shouldContain "collaborator-default-ok"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "'bus'"
+            findings.single().message shouldContain "Q6"
+            findings.single().message shouldContain "quality/udf-contract.md"
+            findings.single().message shouldContain "collaborator-default-ok"
+        }
 
-    test("NoCollaboratorDefaultArg: allows constructor parameter without default") {
-        val findings =
-            rule(
-                "NoCollaboratorDefaultArg",
-                TestConfig("forbiddenTypeTokens" to listOf("Bus", "Registry", "Coordinator")),
-            ).findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoCollaboratorDefaultArg: allows constructor parameter without default") {
+            val findings =
+                rule(
+                    "NoCollaboratorDefaultArg",
+                    TestConfig("forbiddenTypeTokens" to listOf("Bus", "Registry", "Coordinator")),
+                ).findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class StoreInvalidationBus
@@ -401,19 +401,19 @@ class UdfContractRulesTest : FunSpec({
                     private val bus: StoreInvalidationBus,
                 )
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoCollaboratorDefaultArg: allows default arg whose type matches no configured token") {
-        val findings =
-            rule(
-                "NoCollaboratorDefaultArg",
-                TestConfig("forbiddenTypeTokens" to listOf("Bus", "Registry", "Coordinator")),
-            ).findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoCollaboratorDefaultArg: allows default arg whose type matches no configured token") {
+            val findings =
+                rule(
+                    "NoCollaboratorDefaultArg",
+                    TestConfig("forbiddenTypeTokens" to listOf("Bus", "Registry", "Coordinator")),
+                ).findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class InMemoryMemoRepository
@@ -422,19 +422,19 @@ class UdfContractRulesTest : FunSpec({
                     private val fallback: InMemoryMemoRepository = InMemoryMemoRepository(),
                 )
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoCollaboratorDefaultArg: allows collaborator-default-ok marker") {
-        val findings =
-            rule(
-                "NoCollaboratorDefaultArg",
-                TestConfig("forbiddenTypeTokens" to listOf("Bus", "Registry", "Coordinator")),
-            ).findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoCollaboratorDefaultArg: allows collaborator-default-ok marker") {
+            val findings =
+                rule(
+                    "NoCollaboratorDefaultArg",
+                    TestConfig("forbiddenTypeTokens" to listOf("Bus", "Registry", "Coordinator")),
+                ).findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class StoreInvalidationBus
@@ -444,16 +444,16 @@ class UdfContractRulesTest : FunSpec({
                     private val bus: StoreInvalidationBus = StoreInvalidationBus(),
                 )
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoCollaboratorDefaultArg: requires configured tokens to report") {
-        val findings =
-            rule("NoCollaboratorDefaultArg").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoCollaboratorDefaultArg: requires configured tokens to report") {
+            val findings =
+                rule("NoCollaboratorDefaultArg").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class StoreInvalidationBus
@@ -462,26 +462,19 @@ class UdfContractRulesTest : FunSpec({
                     private val bus: StoreInvalidationBus = StoreInvalidationBus(),
                 )
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
-})
+            findings.shouldHaveSize(0)
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
-    LomoArchitectureRuleSetProvider()
-        .instance()
-        .rules[RuleName(name)]
-        ?.invoke(config)
-        ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
+private fun rule(name: String, config: Config = Config.empty): Rule = LomoArchitectureRuleSetProvider()
+    .instance()
+    .rules[RuleName(name)]
+    ?.invoke(config)
+    ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("detekt-test")
     val file = tempDir.resolve(relativePath)
     file.parent?.createDirectories()

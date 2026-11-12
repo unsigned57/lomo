@@ -25,7 +25,11 @@ class AppUpdateProgressPresentationTest : AppFunSpec() {
             (presentation.tone) shouldBe (UpdateProgressTone.Progress)
             (presentation.progressPercent) shouldBe (42)
             ((presentation.showsDeterminateProgress)) shouldBe true
-            (presentation.supportingMessage) shouldBe (UpdateProgressSupportingMessage.Default(UpdateProgressMessageKey.Downloading))
+            (presentation.supportingMessage) shouldBe (
+                UpdateProgressSupportingMessage.Default(
+                    UpdateProgressMessageKey.Downloading,
+                )
+                )
         }
     }
 
@@ -37,7 +41,11 @@ class AppUpdateProgressPresentationTest : AppFunSpec() {
             (presentation.tone) shouldBe (UpdateProgressTone.Neutral)
             (presentation.progressPercent) shouldBe (null)
             ((presentation.showsDeterminateProgress)) shouldBe false
-            (presentation.supportingMessage) shouldBe (UpdateProgressSupportingMessage.Default(UpdateProgressMessageKey.Preparing))
+            (presentation.supportingMessage) shouldBe (
+                UpdateProgressSupportingMessage.Default(
+                    UpdateProgressMessageKey.Preparing,
+                )
+                )
         }
     }
 
@@ -71,8 +79,11 @@ class AppUpdateProgressPresentationTest : AppFunSpec() {
             (requiresPermission.tone) shouldBe (UpdateProgressTone.Progress)
             (requiresPermission.progressPercent) shouldBe (null)
             ((requiresPermission.showsDeterminateProgress)) shouldBe false
-            (requiresPermission.supportingMessage) shouldBe (UpdateProgressSupportingMessage.Raw("Allow unknown app installs to continue."))
+            (requiresPermission.supportingMessage) shouldBe (
+                UpdateProgressSupportingMessage.Raw(
+                    "Allow unknown app installs to continue.",
+                )
+                )
         }
     }
-
 }

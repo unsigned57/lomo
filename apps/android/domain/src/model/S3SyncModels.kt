@@ -64,11 +64,7 @@ enum class S3SyncReason {
     CONFLICT,
 }
 
-data class S3SyncOutcome(
-    val path: String,
-    val direction: S3SyncDirection,
-    val reason: S3SyncReason,
-)
+data class S3SyncOutcome(val path: String, val direction: S3SyncDirection, val reason: S3SyncReason)
 
 data class S3SyncStatus(
     val remoteFileCount: Int,
@@ -78,18 +74,13 @@ data class S3SyncStatus(
 )
 
 sealed interface S3SyncResult {
-    data class Success(
-        val message: String,
-        val outcomes: List<S3SyncOutcome> = emptyList(),
-    ) : S3SyncResult
+    data class Success(val message: String, val outcomes: List<S3SyncOutcome> = emptyList()) : S3SyncResult
 
     /**
      * WorkManager accepted the enqueue — proves admission only.
      * The durable Rust cycle record owns the terminal outcome.
      */
-    data class Accepted(
-        val message: String,
-    ) : S3SyncResult
+    data class Accepted(val message: String) : S3SyncResult
 
     data class Error(
         val code: S3SyncErrorCode,
@@ -100,15 +91,9 @@ sealed interface S3SyncResult {
 
     data object NotConfigured : S3SyncResult
 
-    data class Conflict(
-        val message: String,
-        val conflicts: SyncConflictSet,
-    ) : S3SyncResult
+    data class Conflict(val message: String, val conflicts: SyncConflictSet) : S3SyncResult
 
-    data class Review(
-        val message: String,
-        val review: SyncReviewSession,
-    ) : S3SyncResult
+    data class Review(val message: String, val review: SyncReviewSession) : S3SyncResult
 }
 
 sealed interface S3SyncState {
@@ -126,32 +111,18 @@ sealed interface S3SyncState {
 
     data object Deleting : S3SyncState
 
-    data class Success(
-        val timestamp: Long,
-        val summary: String,
-    ) : S3SyncState
+    data class Success(val timestamp: Long, val summary: String) : S3SyncState
 
-    data class Error(
-        val code: S3SyncErrorCode,
-        val message: String,
-        val timestamp: Long,
-    ) : S3SyncState
+    data class Error(val code: S3SyncErrorCode, val message: String, val timestamp: Long) : S3SyncState
 
     data object NotConfigured : S3SyncState
 
-    data class PreviewingInitialSync(
-        val review: SyncReviewSession,
-    ) : S3SyncState
+    data class PreviewingInitialSync(val review: SyncReviewSession) : S3SyncState
 
-    data class ConflictDetected(
-        val conflicts: SyncConflictSet,
-    ) : S3SyncState
+    data class ConflictDetected(val conflicts: SyncConflictSet) : S3SyncState
 }
 
-class S3SyncFailureException(
-    val code: S3SyncErrorCode,
-    message: String,
-    cause: Throwable? = null,
-) : Exception(message, cause)
+class S3SyncFailureException(val code: S3SyncErrorCode, message: String, cause: Throwable? = null) :
+    Exception(message, cause)
 
 fun S3SyncStatus.observeLastSyncInstantOrNull(): Instant? = lastSyncTime?.let(Instant::ofEpochMilli)

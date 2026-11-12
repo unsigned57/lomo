@@ -8,15 +8,9 @@ source "$script_dir/kotlin_detekt_env.sh"
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}"
+build_dir="${LOMO_KOTLIN_BUILD_DIR:-${LOMO_GENERATED_ROOT:-$repo_root/target/lomo}/build/kotlin}"
 
-cargo_target="${CARGO_TARGET_DIR:-$repo_root/target}"
-report_root="${LOMO_GENERATED_ROOT:-$cargo_target/lomo}"
-case "$report_root" in
-  /*) ;;
-  *) report_root="$repo_root/$report_root" ;;
-esac
-report_root="$report_root/reports/detekt-test-style"
+report_root="$repo_root/reports/detekt-test-style"
 mkdir -p "$report_root"
 
 echo "kotlin-test-style-check: ensuring detekt-rules jar exists"

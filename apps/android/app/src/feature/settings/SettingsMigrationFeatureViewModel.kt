@@ -1,11 +1,11 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.usecase.ExportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.MigrationArchiveSummary
-import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.usecase.MigrationSettingsSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -26,9 +26,7 @@ enum class SettingsMigrationOperationKind {
 sealed interface SettingsMigrationOperationState {
     data object Idle : SettingsMigrationOperationState
 
-    data class Running(
-        val kind: SettingsMigrationOperationKind,
-    ) : SettingsMigrationOperationState
+    data class Running(val kind: SettingsMigrationOperationKind) : SettingsMigrationOperationState
 
     data class Success(
         val kind: SettingsMigrationOperationKind,
@@ -36,10 +34,7 @@ sealed interface SettingsMigrationOperationState {
         val settingsSummary: MigrationSettingsSummary = MigrationSettingsSummary(),
     ) : SettingsMigrationOperationState
 
-    data class Error(
-        val kind: SettingsMigrationOperationKind,
-        val message: String,
-    ) : SettingsMigrationOperationState
+    data class Error(val kind: SettingsMigrationOperationKind, val message: String) : SettingsMigrationOperationState
 }
 
 class SettingsMigrationFeatureViewModel(
@@ -79,10 +74,7 @@ class SettingsMigrationFeatureViewModel(
         }
     }
 
-    fun exportEncryptedSettings(
-        password: String,
-        openOutput: () -> OutputStream?,
-    ) {
+    fun exportEncryptedSettings(password: String, openOutput: () -> OutputStream?) {
         runMigration(SettingsMigrationOperationKind.EXPORT_SETTINGS) {
             val summary =
                 requireNotNull(openOutput()) { "Unable to open settings export file" }.use { output ->
@@ -95,10 +87,7 @@ class SettingsMigrationFeatureViewModel(
         }
     }
 
-    fun importEncryptedSettings(
-        password: String,
-        openInput: () -> InputStream?,
-    ) {
+    fun importEncryptedSettings(password: String, openInput: () -> InputStream?) {
         runMigration(SettingsMigrationOperationKind.IMPORT_SETTINGS) {
             val summary =
                 requireNotNull(openInput()) { "Unable to open settings import file" }.use { input ->

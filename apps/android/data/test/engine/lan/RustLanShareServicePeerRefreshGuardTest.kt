@@ -32,6 +32,20 @@ package com.lomo.data.engine.lan
  * - NSD discovery, WorkManager, Keystore signing, chunk transmission and workspace readiness
  *   transitions; the runtime coordinator is exercised only through its initial StateFlow
  *   emission, exactly what production init does.
+ * Test Change Justification:
+ * Reason category: production API removal (racy adapter-presence probe).
+ * Old behavior/assertion being replaced: the hosted-engine scenario stubbed
+ *   ManagedEngineSession.hasActiveEngineAdapter() = true before listLanPeers().
+ * Why old assertion is no longer correct: the probe-then-call pair raced adapter retirement;
+ *   listLanPeers() now captures the installed adapter atomically and answers an empty page
+ *   when none exists, so the probe is deleted.
+ * Coverage preserved by: both scenarios keep their trustedPeers/incomingBatches assertions;
+ *   ManagedEngineSessionTest pins the unhosted listLanPeers/stopLanService answers.
+ * Why this is not fitting the test to the implementation: no expected product outcome changed;
+ *   only a stub for a deleted method was removed.
+ * Production scope: apps/android/data/src/engine/lan/RustLanShareService.kt
+ * Production scope: apps/android/data/src/engine/ManagedEngineSession.kt
+ * Production scope: apps/android/data/src/engine/ManagedEngineCapabilities.kt
  */
 
 import com.lomo.data.engine.CandidateOpenContext
@@ -42,10 +56,10 @@ import com.lomo.data.local.datastore.LomoLanSharePreferencesStore
 import com.lomo.data.repository.StoreInvalidationBus
 import com.lomo.data.share.LanShareDiscoveryCoordinator
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.LanTrustedPeer
 import com.lomo.domain.model.StorageFilenameFormats
-import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.usecase.SingleDispatcherProvider
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.shouldBe
@@ -114,21 +128,19 @@ private object PeerGuardCoordinatorEngine : LanCoordinatorEngine {
 
     override fun stopLanService(): LanServiceState = LanServiceState(LanServicePhase.Stopped, null)
 
-    override fun lanProtocolLimits(): LanProtocolLimits =
-        LanProtocolLimits(
-            protocolVersion = 1u,
-            pairingTtlMs = 1L,
-            sessionTtlMs = 1L,
-            approvalTtlMs = 1L,
-        )
+    override fun lanProtocolLimits(): LanProtocolLimits = LanProtocolLimits(
+        protocolVersion = 1u,
+        pairingTtlMs = 1L,
+        sessionTtlMs = 1L,
+        approvalTtlMs = 1L,
+    )
 
     override suspend fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
         error("inbox polling is not started in these scenarios")
 
     override fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long) = Unit
 
-    override fun resolveReceivedLanItem(batchId: String, itemIndex: UInt, resolution: LanReceivedItemResolution) =
-        Unit
+    override fun resolveReceivedLanItem(batchId: String, itemIndex: UInt, resolution: LanReceivedItemResolution) = Unit
 }
 
 private class PeerGuardDiscoveryCoordinator : LanShareDiscoveryCoordinator {
@@ -147,8 +159,7 @@ private class PeerGuardDiscoveryCoordinator : LanShareDiscoveryCoordinator {
 }
 
 private object PeerGuardNetworkMonitor : LanRuntimeNetworkMonitor {
-    override fun snapshot() =
-        LanPlatformNetworkSnapshot(permissionGranted = false, candidates = emptyList())
+    override fun snapshot() = LanPlatformNetworkSnapshot(permissionGranted = false, candidates = emptyList())
 
     override fun start(onChanged: (LanPlatformNetworkSnapshot) -> Unit) = Unit
 
@@ -177,17 +188,17 @@ class RustLanShareServicePeerRefreshGuardTest : DataFunSpec() {
                     val session =
                         ManagedEngineSession(
                             candidateOpen =
-                                CandidateOpenContext(
-                                    filesDir = filesDir,
-                                    openAdapter = { error("engine must never open in this scenario") },
-                                    isContentUri = { false },
-                                    sessionDateFormat =
-                                        SessionDateFormatSource {
-                                            StorageFilenameFormats.DEFAULT_PATTERN
-                                        },
-                                ),
+                            CandidateOpenContext(
+                                filesDir = filesDir,
+                                openAdapter = { error("engine must never open in this scenario") },
+                                isContentUri = { false },
+                                sessionDateFormat =
+                                SessionDateFormatSource {
+                                    StorageFilenameFormats.DEFAULT_PATTERN
+                                },
+                            ),
                             capabilityRegistry = CapabilityRegistry(),
-                            directorySettingsRepository = mockk<DirectorySettingsRepository>(relaxed = true),
+                            directorySettingsRepository = FakeDirectorySettingsRepository(),
                             appScope = backgroundScope,
                             invalidation = StoreInvalidationBus(),
                         )
@@ -204,7 +215,7 @@ class RustLanShareServicePeerRefreshGuardTest : DataFunSpec() {
                         )
                     val service =
                         RustLanShareService(
-                            context = mockk(relaxed = true),
+                            context = mockk(),
                             preferences = PeerGuardPreferences(),
                             engine = session,
                             runtime = runtime,
@@ -228,28 +239,27 @@ class RustLanShareServicePeerRefreshGuardTest : DataFunSpec() {
             runTest {
                 val lane = UnconfinedTestDispatcher(testScheduler)
                 val session = mockk<ManagedEngineSession>()
-                every { session.hasActiveEngineAdapter() } returns true
                 every { session.listLanPeers() } returns
                     LanPeerPage(
                         peers =
-                            listOf(
-                                LanPeer(
-                                    deviceId = "desk-1",
-                                    displayName = "Desk",
-                                    publicKey = ByteArray(65) { 3 },
-                                    pairedAtMs = 42L,
-                                    revoked = false,
-                                    revokedAtMs = null,
-                                ),
-                                LanPeer(
-                                    deviceId = "revoked-1",
-                                    displayName = "Old",
-                                    publicKey = ByteArray(65) { 4 },
-                                    pairedAtMs = 7L,
-                                    revoked = true,
-                                    revokedAtMs = 9L,
-                                ),
+                        listOf(
+                            LanPeer(
+                                deviceId = "desk-1",
+                                displayName = "Desk",
+                                publicKey = ByteArray(65) { 3 },
+                                pairedAtMs = 42L,
+                                revoked = false,
+                                revokedAtMs = null,
                             ),
+                            LanPeer(
+                                deviceId = "revoked-1",
+                                displayName = "Old",
+                                publicKey = ByteArray(65) { 4 },
+                                pairedAtMs = 7L,
+                                revoked = true,
+                                revokedAtMs = 9L,
+                            ),
+                        ),
                         total = 2u,
                     )
                 val runtime =
@@ -265,7 +275,7 @@ class RustLanShareServicePeerRefreshGuardTest : DataFunSpec() {
                     )
                 val service =
                     RustLanShareService(
-                        context = mockk(relaxed = true),
+                        context = mockk(),
                         preferences = PeerGuardPreferences(),
                         engine = session,
                         runtime = runtime,

@@ -9,10 +9,7 @@ internal data class MemoDisplayTextState(
     var chineseParenthesisDepth: Int = 0,
 )
 
-internal data class NormalizedChunk(
-    val text: String,
-    val nextIndex: Int,
-)
+internal data class NormalizedChunk(val text: String, val nextIndex: Int)
 
 internal fun AnnotatedString.Builder.appendNormalizedDisplayLiteral(
     source: CharSequence,
@@ -26,10 +23,7 @@ internal fun AnnotatedString.Builder.appendNormalizedDisplayLiteral(
     )
 }
 
-internal fun AnnotatedString.Builder.appendBoundarySpaceIfNeeded(
-    nextVisibleChar: Char?,
-    state: MemoDisplayTextState,
-) {
+internal fun AnnotatedString.Builder.appendBoundarySpaceIfNeeded(nextVisibleChar: Char?, state: MemoDisplayTextState) {
     if (
         nextVisibleChar == null ||
         !canInsertBoundarySpace(
@@ -108,14 +102,13 @@ private fun consumeSpecialChunk(
     index: Int,
     previousVisibleChar: Char?,
     state: MemoDisplayTextState,
-): NormalizedChunk? =
-    consumeDashRunChunk(
-        source = source,
-        index = index,
-        previousVisibleChar = previousVisibleChar,
-    ) ?: consumeRepeatedQuoteChunk(
-        source = source,
-        index = index,
-        previousVisibleChar = previousVisibleChar,
-        state = state,
-    )
+): NormalizedChunk? = consumeDashRunChunk(
+    source = source,
+    index = index,
+    previousVisibleChar = previousVisibleChar,
+) ?: consumeRepeatedQuoteChunk(
+    source = source,
+    index = index,
+    previousVisibleChar = previousVisibleChar,
+    state = state,
+)

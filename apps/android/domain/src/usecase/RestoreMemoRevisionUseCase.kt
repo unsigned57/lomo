@@ -5,14 +5,8 @@ import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.repository.MemoMutationRepository
 
-class RestoreMemoRevisionUseCase(
-    private val repository: MemoMutationRepository,
-) {
-    suspend operator fun invoke(
-        memo: Memo,
-        revision: MemoRevision,
-        operationId: MemoOperationId,
-    ) {
+class RestoreMemoRevisionUseCase(private val repository: MemoMutationRepository) {
+    suspend operator fun invoke(memo: Memo, revision: MemoRevision, operationId: MemoOperationId) {
         repository.restoreMemoRevision(
             currentMemo = memo,
             revision = revision,

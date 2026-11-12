@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract (Stage-6 P6-09 engine-owned LAN runtime FFI)
 //!
 //! Capability: the one `LomoEngine` handle owns LAN lifecycle and accepts only conversion DTOs for
@@ -16,6 +25,11 @@
 //!   fails before LAN I/O; preview/reject still fail against their own missing session/batch state.
 //! - Given an inbox wait whose generation did not advance, when it completes, then the DTO carries
 //!   no snapshot, so a caller never refetches identical state through a second call.
+//!
+//! - Given a stopped listener with the same or a newer caller generation, when an observer
+//!   arrives, then it returns the stopped generation immediately instead of delaying engine close.
+//!
+//! TDD proof (retirement): reports/manual/trash-index-picker/lan-stop-red.log and lan-stop-green.log.
 //!
 //! Observable outcomes: `LanServiceSnapshotDto`, discovered endpoint DTOs and `EngineError.code`.
 //!
@@ -328,7 +342,7 @@ mod tests {
         let challenge = engine_a
             .begin_lan_pairing(id_b, now_ms(), PAIRING_TTL_MS)
             .test_ok("a valid hello still exchanges after rejected input");
-        assert!(!challenge.pairing_id.is_empty());
+        assert_ne!(challenge.pairing_id, "");
         let observed = engine_b
             .await_lan_inbox(second.generation, 10_000)
             .test_ok("the tablet inbox surfaces the valid pairing work");
@@ -411,6 +425,41 @@ mod tests {
             .await_lan_inbox(0, 10_000)
             .test_err("a second waiter observes the same failure");
         assert_eq!(first.code(), second.code());
+    }
+
+    #[test]
+    fn stopped_listener_does_not_wait_for_equal_or_future_observer_generations() {
+        use std::{sync::mpsc, thread, time::Duration};
+        let (_root, engine) = engine();
+        engine
+            .stop_lan_service()
+            .test_ok("listener stops before observation");
+        let stopped_generation = engine
+            .await_lan_inbox(0, 0)
+            .test_ok("stopped generation")
+            .generation;
+        for generation in [stopped_generation, stopped_generation + 1] {
+            thread::scope(|scope| {
+                let (send, receive) = mpsc::channel();
+                let engine = &engine;
+                let worker = scope.spawn(move || {
+                    send.send(engine.await_lan_inbox(generation, 5_000))
+                        .test_ok("send observation");
+                });
+                // The stopped state is established before spawning. The deadline only bounds
+                // a broken observer; no sleep controls the shutdown ordering.
+                let observed = receive.recv_timeout(Duration::from_secs(1));
+                worker.join().test_ok("observer joins even on RED");
+                let observed = observed
+                    .test_ok("stopped observers must not wait for their deadline")
+                    .test_ok("stopped observation returns");
+                assert_eq!(observed.generation, stopped_generation);
+                assert!(
+                    observed.inbox.is_none(),
+                    "unchanged stopped state has no new inbox"
+                );
+            });
+        }
     }
 
     #[test]

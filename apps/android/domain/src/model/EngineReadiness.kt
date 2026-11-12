@@ -39,11 +39,7 @@ enum class RecoveryWorkspaceKind {
  * token. Exporting it would turn a recovery feature into a data-exfiltration path. The report keeps
  * only typed facts whose values are constrained at construction.
  */
-data class RecoveryDiagnosticReport(
-    val schemaVersion: Int,
-    val fileName: String,
-    val content: String,
-) {
+data class RecoveryDiagnosticReport(val schemaVersion: Int, val fileName: String, val content: String) {
     init {
         require(schemaVersion == SCHEMA_VERSION) { "Unsupported recovery diagnostic schema" }
         require(fileName == FILE_NAME) { "Recovery diagnostic filename must be canonical" }
@@ -89,13 +85,13 @@ fun EngineReadiness.ReadOnlyRecovery.toDiagnosticReport(
         schemaVersion = RecoveryDiagnosticReport.SCHEMA_VERSION,
         fileName = RecoveryDiagnosticReport.FILE_NAME,
         content =
-            buildString {
-                appendLine("lomo_recovery_diagnostic_v1")
-                appendLine("category=${category.wireValue}")
-                appendLine("code=$code")
-                appendLine("retry=${retryDisposition.wireValue}")
-                appendLine("workspace_kind=$workspace")
-            },
+        buildString {
+            appendLine("lomo_recovery_diagnostic_v1")
+            appendLine("category=${category.wireValue}")
+            appendLine("code=$code")
+            appendLine("retry=${retryDisposition.wireValue}")
+            appendLine("workspace_kind=$workspace")
+        },
     )
 }
 
@@ -113,12 +109,16 @@ fun EngineReadiness.requireWritable(writeFrozen: Boolean = false) {
     val blockedReason =
         when (this) {
             is EngineReadiness.Ready -> return
+
             EngineReadiness.AwaitingWorkspaceSelection ->
                 "Engine is awaiting workspace selection; writes are blocked"
+
             EngineReadiness.Opening ->
                 "Engine is opening; writes are blocked until Ready"
+
             is EngineReadiness.ReadOnlyRecovery ->
                 "Engine is in read-only recovery ($code): $diagnostic"
+
             EngineReadiness.ShuttingDown ->
                 "Engine is shutting down; writes are blocked"
         }
@@ -126,5 +126,4 @@ fun EngineReadiness.requireWritable(writeFrozen: Boolean = false) {
 }
 
 /** True only when the Rust engine has published Ready and no workspace switch freeze is active. */
-fun EngineReadiness.isWritable(writeFrozen: Boolean = false): Boolean =
-    this is EngineReadiness.Ready && !writeFrozen
+fun EngineReadiness.isWritable(writeFrozen: Boolean = false): Boolean = this is EngineReadiness.Ready && !writeFrozen

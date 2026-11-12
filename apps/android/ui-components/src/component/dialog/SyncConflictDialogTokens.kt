@@ -9,6 +9,5 @@ internal object SyncConflictDialogTokens {
 
     private const val ScrimAlpha = 0.4f
 
-    fun scrimColor(colorScheme: ColorScheme): Color =
-        colorScheme.scrim.copy(alpha = ScrimAlpha)
+    fun scrimColor(colorScheme: ColorScheme): Color = colorScheme.scrim.copy(alpha = ScrimAlpha)
 }

@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 // adversarial-audit: rendering precision — overlay clearing, menu row math,
 // Unicode geometry, tiny terminals, dialog information density and status-bar
 // truth. Every test asserts the invariant a correct renderer would keep; each
@@ -751,7 +760,7 @@ mod tests {
                         columns: 20,
                         rows: 8,
                         picker: lomo_tui::graphics::SharedPicker::new(
-                            ratatui_image::picker::Picker::from_fontsize((8, 16)),
+                            crate::support::picker_with_font_size((8, 16)),
                         ),
                     },
                     state: lomo_tui::graphics::ImageState::Pending,

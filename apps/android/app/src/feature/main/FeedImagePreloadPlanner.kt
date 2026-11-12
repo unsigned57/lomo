@@ -3,21 +3,15 @@ package com.lomo.app.feature.main
 import com.lomo.app.feature.image.FeedImagePreloadSize
 import com.lomo.app.feature.image.ImagePreloadSpec
 
-internal data class FeedImagePreloadPlan(
-    val startRequests: List<ImagePreloadSpec>,
-    val cancelUrls: Set<String>,
-)
+internal data class FeedImagePreloadPlan(val startRequests: List<ImagePreloadSpec>, val cancelUrls: Set<String>)
 
-internal data class FeedImagePreloadWindow(
-    val placeholdersBefore: Int,
-    val memos: List<MemoUiModel>,
-) {
+internal data class FeedImagePreloadWindow(val placeholdersBefore: Int, val memos: List<MemoUiModel>) {
     init {
         require(placeholdersBefore >= 0) { "placeholdersBefore must be non-negative." }
+        require(memos.size <= Int.MAX_VALUE - placeholdersBefore) { "Loaded window exceeds index range." }
     }
 
-    fun memoAtAbsoluteIndex(index: Int): MemoUiModel? =
-        memos.getOrNull(index - placeholdersBefore)
+    fun memoAtAbsoluteIndex(index: Int): MemoUiModel? = memos.getOrNull(index - placeholdersBefore)
 }
 
 internal class FeedImagePreloadPlanner(
@@ -26,6 +20,7 @@ internal class FeedImagePreloadPlanner(
     private val maxActiveRequests: Int = DEFAULT_MAX_ACTIVE_REQUESTS,
 ) {
     private var activeRequestsByUrl: Map<String, FeedImagePreloadSize> = emptyMap()
+    private var previousViewport: PreloadCursor? = null
 
     init {
         require(lookaheadMemoCount >= 0) { "lookaheadMemoCount must be non-negative." }
@@ -33,10 +28,7 @@ internal class FeedImagePreloadPlanner(
         require(maxActiveRequests > 0) { "maxActiveRequests must be positive." }
     }
 
-    fun planStartup(
-        loadedWindow: FeedImagePreloadWindow,
-        preloadSize: FeedImagePreloadSize,
-    ): FeedImagePreloadPlan =
+    fun planStartup(loadedWindow: FeedImagePreloadWindow, preloadSize: FeedImagePreloadSize): FeedImagePreloadPlan =
         planForMemos(
             memos = loadedWindow.memos.asSequence().take(startupMemoCount),
             preloadSize = preloadSize,
@@ -48,11 +40,29 @@ internal class FeedImagePreloadPlanner(
         visibleCount: Int,
         preloadSize: FeedImagePreloadSize,
     ): FeedImagePreloadPlan {
-        val safeFirstVisible = firstVisible.coerceAtLeast(0)
-        val safeVisibleCount = visibleCount.coerceAtLeast(0)
-        val visibleEndExclusive = safeFirstVisible + safeVisibleCount
-        val visibleIndices = safeFirstVisible until visibleEndExclusive
-        val lookaheadIndices = visibleEndExclusive until visibleEndExclusive + lookaheadMemoCount
+        require(firstVisible >= 0 && visibleCount >= 0) { "Viewport coordinates must be non-negative." }
+        require(visibleCount <= Int.MAX_VALUE - firstVisible) { "Viewport exceeds index range." }
+        val previous = previousViewport
+        val direction = when {
+            previous == null || firstVisible > previous.firstVisible -> PreloadDirection.FORWARD
+            firstVisible < previous.firstVisible -> PreloadDirection.BACKWARD
+            else -> previous.direction
+        }
+        val travelled = if (previous == null) 0 else kotlin.math.abs(firstVisible - previous.firstVisible)
+        val lookahead = (lookaheadMemoCount.toLong() * maxOf(1, travelled))
+            .coerceAtMost(maxActiveRequests.toLong()).toInt()
+        previousViewport = PreloadCursor(firstVisible, direction)
+        val visibleEndExclusive = firstVisible + visibleCount
+        val loadedEnd = loadedWindow.placeholdersBefore + loadedWindow.memos.size
+        val visibleIndices = firstVisible.coerceAtLeast(loadedWindow.placeholdersBefore) until
+            visibleEndExclusive.coerceAtMost(loadedEnd)
+        val lookaheadIndices = when (direction) {
+            PreloadDirection.FORWARD -> visibleEndExclusive.coerceAtLeast(loadedWindow.placeholdersBefore) until
+                (visibleEndExclusive.toLong() + lookahead).coerceAtMost(loadedEnd.toLong()).toInt()
+
+            PreloadDirection.BACKWARD -> (firstVisible - 1).coerceAtMost(loadedEnd - 1) downTo
+                (firstVisible - lookahead).coerceAtLeast(loadedWindow.placeholdersBefore)
+        }
         return planForIndices(
             loadedWindow = loadedWindow,
             indices = visibleIndices + lookaheadIndices,
@@ -62,25 +72,22 @@ internal class FeedImagePreloadPlanner(
 
     fun reset() {
         activeRequestsByUrl = emptyMap()
+        previousViewport = null
     }
 
     private fun planForIndices(
         loadedWindow: FeedImagePreloadWindow,
         indices: Iterable<Int>,
         preloadSize: FeedImagePreloadSize,
-    ): FeedImagePreloadPlan =
-        planForMemos(
-            memos =
-                indices
-                    .asSequence()
-                    .mapNotNull(loadedWindow::memoAtAbsoluteIndex),
-            preloadSize = preloadSize,
-        )
+    ): FeedImagePreloadPlan = planForMemos(
+        memos =
+        indices
+            .asSequence()
+            .mapNotNull(loadedWindow::memoAtAbsoluteIndex),
+        preloadSize = preloadSize,
+    )
 
-    private fun planForMemos(
-        memos: Sequence<MemoUiModel>,
-        preloadSize: FeedImagePreloadSize,
-    ): FeedImagePreloadPlan {
+    private fun planForMemos(memos: Sequence<MemoUiModel>, preloadSize: FeedImagePreloadSize): FeedImagePreloadPlan {
         val desiredUrls = LinkedHashSet<String>(maxActiveRequests)
         for (memo in memos) {
             for (rawUrl in memo.imageUrls) {
@@ -137,3 +144,7 @@ internal class FeedImagePreloadPlanner(
         private const val DEFAULT_MAX_ACTIVE_REQUESTS = 12
     }
 }
+
+private enum class PreloadDirection { FORWARD, BACKWARD }
+
+private data class PreloadCursor(val firstVisible: Int, val direction: PreloadDirection)

@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract
 //!
 //! Capability: project one `RenderDocumentV1` from the same constrained source bytes that produce
@@ -20,11 +28,25 @@
 //!   then it fails closed with `resource_limit` (no truncated IR).
 //! - Given unknown schema or platform-tainted fields, when IR is inspected, then public types stay
 //!   UI-neutral (no Compose/Android/DB types).
+//! - Given a tight list item followed by a lazy continuation line (`- [ ] task\n#tag`), when
+//!   rendered, then every node span (block, item, synthetic paragraph, inline) is contained by its
+//!   parent span, and the final IR validation rejects any uncontained child.
+//! - Given task-list markers in a tight list and in a loose list (blank-line-separated items,
+//!   the dated-file shape), when rendered, then each marker produces a `TaskItem` semantic fact
+//!   owned by its enclosing item; loose-list paragraph frames must not swallow the marker event.
 //!
+//! - Given toolbar `<u>` markup, when rendered, then balanced tags produce typed underline
+//!   with nested Markdown; code and unmatched tags retain their authored text.
+//!
+//! TDD underline: reports/manual/media-toolbar-search/underline-red.log showed
+//! `before <u>focus</u> after` instead of visible text; underline-green.log passes.
 //! Observable outcomes: `RenderDocumentV1` blocks/inlines, plain-text fingerprint, structured
 //! resource-limit errors, structural same-parse agreement with storage analysis.
 //! TDD proof: RED when workspace render re-tokenizes the body or dual tag/attachment authorities
-//! diverge on adversarial fixtures; GREEN after one parse owns both projections.
+//! diverge on adversarial fixtures; GREEN after one parse owns both projections. Span containment:
+//! RED `cargo test -p lomo-workspace --test render_document_contract every_render_node` reported
+//! `SoftBreak 129..130 / Tag 130..137 outside ByteSpan 111..129` (synthetic tight-item paragraph
+//! kept its first inline's span); GREEN after the paragraph span grows with each appended inline.
 //! Excludes: document patch (P2-04), FFI/native (P2-06), Kotlin presentation (P2-07), production
 //! dual-stack switch (P2-09).
 
@@ -40,12 +62,37 @@ mod tests {
 
     use lomo_core::ErrorCategory;
     use lomo_workspace::{
-        MAX_INLINE_RENDER_UTF8_BYTES, MAX_RENDER_DOCUMENT_NODES, MAX_SEMANTIC_NESTING_DEPTH,
-        RENDER_DOCUMENT_SCHEMA_V1, RenderBlock, RenderDocumentV1, RenderInline, ResourceBudget,
-        SourceBytes, parse_workspace_document, render_markdown,
+        ByteSpan, MAX_INLINE_RENDER_UTF8_BYTES, MAX_RENDER_DOCUMENT_NODES,
+        MAX_SEMANTIC_NESTING_DEPTH, RENDER_DOCUMENT_SCHEMA_V1, RenderBlock, RenderDocumentV1,
+        RenderInline, ResourceBudget, SemanticFactKind, SourceBytes, parse_workspace_document,
+        render_markdown,
     };
     use serde::Deserialize;
     use sha2::{Digest, Sha256};
+
+    #[test]
+    fn toolbar_underline_has_visible_text_without_html_delimiters() {
+        let document = render_markdown(
+            &SourceBytes::try_from_str("before <u>**focus**</u> after").test_ok("source"),
+        )
+        .test_ok("render underline");
+        assert_eq!(document.plain_text(), "before focus after");
+    }
+
+    #[test]
+    fn underline_preserves_nested_markdown_and_does_not_reinterpret_code_or_unbalanced_html() {
+        for (markdown, visible) in [
+            ("<u>outer <u>inner</u></u>", "outer inner"),
+            ("**<u>bold</u>**", "bold"),
+            ("`<u>code</u>`", "<u>code</u>"),
+            ("before <u>unfinished", "before <u>unfinished"),
+            ("before </u>unopened", "before </u>unopened"),
+        ] {
+            let source = SourceBytes::try_from_str(markdown).test_ok("source");
+            let document = render_markdown(&source).test_ok("render");
+            assert_eq!(document.plain_text(), visible, "{markdown}");
+        }
+    }
 
     #[derive(Debug, Deserialize)]
     struct UiSemanticGolden {
@@ -129,6 +176,7 @@ mod tests {
                 RenderInline::Strong { children, .. }
                 | RenderInline::Emphasis { children, .. }
                 | RenderInline::Strikethrough { children, .. }
+                | RenderInline::Underline { children, .. }
                 | RenderInline::Highlight { children, .. }
                 | RenderInline::WikiReference { children, .. } => {
                     count_inlines(children, links, images);
@@ -190,14 +238,14 @@ mod tests {
 
     fn sha256_hex(text: &str) -> String {
         let digest = Sha256::digest(text.as_bytes());
-        format!("{digest:x}")
+        lomo_core::hex_encode(&digest)
     }
 
     #[test]
     fn render_document_schema_and_double_render_are_deterministic() {
         let document = render_fixture("gfm-extensions.md");
         assert_eq!(document.schema_version(), RENDER_DOCUMENT_SCHEMA_V1);
-        assert!(!document.blocks().is_empty());
+        assert_ne!(document.blocks(), []);
         assert!(document.node_count() > 0);
         assert!(document.node_count() <= MAX_RENDER_DOCUMENT_NODES);
 
@@ -482,6 +530,7 @@ mod tests {
                     RenderInline::Strong { children, .. }
                     | RenderInline::Emphasis { children, .. }
                     | RenderInline::Strikethrough { children, .. }
+                    | RenderInline::Underline { children, .. }
                     | RenderInline::Link { children, .. }
                     | RenderInline::WikiReference { children, .. } => walk(
                         children,
@@ -561,6 +610,145 @@ mod tests {
         let deep_err = render_markdown(&deep).test_err("must reject deep nesting");
         assert_eq!(deep_err.category(), ErrorCategory::ResourceLimit);
         assert_eq!(deep_err.code(), "semantic_nesting_too_deep");
+    }
+
+    fn inline_span(inline: &RenderInline) -> ByteSpan {
+        match inline {
+            RenderInline::Text { source_span, .. }
+            | RenderInline::Strong { source_span, .. }
+            | RenderInline::Emphasis { source_span, .. }
+            | RenderInline::Strikethrough { source_span, .. }
+            | RenderInline::Underline { source_span, .. }
+            | RenderInline::Highlight { source_span, .. }
+            | RenderInline::Code { source_span, .. }
+            | RenderInline::Link { source_span, .. }
+            | RenderInline::Image { source_span, .. }
+            | RenderInline::Tag { source_span, .. }
+            | RenderInline::Reminder { source_span, .. }
+            | RenderInline::WikiReference { source_span, .. }
+            | RenderInline::SoftBreak { source_span }
+            | RenderInline::HardBreak { source_span }
+            | RenderInline::HtmlInline { source_span, .. } => *source_span,
+        }
+    }
+
+    fn inline_children(inline: &RenderInline) -> &[RenderInline] {
+        match inline {
+            RenderInline::Strong { children, .. }
+            | RenderInline::Emphasis { children, .. }
+            | RenderInline::Strikethrough { children, .. }
+            | RenderInline::Underline { children, .. }
+            | RenderInline::Highlight { children, .. }
+            | RenderInline::Link { children, .. }
+            | RenderInline::WikiReference { children, .. } => children,
+            RenderInline::Text { .. }
+            | RenderInline::Code { .. }
+            | RenderInline::Image { .. }
+            | RenderInline::Tag { .. }
+            | RenderInline::Reminder { .. }
+            | RenderInline::SoftBreak { .. }
+            | RenderInline::HardBreak { .. }
+            | RenderInline::HtmlInline { .. } => &[],
+        }
+    }
+
+    fn contained(child: ByteSpan, parent: ByteSpan) -> bool {
+        parent.start() <= child.start() && child.end() <= parent.end()
+    }
+
+    fn uncontained_inlines(inlines: &[RenderInline], parent: ByteSpan, out: &mut Vec<String>) {
+        for inline in inlines {
+            let span = inline_span(inline);
+            if !contained(span, parent) {
+                out.push(format!("{inline:?} outside {parent:?}"));
+            }
+            uncontained_inlines(inline_children(inline), span, out);
+        }
+    }
+
+    fn uncontained_blocks(blocks: &[RenderBlock], parent: Option<ByteSpan>, out: &mut Vec<String>) {
+        for block in blocks {
+            let span = match block {
+                RenderBlock::Paragraph { source_span, .. }
+                | RenderBlock::Heading { source_span, .. }
+                | RenderBlock::BlockQuote { source_span, .. }
+                | RenderBlock::List { source_span, .. }
+                | RenderBlock::CodeBlock { source_span, .. }
+                | RenderBlock::ThematicBreak { source_span }
+                | RenderBlock::Table { source_span, .. }
+                | RenderBlock::HtmlBlock { source_span, .. } => *source_span,
+            };
+            if parent.is_some_and(|parent| !contained(span, parent)) {
+                out.push(format!("block {span:?} outside {parent:?}"));
+            }
+            match block {
+                RenderBlock::Paragraph { inlines, .. } | RenderBlock::Heading { inlines, .. } => {
+                    uncontained_inlines(inlines, span, out);
+                }
+                RenderBlock::BlockQuote { blocks, .. } => {
+                    uncontained_blocks(blocks, Some(span), out);
+                }
+                RenderBlock::List { items, .. } => {
+                    for item in items {
+                        if !contained(item.source_span, span) {
+                            out.push(format!("item {:?} outside {span:?}", item.source_span));
+                        }
+                        uncontained_blocks(&item.blocks, Some(item.source_span), out);
+                    }
+                }
+                RenderBlock::Table { header, rows, .. } => {
+                    for cell in header.iter().chain(rows.iter().flatten()) {
+                        if !contained(cell.source_span, span) {
+                            out.push(format!("cell {:?} outside {span:?}", cell.source_span));
+                        }
+                        uncontained_inlines(&cell.inlines, cell.source_span, out);
+                    }
+                }
+                RenderBlock::CodeBlock { .. }
+                | RenderBlock::ThematicBreak { .. }
+                | RenderBlock::HtmlBlock { .. } => {}
+            }
+        }
+    }
+
+    #[test]
+    fn every_render_node_span_is_contained_by_its_parent_span() {
+        let sources = [
+            "## 本周计划\n- [ ] 完成 M3E 改造方案\n- [x] 修复同步冲突对话框\n- [ ] 整理读书笔记\n- [ ] 给猫预约疫苗\n#工作 #todo",
+            "- item one\n#tag",
+            "- [ ] task\n  continuation #tag\n",
+            "> quote #tag\nlazy line #other",
+            "1. first\n2. second #tag\n#trailing",
+        ];
+        for text in sources {
+            let source = SourceBytes::try_from_str(text).test_ok("utf-8");
+            let document = render_markdown(&source).test_ok("render");
+            let mut violations = Vec::new();
+            uncontained_blocks(document.blocks(), None, &mut violations);
+            assert!(violations.is_empty(), "source {text:?}: {violations:#?}");
+        }
+    }
+
+    #[test]
+    fn task_markers_in_tight_and_loose_lists_produce_task_facts() {
+        for text in [
+            "- [ ] a\n- [x] b\n",
+            "- [ ] a\n\n- [x] b\n",
+            "- 09:30:00\n## plan\n- [ ] task one\n- [x] task two\n\n- 12:00:00\nother memo\n",
+        ] {
+            let source = SourceBytes::try_from_str(text).test_ok("utf-8");
+            let document = render_markdown(&source).test_ok("render");
+            let facts: Vec<_> = document
+                .semantic_facts()
+                .iter()
+                .filter(|fact| fact.kind() == SemanticFactKind::TaskItem)
+                .collect();
+            assert_eq!(facts.len(), 2, "source {text:?}: {facts:#?}");
+            for fact in facts {
+                let sliced = source.slice(fact.source_span()).test_ok("task span");
+                assert_eq!(sliced, fact.value(), "source {text:?} fact {fact:?}");
+            }
+        }
     }
 
     #[test]

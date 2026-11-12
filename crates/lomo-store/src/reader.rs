@@ -141,6 +141,18 @@ impl StoreReader {
         Ok(result)
     }
 
+    /// Reads only active reminder facts and their revision in one snapshot.
+    ///
+    /// # Errors
+    /// Returns projection storage or reminder corruption errors.
+    pub fn reminder_projections(
+        &self,
+    ) -> Result<(u64, Vec<crate::MemoReminderProjection>), LomoError> {
+        self.snapshot(|connection, revision| {
+            Ok((revision, crate::query_reminder_projections(connection)?))
+        })
+    }
+
     /// Bounded memo query with a revision-coupled cursor.
     ///
     /// # Errors

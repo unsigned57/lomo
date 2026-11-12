@@ -14,11 +14,8 @@ internal class MemoMediaCommitPipeline(
     private val pendingStages: PendingMediaStageRegistry,
     private val committedMediaSink: CommittedMediaLocationSink,
 ) {
-    fun plansForOperation(
-        operationId: String,
-        draftId: DraftId,
-    ): List<MediaPromotePlan> = pendingStages.plansForOperation(operationId, draftId)
+    fun plansForOperation(operationId: String, draftId: DraftId): List<MediaPromotePlan> =
+        pendingStages.plansForOperation(operationId, draftId)
 
-    fun publishCommittedMedia(plans: List<MediaPromotePlan>) =
-        committedMediaSink.publishCommittedMedia(plans)
+    fun publishCommittedMedia(plans: List<MediaPromotePlan>) = committedMediaSink.publishCommittedMedia(plans)
 }

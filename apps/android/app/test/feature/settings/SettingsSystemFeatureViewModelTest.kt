@@ -1,16 +1,15 @@
 package com.lomo.app.feature.settings
-import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
-
+import android.content.Context
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeAppUpdateDownloadRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
 import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
-import android.content.Context
 import com.lomo.app.testing.fakes.FakeSyncInboxRepository
-import com.lomo.app.testing.fakes.FakeAppUpdateDownloadRepository
+import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 import com.lomo.domain.model.AppUpdateAssetCandidate
 import com.lomo.domain.model.AppUpdateAssetVerification
 import com.lomo.domain.model.AppUpdateFetchException
@@ -30,7 +29,6 @@ import io.kotest.matchers.shouldBe
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -81,7 +79,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
             runTest {
                 val fixture = systemFeatureFixture(
                     currentVersion = "0.9.1",
-                    appUpdateRepository = FakeAppUpdateRepository(staleRelease())
+                    appUpdateRepository = FakeAppUpdateRepository(staleRelease()),
                 )
 
                 val feature = SettingsSystemFeatureViewModel(
@@ -112,14 +110,14 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                             htmlUrl = "https://example.com/releases/1.0.0",
                             body = "notes",
                             assetCandidates =
-                                listOf(
-                                    verifiedCandidate(
-                                        fileName = "lomo-v1.0.0.apk",
-                                        downloadUrl = "https://example.com/assets/lomo-v1.0.0.apk",
-                                        sizeBytes = 4_096L,
-                                        versionName = "1.0.0",
-                                    ),
+                            listOf(
+                                verifiedCandidate(
+                                    fileName = "lomo-v1.0.0.apk",
+                                    downloadUrl = "https://example.com/assets/lomo-v1.0.0.apk",
+                                    sizeBytes = 4_096L,
+                                    versionName = "1.0.0",
                                 ),
+                            ),
                         )
                     }
                 }
@@ -127,7 +125,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                 val fixture = systemFeatureFixture(
                     currentVersion = "0.9.1",
                     checkUpdatesOnStartupEnabled = false,
-                    appUpdateRepository = fakeAppUpdateRepository
+                    appUpdateRepository = fakeAppUpdateRepository,
                 )
 
                 val feature = SettingsSystemFeatureViewModel(
@@ -171,7 +169,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                 val fixture = systemFeatureFixture(
                     currentVersion = "0.9.1",
                     checkUpdatesOnStartupEnabled = true,
-                    appUpdateRepository = FakeAppUpdateRepository(staleRelease())
+                    appUpdateRepository = FakeAppUpdateRepository(staleRelease()),
                 )
 
                 val feature = SettingsSystemFeatureViewModel(
@@ -192,14 +190,13 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
         test("manual update check exposes error state when checker throws") {
             runTest {
                 val fakeAppUpdateRepository = object : AppUpdateRepository {
-                    override suspend fun fetchLatestRelease(): LatestAppRelease {
+                    override suspend fun fetchLatestRelease(): LatestAppRelease =
                         throw AppUpdateFetchException(AppUpdateFetchFailure.Network("network down"))
-                    }
                 }
                 val fixture = systemFeatureFixture(
                     currentVersion = "0.9.1",
                     checkUpdatesOnStartupEnabled = true,
-                    appUpdateRepository = fakeAppUpdateRepository
+                    appUpdateRepository = fakeAppUpdateRepository,
                 )
 
                 val feature = SettingsSystemFeatureViewModel(
@@ -217,26 +214,28 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
             }
         }
 
-        test("debug latest release preview exposes a real release dialog even when normal version filtering would hide it") {
+        test(
+            "debug latest release preview exposes a real release dialog even when normal version filtering would hide it",
+        ) {
             runTest {
                 val latestRelease = LatestAppRelease(
                     tagName = "v1.0.0",
                     htmlUrl = "https://example.com/releases/1.0.0",
                     body = "[FORCE_UPDATE]\npreview notes",
                     assetCandidates =
-                        listOf(
-                            verifiedCandidate(
-                                fileName = "lomo-v1.0.0.apk",
-                                downloadUrl = "https://example.com/assets/lomo-v1.0.0.apk",
-                                sizeBytes = 8_192L,
-                                versionName = "1.0.0",
-                            ),
+                    listOf(
+                        verifiedCandidate(
+                            fileName = "lomo-v1.0.0.apk",
+                            downloadUrl = "https://example.com/assets/lomo-v1.0.0.apk",
+                            sizeBytes = 8_192L,
+                            versionName = "1.0.0",
                         ),
+                    ),
                 )
                 val fixture = systemFeatureFixture(
                     currentVersion = "1.0.0-DEBUG",
                     checkUpdatesOnStartupEnabled = true,
-                    appUpdateRepository = FakeAppUpdateRepository(latestRelease)
+                    appUpdateRepository = FakeAppUpdateRepository(latestRelease),
                 )
 
                 val feature = SettingsSystemFeatureViewModel(
@@ -275,18 +274,15 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
         override suspend fun fetchLatestRelease(): LatestAppRelease = latestRelease
     }
 
-    private fun staleRelease(): LatestAppRelease =
-        LatestAppRelease(
-            tagName = "v0.9.0",
-            htmlUrl = "https://example.com/releases/0.9.0",
-            body = "older",
-            assetCandidates = emptyList(),
-        )
+    private fun staleRelease(): LatestAppRelease = LatestAppRelease(
+        tagName = "v0.9.0",
+        htmlUrl = "https://example.com/releases/0.9.0",
+        body = "older",
+        assetCandidates = emptyList(),
+    )
 
-    private class FakeAppRuntimeInfoRepository(
-        val currentVersion: String,
-        val currentVersionCode: Long? = null,
-    ) : AppRuntimeInfoRepository {
+    private class FakeAppRuntimeInfoRepository(val currentVersion: String, val currentVersionCode: Long? = null) :
+        AppRuntimeInfoRepository {
         override suspend fun getCurrentVersionName(): String = currentVersion
 
         override suspend fun getCurrentVersionCode(): Long? = currentVersionCode
@@ -301,7 +297,12 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
         kotlinx.coroutines.runBlocking {
             appConfigRepository.setCheckUpdatesOnStartup(checkUpdatesOnStartupEnabled)
         }
-        val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, FakeWorkspaceStateResolver(), FakeWorkspaceMutationLease(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository())
+        val switchRootStorageUseCase = SwitchRootStorageUseCase(
+            appConfigRepository,
+            FakeWorkspaceStateResolver(),
+            FakeWorkspaceMutationLease(),
+            com.lomo.app.testing.fakes.FakeEngineReadinessRepository(),
+        )
         val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository(currentVersion)
 
         return SystemFeatureFixture(
@@ -331,13 +332,13 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                 appRuntimeInfoRepository = appRuntimeInfoRepository,
             ),
             appUpdateDownloadManager =
-                AppUpdateDownloadManager(
-                    context = mockk<Context>(),
-                    downloadAndInstallAppUpdateUseCase =
-                        DownloadAndInstallAppUpdateUseCase(FakeAppUpdateDownloadRepository()),
-                    cancelAppUpdateDownloadUseCase =
-                        CancelAppUpdateDownloadUseCase(FakeAppUpdateDownloadRepository()),
-                ),
+            AppUpdateDownloadManager(
+                context = mockk<Context>(),
+                downloadAndInstallAppUpdateUseCase =
+                DownloadAndInstallAppUpdateUseCase(FakeAppUpdateDownloadRepository()),
+                cancelAppUpdateDownloadUseCase =
+                CancelAppUpdateDownloadUseCase(FakeAppUpdateDownloadRepository()),
+            ),
         )
     }
 
@@ -346,16 +347,14 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
         downloadUrl: String,
         sizeBytes: Long,
         versionName: String,
-    ): AppUpdateAssetCandidate =
-        AppUpdateAssetCandidate(
-            fileName = fileName,
-            downloadUrl = downloadUrl,
-            sizeBytes = sizeBytes,
-            verification =
-                AppUpdateAssetVerification.Verified(
-                    packageName = "com.lomo.app",
-                    versionName = versionName,
-                ),
-        )
+    ): AppUpdateAssetCandidate = AppUpdateAssetCandidate(
+        fileName = fileName,
+        downloadUrl = downloadUrl,
+        sizeBytes = sizeBytes,
+        verification =
+        AppUpdateAssetVerification.Verified(
+            packageName = "com.lomo.app",
+            versionName = versionName,
+        ),
+    )
 }
-

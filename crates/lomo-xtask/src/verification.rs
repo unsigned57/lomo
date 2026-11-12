@@ -112,35 +112,6 @@ fn push_base(root: &Path, remote: &str) -> Result<Option<String>> {
     Ok(None)
 }
 
-/// The unified diff matching one inventory source, for diff-scoped tooling such as
-/// `cargo mutants --in-diff`. `None` for whole-worktree scopes, which have no base to
-/// diff against.
-///
-/// # Errors
-/// Returns an error for an unreadable repository or non-UTF-8 diff output.
-pub fn unified_diff(root: &Path, source: &ChangeSource) -> Result<Option<String>> {
-    let arguments: Vec<String> = match source {
-        ChangeSource::All => return Ok(None),
-        ChangeSource::Worktree => ["diff", "HEAD", "--"].map(str::to_owned).to_vec(),
-        ChangeSource::Push { remote } => match push_base(root, remote)? {
-            Some(base) => vec!["diff".to_owned(), format!("{base}...HEAD"), "--".to_owned()],
-            None => return Ok(None),
-        },
-    };
-    let output = Command::new("git")
-        .current_dir(root)
-        .args(&arguments)
-        .output()?;
-    ensure!(
-        output.status.success(),
-        "git diff failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    Ok(Some(
-        String::from_utf8(output.stdout).context("git diff output must be UTF-8")?,
-    ))
-}
-
 /// Unstaged worktree inventory against `HEAD`, emitted as NUL-terminated paths.
 const WORKTREE_DIFF: [&str; 6] = ["diff", "--name-only", "--no-renames", "-z", "HEAD", "--"];
 
@@ -204,7 +175,6 @@ pub enum RequiredTool {
     BoltFfi,
     AndroidSdk,
     Machete,
-    Mutants,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
@@ -231,11 +201,11 @@ pub enum TaskAction {
     RustFmt,
     RustClippy { package: String },
     RustTests { package: String },
-    RustMutants { package: String },
     RustDocs,
     Machete,
     Bindings,
     KotlinRules,
+    KotlinFormat,
     KotlinLight { modules: BTreeSet<String> },
     AnalysisInput { modules: BTreeSet<String> },
     KotlinFull { modules: BTreeSet<String> },
@@ -344,23 +314,6 @@ impl VerificationPlan {
             })
             .cloned()
             .collect();
-        // Mutation testing is diff-scoped: only crates whose own sources appear in the
-        // change set have mutants to generate, and a complete inventory has no diff.
-        let mutating: BTreeSet<_> = if mode == PlanMode::Dev && !changes.complete {
-            rust.iter()
-                .filter(|name| {
-                    graph.owners.get(*name).is_some_and(|owner| {
-                        changes
-                            .paths
-                            .iter()
-                            .any(|path| path.starts_with(&owner.path))
-                    })
-                })
-                .cloned()
-                .collect()
-        } else {
-            BTreeSet::new()
-        };
         let kotlin: BTreeSet<_> = selected
             .iter()
             .filter(|name| {
@@ -381,7 +334,7 @@ impl VerificationPlan {
                 .using(RequiredTool::Rust, Resource::Cargo),
             );
         }
-        plan.add_rust_tasks(rust, mutating, mode);
+        plan.add_rust_tasks(rust, mode);
         let ffi_changed = changes.complete
             || changes
                 .paths
@@ -392,7 +345,7 @@ impl VerificationPlan {
             .filter(|module| !matches!(module.as_str(), "native-bindings" | "detekt-rules"))
             .cloned()
             .collect();
-        plan.add_kotlin_tasks(&kotlin, &product_modules, changes, ffi_changed, mode);
+        plan.add_kotlin_tasks(graph, &kotlin, &product_modules, changes, ffi_changed, mode)?;
         // The toolchain parity check reads module.yaml manifests (Kotlin owners), the xtask
         // workspace.rs pins, and workflow files — schedule it exactly when one of its inputs
         // can be in scope. A workflow change selects every owner, so it is covered too.
@@ -405,14 +358,15 @@ impl VerificationPlan {
 
     fn add_kotlin_tasks(
         &mut self,
+        graph: &ImpactGraph,
         kotlin: &BTreeSet<String>,
         product_modules: &BTreeSet<String>,
         changes: &ChangeInventory,
         ffi_changed: bool,
         mode: PlanMode,
-    ) {
+    ) -> Result<()> {
         if kotlin.is_empty() {
-            return;
+            return Ok(());
         }
         // Generation is incremental and validates its input/output digest; native packaging is
         // never a prerequisite for host Kotlin compilation.
@@ -431,10 +385,6 @@ impl VerificationPlan {
                 .using(RequiredTool::Rust, Resource::Cargo),
             );
         }
-        if mode != PlanMode::Tests && !product_modules.is_empty() {
-            self.add_kotlin_analysis_tasks(product_modules);
-        }
-        self.add_kotlin_test_tasks(kotlin);
         let resource_change = changes.complete
             || changes.paths.iter().any(|path| {
                 path.components()
@@ -443,37 +393,61 @@ impl VerificationPlan {
                         .file_name()
                         .is_some_and(|name| name == "AndroidManifest.xml" || name == "module.yaml")
             });
-        if mode != PlanMode::Tests
+        let android_lint = mode != PlanMode::Tests
             && !product_modules.is_empty()
-            && (resource_change || mode == PlanMode::Check)
-        {
+            && (resource_change || mode == PlanMode::Check);
+        if mode != PlanMode::Tests {
+            self.tasks.push(
+                Task::new(
+                    "kotlin-format",
+                    TaskAction::KotlinFormat,
+                    "ktlint layout of every Kotlin source and test root",
+                )
+                .using(RequiredTool::Java, Resource::Reports),
+            );
+        }
+        if mode != PlanMode::Tests && !product_modules.is_empty() {
+            // Lint analyzes every packaged product module's sources, so its compile models must
+            // be current even when the selected scope is narrower than the packaged closure.
+            let mut analysis_inputs = product_modules.clone();
+            if android_lint {
+                analysis_inputs.extend(graph.kotlin_product_closure("app")?);
+            }
+            self.add_kotlin_analysis_tasks(product_modules, analysis_inputs);
+        }
+        self.add_kotlin_test_tasks(kotlin);
+        if android_lint {
             self.tasks.push(
                 Task::new(
                     "android-lint",
                     TaskAction::AndroidLint,
-                    "Android resources, manifests and compile model",
+                    "Android sources, resources and manifests of the packaged module closure",
                 )
                 .after("kotlin-analysis-input")
                 .using(RequiredTool::AndroidSdk, Resource::KotlinBuild),
             );
         }
-        // The committed Android baseline profile is an input to release packaging, not a
-        // hand-maintained fact. The gate regenerates it from the same shared build directory the
-        // app classes were compiled into, so a profile that no rule can produce fails here.
+        // Device-collected profiles are packaging inputs. Validate their receipt and official
+        // HRF syntax after the app checks, without replacing measured hotness with class enumeration.
         if mode == PlanMode::Check && product_modules.contains("app") {
             self.tasks.push(
                 Task::new(
                     "baseline-profile",
                     TaskAction::BaselineProfile,
-                    "regenerate the Android baseline profile from the shared build",
+                    "validate measured Android profiles with the SDK parser and collection receipt",
                 )
                 .after("kotlin-tests:app")
-                .using(RequiredTool::Python, Resource::KotlinBuild),
+                .using(RequiredTool::AndroidSdk, Resource::KotlinBuild),
             );
         }
+        Ok(())
     }
 
-    fn add_kotlin_analysis_tasks(&mut self, product_modules: &BTreeSet<String>) {
+    fn add_kotlin_analysis_tasks(
+        &mut self,
+        product_modules: &BTreeSet<String>,
+        analysis_inputs: BTreeSet<String>,
+    ) {
         self.tasks.push(
             Task::new(
                 "kotlin-rules",
@@ -497,7 +471,7 @@ impl VerificationPlan {
             Task::new(
                 "kotlin-analysis-input",
                 TaskAction::AnalysisInput {
-                    modules: product_modules.clone(),
+                    modules: analysis_inputs,
                 },
                 "exact compile context for selected modules",
             )
@@ -636,9 +610,9 @@ impl VerificationPlan {
                 | TaskAction::RustFmt
                 | TaskAction::RustClippy { .. }
                 | TaskAction::RustTests { .. }
-                | TaskAction::RustMutants { .. }
                 | TaskAction::RustDocs
                 | TaskAction::Machete
+                | TaskAction::KotlinFormat
                 | TaskAction::KotlinLight { .. }
                 | TaskAction::KotlinTests { .. }
                 | TaskAction::AndroidLint
@@ -649,12 +623,7 @@ impl VerificationPlan {
         }
     }
 
-    fn add_rust_tasks(
-        &mut self,
-        rust: BTreeSet<String>,
-        mutating: BTreeSet<String>,
-        mode: PlanMode,
-    ) {
+    fn add_rust_tasks(&mut self, rust: BTreeSet<String>, mode: PlanMode) {
         if !rust.is_empty() && mode != PlanMode::Tests {
             self.tasks.push(
                 Task::new("rust-fmt", TaskAction::RustFmt, "Rust source formatting")
@@ -687,20 +656,6 @@ impl VerificationPlan {
                 tests = tests.after(&format!("rust-clippy:{package}"));
             }
             self.tasks.push(tests);
-        }
-        for package in mutating {
-            self.tasks.push(
-                Task::new(
-                    format!("rust-mutants:{package}"),
-                    TaskAction::RustMutants {
-                        package: package.clone(),
-                    },
-                    "incremental mutation testing of the change diff",
-                )
-                .after(&format!("rust-tests:{package}"))
-                .using(RequiredTool::Rust, Resource::Cargo)
-                .using(RequiredTool::Mutants, Resource::Cargo),
-            );
         }
     }
 
@@ -762,19 +717,7 @@ pub(crate) fn run(
         plan.complete_worktree,
         plan.excluded_owners
     ));
-    let mutation_diff = if plan
-        .tasks
-        .iter()
-        .any(|task| matches!(task.action, TaskAction::RustMutants { .. }))
-    {
-        Some(
-            unified_diff(&workspace.root, source)?
-                .context("rust-mutants tasks require a diffable change scope")?,
-        )
-    } else {
-        None
-    };
-    let runner = runner::RepositoryRunner::new(workspace, mutation_diff.as_deref())?;
+    let runner = runner::RepositoryRunner::new(workspace)?;
     let results = execute(&plan, &runner)?;
     let evidence = runner.write_report(&plan, &results)?;
     if let Some(failed) = results

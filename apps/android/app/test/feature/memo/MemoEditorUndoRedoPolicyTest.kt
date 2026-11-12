@@ -26,7 +26,7 @@ import io.kotest.matchers.shouldBe
  *   pushed snapshot stayed reachable, so undos walked all the way back to the session start.
  *
  * Excludes: Compose toolbar rendering, Android EditText platform undo integration, and IME behavior.
-  * Test Change Justification:
+ * Test Change Justification:
  * - Reason category: new bounded-history behavior — the undo stack is capped at 100 snapshots.
  * - Old behavior/assertion being replaced: none removed; a scenario and contract lines were
  *   added for the depth bound.
@@ -99,5 +99,4 @@ class MemoEditorUndoRedoPolicyTest : AppFunSpec() {
             ((controller.canRedo)) shouldBe true
         }
     }
-
 }

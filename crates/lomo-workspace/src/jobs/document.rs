@@ -684,7 +684,6 @@ fn validate_command_shape(
                     "append time_part must be non-empty",
                 ));
             }
-            Ok(())
         }
         DocumentCommandKind::Replace {
             identity,
@@ -692,7 +691,6 @@ fn validate_command_shape(
         }
         | DocumentCommandKind::Remove { identity } => {
             let _identity = MemoIdentity::parse(identity)?;
-            Ok(())
         }
         DocumentCommandKind::ToggleTask {
             identity,
@@ -712,7 +710,6 @@ fn validate_command_shape(
                     "task command identity is not canonical",
                 ));
             }
-            Ok(())
         }
         DocumentCommandKind::RewriteReminder {
             reminder,
@@ -731,9 +728,9 @@ fn validate_command_shape(
                     "reminder revision must match the document command snapshot",
                 ));
             }
-            Ok(())
         }
     }
+    Ok(())
 }
 
 fn validate_history_write(
@@ -790,7 +787,7 @@ fn prepare_history_actions(
             ));
         }
     };
-    let content_digest = format!("{:x}", Sha256::digest(content.as_bytes()));
+    let content_digest = lomo_core::hex_encode(&Sha256::digest(content.as_bytes()));
     let body = HistorySnapshotV1 {
         memo_id: affected.identity.clone(),
         revision: history.revision,

@@ -5,23 +5,14 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.repository.MemoTrashRepository
 
-class MemoTrashUseCase(
-    private val memoTrashRepository: MemoTrashRepository,
-) {
-    fun getDeletedMemosPagingSource(): PagingSource<String, Memo> =
-        memoTrashRepository.getDeletedMemosPagingSource()
+class MemoTrashUseCase(private val memoTrashRepository: MemoTrashRepository) {
+    fun getDeletedMemosPagingSource(): PagingSource<String, Memo> = memoTrashRepository.getDeletedMemosPagingSource()
 
-    suspend fun restoreMemo(
-        memo: Memo,
-        operationId: MemoOperationId,
-    ) {
+    suspend fun restoreMemo(memo: Memo, operationId: MemoOperationId) {
         memoTrashRepository.restoreMemo(memo, operationId)
     }
 
-    suspend fun deletePermanently(
-        memo: Memo,
-        operationId: MemoOperationId,
-    ) {
+    suspend fun deletePermanently(memo: Memo, operationId: MemoOperationId) {
         memoTrashRepository.deletePermanently(memo, operationId)
     }
 

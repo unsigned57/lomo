@@ -4,11 +4,7 @@ import com.lomo.domain.model.ReminderMarker
 import java.time.format.DateTimeFormatter
 
 object ReminderDisplayFormatter {
-    fun format(
-        reminder: ReminderMarker,
-        formatter: DateTimeFormatter,
-        doneLabel: String,
-    ): String {
+    fun format(reminder: ReminderMarker, formatter: DateTimeFormatter, doneLabel: String): String {
         val displayTime = reminder.dueAt.format(formatter)
         val displayRepeat = if (reminder.repeatCount > 1) {
             if (reminder.firedCount > 0 && !reminder.done) {

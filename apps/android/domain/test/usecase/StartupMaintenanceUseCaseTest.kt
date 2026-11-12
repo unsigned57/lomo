@@ -1,13 +1,13 @@
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,19 +16,18 @@ package com.lomo.domain.usecase
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.UnifiedSyncOperation
-import com.lomo.domain.model.UnifiedSyncResult
-import com.lomo.domain.model.UnifiedSyncState
-import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewResolution
 import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.SyncReviewSessionKind
+import com.lomo.domain.model.UnifiedSyncOperation
+import com.lomo.domain.model.UnifiedSyncResult
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -38,14 +37,13 @@ import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.testing.fakes.FakeMediaRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakePreferencesRepository
-import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.domain.testing.fakes.FakeSyncInboxRepository
+import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 
 /*
@@ -79,7 +77,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
             runTest {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
-                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                    directorySettingsRepository,
+                    mediaRepository,
+                )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
@@ -98,10 +99,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(
-                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
-                        )
+                        providers =
+                        setOf(
+                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository),
+                        ),
                     ),
                     appVersionRepository = appVersionRepository,
                     syncInboxRepository = syncInboxRepository,
@@ -117,7 +118,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
             runTest {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
-                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                    directorySettingsRepository,
+                    mediaRepository,
+                )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
@@ -136,10 +140,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(
-                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
-                        )
+                        providers =
+                        setOf(
+                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository),
+                        ),
                     ),
                     appVersionRepository = appVersionRepository,
                     syncInboxRepository = syncInboxRepository,
@@ -174,14 +178,15 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     override suspend fun resolveReview(
                         resolution: SyncReviewResolution,
                         review: SyncReviewSession,
-                    ): UnifiedSyncResult {
-                        return delegateInbox.resolveReview(resolution, review)
-                    }
+                    ): UnifiedSyncResult = delegateInbox.resolveReview(resolution, review)
                 }
 
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
-                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                    directorySettingsRepository,
+                    mediaRepository,
+                )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
@@ -199,10 +204,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(
-                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
-                        )
+                        providers =
+                        setOf(
+                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository),
+                        ),
                     ),
                     appVersionRepository = appVersionRepository,
                     syncInboxRepository = syncInboxRepository,
@@ -221,7 +226,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
             runTest {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
-                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                    directorySettingsRepository,
+                    mediaRepository,
+                )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
@@ -240,10 +248,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(
-                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
-                        )
+                        providers =
+                        setOf(
+                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository),
+                        ),
                     ),
                     appVersionRepository = appVersionRepository,
                     syncInboxRepository = syncInboxRepository,
@@ -265,11 +273,25 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val releaseImageWarm = CompletableDeferred<Unit>()
                 val delegateMedia = FakeMediaRepository()
                 val mediaRepository = object : MediaRepository {
-                    override suspend fun importImage(source: StorageLocation, draftId: com.lomo.domain.model.DraftId) = delegateMedia.importImage(source, draftId)
-                    override suspend fun removeImage(entryId: MediaEntryId, draftId: com.lomo.domain.model.DraftId) = delegateMedia.removeImage(entryId, draftId)
+                    override suspend fun importImage(source: StorageLocation, draftId: com.lomo.domain.model.DraftId) =
+                        delegateMedia.importImage(
+                            source,
+                            draftId,
+                        )
+                    override suspend fun removeImage(entryId: MediaEntryId, draftId: com.lomo.domain.model.DraftId) =
+                        delegateMedia.removeImage(
+                            entryId,
+                            draftId,
+                        )
                     override fun observeImageLocations() = delegateMedia.observeImageLocations()
-                    override suspend fun ensureCategoryWorkspace(category: MediaCategory) = delegateMedia.ensureCategoryWorkspace(category)
-                    override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId) = delegateMedia.allocateVoiceCaptureTarget(entryId)
+                    override suspend fun ensureCategoryWorkspace(category: MediaCategory) =
+                        delegateMedia.ensureCategoryWorkspace(
+                            category,
+                        )
+                    override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId) =
+                        delegateMedia.allocateVoiceCaptureTarget(
+                            entryId,
+                        )
                     override suspend fun finalizeVoiceCapture(
                         recordingLocation: StorageLocation,
                         humanNameHint: String,
@@ -298,7 +320,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 }
 
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
-                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                    directorySettingsRepository,
+                    mediaRepository,
+                )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
@@ -317,10 +342,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(
-                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
-                        )
+                        providers =
+                        setOf(
+                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository),
+                        ),
                     ),
                     appVersionRepository = appVersionRepository,
                     syncInboxRepository = syncInboxRepository,
@@ -342,17 +367,22 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
             runTest {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
-                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                    directorySettingsRepository,
+                    mediaRepository,
+                )
                 val memoRepository = FakeMemoStore()
                 val delegatePolicy = FakeSyncPolicyRepository()
                 val syncPolicyRepository = object : SyncPolicyRepository {
                     override fun ensureCoreSyncActive() = delegatePolicy.ensureCoreSyncActive()
-                    override suspend fun setRemoteSyncBackend(type: SyncBackendType) = delegatePolicy.setRemoteSyncBackend(type)
+                    override suspend fun setRemoteSyncBackend(type: SyncBackendType) =
+                        delegatePolicy.setRemoteSyncBackend(
+                            type,
+                        )
                     override suspend fun applyRemoteSyncPolicy() = delegatePolicy.applyRemoteSyncPolicy()
 
-                    override fun observeRemoteSyncBackend(): Flow<SyncBackendType> {
+                    override fun observeRemoteSyncBackend(): Flow<SyncBackendType> =
                         throw IllegalStateException("sync failed")
-                    }
                 }
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
                     memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
@@ -370,10 +400,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(
-                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
-                        )
+                        providers =
+                        setOf(
+                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository),
+                        ),
                     ),
                     appVersionRepository = appVersionRepository,
                     syncInboxRepository = syncInboxRepository,
@@ -394,7 +424,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
             runTest {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
-                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                    directorySettingsRepository,
+                    mediaRepository,
+                )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
@@ -409,9 +442,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     override suspend fun resolveReview(resolution: SyncReviewResolution, review: SyncReviewSession) =
                         delegateInbox.resolveReview(resolution, review)
 
-                    override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult {
+                    override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult =
                         throw IllegalStateException("inbox failed")
-                    }
                 }
                 val preferencesRepository = FakePreferencesRepository().apply {
                     setSyncInboxPreferenceEnabled(true)
@@ -423,10 +455,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(
-                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
-                        )
+                        providers =
+                        setOf(
+                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository),
+                        ),
                     ),
                     appVersionRepository = appVersionRepository,
                     syncInboxRepository = syncInboxRepository,
@@ -446,20 +478,23 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     SyncReviewSession(
                         source = SyncBackendType.INBOX,
                         items =
-                            listOf(
-                                SyncReviewItem(
-                                    relativePath = "inbox/2026_04_13.md",
-                                    localContent = "local",
-                                    incomingContent = "incoming",
-                                    isBinary = false,
-                                ),
+                        listOf(
+                            SyncReviewItem(
+                                relativePath = "inbox/2026_04_13.md",
+                                localContent = "local",
+                                incomingContent = "incoming",
+                                isBinary = false,
                             ),
+                        ),
                         timestamp = 123L,
                         kind = SyncReviewSessionKind.SYNC_INBOX_IMPORT_REVIEW,
                     )
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
-                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+                val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
+                    directorySettingsRepository,
+                    mediaRepository,
+                )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
@@ -486,10 +521,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-            providers =
-                setOf(
-                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
-                        )
+                        providers =
+                        setOf(
+                            InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository),
+                        ),
                     ),
                     appVersionRepository = appVersionRepository,
                     syncInboxRepository = syncInboxRepository,
@@ -502,6 +537,5 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 appVersionRepository.updatedVersions.size shouldBe 0
             }
         }
-
     }
 }

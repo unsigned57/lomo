@@ -119,7 +119,7 @@ impl CorpusManifestV1 {
     /// Returns [`ReportValidationError`] when canonicalization fails.
     pub fn canonical_digest(&self) -> Result<String, ReportValidationError> {
         let bytes = self.to_canonical_json()?;
-        Ok(format!("{:x}", Sha256::digest(&bytes)))
+        Ok(lomo_core::hex_encode(&Sha256::digest(&bytes)))
     }
 }
 

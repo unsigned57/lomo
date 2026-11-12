@@ -5,8 +5,9 @@ import com.lomo.data.engine.store.StorePort
 import com.lomo.data.engine.store.StoreReminderPlan
 import com.lomo.data.local.datastore.LomoReminderPreferencesStore
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.domain.model.ReminderInterval
-import com.lomo.domain.model.WorkspaceAuthority
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.EngineReadinessRepository
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -19,11 +20,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
+ * Test Change Justification:
+ * Reason category: explicit activation input adaptation.
+ * Old behavior/assertion being replaced: the root-only fixture omitted attachment binding input.
+ * Why old assertion is no longer correct: root-only activation now explicitly selects committed attachment bindings.
+ * Coverage preserved by: every reminder plan and alarm assertion is unchanged.
+ * Why this is not fitting the test to the implementation: no reminder behavior is changed by the fixture signature.
+ * TDD proof: Regression preservation - verification-green.log under target/lomo/reports/manual/directory-selection/.
  * - Unit under test: AlarmManagerReminderScheduler preference source.
  * - Owning layer: data
  * - Priority tier: P1
@@ -47,12 +55,17 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Plan generation, rolling-window application, and platform alarm delivery.
+ * Test Change Justification:
+ * Reason category: test fixture ownership and assertion strengthening.
+ * Old behavior/assertion being replaced: Relaxed mocks and an unowned coroutine scope are replaced; a duration assertion is added.
+ * Why old assertion is no longer correct: existing outcome assertions remain valid and retained.
+ * Coverage preserved by: Stored interval flow, durable writes and exact snooze command duration remain asserted.
+ * Why this is not fitting the test to the implementation: no expected product outcome is weakened.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlarmManagerReminderSchedulerTest : DataFunSpec() {
-    private class FakeReminderPreferencesStore(
-        initial: ReminderInterval = ReminderInterval.DEFAULT,
-    ) : LomoReminderPreferencesStore {
+    private class FakeReminderPreferencesStore(initial: ReminderInterval = ReminderInterval.DEFAULT) :
+        LomoReminderPreferencesStore {
         val intervalFlow = MutableStateFlow(initial)
         val writes = mutableListOf<ReminderInterval>()
 
@@ -67,26 +80,26 @@ class AlarmManagerReminderSchedulerTest : DataFunSpec() {
 
     private fun scheduler(
         preferences: FakeReminderPreferencesStore,
-        storePort: StorePort = mockk(relaxed = true),
-        readiness: EngineReadinessRepository = mockk(relaxed = true),
-        rollingWindow: ReminderRollingWindowScheduler = mockk(relaxed = true),
-        scope: CoroutineScope = CoroutineScope(UnconfinedTestDispatcher()),
-    ): AlarmManagerReminderScheduler =
-        AlarmManagerReminderScheduler(
-            context = mockk<Context>(relaxed = true),
-            storePort = storePort,
-            readiness = readiness,
-            reminderPreferences = preferences,
-            appScope = scope,
-            schedulePort = mockk(relaxed = true),
-            rollingWindow = rollingWindow,
-        )
+        scope: CoroutineScope,
+        storePort: StorePort = mockk(),
+        readiness: EngineReadinessRepository = FakeEngineReadinessRepository(),
+        rollingWindow: ReminderRollingWindowScheduler = mockk(),
+    ): AlarmManagerReminderScheduler = AlarmManagerReminderScheduler(
+        context = mockk<Context>(),
+        storePort = storePort,
+        readiness = readiness,
+        reminderPreferences = preferences,
+        appScope = scope,
+        schedulePort = mockk(),
+        rollingWindow = rollingWindow,
+    )
 
     init {
         test("given store-backed interval when observed then the state flow reflects the stored value") {
             runTest {
                 val preferences = FakeReminderPreferencesStore(initial = ReminderInterval.THIRTY_MINUTES)
-                val scheduler = scheduler(preferences)
+                val scheduler = scheduler(preferences, backgroundScope)
+                runCurrent()
 
                 scheduler.globalInterval.value shouldBe ReminderInterval.THIRTY_MINUTES
             }
@@ -95,7 +108,7 @@ class AlarmManagerReminderSchedulerTest : DataFunSpec() {
         test("given supported interval when written then the store persists it and flow updates") {
             runTest {
                 val preferences = FakeReminderPreferencesStore()
-                val scheduler = scheduler(preferences)
+                val scheduler = scheduler(preferences, backgroundScope)
 
                 scheduler.setGlobalInterval(ReminderInterval.SIXTY_MINUTES)
 
@@ -109,15 +122,14 @@ class AlarmManagerReminderSchedulerTest : DataFunSpec() {
                 val preferences = FakeReminderPreferencesStore(initial = ReminderInterval.FIFTEEN_MINUTES)
                 val durationSlot = slot<ReminderInterval>()
                 val storePort =
-                    mockk<StorePort>(relaxed = true) {
+                    mockk<StorePort> {
                         every { snoozeReminder(any(), capture(durationSlot)) } returns Unit
                         every { queryReminderPlan(any()) } returns
                             StoreReminderPlan(alarms = emptyList(), droppedCount = 0, workspaceGeneration = "g1")
                     }
                 val readiness =
-                    mockk<EngineReadinessRepository> {
-                        every { workspaceAuthority } returns
-                            MutableStateFlow(WorkspaceAuthority("ws", 1L, 0u))
+                    FakeEngineReadinessRepository().apply {
+                        activateWorkspace(StorageLocation("ws"), mediaChange = null)
                     }
                 val rollingWindow =
                     mockk<ReminderRollingWindowScheduler> {
@@ -127,6 +139,7 @@ class AlarmManagerReminderSchedulerTest : DataFunSpec() {
                 val scheduler =
                     scheduler(
                         preferences,
+                        scope = backgroundScope,
                         storePort = storePort,
                         readiness = readiness,
                         rollingWindow = rollingWindow,
@@ -134,6 +147,7 @@ class AlarmManagerReminderSchedulerTest : DataFunSpec() {
 
                 scheduler.snooze(memoId = "memo-1", reminderId = "rem-1")
 
+                durationSlot.captured shouldBe ReminderInterval.FIFTEEN_MINUTES
                 verify(exactly = 1) { storePort.snoozeReminder("rem-1", ReminderInterval.FIFTEEN_MINUTES) }
             }
         }

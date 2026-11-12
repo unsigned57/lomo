@@ -40,9 +40,9 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.RecordingDeepLink
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
-import java.time.Instant
-import java.io.IOException
 import kotlinx.serialization.SerializationException
+import java.io.IOException
+import java.time.Instant
 
 /**
  * Lomo App Widget using Jetpack Glance.
@@ -50,10 +50,7 @@ import kotlinx.serialization.SerializationException
  * Design inspired by MoeMemos with Material You theming.
  */
 class LomoWidget : GlanceAppWidget() {
-    override suspend fun provideGlance(
-        context: Context,
-        id: GlanceId,
-    ) {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
         // A missing, oversized, corrupt or schema-stale snapshot renders the unavailable state;
         // the widget never fabricates memo content from a failed read.
         val snapshot =
@@ -65,6 +62,7 @@ class LomoWidget : GlanceAppWidget() {
                         ).read()
                 ) {
                     is WidgetGlanceSnapshot.Absent -> WidgetSnapshot.Unavailable
+
                     is WidgetGlanceSnapshot.Ready ->
                         // A persisted WidgetSnapshotAvailability.UNAVAILABLE generation means the
                         // mount did not admit reads; it is the same render state as an absent or
@@ -108,20 +106,15 @@ private sealed interface WidgetSnapshot {
 }
 
 @Composable
-private fun WidgetContent(
-    context: Context,
-    snapshot: WidgetSnapshot,
-    createMemoIntent: Intent,
-    nowMillis: Long,
-) {
+private fun WidgetContent(context: Context, snapshot: WidgetSnapshot, createMemoIntent: Intent, nowMillis: Long) {
     val heightDp = LocalSize.current.height.value.toInt()
     Box(
         modifier =
-            GlanceModifier
-                .fillMaxSize()
-                .cornerRadius(24.dp)
-                .background(GlanceTheme.colors.surface)
-                .padding(16.dp),
+        GlanceModifier
+            .fillMaxSize()
+            .cornerRadius(24.dp)
+            .background(GlanceTheme.colors.surface)
+            .padding(16.dp),
     ) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
             WidgetHeader(context, createMemoIntent)
@@ -145,9 +138,9 @@ private fun WidgetContent(
                     Text(
                         text = context.getString(R.string.widget_snapshot_unavailable),
                         modifier =
-                            GlanceModifier.clickable(
-                                actionStartActivity(Intent(context, MainActivity::class.java)),
-                            ),
+                        GlanceModifier.clickable(
+                            actionStartActivity(Intent(context, MainActivity::class.java)),
+                        ),
                     )
             }
         }
@@ -158,16 +151,12 @@ private fun WidgetContent(
  * Small-height hosts must not clip rows mid-item: a compact host gets a single row; a full host
  * gets the snapshot budget.
  */
-internal fun widgetVisibleItemCount(heightDp: Int, itemCount: Int): Int =
-    itemCount.coerceAtMost(
-        if (heightDp < WIDGET_COMPACT_HEIGHT_DP) WIDGET_COMPACT_ROW_COUNT else WIDGET_MEMO_LIMIT,
-    )
+internal fun widgetVisibleItemCount(heightDp: Int, itemCount: Int): Int = itemCount.coerceAtMost(
+    if (heightDp < WIDGET_COMPACT_HEIGHT_DP) WIDGET_COMPACT_ROW_COUNT else WIDGET_MEMO_LIMIT,
+)
 
 @Composable
-private fun WidgetHeader(
-    context: Context,
-    createMemoIntent: Intent,
-) {
+private fun WidgetHeader(context: Context, createMemoIntent: Intent) {
     Row(
         modifier = GlanceModifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -181,32 +170,32 @@ private fun WidgetHeader(
         Text(
             text = context.getString(R.string.app_name),
             style =
-                TextStyle(
-                    color = GlanceTheme.colors.primary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                ),
+            TextStyle(
+                color = GlanceTheme.colors.primary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            ),
         )
         Spacer(modifier = GlanceModifier.defaultWeight())
         Box(
             modifier =
-                GlanceModifier
-                    .size(32.dp)
-                    .cornerRadius(16.dp)
-                    .background(GlanceTheme.colors.primaryContainer)
-                    .clickable(
-                        actionStartActivity(createMemoIntent),
-                    ),
+            GlanceModifier
+                .size(32.dp)
+                .cornerRadius(16.dp)
+                .background(GlanceTheme.colors.primaryContainer)
+                .clickable(
+                    actionStartActivity(createMemoIntent),
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = "+",
                 style =
-                    TextStyle(
-                        color = GlanceTheme.colors.onPrimaryContainer,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
+                TextStyle(
+                    color = GlanceTheme.colors.onPrimaryContainer,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
             )
         }
     }
@@ -221,10 +210,10 @@ private fun WidgetEmptyState(context: Context) {
         Text(
             text = context.getString(R.string.widget_no_memos),
             style =
-                TextStyle(
-                    color = GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 14.sp,
-                ),
+            TextStyle(
+                color = GlanceTheme.colors.onSurfaceVariant,
+                fontSize = 14.sp,
+            ),
         )
     }
 }
@@ -253,47 +242,47 @@ private fun MemoItem(
 ) {
     Column(
         modifier =
-            GlanceModifier
-                .fillMaxWidth()
-                .cornerRadius(12.dp)
-                .background(GlanceTheme.colors.surfaceVariant)
-                .clickable(
-                    actionStartActivity(
-                        Intent(context, MainActivity::class.java).apply {
-                            action = MainActivity.ACTION_OPEN_MEMO
-                            putExtra(RecordingDeepLink.EXTRA_MEMO_ID, memo.id)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        },
-                    ),
-                ).padding(12.dp),
+        GlanceModifier
+            .fillMaxWidth()
+            .cornerRadius(12.dp)
+            .background(GlanceTheme.colors.surfaceVariant)
+            .clickable(
+                actionStartActivity(
+                    Intent(context, MainActivity::class.java).apply {
+                        action = MainActivity.ACTION_OPEN_MEMO
+                        putExtra(RecordingDeepLink.EXTRA_MEMO_ID, memo.id)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    },
+                ),
+            ).padding(12.dp),
     ) {
         Text(
             text =
-                DateUtils
-                    .getRelativeTimeSpanString(
-                        memo.timestampMillis,
-                        nowMillis,
-                        DateUtils.MINUTE_IN_MILLIS,
-                    ).toString(),
+            DateUtils
+                .getRelativeTimeSpanString(
+                    memo.timestampMillis,
+                    nowMillis,
+                    DateUtils.MINUTE_IN_MILLIS,
+                ).toString(),
             style =
-                TextStyle(
-                    color = GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 11.sp,
-                ),
+            TextStyle(
+                color = GlanceTheme.colors.onSurfaceVariant,
+                fontSize = 11.sp,
+            ),
         )
         Spacer(modifier = GlanceModifier.height(4.dp))
         Text(
             text =
-                if (availability == WidgetSnapshotAvailability.REDACTED) {
-                    context.getString(R.string.widget_redacted_preview)
-                } else {
-                    memo.previewText
-                },
+            if (availability == WidgetSnapshotAvailability.REDACTED) {
+                context.getString(R.string.widget_redacted_preview)
+            } else {
+                memo.previewText
+            },
             style =
-                TextStyle(
-                    color = GlanceTheme.colors.onSurface,
-                    fontSize = 14.sp,
-                ),
+            TextStyle(
+                color = GlanceTheme.colors.onSurface,
+                fontSize = 14.sp,
+            ),
             maxLines = 2,
         )
     }
@@ -310,10 +299,7 @@ internal data class WidgetMemoItemPresentation(
     val previewText: String,
 )
 
-internal fun resolveWidgetMemoItemPresentation(
-    memo: Memo,
-    nowMillis: Long,
-): WidgetMemoItemPresentation {
+internal fun resolveWidgetMemoItemPresentation(memo: Memo, nowMillis: Long): WidgetMemoItemPresentation {
     // memo.content for widget queries is already the engine-owned plain-text preview; the host
     // only bounds and collapses it, never re-renders markdown in a projection process.
     val processedContent = MarkdownCleanupFormatter.collapseSpacing(memo.content)

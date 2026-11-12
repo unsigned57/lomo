@@ -1,14 +1,16 @@
 package com.lomo.app.feature.settings
 
-import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CalendarHeatmapThresholds
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.FontPreference
+import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.QuickBallConfig
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
-import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 import kotlinx.collections.immutable.ImmutableList
@@ -17,16 +19,13 @@ import kotlinx.collections.immutable.persistentListOf
 sealed interface DirectoryDisplayState {
     data object Loading : DirectoryDisplayState
 
-    data class Resolved(
-        val value: String?,
-    ) : DirectoryDisplayState
+    data class Resolved(val value: String?) : DirectoryDisplayState
 }
 
-internal fun DirectoryDisplayState.subtitle(notSetLabel: String): String =
-    when (this) {
-        DirectoryDisplayState.Loading -> ""
-        is DirectoryDisplayState.Resolved -> value?.takeIf(String::isNotBlank) ?: notSetLabel
-    }
+internal fun DirectoryDisplayState.subtitle(notSetLabel: String): String = when (this) {
+    DirectoryDisplayState.Loading -> ""
+    is DirectoryDisplayState.Resolved -> value?.takeIf(String::isNotBlank) ?: notSetLabel
+}
 
 data class StorageSectionState(
     val rootDirectory: DirectoryDisplayState,
@@ -43,8 +42,10 @@ data class DisplaySectionState(
     val dateFormat: String,
     val timeFormat: String,
     val themeMode: ThemeMode,
+    val pureBlackDark: Boolean = com.lomo.domain.model.PreferenceDefaults.PURE_BLACK_DARK,
     val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     val colorSource: ColorSource,
+    val contrastLevel: ContrastLevel,
     val fontPreference: FontPreference,
     val availableCustomFonts: ImmutableList<CustomFontInfo> = persistentListOf(),
     val colorHistory: ImmutableList<Int> = persistentListOf(),
@@ -54,10 +55,7 @@ data class DisplaySectionState(
     val typographyParagraphSpacingScale: Float,
 )
 
-data class LanShareSectionState(
-    val enabled: Boolean,
-    val deviceName: String,
-)
+data class LanShareSectionState(val enabled: Boolean, val deviceName: String)
 
 data class ShareCardSectionState(
     val showTime: Boolean,
@@ -109,16 +107,14 @@ data class InteractionSectionState(
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
-    val memoActionAutoReorderEnabled: Boolean,
     val autoOpenInputOnForeground: Boolean,
     val appLockEnabled: Boolean,
     val quickSaveOnBackEnabled: Boolean,
     val scrollbarEnabled: Boolean,
+    val quickBallConfig: QuickBallConfig = QuickBallConfig.defaults(),
 )
 
-data class SystemSectionState(
-    val checkUpdatesOnStartup: Boolean,
-)
+data class SystemSectionState(val checkUpdatesOnStartup: Boolean)
 
 data class AboutSectionState(
     val currentVersion: String,

@@ -34,48 +34,41 @@ private const val SECONDARY_CONTENT_WIDTH_FRACTION = 0.6f
 private const val SKELETON_ITEM_COUNT = 5
 
 @Composable
-fun shimmerBrush(
-    showShimmer: Boolean = true,
-    targetValue: Float = DEFAULT_SHIMMER_TARGET,
-): Brush =
-    if (showShimmer) {
-        val shimmerColors =
-            listOf(
-                SkeletonTokens.shimmerHighlightColor(MaterialTheme.colorScheme),
-                MaterialTheme.colorScheme.surfaceContainerHighest,
-                SkeletonTokens.shimmerHighlightColor(MaterialTheme.colorScheme),
-            )
+fun shimmerBrush(showShimmer: Boolean = true, targetValue: Float = DEFAULT_SHIMMER_TARGET): Brush = if (showShimmer) {
+    val shimmerColors =
+        listOf(
+            SkeletonTokens.shimmerHighlightColor(MaterialTheme.colorScheme),
+            MaterialTheme.colorScheme.surfaceContainerHighest,
+            SkeletonTokens.shimmerHighlightColor(MaterialTheme.colorScheme),
+        )
 
-        val transition = rememberInfiniteTransition(label = "shimmer")
-        val translateAnimation by
-            transition.animateFloat(
-                initialValue = 0f,
-                targetValue = targetValue,
-                animationSpec =
-                    infiniteRepeatable(
-                        animation = tween(SHIMMER_DURATION_MILLIS),
-                        repeatMode = RepeatMode.Restart,
-                    ),
-                label = "shimmer",
-            )
-        Brush.linearGradient(
-            colors = shimmerColors,
-            start = Offset.Zero,
-            end = Offset(x = translateAnimation, y = translateAnimation),
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val translateAnimation by
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = targetValue,
+            animationSpec =
+            infiniteRepeatable(
+                animation = tween(SHIMMER_DURATION_MILLIS),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "shimmer",
         )
-    } else {
-        Brush.linearGradient(
-            colors = listOf(Color.Transparent, Color.Transparent),
-            start = Offset.Zero,
-            end = Offset.Zero,
-        )
-    }
+    Brush.linearGradient(
+        colors = shimmerColors,
+        start = Offset.Zero,
+        end = Offset(x = translateAnimation, y = translateAnimation),
+    )
+} else {
+    Brush.linearGradient(
+        colors = listOf(Color.Transparent, Color.Transparent),
+        start = Offset.Zero,
+        end = Offset.Zero,
+    )
+}
 
 @Composable
-fun SkeletonMemoItem(
-    modifier: Modifier = Modifier,
-    brush: Brush = shimmerBrush(),
-) {
+fun SkeletonMemoItem(modifier: Modifier = Modifier, brush: Brush = shimmerBrush()) {
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = AppShapes.Medium, // Match MemoCard shape
@@ -89,29 +82,29 @@ fun SkeletonMemoItem(
             Row(horizontalArrangement = Arrangement.spacedBy(SkeletonTokens.HeaderSpacing)) {
                 Box(
                     modifier =
-                        Modifier
-                            .size(width = 80.dp, height = 14.dp)
-                            .clip(SkeletonTokens.LineShape)
-                            .background(brush),
+                    Modifier
+                        .size(width = 80.dp, height = 14.dp)
+                        .clip(SkeletonTokens.LineShape)
+                        .background(brush),
                 )
             }
 
             // Content Lines
             Box(
                 modifier =
-                    Modifier
-                        .fillMaxWidth(PRIMARY_CONTENT_WIDTH_FRACTION)
-                        .height(16.dp)
-                        .clip(SkeletonTokens.LineShape)
-                        .background(brush),
+                Modifier
+                    .fillMaxWidth(PRIMARY_CONTENT_WIDTH_FRACTION)
+                    .height(16.dp)
+                    .clip(SkeletonTokens.LineShape)
+                    .background(brush),
             )
             Box(
                 modifier =
-                    Modifier
-                        .fillMaxWidth(SECONDARY_CONTENT_WIDTH_FRACTION)
-                        .height(16.dp)
-                        .clip(SkeletonTokens.LineShape)
-                        .background(brush),
+                Modifier
+                    .fillMaxWidth(SECONDARY_CONTENT_WIDTH_FRACTION)
+                    .height(16.dp)
+                    .clip(SkeletonTokens.LineShape)
+                    .background(brush),
             )
 
             // Footer (Actions)
@@ -121,17 +114,17 @@ fun SkeletonMemoItem(
             ) {
                 Box(
                     modifier =
-                        Modifier
-                            .size(24.dp)
-                            .clip(SkeletonTokens.ActionShape)
-                            .background(brush),
+                    Modifier
+                        .size(24.dp)
+                        .clip(SkeletonTokens.ActionShape)
+                        .background(brush),
                 )
                 Box(
                     modifier =
-                        Modifier
-                            .size(24.dp)
-                            .clip(SkeletonTokens.ActionShape)
-                            .background(brush),
+                    Modifier
+                        .size(24.dp)
+                        .clip(SkeletonTokens.ActionShape)
+                        .background(brush),
                 )
             }
         }

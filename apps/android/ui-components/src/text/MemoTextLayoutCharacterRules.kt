@@ -18,14 +18,22 @@ internal fun Int.isLatinMemoTextCodePoint(): Boolean {
     return script == Character.UnicodeScript.LATIN || Character.isDigit(this)
 }
 
-internal fun Int.isMemoLayoutPunctuation(): Boolean =
-    isOpeningMemoPunctuation() ||
-        isClosingMemoPunctuation() ||
-        this.toChar() in NEUTRAL_MEMO_PUNCTUATION
+internal fun Int.isMemoLayoutPunctuation(): Boolean = isOpeningMemoPunctuation() ||
+    isClosingMemoPunctuation() ||
+    this.toChar() in NEUTRAL_MEMO_PUNCTUATION
 
 internal fun Int.isOpeningMemoPunctuation(): Boolean = this.toChar() in OPENING_MEMO_PUNCTUATION
 
 internal fun Int.isClosingMemoPunctuation(): Boolean = this.toChar() in CLOSING_MEMO_PUNCTUATION
+
+/**
+ * Kinsoku line-start prohibition: closing marks and neutral sentence punctuation (CJK and ASCII)
+ * must never open a line; the greedy breaker hangs them onto the overflowing line instead.
+ */
+internal fun Int.isLineStartForbiddenMemoPunctuation(): Boolean =
+    isMemoLayoutPunctuation() && !isOpeningMemoPunctuation()
+
+internal fun Int.isLineEndForbiddenMemoPunctuation(): Boolean = isOpeningMemoPunctuation()
 
 private val LATIN_MEMO_TOKEN_CONNECTORS = setOf('_', '-', '/', '.', ':')
 private val OPENING_MEMO_PUNCTUATION = setOf('「', '『', '“', '‘', '（', '《', '〈', '【', '〔', '(')

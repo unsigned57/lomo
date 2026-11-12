@@ -1,0 +1,11 @@
+# First-run contract: the wizard must mint config + workspace on Enter, then
+# `q` performs the clean quit handshake (drafts retained, process exits 0).
+steps:
+  - expect: First-run setup
+  - key: enter
+  # "Write a thought" only renders once the runtime is ready — it is the
+  # post-setup marker; "All memos" also sits behind the wizard overlay.
+  - expect: Write a thought
+  - snap: main
+  - key: q
+  - expect_exit: true

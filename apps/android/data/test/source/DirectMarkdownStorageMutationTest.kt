@@ -1,13 +1,13 @@
 package com.lomo.data.source
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,13 +16,11 @@ package com.lomo.data.source
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
-
-import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.KotestTemporaryFolder
-import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.booleans.shouldBeTrue
+import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:

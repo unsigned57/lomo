@@ -11,6 +11,7 @@ abstract class DataFunSpec : FunSpec() {
     override fun isolationMode(): IsolationMode = IsolationMode.InstancePerRoot
 
     protected fun <T> mockEvery(block: MockKMatcherScope.() -> T): MockKStubScope<T, T> = every(stubBlock = block)
-    protected fun <T> mockCoEvery(block: suspend MockKMatcherScope.() -> T): MockKStubScope<T, T> = coEvery(stubBlock = block)
+    protected fun <T> mockCoEvery(block: suspend MockKMatcherScope.() -> T): MockKStubScope<T, T> = coEvery(
+        stubBlock = block,
+    )
 }
-

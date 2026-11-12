@@ -45,9 +45,9 @@ internal fun FallbackUpdateProgressBackdrop(modifier: Modifier = Modifier) {
 
     Canvas(
         modifier =
-            modifier.background(
-                MaterialTheme.colorScheme.surface.copy(alpha = FALLBACK_SURFACE_OVERLAY_ALPHA),
-            ),
+        modifier.background(
+            MaterialTheme.colorScheme.surface.copy(alpha = FALLBACK_SURFACE_OVERLAY_ALPHA),
+        ),
     ) {
         val offsets =
             FALLBACK_BLOBS.map { blob ->
@@ -56,15 +56,15 @@ internal fun FallbackUpdateProgressBackdrop(modifier: Modifier = Modifier) {
         offsets.forEachIndexed { index, center ->
             drawCircle(
                 brush =
-                    Brush.radialGradient(
-                        colors =
-                            listOf(
-                                colors[index].copy(alpha = FALLBACK_BLOB_ALPHA),
-                                colors[index].copy(alpha = Color.Transparent.alpha),
-                            ),
-                        center = center,
-                        radius = size.minDimension * FALLBACK_BLOB_RADIUS_FACTOR,
+                Brush.radialGradient(
+                    colors =
+                    listOf(
+                        colors[index].copy(alpha = FALLBACK_BLOB_ALPHA),
+                        colors[index].copy(alpha = Color.Transparent.alpha),
                     ),
+                    center = center,
+                    radius = size.minDimension * FALLBACK_BLOB_RADIUS_FACTOR,
+                ),
                 radius = size.minDimension * FALLBACK_BLOB_RADIUS_FACTOR,
                 center = center,
             )
@@ -91,18 +91,17 @@ internal fun progressBackdropColors(): BackdropColors {
 }
 
 @Composable
-internal fun animatedBackdropTimeSeconds() =
-    produceState(initialValue = INITIAL_TIME_SECONDS) {
-        var startNanos = 0L
-        while (true) {
-            withFrameNanos { now ->
-                if (startNanos == 0L) {
-                    startNanos = now
-                }
-                value = (now - startNanos) / NANOS_PER_SECOND
+internal fun animatedBackdropTimeSeconds() = produceState(initialValue = INITIAL_TIME_SECONDS) {
+    var startNanos = 0L
+    while (true) {
+        withFrameNanos { now ->
+            if (startNanos == 0L) {
+                startNanos = now
             }
+            value = (now - startNanos) / NANOS_PER_SECOND
         }
     }
+}
 
 private data class BackdropBlob(
     val xBase: Float,
@@ -114,28 +113,21 @@ private data class BackdropBlob(
     val yFrequency: Float,
     val yUsesSine: Boolean,
 ) {
-    fun offsetAt(width: Float, height: Float, timeSeconds: Float): Offset =
-        Offset(
-            x = width * (xBase + xAmplitude * wave(timeSeconds, xFrequency, xUsesSine)),
-            y = height * (yBase + yAmplitude * wave(timeSeconds, yFrequency, yUsesSine)),
-        )
+    fun offsetAt(width: Float, height: Float, timeSeconds: Float): Offset = Offset(
+        x = width * (xBase + xAmplitude * wave(timeSeconds, xFrequency, xUsesSine)),
+        y = height * (yBase + yAmplitude * wave(timeSeconds, yFrequency, yUsesSine)),
+    )
 }
 
-internal data class BackdropColors(
-    val colorA: Color,
-    val colorB: Color,
-    val colorC: Color,
-    val colorD: Color,
-) {
+internal data class BackdropColors(val colorA: Color, val colorB: Color, val colorC: Color, val colorD: Color) {
     fun asList(): List<Color> = listOf(colorA, colorB, colorC, colorD)
 }
 
-private fun wave(timeSeconds: Float, frequency: Float, usesSine: Boolean): Float =
-    if (usesSine) {
-        kotlin.math.sin(timeSeconds * frequency)
-    } else {
-        kotlin.math.cos(timeSeconds * frequency)
-    }
+private fun wave(timeSeconds: Float, frequency: Float, usesSine: Boolean): Float = if (usesSine) {
+    kotlin.math.sin(timeSeconds * frequency)
+} else {
+    kotlin.math.cos(timeSeconds * frequency)
+}
 
 private const val FALLBACK_SURFACE_OVERLAY_ALPHA = 0.84f
 private const val FALLBACK_BLOB_ALPHA = 0.18f

@@ -43,12 +43,12 @@ class MarkdownMediaClassParityTest : DomainFunSpec() {
                     plainText = "media",
                     tagNames = emptyList(),
                     attachments =
-                        listOf(
-                            MarkdownAttachment("images/a.png", MediaClass.IMAGE),
-                            MarkdownAttachment("videos/b.mp4", MediaClass.VIDEO),
-                            MarkdownAttachment("recordings/c.ogg", MediaClass.AUDIO),
-                            MarkdownAttachment("files/d.bin", MediaClass.FILE),
-                        ),
+                    listOf(
+                        MarkdownAttachment("images/a.png", MediaClass.IMAGE),
+                        MarkdownAttachment("videos/b.mp4", MediaClass.VIDEO),
+                        MarkdownAttachment("recordings/c.ogg", MediaClass.AUDIO),
+                        MarkdownAttachment("files/d.bin", MediaClass.FILE),
+                    ),
                     blocks = emptyList(),
                 )
 

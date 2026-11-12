@@ -1,4 +1,4 @@
-/**
+/*
  * Behavior Contract:
  * - Unit under test: ShareViewModel.
  * - Owning layer: app.
@@ -52,17 +52,19 @@ import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import io.kotest.matchers.shouldBe
-import java.nio.file.Files
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShareViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
     private val shareService = FakeLanShareService()
-    private val extractShareAttachmentsUseCase = ExtractShareAttachmentsUseCase(com.lomo.app.testing.fakes.FakeMarkdownWorkspaceRepository())
+    private val extractShareAttachmentsUseCase = ExtractShareAttachmentsUseCase(
+        com.lomo.app.testing.fakes.FakeMarkdownWorkspaceRepository(),
+    )
     private val shareErrorPolicy = ShareErrorPolicy()
 
     init {
@@ -98,7 +100,7 @@ class ShareViewModelTest : AppFunSpec() {
             runTest {
                 val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
                 shareService.sendMemoResult = Result.failure(
-                    IllegalStateException("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall")
+                    IllegalStateException("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall"),
                 )
 
                 val viewModel = createViewModel(payloadKey)
@@ -119,7 +121,9 @@ class ShareViewModelTest : AppFunSpec() {
 
         test("sendMemo delegates attachment extraction to usecase and forwards result") {
             runTest {
-                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content with photo ![photo](images/photo.png)")
+                val payloadKey = ShareRoutePayloadStore.putMemoContent(
+                    "memo-content with photo ![photo](images/photo.png)",
+                )
                 val device = DiscoveredDevice(
                     deviceId = TEST_PEER_DEVICE_ID,
                     name = "Peer",
@@ -138,7 +142,7 @@ class ShareViewModelTest : AppFunSpec() {
                         content = "memo-content with photo ![photo](images/photo.png)",
                         timestamp = 123L,
                         attachmentUris = mapOf("images/photo.png" to "images/photo.png"),
-                    )
+                    ),
                 )
             }
         }
@@ -176,7 +180,9 @@ class ShareViewModelTest : AppFunSpec() {
             }
         }
 
-        test("given route key survives process memory loss when cache is configured then ViewModel restores memo content") {
+        test(
+            "given route key survives process memory loss when cache is configured then ViewModel restores memo content",
+        ) {
             runTest {
                 val cacheDir = Files.createTempDirectory("share-view-model-payload-cache-test").toFile()
                 ShareRoutePayloadStore.configurePersistentCacheForTest(cacheDir)
@@ -359,7 +365,9 @@ class ShareViewModelTest : AppFunSpec() {
                 val viewModel = createViewModel(payloadKey)
 
                 viewModel.isTechnicalShareError("Network unavailable") shouldBe false
-                viewModel.isTechnicalShareError("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall") shouldBe true
+                viewModel.isTechnicalShareError(
+                    "java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall",
+                ) shouldBe true
             }
         }
 
@@ -376,15 +384,14 @@ class ShareViewModelTest : AppFunSpec() {
         }
     }
 
-    private fun TestScope.createViewModel(payloadKey: String): ShareViewModel =
-        createViewModel(
-            SavedStateHandle(
-                mapOf(
-                    "payloadKey" to payloadKey,
-                    "memoTimestamp" to 123L,
-                ),
+    private fun TestScope.createViewModel(payloadKey: String): ShareViewModel = createViewModel(
+        SavedStateHandle(
+            mapOf(
+                "payloadKey" to payloadKey,
+                "memoTimestamp" to 123L,
             ),
-        )
+        ),
+    )
 
     private fun TestScope.createViewModel(savedStateHandle: SavedStateHandle): ShareViewModel {
         val viewModel =

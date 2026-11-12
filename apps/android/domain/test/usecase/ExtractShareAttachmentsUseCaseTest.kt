@@ -19,7 +19,7 @@
  *
  * Excludes:
  * - transport encoding, filesystem resolution, and app share orchestration.
- 
+
  * Test Change Justification:
  * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
  * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
@@ -33,12 +33,12 @@
  */
 package com.lomo.domain.usecase
 
-import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.model.MediaClass
+import com.lomo.domain.model.markdown.MarkdownAttachment
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
-import com.lomo.domain.model.MediaClass
-import com.lomo.domain.model.markdown.MarkdownAttachment
+import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
 
 class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
@@ -64,10 +64,10 @@ class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
 
             result.localAttachmentPaths shouldBe listOf("images/a.png", "vault/b.jpg", "voice/recording.m4a")
             result.attachmentUris shouldBe mapOf(
-                    "images/a.png" to "images/a.png",
-                    "vault/b.jpg" to "vault/b.jpg",
-                    "voice/recording.m4a" to "voice/recording.m4a",
-                )
+                "images/a.png" to "images/a.png",
+                "vault/b.jpg" to "vault/b.jpg",
+                "voice/recording.m4a" to "voice/recording.m4a",
+            )
         }
 
         test("given mixed image syntaxes when extracting share attachments then image order follows content analyzer") {
@@ -80,10 +80,10 @@ class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
 
             val result =
                 useCase(
-                        MarkdownAttachment("vault/first.jpg", MediaClass.IMAGE),
-                        MarkdownAttachment("images/second.png", MediaClass.IMAGE),
-                        MarkdownAttachment("voice/recording.m4a", MediaClass.AUDIO),
-                    )(content)
+                    MarkdownAttachment("vault/first.jpg", MediaClass.IMAGE),
+                    MarkdownAttachment("images/second.png", MediaClass.IMAGE),
+                    MarkdownAttachment("voice/recording.m4a", MediaClass.AUDIO),
+                )(content)
 
             result.localAttachmentPaths shouldBe
                 listOf("vault/first.jpg", "images/second.png", "voice/recording.m4a")
@@ -97,9 +97,9 @@ class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
                 """.trimIndent()
 
             val result = useCase(
-                        MarkdownAttachment("./same.png", MediaClass.IMAGE),
-                        MarkdownAttachment("./same.png", MediaClass.IMAGE),
-                    )(content)
+                MarkdownAttachment("./same.png", MediaClass.IMAGE),
+                MarkdownAttachment("./same.png", MediaClass.IMAGE),
+            )(content)
 
             result.localAttachmentPaths shouldBe listOf("./same.png")
         }
@@ -109,20 +109,19 @@ class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
         ExtractShareAttachmentsUseCase(FakeAttachmentMarkdownRepository(attachments.toList()))
 }
 
-private class FakeAttachmentMarkdownRepository(
-    private val attachments: List<MarkdownAttachment>,
-) : MarkdownWorkspaceRepository {
-    override fun renderMarkdown(content: String): MarkdownRenderDocument =
-        MarkdownRenderDocument(
-            sourceByteLength = content.encodeToByteArray().size.toULong(),
-            plainText = "",
-            tagNames = emptyList(),
-            attachments = attachments,
-            blocks = emptyList(),
-        )
+private class FakeAttachmentMarkdownRepository(private val attachments: List<MarkdownAttachment>) :
+    MarkdownWorkspaceRepository {
+    override fun renderMarkdown(content: String): MarkdownRenderDocument = MarkdownRenderDocument(
+        sourceByteLength = content.encodeToByteArray().size.toULong(),
+        plainText = "",
+        tagNames = emptyList(),
+        attachments = attachments,
+        blocks = emptyList(),
+    )
 
     override suspend fun toggleTask(
+        operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,
         actionSpan: MarkdownSourceSpan,
-    ): com.lomo.domain.model.MemoDocumentMutation = error("toggle not expected")
+    ): String = error("toggle not expected")
 }

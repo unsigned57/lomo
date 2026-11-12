@@ -49,10 +49,7 @@ internal fun MDText(
 }
 
 @Composable
-internal fun MDImage(
-    image: MarkdownPresentationImage,
-    onImageClick: ((String) -> Unit)? = null,
-) {
+internal fun MDImage(image: MarkdownPresentationImage, onImageClick: ((String) -> Unit)? = null) {
     MarkdownImageBlock(
         image = image,
         onImageClick = onImageClick,

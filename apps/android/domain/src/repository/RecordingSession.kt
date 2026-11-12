@@ -13,7 +13,7 @@ interface RecordingSession {
 
     val errorMessage: StateFlow<String?>
 
-    suspend fun startRecording()
+    suspend fun startRecording(draftId: com.lomo.domain.model.DraftId)
 
     suspend fun stopRecording(): String?
 

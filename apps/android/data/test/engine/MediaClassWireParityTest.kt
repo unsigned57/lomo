@@ -63,12 +63,12 @@ class MediaClassWireParityTest : DataFunSpec() {
             val document =
                 renderDocument(
                     attachments =
-                        listOf(
-                            com.lomo.nativebridge.MediaAttachment(
-                                destination = "media/a.mp4",
-                                mediaClass = com.lomo.nativebridge.MediaClass.VIDEO,
-                            ),
+                    listOf(
+                        com.lomo.nativebridge.MediaAttachment(
+                            destination = "media/a.mp4",
+                            mediaClass = com.lomo.nativebridge.MediaClass.VIDEO,
                         ),
+                    ),
                     nodes = imageParagraph(mediaClass = com.lomo.nativebridge.MediaClass.VIDEO),
                 ).toDomainDocument("x")
 
@@ -91,48 +91,23 @@ class MediaClassWireParityTest : DataFunSpec() {
 private fun renderDocument(
     attachments: List<com.lomo.nativebridge.MediaAttachment>,
     nodes: List<RenderNode>,
-): RenderDocument =
-    RenderDocument(
-        schemaVersion = 1u,
-        plainText = "x",
-        nodeCount = nodes.size.toUInt(),
-        tagNames = emptyList(),
-        attachments = attachments,
-        nodes = nodes,
-    )
+): RenderDocument = RenderDocument(
+    schemaVersion = 1u,
+    plainText = "x",
+    nodeCount = nodes.size.toUInt(),
+    tagNames = emptyList(),
+    attachments = attachments,
+    nodes = nodes,
+)
 
-private fun imageParagraph(mediaClass: com.lomo.nativebridge.MediaClass?): List<RenderNode> =
-    listOf(
-        RenderNode(
-            kind = RenderNodeKind.PARAGRAPH,
-            sourceStart = 0uL,
-            sourceEnd = 1uL,
-            depth = 1u,
-            text = null,
-            destination = null,
-            title = null,
-            level = null,
-            ordered = null,
-            listStart = null,
-            checked = null,
-            actionStart = null,
-            actionEnd = null,
-            mediaClass = null,
-        ),
-        imageNode(depth = 2u, mediaClass = mediaClass),
-    )
-
-private fun imageNode(
-    depth: UInt,
-    mediaClass: com.lomo.nativebridge.MediaClass?,
-): RenderNode =
+private fun imageParagraph(mediaClass: com.lomo.nativebridge.MediaClass?): List<RenderNode> = listOf(
     RenderNode(
-        kind = RenderNodeKind.IMAGE,
+        kind = RenderNodeKind.PARAGRAPH,
         sourceStart = 0uL,
         sourceEnd = 1uL,
-        depth = depth,
-        text = "alt",
-        destination = "media/a.mp4",
+        depth = 1u,
+        text = null,
+        destination = null,
         title = null,
         level = null,
         ordered = null,
@@ -140,5 +115,24 @@ private fun imageNode(
         checked = null,
         actionStart = null,
         actionEnd = null,
-        mediaClass = mediaClass,
-    )
+        mediaClass = null,
+    ),
+    imageNode(depth = 2u, mediaClass = mediaClass),
+)
+
+private fun imageNode(depth: UInt, mediaClass: com.lomo.nativebridge.MediaClass?): RenderNode = RenderNode(
+    kind = RenderNodeKind.IMAGE,
+    sourceStart = 0uL,
+    sourceEnd = 1uL,
+    depth = depth,
+    text = "alt",
+    destination = "media/a.mp4",
+    title = null,
+    level = null,
+    ordered = null,
+    listStart = null,
+    checked = null,
+    actionStart = null,
+    actionEnd = null,
+    mediaClass = mediaClass,
+)

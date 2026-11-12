@@ -32,6 +32,7 @@ lomo-core = { path = "../lomo-core" }
 getrandom.workspace = true
 jiff.workspace = true
 pulldown-cmark.workspace = true
+linkify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -94,6 +95,10 @@ name = "memo_shard_identity_merge_contract"
 path = "tests/memo_shard_identity_merge_contract.rs"
 
 [[test]]
+name = "memo_identity_journal_contract"
+path = "tests/memo_identity_journal_contract.rs"
+
+[[test]]
 name = "lomo_record_contract"
 path = "tests/lomo_record_contract.rs"
 
@@ -128,3 +133,11 @@ path = "examples/workspace_scale_benchmark.rs"
 [[example]]
 name = "workspace_property_fuzz"
 path = "examples/workspace_property_fuzz.rs"
+
+[[test]]
+name = "bare_link_render_contract"
+path = "tests/bare_link_render_contract.rs"
+
+[[test]]
+name = "missing_document_identity_contract"
+path = "tests/missing_document_identity_contract.rs"

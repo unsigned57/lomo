@@ -76,7 +76,7 @@ impl LanItemId {
         hasher.update(b"lomo-lan-item-id-v2");
         hasher.update(batch_id.as_str().as_bytes());
         hasher.update(item_index.to_be_bytes());
-        Self(format!("{:x}", hasher.finalize()))
+        Self(lomo_core::hex_encode(&hasher.finalize()))
     }
 
     #[must_use]

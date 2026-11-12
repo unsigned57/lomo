@@ -12,10 +12,7 @@ import kotlinx.serialization.Serializable
  * death so a recovered draft still owns the media it staged before the kill.
  */
 @Serializable
-data class MemoCreateDraft(
-    val draftId: DraftId,
-    val content: String,
-) {
+data class MemoCreateDraft(val draftId: DraftId, val content: String) {
     init {
         require(content.length <= MemoConstraints.MAX_MEMO_LENGTH) {
             "Memo create draft content exceeds the memo length limit"

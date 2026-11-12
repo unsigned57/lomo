@@ -32,19 +32,17 @@ class WebDavSyncConfigurationRepositoryImpl(
 ) : WebDavSyncConfigurationRepository {
     override fun isWebDavSyncEnabled(): Flow<Boolean> = dataStore.webDavSyncEnabled
 
-    override fun getProvider(): Flow<WebDavProvider> =
-        dataStore.webDavProvider.map(::webDavProviderFromPreference)
+    override fun getProvider(): Flow<WebDavProvider> = dataStore.webDavProvider.map(::webDavProviderFromPreference)
 
     override fun getBaseUrl(): Flow<String?> = dataStore.webDavBaseUrl
 
     override fun getEndpointUrl(): Flow<String?> = dataStore.webDavEndpointUrl
 
-    override fun getUsername(): Flow<String?> =
-        credentialRepository
-            .observeCredentialState(CredentialProvider.WEBDAV)
-            .transform {
-                emit(credentialRepository.readWebDavUsernameForDisplay(securitySessionPolicy))
-            }
+    override fun getUsername(): Flow<String?> = credentialRepository
+        .observeCredentialState(CredentialProvider.WEBDAV)
+        .transform {
+            emit(credentialRepository.readWebDavUsernameForDisplay(securitySessionPolicy))
+        }
 
     override fun getAutoSyncEnabled(): Flow<Boolean> = dataStore.webDavAutoSyncEnabled
 
@@ -115,15 +113,14 @@ class WebDavSyncConfigurationMutationRepositoryImpl(
 
     override suspend fun getPasswordStatus(): StoredCredentialStatus = credentialStore.passwordStatus
 
-    override suspend fun getCredentialState(): CredentialState =
-        CredentialState(
-            provider = CredentialProvider.WEBDAV,
-            fields =
-                listOf(
-                    CredentialFieldState(CredentialField.WEBDAV_USERNAME, effectiveUsernameStatus()),
-                    CredentialFieldState(CredentialField.WEBDAV_PASSWORD, getPasswordStatus()),
-                ),
-        )
+    override suspend fun getCredentialState(): CredentialState = CredentialState(
+        provider = CredentialProvider.WEBDAV,
+        fields =
+        listOf(
+            CredentialFieldState(CredentialField.WEBDAV_USERNAME, effectiveUsernameStatus()),
+            CredentialFieldState(CredentialField.WEBDAV_PASSWORD, getPasswordStatus()),
+        ),
+    )
 
     override suspend fun isPasswordConfigured(): Boolean = getPasswordStatus().isConfigured
 
@@ -140,10 +137,9 @@ class WebDavSyncConfigurationMutationRepositoryImpl(
     }
 
     /** Mirrors `RustSyncCycleInputFactory`: explicit endpointUrl wins, baseUrl is the fallback. */
-    private suspend fun resolvedEndpoint(): String =
-        dataStore.webDavEndpointUrl.first()?.trim().orEmpty().ifBlank {
-            dataStore.webDavBaseUrl.first()?.trim().orEmpty()
-        }
+    private suspend fun resolvedEndpoint(): String = dataStore.webDavEndpointUrl.first()?.trim().orEmpty().ifBlank {
+        dataStore.webDavBaseUrl.first()?.trim().orEmpty()
+    }
 
     private suspend fun effectiveUsernameStatus(): StoredCredentialStatus {
         dataStore.webDavUsername.first()?.takeIf(String::isNotBlank)?.let { legacyUsername ->
@@ -155,11 +151,8 @@ class WebDavSyncConfigurationMutationRepositoryImpl(
 }
 
 /** Durable sync state for WebDAV — real cycle-record reads, never an in-memory `Idle` seed. */
-class WebDavSyncStateRepositoryImpl(
-    private val cycleStatus: RustSyncCycleStatusStore,
-) : WebDavSyncStateRepository {
-    override fun syncState(): Flow<WebDavSyncState> =
-        cycleStatus.observe().map { status -> status.toWebDavSyncState() }
+class WebDavSyncStateRepositoryImpl(private val cycleStatus: RustSyncCycleStatusStore) : WebDavSyncStateRepository {
+    override fun syncState(): Flow<WebDavSyncState> = cycleStatus.observe().map { status -> status.toWebDavSyncState() }
 }
 
 internal val WebDavProvider.preferenceValue: String
@@ -171,16 +164,15 @@ internal fun webDavProviderFromPreference(value: String): WebDavProvider =
 
 internal suspend fun CredentialRepository.readWebDavUsernameForDisplay(
     securitySessionPolicy: SecuritySessionPolicy,
-): String? =
-    when (
-        val result =
-            readSecret(
-                field = CredentialField.WEBDAV_USERNAME,
-                authorization = securitySessionPolicy.authorizeCredentialRead(),
-            )
-    ) {
-        CredentialSecretReadResult.Missing -> null
-        is CredentialSecretReadResult.Present -> result.value
-        CredentialSecretReadResult.Unreadable -> null
-        is CredentialSecretReadResult.Unauthorized -> null
-    }
+): String? = when (
+    val result =
+        readSecret(
+            field = CredentialField.WEBDAV_USERNAME,
+            authorization = securitySessionPolicy.authorizeCredentialRead(),
+        )
+) {
+    CredentialSecretReadResult.Missing -> null
+    is CredentialSecretReadResult.Present -> result.value
+    CredentialSecretReadResult.Unreadable -> null
+    is CredentialSecretReadResult.Unauthorized -> null
+}

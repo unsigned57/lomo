@@ -2,21 +2,37 @@ package com.lomo.domain.testing.fakes
 
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.QuickBallAction
+import com.lomo.domain.model.QuickBallConfig
+import com.lomo.domain.model.QuickBallGesture
 import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.repository.MemoActionPreferencesRepository
 import com.lomo.domain.repository.PreferencesRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class FakePreferencesRepository : PreferencesRepository {
+    private val quickBallConfig = MutableStateFlow(QuickBallConfig.defaults())
+
+    override fun getQuickBallConfig(): Flow<QuickBallConfig> = quickBallConfig.asStateFlow()
+
+    override suspend fun setQuickBallAction(gesture: QuickBallGesture, action: QuickBallAction) {
+        quickBallConfig.value = quickBallConfig.value.withAction(gesture, action)
+    }
+
+    override suspend fun resetQuickBallConfig() {
+        quickBallConfig.value = QuickBallConfig.defaults()
+    }
+
     private val dateFormat = MutableStateFlow("yyyy_MM_dd")
     private val timeFormat = MutableStateFlow("HH:mm:ss")
     private val themeMode = MutableStateFlow(ThemeMode.SYSTEM)
     private val calendarHeatmapThresholds = MutableStateFlow(CalendarHeatmapThresholds.default())
     private val colorSource = MutableStateFlow<ColorSource>(ColorSource.default())
+    private val contrastLevel = MutableStateFlow(ContrastLevel.default())
     private val colorHistory = MutableStateFlow<List<Int>>(emptyList())
     private val fontPreference = MutableStateFlow<FontPreference>(FontPreference.default())
     private val storageFilenameFormat = MutableStateFlow("yyyy_MM_dd")
@@ -28,8 +44,6 @@ class FakePreferencesRepository : PreferencesRepository {
     private val quickSaveOnBackEnabled = MutableStateFlow(true)
     private val scrollbarEnabled = MutableStateFlow(true)
     private val autoOpenInputOnForeground = MutableStateFlow(PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND)
-    private val memoActionAutoReorderEnabled = MutableStateFlow(false)
-    private val memoActionOrders = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     private val inputToolbarToolOrder = MutableStateFlow<List<String>>(emptyList())
     private val sidebarTagOrder = MutableStateFlow<List<String>>(emptyList())
     private val appLockEnabled = MutableStateFlow(false)
@@ -83,6 +97,18 @@ class FakePreferencesRepository : PreferencesRepository {
         if (source is ColorSource.CustomSeed) {
             addColorToHistory(source.argb)
         }
+    }
+
+    private val pureBlackDark = kotlinx.coroutines.flow.MutableStateFlow(false)
+    override fun isPureBlackDarkEnabled(): Flow<Boolean> = pureBlackDark.asStateFlow()
+    override suspend fun setPureBlackDarkEnabled(enabled: Boolean) {
+        pureBlackDark.value = enabled
+    }
+
+    override fun getContrastLevel(): Flow<ContrastLevel> = contrastLevel.asStateFlow()
+
+    override suspend fun setContrastLevel(level: ContrastLevel) {
+        contrastLevel.value = level
     }
 
     override fun getColorHistory(): Flow<List<Int>> = colorHistory.asStateFlow()
@@ -152,28 +178,6 @@ class FakePreferencesRepository : PreferencesRepository {
 
     override suspend fun setAutoOpenInputOnForegroundEnabled(enabled: Boolean) {
         autoOpenInputOnForeground.value = enabled
-    }
-
-    override fun isMemoActionAutoReorderEnabled(): Flow<Boolean> = memoActionAutoReorderEnabled.asStateFlow()
-
-    override suspend fun setMemoActionAutoReorderEnabled(enabled: Boolean) {
-        memoActionAutoReorderEnabled.value = enabled
-    }
-
-    override fun getMemoActionOrder(scope: String): Flow<List<String>> =
-        MutableStateFlow(
-            memoActionOrders.value[scope]
-                ?: memoActionOrders.value[MemoActionPreferencesRepository.DEFAULT_MEMO_ACTION_ORDER_SCOPE]
-                ?: emptyList(),
-        ).asStateFlow()
-
-    override fun getMemoActionOrdersByScope(): Flow<Map<String, List<String>>> = memoActionOrders.asStateFlow()
-
-    override suspend fun updateMemoActionOrder(
-        scope: String,
-        actionOrder: List<String>,
-    ) {
-        memoActionOrders.value = memoActionOrders.value + (scope to actionOrder)
     }
 
     override fun getInputToolbarToolOrder(): Flow<List<String>> = inputToolbarToolOrder.asStateFlow()

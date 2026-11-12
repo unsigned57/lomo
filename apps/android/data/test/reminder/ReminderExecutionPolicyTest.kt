@@ -72,8 +72,14 @@ class ReminderExecutionPolicyTest : DataFunSpec() {
                     ),
                     token = "@2026-01-01-09:00",
                 )
-            projectedReminderFor(summary(isTrashed = false, isPending = false, reminders = listOf(reminder)), "r1") shouldBe reminder
-            projectedReminderFor(summary(isTrashed = false, isPending = false, reminders = listOf(reminder)), "missing") shouldBe null
+            projectedReminderFor(
+                summary(isTrashed = false, isPending = false, reminders = listOf(reminder)),
+                "r1",
+            ) shouldBe reminder
+            projectedReminderFor(
+                summary(isTrashed = false, isPending = false, reminders = listOf(reminder)),
+                "missing",
+            ) shouldBe null
         }
     }
 
@@ -81,21 +87,20 @@ class ReminderExecutionPolicyTest : DataFunSpec() {
         isTrashed: Boolean,
         isPending: Boolean,
         reminders: List<ReminderMarker> = emptyList(),
-    ): StoreMemoSummary =
-        StoreMemoSummary(
-            memoId = "memo",
-            sourcePath = "1970_01_01.md",
-            fileFingerprint = "fp",
-            updatedAtMs = 1L,
-            createdAtMs = 1L,
-            hasTodo = false,
-            hasUrl = false,
-            hasAttachment = false,
-            isPinned = false,
-            isTrashed = isTrashed,
-            bodyPreview = "body",
-            contentRevision = 1L,
-            reminders = reminders,
-            isPending = isPending,
-        )
+    ): StoreMemoSummary = StoreMemoSummary(
+        memoId = "memo",
+        sourcePath = "1970_01_01.md",
+        fileFingerprint = "fp",
+        updatedAtMs = 1L,
+        createdAtMs = 1L,
+        hasTodo = false,
+        hasUrl = false,
+        hasAttachment = false,
+        isPinned = false,
+        isTrashed = isTrashed,
+        bodyPreview = "body",
+        contentRevision = 1L,
+        reminders = reminders,
+        isPending = isPending,
+    )
 }

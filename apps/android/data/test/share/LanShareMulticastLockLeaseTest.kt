@@ -1,6 +1,6 @@
 package com.lomo.data.share
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
@@ -15,8 +15,6 @@ package com.lomo.data.share
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
-
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
@@ -77,10 +75,9 @@ class LanShareMulticastLockLeaseTest : DataFunSpec() {
         var releaseCount = 0
             private set
 
-        fun createLease(): LanShareMulticastLockLease =
-            LanShareMulticastLockLease(
-                acquireLock = { acquireCount++ },
-                releaseLock = { releaseCount++ },
-            )
+        fun createLease(): LanShareMulticastLockLease = LanShareMulticastLockLease(
+            acquireLock = { acquireCount++ },
+            releaseLock = { releaseCount++ },
+        )
     }
 }

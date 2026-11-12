@@ -13,24 +13,23 @@ settings:
       version: 27
       selectionMode: javaHome
   kotlin:
+    version: 2.4.21
     allWarningsAsErrors: true
-    freeCompilerArgs:
-      - -Xannotation-default-target=param-property
     serialization:
       enabled: true
-      version: 1.11.0
+      version: 1.13.0
 
 dependencies@jvmAndAndroid:
-  - androidx.paging:paging-common:3.5.0
-  - io.github.java-diff-utils:java-diff-utils:4.17
+  - androidx.paging:paging-common:3.5.3
+  - io.github.java-diff-utils:java-diff-utils:4.18
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0
-  - org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0
+  - org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0
 
 test-dependencies@jvmAndAndroid:
-  - io.kotest:kotest-runner-junit5:6.1.11
-  - io.kotest:kotest-assertions-core:6.1.11
-  - io.kotest:kotest-property:6.1.11
-  - io.kotest:kotest-framework-engine:6.1.11
+  - io.kotest:kotest-runner-junit5:6.2.7
+  - io.kotest:kotest-assertions-core:6.2.7
+  - io.kotest:kotest-property:6.2.7
+  - io.kotest:kotest-framework-engine:6.2.7
   - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0
-  - io.mockk:mockk:1.14.9
+  - io.mockk:mockk:1.14.12
   - app.cash.turbine:turbine:1.2.1

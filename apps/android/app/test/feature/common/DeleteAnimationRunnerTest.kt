@@ -1,3 +1,12 @@
+/*
+ * Dependency upgrade Test Change Justification:
+ * Reason category: mechanical migration.
+ * Old behavior/assertion being replaced: explicit Unit expressions in success callbacks.
+ * Why old assertion is no longer correct: Kotlin 2.4 diagnoses these expressions as unused.
+ * Coverage preserved by: the same success callbacks, side effects, state and expected values.
+ * Why this is not fitting the test to the implementation: only redundant expression syntax
+ * changes; failure and success assertions remain unchanged.
+ */
 package com.lomo.app.feature.common
 
 /*
@@ -18,6 +27,13 @@ package com.lomo.app.feature.common
  * TDD proof:
  * - Fails before the fix because successful mutation completion is not modeled separately from
  *   animation settlement and source absence, so a row can be released too early.
+ *
+ * Test Change Justification:
+ * Reason category: requested removal of bulk row animations.
+ * Old behavior/assertion being replaced: multi-row animation success and rollback through the bulk overload.
+ * Why old assertion is no longer correct: collection clear no longer uses row animations; the unused overload is deleted.
+ * Coverage preserved by: item success/failure/cancellation checks and TrashViewModelTest bulk clear checks.
+ * Why this is not fitting the test to the implementation: collection clear is now independent of row snapshots.
  *
  * Excludes:
  * - Compose rendering, actual delete persistence, and multi-item batch animation coordination.
@@ -50,9 +66,7 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
                         registry = registry,
                         item = "snapshot_1",
                         anchoredAfterKey = "anchor_1",
-                    ) {
-                        Unit
-                    }
+                    ) {}
                 }
 
                 result.isSuccess shouldBe true
@@ -63,7 +77,7 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
                         animationSettled = false,
                         mutationCommitted = true,
                         sourceAbsent = false,
-                    )
+                    ),
                 )
             }
         }
@@ -111,63 +125,6 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
             }
         }
 
-        test("marks all deleting ids on bulk success") {
-            runTest {
-                val registry = ExitAnimationRegistry<String>()
-
-                val result = runCatching {
-                    runDeleteAnimationWithRollback(
-                        items = listOf(
-                            DeleteAnimationItem("memo_1", "snapshot_1", "anchor_1"),
-                            DeleteAnimationItem("memo_2", "snapshot_2", "anchor_2"),
-                        ),
-                        registry = registry,
-                    ) {
-                        Unit
-                    }
-                }
-
-                result.isSuccess shouldBe true
-                registry.entries.value shouldBe mapOf(
-                    "memo_1" to ExitAnimationRegistry.ExitEntry(
-                        item = "snapshot_1",
-                        anchoredAfterKey = "anchor_1",
-                        animationSettled = false,
-                        mutationCommitted = true,
-                        sourceAbsent = false,
-                    ),
-                    "memo_2" to ExitAnimationRegistry.ExitEntry(
-                        item = "snapshot_2",
-                        anchoredAfterKey = "anchor_2",
-                        animationSettled = false,
-                        mutationCommitted = true,
-                        sourceAbsent = false,
-                    )
-                )
-            }
-        }
-
-        test("rolls back all deleting ids on bulk failure") {
-            runTest {
-                val registry = ExitAnimationRegistry<String>()
-
-                val result = runCatching {
-                    runDeleteAnimationWithRollback(
-                        items = listOf(
-                            DeleteAnimationItem("memo_1", "snapshot_1", "anchor_1"),
-                            DeleteAnimationItem("memo_2", "snapshot_2", "anchor_2"),
-                        ),
-                        registry = registry,
-                    ) {
-                        throw IllegalStateException("bulk delete failed")
-                    }
-                }
-
-                result.isFailure shouldBe true
-                registry.entries.value.isEmpty() shouldBe true
-            }
-        }
-
         test("executes mutation immediately without internal delay") {
             runTest {
                 val registry = ExitAnimationRegistry<String>()
@@ -190,7 +147,7 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
                         animationSettled = false,
                         mutationCommitted = true,
                         sourceAbsent = false,
-                    )
+                    ),
                 )
             }
         }

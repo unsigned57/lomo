@@ -58,10 +58,7 @@ internal data class CapabilityRuntimePermission(
     val minSdk: Int? = null,
     val requiresSystemRecognition: Boolean = false,
 ) {
-    fun isRequired(
-        sdkInt: Int,
-        isPermissionRecognized: (String) -> Boolean,
-    ): Boolean =
+    fun isRequired(sdkInt: Int, isPermissionRecognized: (String) -> Boolean): Boolean =
         (minSdk == null || sdkInt >= minSdk) &&
             (!requiresSystemRecognition || isPermissionRecognized(name))
 }
@@ -70,10 +67,7 @@ internal data class CapabilityRuntimePermissionPlan(
     val permissions: List<CapabilityRuntimePermission>,
     val grantAggregation: CapabilityGrantAggregation,
 ) {
-    fun requiredPermissions(
-        sdkInt: Int,
-        isPermissionRecognized: (String) -> Boolean = { true },
-    ): List<String> =
+    fun requiredPermissions(sdkInt: Int, isPermissionRecognized: (String) -> Boolean = { true }): List<String> =
         permissions
             .filter { permission -> permission.isRequired(sdkInt, isPermissionRecognized) }
             .map { permission -> permission.name }
@@ -82,17 +76,18 @@ internal data class CapabilityRuntimePermissionPlan(
         requiredPermissions: List<String>,
         permissionResults: Map<String, Boolean>,
         hasCurrentPermissions: Boolean,
-    ): Boolean =
-        requiredPermissions.isEmpty() ||
-            hasCurrentPermissions ||
-            when (grantAggregation) {
-                CapabilityGrantAggregation.All ->
-                    requiredPermissions.all { permission -> permissionResults[permission] == true }
-                CapabilityGrantAggregation.Any ->
-                    requiredPermissions.any { permission -> permissionResults[permission] == true }
-                CapabilityGrantAggregation.Custom ->
-                    error("Custom grant aggregation requires a capability-specific evaluator.")
-            }
+    ): Boolean = requiredPermissions.isEmpty() ||
+        hasCurrentPermissions ||
+        when (grantAggregation) {
+            CapabilityGrantAggregation.All ->
+                requiredPermissions.all { permission -> permissionResults[permission] == true }
+
+            CapabilityGrantAggregation.Any ->
+                requiredPermissions.any { permission -> permissionResults[permission] == true }
+
+            CapabilityGrantAggregation.Custom ->
+                error("Custom grant aggregation requires a capability-specific evaluator.")
+        }
 }
 
 internal data class CapabilityRecoveryPlan(
@@ -102,11 +97,10 @@ internal data class CapabilityRecoveryPlan(
     val permanentlyDeniedFallbackAction: CapabilityRecoveryAction? = null,
     val canRetryAfterRecovery: Boolean,
 ) {
-    fun fallbackAction(decision: CapabilityRecoveryDecision): CapabilityRecoveryAction? =
-        when (decision) {
-            CapabilityRecoveryDecision.Denied -> deniedFallbackAction
-            CapabilityRecoveryDecision.PermanentlyDenied -> permanentlyDeniedFallbackAction
-        }
+    fun fallbackAction(decision: CapabilityRecoveryDecision): CapabilityRecoveryAction? = when (decision) {
+        CapabilityRecoveryDecision.Denied -> deniedFallbackAction
+        CapabilityRecoveryDecision.PermanentlyDenied -> permanentlyDeniedFallbackAction
+    }
 }
 
 internal data class CapabilityGate(
@@ -207,8 +201,7 @@ internal object CapabilityGatePolicies {
     fun requirePolicy(id: CapabilityGateId): CapabilityGate =
         requireNotNull(byId[id]) { "Missing capability gate policy for $id." }
 
-    fun firstScreenBlockers(): List<CapabilityGate> =
-        all.filter { gate -> gate.blocksFirstScreen }
+    fun firstScreenBlockers(): List<CapabilityGate> = all.filter { gate -> gate.blocksFirstScreen }
 }
 
 internal const val ANDROID_BAKLAVA_API_LEVEL = 36
@@ -216,17 +209,16 @@ internal const val ANDROID_BAKLAVA_API_LEVEL = 36
 private fun runtimeRecoveryPlan(
     permissions: List<CapabilityRuntimePermission>,
     grantAggregation: CapabilityGrantAggregation,
-): CapabilityRecoveryPlan =
-    CapabilityRecoveryPlan(
-        primaryRequestAction = CapabilityRecoveryAction.RequestRuntimePermissions,
-        runtimePermissionPlan = CapabilityRuntimePermissionPlan(
-            permissions = permissions,
-            grantAggregation = grantAggregation,
-        ),
-        deniedFallbackAction = CapabilityRecoveryAction.OpenAppSettings,
-        permanentlyDeniedFallbackAction = CapabilityRecoveryAction.OpenAppSettings,
-        canRetryAfterRecovery = true,
-    )
+): CapabilityRecoveryPlan = CapabilityRecoveryPlan(
+    primaryRequestAction = CapabilityRecoveryAction.RequestRuntimePermissions,
+    runtimePermissionPlan = CapabilityRuntimePermissionPlan(
+        permissions = permissions,
+        grantAggregation = grantAggregation,
+    ),
+    deniedFallbackAction = CapabilityRecoveryAction.OpenAppSettings,
+    permanentlyDeniedFallbackAction = CapabilityRecoveryAction.OpenAppSettings,
+    canRetryAfterRecovery = true,
+)
 
 private fun systemSettingsRecoveryPlan(settingsEntry: CapabilitySettingsEntry): CapabilityRecoveryPlan =
     CapabilityRecoveryPlan(

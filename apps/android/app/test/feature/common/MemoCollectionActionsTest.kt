@@ -9,7 +9,9 @@
  * - Given delete action, when mapToUiModel throws exception, then exception is caught and reported to errors.
  * - Given restore action, when mapToUiModel throws exception, then exception is caught and reported to errors.
  * - Given deletePermanently action, when mapToUiModel throws exception, then exception is caught and reported to errors.
- * - Given clearTrash action, when mapToUiModel throws exception, then exception is caught and reported to errors.
+ * - Given clearTrash action, when the batch fails, then its failure is reported without mapping rows.
+ * - Given a committed restore, when the mutation lands, then onCommitted fires once with the memo.
+ * - Given a failing restore, when the capability throws, then onCommitted never fires.
  * - Given an editor update, when the durable mutation is pending, then submit awaits it and reports
  *   success only after the collection capability has committed the new content.
  *
@@ -18,6 +20,13 @@
  *
  * TDD proof:
  * - Fails with unhandled exception on the caller thread before the fix when mapToUiModel throws.
+ *
+ * Test Change Justification:
+ * Reason category: requested collection clear behavior change.
+ * Old behavior/assertion being replaced: clearing trash mapped every row for an exit animation.
+ * Why old assertion is no longer correct: bulk clear must not depend on row rendering or loaded pages.
+ * Coverage preserved by: batch failures still reach the visible error state; item mapping failures remain tested.
+ * Why this is not fitting the test to the implementation: the capability must run even if a row cannot render.
  *
  * Excludes:
  * - DB operations, UI rendering.
@@ -43,8 +52,8 @@ import com.lomo.app.testing.verifiedEditSession
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
@@ -60,7 +69,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.DeletableTodo(
                     deleteMemo = { _, _ -> },
-                    toggleTodo = { _, _ -> "updated" }
+                    toggleTodo = { _, _ -> "updated" },
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
@@ -68,7 +77,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
-                    mapToUiModel = { throw RuntimeException("markdown render error") }
+                    mapToUiModel = { throw RuntimeException("markdown render error") },
                 )
 
                 val memo = Memo(
@@ -76,7 +85,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     timestamp = 1000L,
                     content = "Hello",
                     rawContent = "Hello",
-                    dateKey = "2026_06_24"
+                    dateKey = "2026_06_24",
                 )
 
                 actions.delete(memo, null)
@@ -93,7 +102,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { _, _ -> },
                     deletePermanently = { _, _ -> },
-                    clearTrash = { _ -> }
+                    clearTrash = { _ -> },
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
@@ -101,7 +110,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
-                    mapToUiModel = { throw RuntimeException("markdown render error") }
+                    mapToUiModel = { throw RuntimeException("markdown render error") },
                 )
 
                 val memo = Memo(
@@ -109,7 +118,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     timestamp = 1000L,
                     content = "Hello",
                     rawContent = "Hello",
-                    dateKey = "2026_06_24"
+                    dateKey = "2026_06_24",
                 )
 
                 actions.restore(memo, null)
@@ -118,7 +127,9 @@ class MemoCollectionActionsTest : AppFunSpec() {
             }
         }
 
-        test("given deletePermanently is called, when mapToUiModel throws, then exception is caught and reported to errors") {
+        test(
+            "given deletePermanently is called, when mapToUiModel throws, then exception is caught and reported to errors",
+        ) {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
@@ -126,7 +137,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { _, _ -> },
                     deletePermanently = { _, _ -> },
-                    clearTrash = { _ -> }
+                    clearTrash = { _ -> },
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
@@ -134,7 +145,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
-                    mapToUiModel = { throw RuntimeException("markdown render error") }
+                    mapToUiModel = { throw RuntimeException("markdown render error") },
                 )
 
                 val memo = Memo(
@@ -142,7 +153,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     timestamp = 1000L,
                     content = "Hello",
                     rawContent = "Hello",
-                    dateKey = "2026_06_24"
+                    dateKey = "2026_06_24",
                 )
 
                 actions.deletePermanently(memo, null)
@@ -151,7 +162,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
             }
         }
 
-        test("given clearTrash is called, when mapToUiModel throws, then exception is caught and reported to errors") {
+        test("given clearTrash fails then its error is reported without mapping any row") {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
@@ -159,7 +170,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { _, _ -> },
                     deletePermanently = { _, _ -> },
-                    clearTrash = { _ -> }
+                    clearTrash = { _ -> throw IllegalStateException("batch rejected") },
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
@@ -167,28 +178,12 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
-                    mapToUiModel = { throw RuntimeException("markdown render error") }
+                    mapToUiModel = { throw RuntimeException("markdown render error") },
                 )
 
-                val memo = Memo(
-                    id = "memo_1",
-                    timestamp = 1000L,
-                    content = "Hello",
-                    rawContent = "Hello",
-                    dateKey = "2026_06_24"
-                )
-
-                actions.clearTrash(
-                    listOf(
-                        DeleteAnimationItem(
-                            id = "memo_1",
-                            snapshot = memo,
-                            anchoredAfterKey = null,
-                        ),
-                    ),
-                )
+                actions.clearTrash()
                 runCurrent()
-                errorMessage.value shouldBe "Failed to clear trash: markdown render error"
+                errorMessage.value shouldBe "Failed to clear trash: batch rejected"
             }
         }
 
@@ -200,7 +195,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { _, _ -> },
                     deletePermanently = { _, _ -> },
-                    clearTrash = { _ -> }
+                    clearTrash = { _ -> },
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
@@ -213,9 +208,9 @@ class MemoCollectionActionsTest : AppFunSpec() {
                             memo = it,
                             processedContent = "Hello",
                             renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
-                            tags = kotlinx.collections.immutable.persistentListOf()
+                            tags = kotlinx.collections.immutable.persistentListOf(),
                         )
-                    }
+                    },
                 )
 
                 val memo = Memo(
@@ -223,12 +218,101 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     timestamp = 1000L,
                     content = "Hello",
                     rawContent = "Hello",
-                    dateKey = "2026_06_24"
+                    dateKey = "2026_06_24",
                 )
 
                 actions.delete(memo, null)
                 runCurrent()
-                errorMessage.value shouldBe "Failed to delete memo: Cannot delete memo in Trash. Use restore or deletePermanently instead."
+                errorMessage.value shouldBe
+                    "Failed to delete memo: Cannot delete memo in Trash. Use restore or deletePermanently instead."
+            }
+        }
+
+        test("given restore commits, then onCommitted fires exactly once with the restored memo") {
+            runTest {
+                val registry = ExitAnimationRegistry<MemoUiModel>()
+                val errorMessage = MutableStateFlow<String?>(null)
+                val errors = MemoCollectionErrors(errorMessage)
+                var committedMemoId: String? = null
+                val capabilities = MemoCollectionCapabilities.Trash(
+                    restoreMemo = { memo, _ -> committedMemoId = memo.id },
+                    deletePermanently = { _, _ -> },
+                    clearTrash = { _ -> },
+                )
+                val actions = MemoCollectionActions(
+                    exitAnimationRegistry = registry,
+                    errors = errors,
+                    draftId = com.lomo.domain.model.DraftId("draft-test"),
+                    capabilities = capabilities,
+                    scope = this,
+                    mapToUiModel = {
+                        MemoUiModel(
+                            memo = it,
+                            processedContent = "Hello",
+                            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
+                            tags = kotlinx.collections.immutable.persistentListOf(),
+                        )
+                    },
+                )
+
+                val memo = Memo(
+                    id = "memo_restored",
+                    timestamp = 1000L,
+                    content = "Hello",
+                    rawContent = "Hello",
+                    dateKey = "2026_06_24",
+                )
+                val observed = mutableListOf<Memo>()
+
+                actions.restore(memo, null) { restored -> observed += restored }
+                runCurrent()
+
+                observed.map { it.id } shouldBe listOf("memo_restored")
+                committedMemoId shouldBe "memo_restored"
+                errorMessage.value shouldBe null
+            }
+        }
+
+        test("given restore capability throws, then onCommitted never fires and the error is reported") {
+            runTest {
+                val registry = ExitAnimationRegistry<MemoUiModel>()
+                val errorMessage = MutableStateFlow<String?>(null)
+                val errors = MemoCollectionErrors(errorMessage)
+                val capabilities = MemoCollectionCapabilities.Trash(
+                    restoreMemo = { _, _ -> throw RuntimeException("restore boom") },
+                    deletePermanently = { _, _ -> },
+                    clearTrash = { _ -> },
+                )
+                val actions = MemoCollectionActions(
+                    exitAnimationRegistry = registry,
+                    errors = errors,
+                    draftId = com.lomo.domain.model.DraftId("draft-test"),
+                    capabilities = capabilities,
+                    scope = this,
+                    mapToUiModel = {
+                        MemoUiModel(
+                            memo = it,
+                            processedContent = "Hello",
+                            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
+                            tags = kotlinx.collections.immutable.persistentListOf(),
+                        )
+                    },
+                )
+
+                val memo = Memo(
+                    id = "memo_restored",
+                    timestamp = 1000L,
+                    content = "Hello",
+                    rawContent = "Hello",
+                    dateKey = "2026_06_24",
+                )
+                var observed = 0
+
+                actions.restore(memo, null) { observed += 1 }
+                runCurrent()
+
+                observed shouldBe 0
+                errorMessage.value shouldBe "Failed to restore memo: restore boom"
             }
         }
 
@@ -239,7 +323,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.DeletableTodo(
                     deleteMemo = { _, _ -> },
-                    toggleTodo = { _, _ -> "updated" }
+                    toggleTodo = { _, _ -> "updated" },
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
@@ -252,9 +336,9 @@ class MemoCollectionActionsTest : AppFunSpec() {
                             memo = it,
                             processedContent = "Hello",
                             renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
-                            tags = kotlinx.collections.immutable.persistentListOf()
+                            tags = kotlinx.collections.immutable.persistentListOf(),
                         )
-                    }
+                    },
                 )
 
                 val memo = Memo(
@@ -262,7 +346,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     timestamp = 1000L,
                     content = "Hello",
                     rawContent = "Hello",
-                    dateKey = "2026_06_24"
+                    dateKey = "2026_06_24",
                 )
 
                 actions.restore(memo, null)
@@ -292,17 +376,17 @@ class MemoCollectionActionsTest : AppFunSpec() {
                         errors = MemoCollectionErrors(errorMessage),
                         draftId = com.lomo.domain.model.DraftId("draft-test"),
                         capabilities =
-                            MemoCollectionCapabilities.Editable(
-                                deleteMemo = { _, _ -> },
-                                updateMemo = { attempt ->
-                                    val content = attempt.content
-                                    gate.await()
-                                    committedContent = content
-                                },
-                                toggleTodo = { _, _ -> "updated" },
-                                saveImage = { _, _ -> error("not used") },
-                                loadEditableMemo = { error("not used") },
-                            ),
+                        MemoCollectionCapabilities.Editable(
+                            deleteMemo = { _, _ -> },
+                            updateMemo = { attempt ->
+                                val content = attempt.content
+                                gate.await()
+                                committedContent = content
+                            },
+                            toggleTodo = { _, _ -> "updated" },
+                            saveImage = { _, _ -> error("not used") },
+                            loadEditableMemo = { error("not used") },
+                        ),
                         scope = this,
                         mapToUiModel = { error("not used") },
                     )

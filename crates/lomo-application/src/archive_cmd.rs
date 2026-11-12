@@ -10,9 +10,13 @@ use lomo_store::{
     ArchiveExportResult, RebuildResult, archive_activate, archive_export, archive_import,
 };
 
-use crate::{
-    csprng::generate_hex_token, error::validation, lock::TransactionLock, session::WorkspaceSession,
-};
+use crate::{csprng::generate_hex_token, error::validation, session::WorkspaceSession};
+
+#[derive(Clone, Copy)]
+enum ArchiveRoot<'a> {
+    Workspace,
+    Media(&'a lomo_core::CapabilityToken),
+}
 
 impl WorkspaceSession {
     /// Exports Markdown, attachments, and portable `.lomo` facts to a plaintext ZIP.
@@ -22,22 +26,121 @@ impl WorkspaceSession {
     /// when this session was opened. `file_name_hint` contributes only a bare file-name stem
     /// (`[A-Za-z0-9._-]`, `.zip` appended idempotently); `None` mints a collision-free name.
     ///
-    /// `workspace_root` is the composition-root binding for this session's notes capability.
+    /// Source bytes come through bound platform capabilities for both SAF and Direct roots.
+    /// Additional selected media roots contribute image, audio and video files under their
+    /// relative names, including historical/unreferenced media. Identical duplicates coalesce;
+    /// conflicting bytes at the same archive path fail instead of losing one source.
     ///
     /// # Errors
     /// Walk, zip, lock, and `archive_export_name_invalid` failures.
     pub fn export_archive(
         &self,
-        workspace_root: &Path,
         file_name_hint: Option<&str>,
+        media_capabilities: &[lomo_core::CapabilityToken],
     ) -> Result<ArchiveExportResult, LomoError> {
         let archive_path = self
             .config
             .exchange_dir
             .join("exports")
             .join(export_file_name(file_name_hint)?);
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
-        archive_export(workspace_root, &archive_path)
+        let _held = self.write_behind.exclusive()?;
+        let snapshot = self
+            .config
+            .exchange_dir
+            .join(format!("archive-snapshot-{}", generate_hex_token(8)?));
+        std::fs::create_dir_all(&snapshot).map_err(|error| {
+            crate::error::storage("archive_snapshot_create_failed", error.to_string())
+        })?;
+        let result = (|| {
+            self.snapshot_archive_root(&snapshot, ArchiveRoot::Workspace)?;
+            for capability in media_capabilities {
+                self.snapshot_archive_root(&snapshot, ArchiveRoot::Media(capability))?;
+            }
+            archive_export(&snapshot, &archive_path)
+        })();
+        let cleanup = std::fs::remove_dir_all(&snapshot).map_err(|error| {
+            crate::error::storage("archive_snapshot_cleanup_failed", error.to_string())
+        });
+        match (result, cleanup) {
+            (Ok(exported), Ok(())) => Ok(exported),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        }
+    }
+
+    fn snapshot_archive_root(
+        &self,
+        snapshot: &Path,
+        root: ArchiveRoot<'_>,
+    ) -> Result<(), LomoError> {
+        let capability = match root {
+            ArchiveRoot::Workspace => &self.config.capability,
+            ArchiveRoot::Media(capability) => capability,
+        };
+        let mut config = self.config.clone();
+        config.capability = capability.clone();
+        let evidence = crate::rebuild::list_document_listing(&config, &self.executor)?;
+        for metadata in evidence.admitted_listing()? {
+            let lomo_core::WorkspaceTarget::Relative(path) = metadata.target() else {
+                return Err(validation(
+                    "archive_root_entry",
+                    "export listing contains a root file",
+                ));
+            };
+            if matches!(root, ArchiveRoot::Media(_))
+                && (path.as_str().starts_with(".lomo/")
+                    || lomo_workspace::attachment_media_class(path.as_str())
+                        == lomo_workspace::MediaClass::File)
+            {
+                continue;
+            }
+            let token = format!("ex_{}", generate_hex_token(16)?);
+            let action = lomo_core::PlatformAction::read_to_exchange(
+                lomo_core::ActionId::parse(&format!("archive-{}", generate_hex_token(16)?))?,
+                capability.clone(),
+                path.clone(),
+                &token,
+                lomo_core::ExpectedFingerprint::absent(),
+            )?;
+            let output = self.io().execute(action)?;
+            let lomo_core::PlatformActionOutput::ReadToExchange { artifact, .. } = output else {
+                return Err(validation(
+                    "archive_read_output_invalid",
+                    "export requires a verified streaming read",
+                ));
+            };
+            let source = self.config.exchange_dir.join(artifact.token().as_str());
+            let target = snapshot.join(path.as_str());
+            if target.exists() {
+                let (existing, _) = lomo_media::ContentDigest::stream_from_path(&target)?;
+                let (incoming, _) = lomo_media::ContentDigest::stream_from_path(&source)?;
+                std::fs::remove_file(&source).map_err(|error| {
+                    crate::error::storage("archive_snapshot_cleanup_failed", error.to_string())
+                })?;
+                if existing != incoming {
+                    return Err(crate::error::conflict(
+                        "archive_media_path_collision",
+                        format!("different media share archive path {}", path.as_str()),
+                    ));
+                }
+                continue;
+            }
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|error| {
+                    crate::error::storage("archive_snapshot_create_failed", error.to_string())
+                })?;
+            }
+            std::fs::rename(source, target).map_err(|error| {
+                crate::error::storage("archive_snapshot_write_failed", error.to_string())
+            })?;
+        }
+        let after = crate::rebuild::list_document_listing(&config, &self.executor)?;
+        if evidence.listing_digest() != after.listing_digest() {
+            return Err(crate::error::conflict(
+                "archive_source_changed",
+                "workspace changed during export",
+            ));
+        }
+        Ok(())
     }
 
     /// Imports an archive over the live workspace, then rebuilds the private projection.
@@ -54,7 +157,7 @@ impl WorkspaceSession {
         archive_path: &Path,
         staging_root: &Path,
     ) -> Result<RebuildResult, LomoError> {
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        let _held = self.write_behind.exclusive()?;
         archive_import(archive_path, staging_root)?;
         archive_activate(
             staging_root,

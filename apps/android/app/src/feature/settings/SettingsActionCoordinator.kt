@@ -179,10 +179,7 @@ class SettingsActionCoordinator(
         }
     }
 
-    private fun launchWithError(
-        fallbackMessage: String,
-        action: suspend () -> Unit,
-    ) {
+    private fun launchWithError(fallbackMessage: String, action: suspend () -> Unit) {
         scope.launch {
             runSuspendCatching { action() }
                 .onFailure { throwable ->
@@ -194,8 +191,11 @@ class SettingsActionCoordinator(
     private fun providerSettingsActions(provider: SyncBackendType): RemoteProviderSettingsActionTarget =
         when (provider) {
             SyncBackendType.GIT -> gitCoordinator.providerSettingsActions
+
             SyncBackendType.WEBDAV -> webDavCoordinator.providerSettingsActions
+
             SyncBackendType.S3 -> s3Coordinator.providerSettingsActions
+
             SyncBackendType.INBOX,
             SyncBackendType.NONE,
             SyncBackendType.UNKNOWN,

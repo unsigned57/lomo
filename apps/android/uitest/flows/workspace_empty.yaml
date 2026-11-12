@@ -1,0 +1,47 @@
+# Empty SAF workspace: leave settings immediately after the grant, then verify that
+# the committed selection survives navigation and process restart. Uses public UI text
+# so the same flow runs against release with --skip-build --no-install.
+# Creates a fresh test folder; does not clear app data or delete an existing workspace.
+appId: com.lomo.app
+---
+- launchApp
+- evalScript: ${output.emptyWorkspace = "lomo-empty-uitest-" + Date.now()}
+- runFlow:
+    when:
+      visible: "Go to Settings"
+    commands:
+      - tapOn: "Go to Settings"
+- runFlow:
+    when:
+      visible: "Menu"
+    commands:
+      - tapOn: "Menu"
+      - tapOn: "Settings"
+- tapOn: "Memo Directory"
+- tapOn:
+    id: "option_menu_create_dir"
+- inputText: ${output.emptyWorkspace}
+- tapOn: "OK"
+- tapOn: "USE THIS FOLDER"
+- tapOn:
+    text: "(?i)allow"
+- back
+- tapOn: "Menu"
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: ${output.emptyWorkspace}
+    timeout: 5000
+- assertNotVisible: "Switching workspace…"
+- assertNotVisible: "Indexing workspace…"
+- takeScreenshot: "empty-workspace-committed-after-navigation"
+- back
+- stopApp
+- launchApp
+- assertNotVisible: "Go to Settings"
+- tapOn: "Menu"
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: ${output.emptyWorkspace}
+    timeout: 5000
+- takeScreenshot: "empty-workspace-restored"
+- back

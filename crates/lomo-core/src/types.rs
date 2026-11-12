@@ -8,7 +8,7 @@ use crate::LomoError;
 const MAX_ID_BYTES: usize = 128;
 const MAX_RELATIVE_PATH_BYTES: usize = 4_096;
 const MAX_PATH_SEGMENT_BYTES: usize = 255;
-const MAX_METADATA_PAGE_SIZE: u32 = 256;
+pub const MAX_METADATA_PAGE_SIZE: u32 = 512;
 
 macro_rules! constrained_id {
     ($name:ident, $code:literal) => {
@@ -185,12 +185,12 @@ impl PageSize {
     ///
     /// # Errors
     ///
-    /// Returns a resource-limit error unless `value` is within 1..=256.
+    /// Returns a resource-limit error unless `value` is within 1..=512.
     pub fn new(value: u32) -> Result<Self, LomoError> {
         if !(1..=MAX_METADATA_PAGE_SIZE).contains(&value) {
             return Err(LomoError::resource_limit(
                 "invalid_page_size",
-                "page size must be within 1..=256",
+                "page size must be within 1..=512",
             ));
         }
         Ok(Self(value))
@@ -202,7 +202,7 @@ impl PageSize {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct RelativeWorkspacePath(String);
 
 impl<'de> Deserialize<'de> for RelativeWorkspacePath {
@@ -328,5 +328,5 @@ fn workspace_identity(mode: &[u8], identity_material: &[u8]) -> WorkspaceId {
     hasher.update(mode);
     hasher.update(identity_material);
     let digest = hasher.finalize();
-    WorkspaceId(format!("ws-{digest:x}"))
+    WorkspaceId(format!("ws-{}", crate::hex_encode(&digest)))
 }

@@ -7,3 +7,18 @@ ktlint:
   active: true
   code_style: intellij_idea
   autoCorrect: true
+  # Naming is not layout: the module Detekt configs (naming ruleset, built upon the defaults)
+  # own production naming, and Android-mirroring test fakes such as test R ids keep platform names.
+  # ktlint's naming checks would be a second, conflicting owner that auto-correct cannot satisfy.
+  PropertyName:
+    active: false
+  BackingPropertyNaming:
+    active: false
+  ClassName:
+    active: false
+  FunctionName:
+    active: false
+  PackageName:
+    active: false
+  Filename:
+    active: false

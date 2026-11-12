@@ -4,19 +4,13 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 
-internal suspend fun DataStore<Preferences>.setOrRemove(
-    key: Preferences.Key<String>,
-    value: String?,
-) {
+internal suspend fun DataStore<Preferences>.setOrRemove(key: Preferences.Key<String>, value: String?) {
     editPreferences {
         setOrRemove(key, value)
     }
 }
 
-internal fun MutablePreferences.setOrRemove(
-    key: Preferences.Key<String>,
-    value: String?,
-) {
+internal fun MutablePreferences.setOrRemove(key: Preferences.Key<String>, value: String?) {
     if (value != null) {
         this[key] = value
     } else {
@@ -24,10 +18,7 @@ internal fun MutablePreferences.setOrRemove(
     }
 }
 
-internal fun MutablePreferences.setOrRemove(
-    key: Preferences.Key<Long>,
-    value: Long?,
-) {
+internal fun MutablePreferences.setOrRemove(key: Preferences.Key<Long>, value: Long?) {
     if (value != null) {
         this[key] = value
     } else {
@@ -35,10 +26,7 @@ internal fun MutablePreferences.setOrRemove(
     }
 }
 
-internal fun MutablePreferences.setOrRemove(
-    key: Preferences.Key<Int>,
-    value: Int?,
-) {
+internal fun MutablePreferences.setOrRemove(key: Preferences.Key<Int>, value: Int?) {
     if (value != null) {
         this[key] = value
     } else {
@@ -46,10 +34,7 @@ internal fun MutablePreferences.setOrRemove(
     }
 }
 
-internal suspend fun DataStore<Preferences>.setOrRemoveIfBlank(
-    key: Preferences.Key<String>,
-    value: String?,
-) {
+internal suspend fun DataStore<Preferences>.setOrRemoveIfBlank(key: Preferences.Key<String>, value: String?) {
     editPreferences {
         if (value.isNullOrBlank()) {
             remove(key)

@@ -22,7 +22,9 @@ class FakeSyncInboxRepository : SyncInboxRepository {
         return syncResult
     }
 
-    override fun syncState(): Flow<com.lomo.domain.model.UnifiedSyncState> = MutableStateFlow(com.lomo.domain.model.UnifiedSyncState.Idle)
+    override fun syncState(): Flow<com.lomo.domain.model.UnifiedSyncState> = MutableStateFlow(
+        com.lomo.domain.model.UnifiedSyncState.Idle,
+    )
     override suspend fun ensureDirectoryStructure() {}
     override suspend fun resolveReview(
         resolution: SyncReviewResolution,

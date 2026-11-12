@@ -1,6 +1,5 @@
 package com.lomo.app.feature.preferences
 
-import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
@@ -37,6 +36,18 @@ import kotlinx.coroutines.test.runTest
  * - Why old assertion is no longer correct: the unified CustomFontHost is now the loading surface, so the provider consumes it.
  * - Coverage preserved by: the same preference observation assertions through the new parameter.
  * - Why this is not fitting the test to the implementation: it reflects the unified font-loading contract.
+ *
+ * Production scope: apps/android/app/src/feature/preferences/AppPreferencesState.kt
+ *
+ * Test Change Justification:
+ * - Reason category: product feature removal (usage-based memo menu auto-reorder).
+ * - Old behavior/assertion being replaced: the aggregated state exposed the auto-reorder flag, the main
+ *   memo action order and per-scope orders.
+ * - Why old assertion is no longer correct: the feature and its preferences were deleted; the memo menu
+ *   now has a fixed layout, so AppPreferencesState no longer carries these fields.
+ * - Coverage preserved by: every other aggregated preference is still configured and asserted.
+ * - Why this is not fitting the test to the implementation: only assertions for deleted product state
+ *   were removed; no remaining field lost coverage.
  */
 class AppPreferencesStateTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
@@ -62,13 +73,7 @@ class AppPreferencesStateTest : AppFunSpec() {
                 appConfigRepository.setLineHeightScale(PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
                 appConfigRepository.setLetterSpacingScale(PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
                 appConfigRepository.setParagraphSpacingScale(PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
-                appConfigRepository.setMemoActionAutoReorderEnabled(true)
                 appConfigRepository.setAutoOpenInputOnForegroundEnabled(true)
-                appConfigRepository.setMemoActionOrder(order = listOf("history", "copy"))
-                appConfigRepository.setMemoActionOrder(
-                    scope = MemoActionOrderScopes.SEARCH,
-                    order = listOf("jump", "copy"),
-                )
                 appConfigRepository.updateInputToolbarToolOrder(listOf("backfill", "camera"))
 
                 val state = appConfigRepository.observeAppPreferences(
@@ -84,10 +89,7 @@ class AppPreferencesStateTest : AppFunSpec() {
                 state.showInputHints shouldBe true
                 state.doubleTapEditEnabled shouldBe false
                 state.freeTextCopyEnabled shouldBe true
-                state.memoActionAutoReorderEnabled shouldBe true
                 state.autoOpenInputOnForeground shouldBe true
-                state.memoActionOrder shouldBe listOf("history", "copy")
-                state.memoActionOrderFor(MemoActionOrderScopes.SEARCH) shouldBe listOf("jump", "copy")
                 state.inputToolbarToolOrder shouldBe listOf("backfill", "camera")
                 state.quickSaveOnBackEnabled shouldBe false
                 state.scrollbarEnabled shouldBe true

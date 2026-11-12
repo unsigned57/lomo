@@ -1,13 +1,13 @@
 package com.lomo.ui.theme
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,11 +16,10 @@ package com.lomo.ui.theme
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
-import com.lomo.ui.testing.UiComponentsFunSpec
-import io.kotest.matchers.shouldBe
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Behavior Contract:
@@ -57,7 +56,11 @@ class TextInteractionColorsTest : UiComponentsFunSpec() {
 
         test("platform selection colors reuse the same primary family") {
             (memoPlatformTextHandleColor(colorScheme)) shouldBe (primary)
-            (memoPlatformTextSelectionHighlightColor(colorScheme)) shouldBe (primary.copy(alpha = memoTextSelectionBackgroundAlpha))
+            (
+                memoPlatformTextSelectionHighlightColor(
+                    colorScheme,
+                )
+                ) shouldBe (primary.copy(alpha = memoTextSelectionBackgroundAlpha))
         }
     }
 }

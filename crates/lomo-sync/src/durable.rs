@@ -2,6 +2,7 @@
 //!
 //! No `SQLite` authority. Corrupt schema/checksum/size → `CorruptState` (never clean slate).
 
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -179,6 +180,16 @@ pub struct BaselineHead {
 }
 
 impl BaselineHead {
+    /// Borrow this immutable observation once for repeated planner lookups. Preserve the
+    /// same first-entry semantics as `get`; the serialized vector remains authoritative.
+    pub(crate) fn path_index(&self) -> BTreeMap<&str, &BaselineEntry> {
+        let mut index = BTreeMap::new();
+        for entry in &self.entries {
+            index.entry(entry.path.as_str()).or_insert(entry);
+        }
+        index
+    }
+
     /// Empty baseline with no fence (not yet established).
     #[must_use]
     pub const fn empty() -> Self {
@@ -238,6 +249,14 @@ pub struct TombstoneSet {
 }
 
 impl TombstoneSet {
+    pub(crate) fn path_index(&self) -> BTreeMap<&str, &TombstoneEntry> {
+        let mut index = BTreeMap::new();
+        for entry in &self.entries {
+            index.entry(entry.path.as_str()).or_insert(entry);
+        }
+        index
+    }
+
     #[must_use]
     pub const fn empty() -> Self {
         Self {
@@ -284,6 +303,8 @@ impl TombstoneSet {
 pub struct SyncPaths {
     /// Direct workspace root (parent of `.lomo/`). Local conflict bodies load from here.
     pub workspace_root: PathBuf,
+    /// Private state root holding generation and sync control records.
+    pub control_root: PathBuf,
     pub root: PathBuf,
     pub session: PathBuf,
     pub baseline: PathBuf,
@@ -311,10 +332,11 @@ pub struct SyncPaths {
 impl SyncPaths {
     /// Resolves `.lomo/sync/v1` roots.
     #[must_use]
-    pub fn for_workspace(workspace_root: &Path) -> Self {
+    pub fn for_control_root(workspace_root: &Path) -> Self {
         let workspace_root = workspace_root.to_path_buf();
         let root = workspace_root.join(SYNC_V1);
         Self {
+            control_root: workspace_root.clone(),
             workspace_root,
             session: root.join("session.rec"),
             baseline: root.join("baseline.rec"),

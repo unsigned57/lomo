@@ -49,10 +49,7 @@ interface GitSyncSettingsMutation {
 
     suspend fun updateToken(token: String)
 
-    suspend fun updateAuthorInfo(
-        name: String,
-        email: String,
-    )
+    suspend fun updateAuthorInfo(name: String, email: String)
 
     suspend fun updateAutoSyncEnabled(enabled: Boolean)
 
@@ -70,34 +67,33 @@ interface GitSyncSettingsActions {
 }
 
 class GitSyncSettingsUseCase(
-        gitSyncRepository: GitSyncRepository,
-        syncPolicyRepository: SyncPolicyRepository,
-        syncAndRebuildUseCase: SyncAndRebuildUseCase,
-        gitRemoteUrlUseCase: GitRemoteUrlUseCase,
-    ) : GitSyncSettingsStateObservation by
-        GitSyncSettingsStateObservationImpl(
-            gitSyncRepository = gitSyncRepository,
-        ),
+    gitSyncRepository: GitSyncRepository,
+    syncPolicyRepository: SyncPolicyRepository,
+    syncAndRebuildUseCase: SyncAndRebuildUseCase,
+    gitRemoteUrlUseCase: GitRemoteUrlUseCase,
+) : GitSyncSettingsStateObservation by
+GitSyncSettingsStateObservationImpl(
+    gitSyncRepository = gitSyncRepository,
+),
     GitSyncSettingsValidation by
-        GitSyncSettingsValidationImpl(
-            gitSyncRepository = gitSyncRepository,
-            gitRemoteUrlUseCase = gitRemoteUrlUseCase,
-        ),
+    GitSyncSettingsValidationImpl(
+        gitSyncRepository = gitSyncRepository,
+        gitRemoteUrlUseCase = gitRemoteUrlUseCase,
+    ),
     GitSyncSettingsMutation by
-        GitSyncSettingsMutationImpl(
-            gitSyncRepository = gitSyncRepository,
-            syncPolicyRepository = syncPolicyRepository,
-            gitRemoteUrlUseCase = gitRemoteUrlUseCase,
-        ),
+    GitSyncSettingsMutationImpl(
+        gitSyncRepository = gitSyncRepository,
+        syncPolicyRepository = syncPolicyRepository,
+        gitRemoteUrlUseCase = gitRemoteUrlUseCase,
+    ),
     GitSyncSettingsActions by
-        GitSyncSettingsActionsImpl(
-            gitSyncRepository = gitSyncRepository,
-            syncAndRebuildUseCase = syncAndRebuildUseCase,
-        )
+    GitSyncSettingsActionsImpl(
+        gitSyncRepository = gitSyncRepository,
+        syncAndRebuildUseCase = syncAndRebuildUseCase,
+    )
 
-private class GitSyncSettingsStateObservationImpl(
-    private val gitSyncRepository: GitSyncRepository,
-) : GitSyncSettingsStateObservation {
+private class GitSyncSettingsStateObservationImpl(private val gitSyncRepository: GitSyncRepository) :
+    GitSyncSettingsStateObservation {
     private val shared =
         RemoteSyncSharedStateObservationImpl(
             enabled = gitSyncRepository::isGitSyncEnabled,
@@ -174,10 +170,7 @@ private class GitSyncSettingsMutationImpl(
         gitSyncRepository.setToken(token)
     }
 
-    override suspend fun updateAuthorInfo(
-        name: String,
-        email: String,
-    ) {
+    override suspend fun updateAuthorInfo(name: String, email: String) {
         gitSyncRepository.setAuthorInfo(name, email)
     }
 

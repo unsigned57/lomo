@@ -145,12 +145,12 @@ internal fun HandleAppActionEvents(
 internal fun shouldConsumeAppActionAfterHandling(
     action: MainViewModel.AppAction,
     attempt: MainScreenFocusAttempt?,
-): Boolean =
-    when (action) {
-        is MainViewModel.AppAction.FocusMemo ->
-            attempt == MainScreenFocusAttempt.Placed || attempt == MainScreenFocusAttempt.Missing
-        is MainViewModel.AppAction.OpenMemo -> true
-    }
+): Boolean = when (action) {
+    is MainViewModel.AppAction.FocusMemo ->
+        attempt == MainScreenFocusAttempt.Placed || attempt == MainScreenFocusAttempt.Missing
+
+    is MainViewModel.AppAction.OpenMemo -> true
+}
 
 @Composable
 fun HandlePendingSharedImageEvents(

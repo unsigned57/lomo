@@ -16,13 +16,12 @@ private const val LAN_SHARE_INTERFACE_PRIORITY_USB = 3
 private const val LAN_SHARE_INTERFACE_PRIORITY_BRIDGE = 4
 private const val LAN_SHARE_INTERFACE_PRIORITY_BLUETOOTH = 5
 
-internal fun LanShareNetworkProbe.lanSharePriority(): Int? =
-    when {
-        hasWifiTransport -> LAN_SHARE_NETWORK_PRIORITY_WIFI
-        hasEthernetTransport -> LAN_SHARE_NETWORK_PRIORITY_ETHERNET
-        hasLocalNetworkCapability -> LAN_SHARE_NETWORK_PRIORITY_LOCAL_ONLY
-        else -> null
-    }
+internal fun LanShareNetworkProbe.lanSharePriority(): Int? = when {
+    hasWifiTransport -> LAN_SHARE_NETWORK_PRIORITY_WIFI
+    hasEthernetTransport -> LAN_SHARE_NETWORK_PRIORITY_ETHERNET
+    hasLocalNetworkCapability -> LAN_SHARE_NETWORK_PRIORITY_LOCAL_ONLY
+    else -> null
+}
 
 internal fun LanShareInterfaceProbe.lanShareInterfacePriority(): Int? {
     if (!isUp || isLoopback || isVirtual || isPointToPoint) return null
@@ -51,10 +50,9 @@ internal fun NetworkCapabilities.hasLanShareLocalNetworkCapability(): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
         hasCapability(NetworkCapabilities.NET_CAPABILITY_LOCAL_NETWORK)
 
-internal fun InetAddress.isLanSharePrivateAddress(): Boolean =
-    isLoopbackAddress ||
-        isSiteLocalAddress ||
-        (this is Inet6Address && isLanShareUniqueLocalAddress())
+internal fun InetAddress.isLanSharePrivateAddress(): Boolean = isLoopbackAddress ||
+    isSiteLocalAddress ||
+    (this is Inet6Address && isLanShareUniqueLocalAddress())
 
 private fun Inet6Address.isLanShareUniqueLocalAddress(): Boolean {
     val normalized = hostAddress?.run { substringBefore('%').lowercase(Locale.ROOT) }.orEmpty()

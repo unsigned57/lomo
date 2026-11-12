@@ -8,10 +8,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 internal object UnifyStorageLocationMigration : DataMigration<Preferences> {
-    override suspend fun shouldMigrate(currentData: Preferences): Boolean =
-        STORAGE_LOCATION_LEGACY_PAIRS.any { pair ->
-            currentData.contains(pair.uriKey) || currentData.contains(pair.pathKey)
-        }
+    override suspend fun shouldMigrate(currentData: Preferences): Boolean = STORAGE_LOCATION_LEGACY_PAIRS.any { pair ->
+        currentData.contains(pair.uriKey) || currentData.contains(pair.pathKey)
+    }
 
     override suspend fun migrate(currentData: Preferences): Preferences {
         val prefs = currentData.toMutablePreferences()
@@ -61,16 +60,10 @@ internal val STORAGE_LOCATION_LEGACY_PAIRS: List<StorageLocationKeyPair> =
         ),
     )
 
-internal fun DataStore<Preferences>.uriLocationFlow(
-    key: Preferences.Key<String>,
-    flowName: String,
-): Flow<String?> =
+internal fun DataStore<Preferences>.uriLocationFlow(key: Preferences.Key<String>, flowName: String): Flow<String?> =
     nullableStringFlow(key, flowName).map { value -> value?.takeIf(::isContentStorageUri) }
 
-internal fun DataStore<Preferences>.pathLocationFlow(
-    key: Preferences.Key<String>,
-    flowName: String,
-): Flow<String?> =
+internal fun DataStore<Preferences>.pathLocationFlow(key: Preferences.Key<String>, flowName: String): Flow<String?> =
     nullableStringFlow(key, flowName).map { value -> value?.takeUnless(::isContentStorageUri) }
 
 internal suspend fun DataStore<Preferences>.updateUnifiedLocation(

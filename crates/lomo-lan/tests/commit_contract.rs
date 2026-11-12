@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract (Stage-6 P6-06 per-item commit fences)
 //!
 //! Capability: a received LAN item is committed through the `lomo-store` single writer only when
@@ -42,7 +50,7 @@ mod tests {
     const NOW: i64 = 1_700_000_100_000;
 
     fn digest_of(value: &str) -> String {
-        format!("{:x}", Sha256::digest(value.as_bytes()))
+        lomo_core::hex_encode(&Sha256::digest(value.as_bytes()))
     }
 
     fn batch_id() -> LanBatchId {

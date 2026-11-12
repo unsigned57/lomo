@@ -41,7 +41,9 @@ import java.io.File
  */
 class ReminderReceiverEngineStartContractTest : DataFunSpec() {
     init {
-        test("given a broadcast-spawned process when the alarm receiver runs then it explicitly requests the engine before engine-backed reads") {
+        test(
+            "given a broadcast-spawned process when the alarm receiver runs then it explicitly requests the engine before engine-backed reads",
+        ) {
             val source =
                 resolveModuleRoot("data")
                     .resolve("src/reminder/ReminderAlarmReceiver.kt")
@@ -57,7 +59,9 @@ class ReminderReceiverEngineStartContractTest : DataFunSpec() {
             }
         }
 
-        test("given a broadcast-spawned process when the reminder action receiver runs then it explicitly requests the engine before snooze or done mutations") {
+        test(
+            "given a broadcast-spawned process when the reminder action receiver runs then it explicitly requests the engine before snooze or done mutations",
+        ) {
             val source =
                 resolveModuleRoot("data")
                     .resolve("src/reminder/ReminderActionReceiver.kt")

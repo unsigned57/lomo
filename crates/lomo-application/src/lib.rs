@@ -30,11 +30,15 @@ pub mod search_excerpt;
 pub mod session;
 pub mod statistics;
 mod stats_query;
+mod storage_executor;
 mod sysfs;
 pub mod tasks;
 mod transaction;
 pub mod types;
 mod workspace_io;
+mod write_batch;
+mod write_behind;
+pub use write_behind::WriteConvergence;
 
 pub use config::WorkspaceSessionConfig;
 pub use draft::GuardedDraftBody;
@@ -50,13 +54,15 @@ pub use lomo_store::{
 pub use media_index::{AttachmentIndexStats, AttachmentObservation, DraftEvidenceStats};
 pub use paging::ProjectionQueryStats;
 pub use search::{FuzzyScanStats, SearchHit, SearchMode, SearchOutcome, SearchPage, SearchRequest};
-pub use session::WorkspaceSession;
+pub use session::{AcceptedCreate, WithdrawnCreate, WorkspaceSession};
 pub use statistics::{
     DayOfWeek, MemoStatistics, MemoTagCount, StatisticsError, StatisticsMemoFact,
     StatisticsSnapshot, calculate_statistics,
 };
+pub use storage_executor::WorkspaceStorageExecutor;
 pub use tasks::{TaskItem, ToggleTaskRequest};
 pub use types::{
     CreateMemoRequest, CreateMemoResult, DeleteMemoRequest, DeleteMemoResult, PinMemoRequest,
-    PinMemoResult, PinPolicy, SessionMemoView, UpdateMemoRequest, UpdateMemoResult,
+    PinMemoResult, PinPolicy, SessionMemoView, SessionSyncSnapshot, SyncDocumentFact,
+    UpdateMemoRequest, UpdateMemoResult,
 };

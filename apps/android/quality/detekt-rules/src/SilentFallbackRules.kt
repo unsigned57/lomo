@@ -10,12 +10,11 @@ import org.jetbrains.kotlin.psi.KtReturnExpression
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.kotlin.psi.KtThrowExpression
 
-internal class NoSilentCatchFallbackRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Catch blocks must not silently discard failures by being empty or returning zero/empty/null defaults without an explicit behavior contract.",
-) {
+internal class NoSilentCatchFallbackRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Catch blocks must not silently discard failures by being empty or returning zero/empty/null defaults without an explicit behavior contract.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*silent-result-ok""")
 
     override fun visitCatchSection(catchClause: KtCatchClause) {
@@ -42,7 +41,8 @@ internal class NoSilentCatchFallbackRule(
             val valueText = extractValueText(lastStatement)
             reportElement(
                 catchClause,
-                "Silent catch fallback: catch block discards failure and returns '$valueText' without surfacing the failure. " +
+                "Silent catch fallback: catch block discards failure and returns '$valueText' without surfacing the " +
+                    "failure. " +
                     "Model the failure explicitly, rethrow, or document intentional fallback with '// behavior-contract: silent-result-ok: <reason>'.",
             )
         }
@@ -75,12 +75,11 @@ internal class NoSilentCatchFallbackRule(
     }
 }
 
-internal class NoSwallowedThrowableRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Catching Throwable directly is forbidden: it swallows JVM fatal errors (e.g. OutOfMemoryError, VirtualMachineError). Catch Exception instead.",
-) {
+internal class NoSwallowedThrowableRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Catching Throwable directly is forbidden: it swallows JVM fatal errors (e.g. OutOfMemoryError, VirtualMachineError). Catch Exception instead.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*silent-result-ok""")
 
     override fun visitCatchSection(catchClause: KtCatchClause) {

@@ -95,7 +95,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
 
         let err = inspect_sync_cycle_plan(&paths).expect_err("missing session");
         assert_eq!(err.code(), "sync_session_missing");
@@ -107,7 +107,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "cycle-idle-1").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -131,7 +131,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session = SyncSession::new(fence(), SessionKind::Incremental, "cycle-conflict-1")
             .expect("session");
         write_session(&paths, &session).expect("write session");
@@ -160,7 +160,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::FirstTakeover, "cycle-ft-1").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -177,7 +177,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "cycle-ports-1").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -215,7 +215,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "cycle-ports-cf").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -280,7 +280,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(workspace.join("memo")).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session = SyncSession::new(fence(), SessionKind::Incremental, "cycle-ports-auto")
             .expect("session");
         write_session(&paths, &session).expect("write session");
@@ -350,7 +350,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(workspace.join("memo")).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "cycle-apply-kl").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -445,7 +445,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "cycle-hollow").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -489,7 +489,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session = SyncSession::new(fence(), SessionKind::Incremental, "cycle-ports-412")
             .expect("session");
         write_session(&paths, &session).expect("write session");
@@ -527,7 +527,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "cycle-caps-1").expect("session");
         write_session(&paths, &session).expect("write session");
@@ -565,7 +565,7 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
+        let paths = SyncPaths::for_control_root(&workspace);
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "cycle-ports-vf").expect("session");
         write_session(&paths, &session).expect("write session");

@@ -38,10 +38,10 @@ package com.lomo.app
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.assertions.assertSoftly
+import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
-import io.kotest.assertions.withClue
 
 class CapabilityGatePolicyTest : AppFunSpec() {
     init {
@@ -75,7 +75,9 @@ class CapabilityGatePolicyTest : AppFunSpec() {
             }
         }
 
-        test("given update install capability when recovery metadata is read then unknown-source recovery is explicit") {
+        test(
+            "given update install capability when recovery metadata is read then unknown-source recovery is explicit",
+        ) {
             val install = CapabilityGatePolicies.requirePolicy(CapabilityGateId.InstallUnknownApps)
 
             assertSoftly(install) {
@@ -88,7 +90,9 @@ class CapabilityGatePolicyTest : AppFunSpec() {
             }
         }
 
-        test("given sensitive optional enhancements when policies are read then sensitivity is separate from severity") {
+        test(
+            "given sensitive optional enhancements when policies are read then sensitivity is separate from severity",
+        ) {
             val expectations =
                 mapOf(
                     CapabilityGateId.RecordAudio to setOf(CapabilitySensitivity.Microphone),

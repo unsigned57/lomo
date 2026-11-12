@@ -77,10 +77,12 @@ class MemoBackfillDatePickerConversionTest : AppFunSpec() {
                     zone = zone,
                 )
 
-            (timestamp) shouldBe (ZonedDateTime
+            (timestamp) shouldBe (
+                ZonedDateTime
                     .of(2026, 5, 5, 7, 8, 9, 0, zone)
                     .toInstant()
-                    .toEpochMilli())
+                    .toEpochMilli()
+                )
         }
     }
 
@@ -93,13 +95,14 @@ class MemoBackfillDatePickerConversionTest : AppFunSpec() {
                     .toInstant()
                     .toEpochMilli()
 
-            (formatMemoBackfillBadgeText(
+            (
+                formatMemoBackfillBadgeText(
                     timestampMillis = timestamp,
                     dateFormat = "yyyy-MM-dd",
                     timeFormat = "HH:mm",
                     zone = zone,
-                )) shouldBe ("2026-05-05 07:08:09")
+                )
+                ) shouldBe ("2026-05-05 07:08:09")
         }
     }
-
 }

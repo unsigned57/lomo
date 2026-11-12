@@ -159,11 +159,7 @@ class SyncCenterViewModel(
         }
     }
 
-    private fun loadMore(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ) {
+    private fun loadMore(workspaceRoot: String, cursor: Int, limit: Int) {
         viewModelScope.launch {
             try {
                 val page =
@@ -235,6 +231,7 @@ class SyncCenterViewModel(
                                         mergedDraft = effect.mergedDraft,
                                     ),
                                 )
+
                             path.isBinary ->
                                 DetailLoad.Binary(
                                     remoteSyncCenter.binaryConflictFacts(
@@ -242,6 +239,7 @@ class SyncCenterViewModel(
                                         path = path,
                                     ),
                                 )
+
                             else -> DetailLoad.Unsupported
                         }
                     }
@@ -254,6 +252,7 @@ class SyncCenterViewModel(
                                 facts = detail.facts,
                             )
                         }
+
                     is DetailLoad.Binary ->
                         _uiState.update {
                             applySyncCenterBinaryDetailSuccess(
@@ -262,6 +261,7 @@ class SyncCenterViewModel(
                                 facts = detail.facts,
                             )
                         }
+
                     DetailLoad.Unsupported ->
                         _uiState.update { current ->
                             val ready =
@@ -284,20 +284,15 @@ class SyncCenterViewModel(
         }
     }
 
-    private fun failureMessage(error: Throwable): String =
-        when (error) {
-            is RemoteSyncCenterFailure -> "${error.category}:${error.code}"
-            else -> error.message ?: error::class.simpleName ?: "unknown_error"
-        }
+    private fun failureMessage(error: Throwable): String = when (error) {
+        is RemoteSyncCenterFailure -> "${error.category}:${error.code}"
+        else -> error.message ?: error::class.simpleName ?: "unknown_error"
+    }
 
     private sealed interface DetailLoad {
-        data class Markdown(
-            val facts: com.lomo.domain.model.RemoteSyncMarkdownConflictFacts,
-        ) : DetailLoad
+        data class Markdown(val facts: com.lomo.domain.model.RemoteSyncMarkdownConflictFacts) : DetailLoad
 
-        data class Binary(
-            val facts: com.lomo.domain.model.RemoteSyncBinaryConflictFacts,
-        ) : DetailLoad
+        data class Binary(val facts: com.lomo.domain.model.RemoteSyncBinaryConflictFacts) : DetailLoad
 
         data object Unsupported : DetailLoad
     }

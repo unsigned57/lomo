@@ -10,11 +10,7 @@ data class MarkdownPresentationImage(
     val mediaClass: MediaClass,
 )
 
-data class MarkdownMediaPresentation(
-    val source: String,
-    val description: String? = null,
-    val kind: String,
-)
+data class MarkdownMediaPresentation(val source: String, val description: String? = null, val kind: String)
 
 typealias MarkdownMediaPresentationResolver =
     (MarkdownPresentationImage) -> MarkdownMediaPresentation?

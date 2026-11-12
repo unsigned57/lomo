@@ -88,9 +88,7 @@ class ReminderInsertDialogTokenBuilderTest : AppFunSpec() {
     }
 }
 
-private class RecordingReminderTokenFactory(
-    private val result: String,
-) : ReminderTokenFactory {
+private class RecordingReminderTokenFactory(private val result: String) : ReminderTokenFactory {
     override val defaultIntervalMinutes: Int = 10
 
     var lastDueAt: LocalDateTime? = null
@@ -110,6 +108,8 @@ private class RecordingReminderTokenFactory(
         lastRecurrence = recurrence
         return result
     }
+
+    override fun dueAt(token: String): LocalDateTime = error("due-date projection is not used by token construction")
 
     override fun planMarkDone(currentToken: String): String = error("not used")
 

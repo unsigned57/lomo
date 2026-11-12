@@ -30,23 +30,18 @@ import org.koin.compose.koinInject
  * only row-visible fact that actually changes on every content write (`updatedAt` can survive a
  * preserved-mtime sync write); a request keyed to a superseded revision can never publish.
  */
-internal data class MemoExpandRequest(
-    val memoId: String,
-    val revision: Long,
-    val workspaceEpoch: String,
-)
+internal data class MemoExpandRequest(val memoId: String, val revision: Long, val workspaceEpoch: String)
 
 /** Explicit expand lifecycle — a row is collapsed, loading, showing a full snapshot, or failed. */
 internal sealed interface MemoExpandEntry {
     data object Loading : MemoExpandEntry
 
-    data class Expanded(
-        val model: MemoUiModel,
-    ) : MemoExpandEntry
+    data class Expanded(val model: MemoUiModel) : MemoExpandEntry
 
-    data class Failed(
-        val message: String,
-    ) : MemoExpandEntry
+    /** Last confirmed full body stays visible while its replacement loads; its task actions are disabled. */
+    data class Refreshing(val previous: MemoUiModel) : MemoExpandEntry
+
+    data class Failed(val message: String) : MemoExpandEntry
 }
 
 /**
@@ -54,7 +49,8 @@ internal sealed interface MemoExpandEntry {
  *
  * `sync` reconciles the desired expanded set every time the expand intent, the observed preview
  * revisions, or the workspace epoch move:
- * - a request whose revision or epoch changed cancels the in-flight load and reloads;
+ * - a request whose revision changed retains a verified full snapshot in Refreshing until the
+ *   replacement loads; an epoch change clears every old snapshot;
  * - a published snapshot whose own content revision cannot satisfy a resolved request is
  *   reloaded rather than served stale;
  * - a row that leaves the expanded set cancels its load and releases terminal failures; cached
@@ -92,10 +88,7 @@ internal class MemoListExpandCoordinator(
      * observed per expanded memo; a null revision keeps the last requested revision (the preview
      * row can leave the loaded window while expansion stays wanted).
      */
-    fun sync(
-        workspaceEpoch: String,
-        requestedRevisions: Map<String, Long?>,
-    ) {
+    fun sync(workspaceEpoch: String, requestedRevisions: Map<String, Long?>) {
         synchronized(lock) {
             if (workspaceEpoch != epoch) {
                 epoch = workspaceEpoch
@@ -136,26 +129,42 @@ internal class MemoListExpandCoordinator(
                             existing.touchedAt = ++touchCounter
                         }
                     }
+
                     want == null -> {
                         when (existing.entry) {
-                            is MemoExpandEntry.Loading -> {
+                            is MemoExpandEntry.Loading, is MemoExpandEntry.Refreshing -> {
                                 existing.job?.cancel()
                                 tracked.remove(memoId)
                             }
+
                             // Collapse releases a terminal failure exactly like it cancels a load:
                             // a failure for a row the user no longer expanded must not keep
                             // publishing into the states map. Expanded snapshots stay cached for
                             // same-revision re-expansion.
                             is MemoExpandEntry.Failed -> tracked.remove(memoId)
+
                             is MemoExpandEntry.Expanded -> Unit
                         }
                     }
+
                     else -> {
                         existing.job?.cancel()
+                        val loading = when (val previous = existing.entry) {
+                            is MemoExpandEntry.Expanded ->
+                                if (previous.model.memo.contentRevision == existing.request.revision) {
+                                    MemoExpandEntry.Refreshing(previous.model)
+                                } else {
+                                    MemoExpandEntry.Loading
+                                }
+
+                            is MemoExpandEntry.Refreshing -> previous
+
+                            is MemoExpandEntry.Loading, is MemoExpandEntry.Failed -> MemoExpandEntry.Loading
+                        }
                         tracked[memoId] =
                             Tracked(
                                 request = want,
-                                entry = MemoExpandEntry.Loading,
+                                entry = loading,
                                 job = startLoad(want),
                                 touchedAt = ++touchCounter,
                             )
@@ -195,33 +204,34 @@ internal class MemoListExpandCoordinator(
         }
     }
 
-    private fun startLoad(request: MemoExpandRequest): Job =
-        scope.launch {
-            val entry =
-                try {
-                    loadGate.withPermit {
-                        when (val memo = loadFullMemo(request.memoId)) {
-                            null -> MemoExpandEntry.Failed("Memo is no longer available")
-                            else -> MemoExpandEntry.Expanded(mapFullMemo(memo))
-                        }
+    private fun startLoad(request: MemoExpandRequest): Job = scope.launch {
+        val entry =
+            try {
+                loadGate.withPermit {
+                    when (val memo = loadFullMemo(request.memoId)) {
+                        null -> MemoExpandEntry.Failed("Memo is no longer available")
+                        else -> MemoExpandEntry.Expanded(mapFullMemo(memo))
                     }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    MemoExpandEntry.Failed(error.message ?: "Expand load failed")
                 }
-            synchronized(lock) {
-                val current = tracked[request.memoId] ?: return@synchronized
-                if (current.request != request || current.entry !is MemoExpandEntry.Loading) {
-                    return@synchronized
-                }
-                current.entry = entry
-                current.job = null
-                current.touchedAt = ++touchCounter
-                evictOverflow()
-                publish()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                MemoExpandEntry.Failed(error.message ?: "Expand load failed")
             }
+        synchronized(lock) {
+            val current = tracked[request.memoId] ?: return@synchronized
+            if (current.request != request ||
+                (current.entry !is MemoExpandEntry.Loading && current.entry !is MemoExpandEntry.Refreshing)
+            ) {
+                return@synchronized
+            }
+            current.entry = entry
+            current.job = null
+            current.touchedAt = ++touchCounter
+            evictOverflow()
+            publish()
         }
+    }
 
     private fun evictOverflow() {
         var expandedBytes = tracked.values.sumOf { bodyBytes(it.entry) }
@@ -242,16 +252,16 @@ internal class MemoListExpandCoordinator(
         }
     }
 
-    private fun bodyBytes(entry: MemoExpandEntry): Long =
-        when (entry) {
-            is MemoExpandEntry.Expanded -> entry.model.memo.content.encodeToByteArray().size.toLong()
-            else -> 0L
-        }
+    private fun bodyBytes(entry: MemoExpandEntry): Long = when (entry) {
+        is MemoExpandEntry.Expanded -> entry.model.memo.content.encodeToByteArray().size.toLong()
+        is MemoExpandEntry.Refreshing -> entry.previous.memo.content.encodeToByteArray().size.toLong()
+        else -> 0L
+    }
 
     private fun publish() {
         _states.value =
             tracked.entries.fold(persistentMapOf<String, MemoExpandEntry>()) { acc, (memoId, trackedEntry) ->
-                acc.put(memoId, trackedEntry.entry)
+                acc.putting(memoId, trackedEntry.entry)
             }
     }
 

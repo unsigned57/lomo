@@ -11,7 +11,6 @@ import com.lomo.domain.model.MemoEditDraft
 import com.lomo.domain.model.markdown.MarkdownRenderContractException
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.repository.MemoEditDraftRepository
-import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.component.markdown.MarkdownRenderState
 import kotlinx.coroutines.delay
@@ -22,10 +21,7 @@ import kotlinx.coroutines.withContext
 private const val MEMO_EDITOR_DRAFT_DEBOUNCE_MILLIS = 500L
 
 @Composable
-internal fun MemoEditorDraftAutosaveEffect(
-    controller: MemoEditorController,
-    repository: MemoEditDraftRepository,
-) {
+internal fun MemoEditorDraftAutosaveEffect(controller: MemoEditorController, repository: MemoEditDraftRepository) {
     LaunchedEffect(controller, repository) {
         var lastPersistedMemoId: String? = null
         snapshotFlow {
@@ -67,54 +63,51 @@ internal fun MemoEditorDraftAutosaveEffect(
 }
 
 @Composable
-internal fun rememberMemoEditorPreviewState(
+internal fun rememberMemoEditorContentState(
     controller: MemoEditorController,
     repository: MarkdownWorkspaceRepository,
     session: MemoEditorSessionState,
-): MarkdownRenderState {
+): MemoEditorContentState {
     val imageContentResolver = remember { com.lomo.app.feature.main.MemoUiImageContentResolver() }
-    val dispatcherProvider =
-        org.koin.compose.koinInject<com.lomo.domain.usecase.DispatcherProvider>()
-    var previewState by remember { mutableStateOf<MarkdownRenderState>(MarkdownRenderState.Pending) }
-    LaunchedEffect(
-        controller,
-        controller.inputValue.text,
-        controller.displayMode,
-        repository,
-        session,
-    ) {
-        if (!shouldRenderMemoEditorPreview(controller.displayMode)) {
-            previewState = MarkdownRenderState.Pending
-            return@LaunchedEffect
-        }
-        delay(MEMO_EDITOR_PREVIEW_DEBOUNCE_MILLIS)
-        previewState = MarkdownRenderState.Pending
-        previewState =
-            withContext(dispatcherProvider.default) {
-                try {
-                    MarkdownRenderState.Ready(
-                        imageContentResolver.resolveRenderDocumentImages(
-                            document = repository.renderMarkdown(controller.inputValue.text),
-                            rootPath = session.rootPath,
-                            imagePath = session.imageDirectory,
-                            imageMap = session.imageMap,
-                        ),
-                    )
-                } catch (failure: MarkdownRenderContractException) {
-                    MarkdownRenderState.Failed(failure.code)
-                } catch (failure: IllegalStateException) {
-                    if (failure is kotlinx.coroutines.CancellationException) {
-                        throw failure
-                    }
-                    MarkdownRenderState.Failed("workspace_not_ready")
-                }
-            }
+    val dispatcherProvider = org.koin.compose.koinInject<DispatcherProvider>()
+    val tokenFactory = org.koin.compose.koinInject<com.lomo.domain.repository.ReminderTokenFactory>()
+    var contentState by remember {
+        mutableStateOf(MemoEditorContentState("", MarkdownRenderState.Pending))
     }
-    return previewState
+    val sourceText = controller.inputValue.text
+    val previewRequested = shouldRenderMemoEditorPreview(controller.displayMode)
+    LaunchedEffect(controller, sourceText, previewRequested, repository, session, tokenFactory) {
+        if (previewRequested) delay(MEMO_EDITOR_PREVIEW_DEBOUNCE_MILLIS)
+        contentState = withContext(dispatcherProvider.default) {
+            try {
+                val document = repository.renderMarkdown(sourceText)
+                val reminders = projectMemoEditorReminders(
+                    sourceText,
+                    document,
+                    tokenFactory::dueAt,
+                    session.dateFormat,
+                    session.timeFormat,
+                )
+                val previewDocument = if (previewRequested) {
+                    imageContentResolver.resolveRenderDocumentImages(
+                        document,
+                        session.rootPath,
+                        session.imageDirectory,
+                        session.imageMap,
+                    )
+                } else {
+                    document
+                }
+                MemoEditorContentState(sourceText, MarkdownRenderState.Ready(previewDocument), reminders)
+            } catch (failure: MarkdownRenderContractException) {
+                MemoEditorContentState(sourceText, MarkdownRenderState.Failed(failure.code))
+            } catch (failure: IllegalStateException) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                MemoEditorContentState(sourceText, MarkdownRenderState.Failed("workspace_not_ready"))
+            }
+        }
+    }
+    return contentState
 }
 
-private data class MemoEditDraftAutosaveState(
-    val session: MemoEditSession?,
-    val text: String,
-    val isVisible: Boolean,
-)
+private data class MemoEditDraftAutosaveState(val session: MemoEditSession?, val text: String, val isVisible: Boolean)

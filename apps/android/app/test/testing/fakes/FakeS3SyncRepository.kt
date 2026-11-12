@@ -20,7 +20,9 @@ class FakeS3SyncRepository : S3SyncRepository {
     override fun isS3SyncEnabled(): Flow<Boolean> = _isS3SyncEnabled.asStateFlow()
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = _syncOnRefreshEnabled.asStateFlow()
 
-    override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) { _syncOnRefreshEnabled.value = enabled }
+    override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) {
+        _syncOnRefreshEnabled.value = enabled
+    }
 
     override fun getEndpointUrl(): Flow<String?> = MutableStateFlow(null)
     override suspend fun setEndpointUrl(url: String) {}
@@ -33,14 +35,23 @@ class FakeS3SyncRepository : S3SyncRepository {
     override fun getLocalSyncDirectory(): Flow<String?> = MutableStateFlow(null)
     override suspend fun setLocalSyncDirectory(pathOrUri: String) {}
     override suspend fun clearLocalSyncDirectory() {}
-    override fun getPathStyle(): Flow<com.lomo.domain.model.S3PathStyle> = MutableStateFlow(com.lomo.domain.model.S3PathStyle.AUTO)
+    override fun getPathStyle(): Flow<com.lomo.domain.model.S3PathStyle> = MutableStateFlow(
+        com.lomo.domain.model.S3PathStyle.AUTO,
+    )
     override suspend fun setPathStyle(pathStyle: com.lomo.domain.model.S3PathStyle) {}
 
-    override fun getEncryptionMode(): Flow<com.lomo.domain.model.S3EncryptionMode> = MutableStateFlow(com.lomo.domain.model.S3EncryptionMode.NONE)
+    override fun getEncryptionMode(): Flow<com.lomo.domain.model.S3EncryptionMode> = MutableStateFlow(
+        com.lomo.domain.model.S3EncryptionMode.NONE,
+    )
     override suspend fun setEncryptionMode(mode: com.lomo.domain.model.S3EncryptionMode) {}
-    override fun getRcloneFilenameEncryption(): Flow<com.lomo.domain.model.S3RcloneFilenameEncryption> = MutableStateFlow(com.lomo.domain.model.S3RcloneFilenameEncryption.OFF)
+    override fun getRcloneFilenameEncryption(): Flow<com.lomo.domain.model.S3RcloneFilenameEncryption> =
+        MutableStateFlow(
+            com.lomo.domain.model.S3RcloneFilenameEncryption.OFF,
+        )
     override suspend fun setRcloneFilenameEncryption(mode: com.lomo.domain.model.S3RcloneFilenameEncryption) {}
-    override fun getRcloneFilenameEncoding(): Flow<com.lomo.domain.model.S3RcloneFilenameEncoding> = MutableStateFlow(com.lomo.domain.model.S3RcloneFilenameEncoding.BASE32)
+    override fun getRcloneFilenameEncoding(): Flow<com.lomo.domain.model.S3RcloneFilenameEncoding> = MutableStateFlow(
+        com.lomo.domain.model.S3RcloneFilenameEncoding.BASE32,
+    )
     override suspend fun setRcloneFilenameEncoding(encoding: com.lomo.domain.model.S3RcloneFilenameEncoding) {}
     override fun getRcloneDirectoryNameEncryption(): Flow<Boolean> = MutableStateFlow(false)
     override suspend fun setRcloneDirectoryNameEncryption(enabled: Boolean) {}
@@ -66,8 +77,18 @@ class FakeS3SyncRepository : S3SyncRepository {
     override suspend fun isEncryptionPassword2Configured(): Boolean = false
 
     override suspend fun sync(): com.lomo.domain.model.S3SyncResult = com.lomo.domain.model.S3SyncResult.Success("")
-    override suspend fun getStatus(): com.lomo.domain.model.S3SyncStatus = com.lomo.domain.model.S3SyncStatus(0, 0, 0, null)
-    override suspend fun testConnection(): com.lomo.domain.model.S3SyncResult = com.lomo.domain.model.S3SyncResult.Success("")
+    override suspend fun getStatus(): com.lomo.domain.model.S3SyncStatus = com.lomo.domain.model.S3SyncStatus(
+        0,
+        0,
+        0,
+        null,
+    )
+    override suspend fun testConnection(): com.lomo.domain.model.S3SyncResult =
+        com.lomo.domain.model.S3SyncResult.Success(
+            "",
+        )
 
-    override fun syncState(): Flow<com.lomo.domain.model.S3SyncState> = MutableStateFlow(com.lomo.domain.model.S3SyncState.Idle)
+    override fun syncState(): Flow<com.lomo.domain.model.S3SyncState> = MutableStateFlow(
+        com.lomo.domain.model.S3SyncState.Idle,
+    )
 }

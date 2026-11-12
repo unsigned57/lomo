@@ -1,23 +1,28 @@
 package com.lomo.ui.component.markdown
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.ui.text.MemoTextSelectionRegistrar
+import com.lomo.ui.theme.memoBodyTextStyle
 
 /** Compose renderer over the validated Rust-owned IR. This surface never accepts Markdown source. */
 @Composable
@@ -105,6 +110,7 @@ internal fun MarkdownIrRenderer(
                         display = item.display,
                         context = context,
                     )
+
                 is MarkdownIrPresentationItem.Gallery ->
                     if (!hideImages) {
                         MarkdownImagePager(
@@ -118,28 +124,27 @@ internal fun MarkdownIrRenderer(
 }
 
 @Composable
-private fun MarkdownIrBlockDisplay(
-    display: MarkdownIrBlockDisplay,
-    context: MarkdownIrRenderContext,
-) {
+private fun MarkdownIrBlockDisplay(display: MarkdownIrBlockDisplay, context: MarkdownIrRenderContext) {
     when (display) {
         is MarkdownIrBlockDisplay.Paragraph ->
             MarkdownIrParagraph(
                 text = display.text,
-                images = display.images,
+                mediaGroups = display.mediaGroups,
                 context = context,
             )
+
         is MarkdownIrBlockDisplay.Heading ->
             Text(
                 text = display.text,
                 style =
-                    when (display.level) {
-                        1u -> MaterialTheme.typography.headlineMedium
-                        2u -> MaterialTheme.typography.headlineSmall
-                        else -> MaterialTheme.typography.titleMedium
-                    },
+                when (display.level) {
+                    1u -> MaterialTheme.typography.headlineMedium
+                    2u -> MaterialTheme.typography.headlineSmall
+                    else -> MaterialTheme.typography.titleMedium
+                },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             )
+
         is MarkdownIrBlockDisplay.BlockQuote ->
             Column(modifier = Modifier.fillMaxWidth().padding(start = 12.dp)) {
                 display.blocks.forEach { child ->
@@ -149,6 +154,7 @@ private fun MarkdownIrBlockDisplay(
                     )
                 }
             }
+
         is MarkdownIrBlockDisplay.ListBlock ->
             Column(modifier = Modifier.fillMaxWidth()) {
                 display.items.forEach { item ->
@@ -158,29 +164,35 @@ private fun MarkdownIrBlockDisplay(
                     )
                 }
             }
+
         is MarkdownIrBlockDisplay.CodeBlock ->
             Text(
                 text = display.literal,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.small)
+                    .padding(12.dp),
             )
-        is MarkdownIrBlockDisplay.ThematicBreak -> Text("────────", modifier = Modifier.fillMaxWidth())
+
+        is MarkdownIrBlockDisplay.ThematicBreak -> HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
         is MarkdownIrBlockDisplay.Table ->
             Column(modifier = Modifier.fillMaxWidth()) {
                 display.rows.forEach { row ->
                     Text(row)
                 }
             }
+
         is MarkdownIrBlockDisplay.HtmlBlock -> Text(display.literal, modifier = Modifier.fillMaxWidth())
     }
 }
 
 @Composable
-private fun MarkdownIrListItem(
-    item: MarkdownIrListItemDisplay,
-    context: MarkdownIrRenderContext,
-) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+private fun MarkdownIrListItem(item: MarkdownIrListItemDisplay, context: MarkdownIrRenderContext) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         val actionSpan = item.actionSpan
         val checked = item.checked
         val onTaskClick = context.onTaskClick
@@ -190,7 +202,11 @@ private fun MarkdownIrListItem(
                 onCheckedChange = if (onTaskClick == null) null else ({ onTaskClick(actionSpan) }),
             )
         } else {
-            Text(item.marker, modifier = Modifier.width(28.dp))
+            Text(
+                item.marker,
+                style = MaterialTheme.typography.memoBodyTextStyle(),
+                modifier = Modifier.widthIn(min = 28.dp).padding(end = 6.dp),
+            )
         }
         Column(modifier = Modifier.weight(1f)) {
             val childContext =
@@ -213,7 +229,7 @@ private fun MarkdownIrListItem(
 @Composable
 private fun MarkdownIrParagraph(
     text: AnnotatedString,
-    images: List<MarkdownPresentationImage>,
+    mediaGroups: List<kotlinx.collections.immutable.ImmutableList<MarkdownPresentationImage>>,
     context: MarkdownIrRenderContext,
 ) {
     if (text.isNotEmpty()) {
@@ -229,7 +245,12 @@ private fun MarkdownIrParagraph(
         )
     }
     if (!context.hideImages) {
-        images.forEach { presentationImage ->
+        mediaGroups.forEach { group ->
+            if (group.size > 1) {
+                MarkdownImagePager(group, context.onImageClick)
+                return@forEach
+            }
+            val presentationImage = group.single()
             val media = context.mediaPresentationResolver?.invoke(presentationImage)
             if (media != null && context.mediaContent != null) {
                 context.mediaContent(media)

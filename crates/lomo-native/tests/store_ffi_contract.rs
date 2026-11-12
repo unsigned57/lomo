@@ -52,6 +52,8 @@
 //! Excludes: production DI cutover (P3-10), Room deletion.
 
 #[cfg(test)]
+mod create_observer;
+#[cfg(test)]
 mod support;
 
 #[cfg(test)]
@@ -192,16 +194,19 @@ mod tests {
             "engine open must not open a workspace projection sqlite"
         );
         let error = engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "op-no-second-store".to_owned(),
-                relative_path: None,
-                time_token: None,
-                content: "must not open sqlite".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: vec![],
-                chronology_epoch_ms: None,
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-no-second-store".to_owned(),
+                    relative_path: None,
+                    time_token: None,
+                    content: "must not open sqlite".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: vec![],
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_err("refused write");
         assert_eq!(error.code(), "workspace_session_unavailable");
         assert!(

@@ -59,28 +59,36 @@ class CredentialStateTest : DomainFunSpec() {
                 CredentialState(
                     provider = CredentialProvider.WEBDAV,
                     fields =
-                        listOf(
-                            CredentialFieldState(CredentialField.WEBDAV_USERNAME, StoredCredentialStatus.Present),
-                            CredentialFieldState(CredentialField.WEBDAV_PASSWORD, StoredCredentialStatus.Unreadable),
-                        ),
+                    listOf(
+                        CredentialFieldState(CredentialField.WEBDAV_USERNAME, StoredCredentialStatus.Present),
+                        CredentialFieldState(CredentialField.WEBDAV_PASSWORD, StoredCredentialStatus.Unreadable),
+                    ),
                 )
 
             state.status shouldBe StoredCredentialStatus.Unreadable
             state.isConfigured.shouldBeFalse()
         }
 
-        test("given optional s3 stored secret is unreadable when status is queried then readiness remains present but health is unreadable") {
+        test(
+            "given optional s3 stored secret is unreadable when status is queried then readiness remains present but health is unreadable",
+        ) {
             val state =
                 CredentialState(
                     provider = CredentialProvider.S3,
                     fields =
-                        listOf(
-                            CredentialFieldState(CredentialField.S3_ACCESS_KEY_ID, StoredCredentialStatus.Present),
-                            CredentialFieldState(CredentialField.S3_SECRET_ACCESS_KEY, StoredCredentialStatus.Present),
-                            CredentialFieldState(CredentialField.S3_SESSION_TOKEN, StoredCredentialStatus.Unreadable),
-                            CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD, StoredCredentialStatus.Missing),
-                            CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD2, StoredCredentialStatus.Missing),
+                    listOf(
+                        CredentialFieldState(CredentialField.S3_ACCESS_KEY_ID, StoredCredentialStatus.Present),
+                        CredentialFieldState(CredentialField.S3_SECRET_ACCESS_KEY, StoredCredentialStatus.Present),
+                        CredentialFieldState(CredentialField.S3_SESSION_TOKEN, StoredCredentialStatus.Unreadable),
+                        CredentialFieldState(
+                            CredentialField.S3_ENCRYPTION_PASSWORD,
+                            StoredCredentialStatus.Missing,
                         ),
+                        CredentialFieldState(
+                            CredentialField.S3_ENCRYPTION_PASSWORD2,
+                            StoredCredentialStatus.Missing,
+                        ),
+                    ),
                 )
 
             state.readinessStatus shouldBe StoredCredentialStatus.Present

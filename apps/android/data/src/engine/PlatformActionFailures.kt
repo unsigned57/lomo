@@ -9,37 +9,34 @@ import com.lomo.nativebridge.EngineFailure
  * instead of collapsing into a message at the boundary. An absent `EngineFailure.jobId` is the
  * contract for failures that are not owned by a native job.
  */
-internal fun DirectRootAccessException.toFailure(): EngineFailure =
-    EngineFailure(
-        category = category,
-        code = code,
-        retryDisposition =
-            when (category) {
-                "conflict", "permission" -> "after_user_action"
-                "timeout" -> "transient"
-                else -> "never"
-            },
-        operationId = null,
-        jobId = null,
-        diagnostic = diagnostic,
-    )
+internal fun DirectRootAccessException.toFailure(): EngineFailure = EngineFailure(
+    category = category,
+    code = code,
+    retryDisposition =
+    when (category) {
+        "conflict", "permission" -> "after_user_action"
+        "timeout" -> "transient"
+        else -> "never"
+    },
+    operationId = null,
+    jobId = null,
+    diagnostic = diagnostic,
+)
 
-internal fun CapabilityRegistryException.toFailure(): EngineFailure =
-    EngineFailure(
-        category = category,
-        code = code,
-        retryDisposition = "after_user_action",
-        operationId = null,
-        jobId = null,
-        diagnostic = diagnostic,
-    )
+internal fun CapabilityRegistryException.toFailure(): EngineFailure = EngineFailure(
+    category = category,
+    code = code,
+    retryDisposition = "after_user_action",
+    operationId = null,
+    jobId = null,
+    diagnostic = diagnostic,
+)
 
-internal fun ExchangeResolverException.toFailure(): EngineFailure =
-    EngineFailure(
-        category = category,
-        code = code,
-        retryDisposition = "never",
-        operationId = null,
-        jobId = null,
-        diagnostic = diagnostic,
-    )
+internal fun ExchangeResolverException.toFailure(): EngineFailure = EngineFailure(
+    category = category,
+    code = code,
+    retryDisposition = "never",
+    operationId = null,
+    jobId = null,
+    diagnostic = diagnostic,
+)

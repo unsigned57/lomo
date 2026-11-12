@@ -14,8 +14,5 @@ interface SyncInboxRepository {
 
     suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult
 
-    suspend fun resolveReview(
-        resolution: SyncReviewResolution,
-        review: SyncReviewSession,
-    ): UnifiedSyncResult
+    suspend fun resolveReview(resolution: SyncReviewResolution, review: SyncReviewSession): UnifiedSyncResult
 }

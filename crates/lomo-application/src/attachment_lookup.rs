@@ -52,7 +52,7 @@ pub fn resolve_attachment_path(
     if name.contains('/') {
         return Ok(destination.clone());
     }
-    let io = WorkspaceIo { config, executor };
+    let io = WorkspaceIo::physical(config, executor);
     let mut existing: Vec<RelativeWorkspacePath> = Vec::new();
     if io.stat(destination)?.is_some() {
         existing.push(destination.clone());

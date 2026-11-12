@@ -8,9 +8,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 
 @JvmInline
-value class InputToolbarActionId(
-    val persistedId: String,
-) {
+value class InputToolbarActionId(val persistedId: String) {
     init {
         require(persistedId.isNotBlank()) { "Input toolbar action id must not be blank" }
     }
@@ -36,9 +34,9 @@ sealed interface InputEditorCommand {
     data object InsertTodo : InputEditorCommand
     data object InsertUnderline : InputEditorCommand
 
-    data class Action(
-        val id: InputToolbarActionId,
-    ) : InputEditorCommand
+    data class RemoveText(val sourceText: String, val range: androidx.compose.ui.text.TextRange) : InputEditorCommand
+
+    data class Action(val id: InputToolbarActionId) : InputEditorCommand
 }
 
 fun interface InputEditorCommandHandler {
@@ -50,6 +48,12 @@ enum class InputToolbarToolTintRole {
     Highlight,
 }
 
+enum class InputToolbarToolPlacement {
+    Primary,
+    SecondaryTray,
+    HeaderEnd,
+}
+
 data class InputToolbarTool(
     val id: InputToolbarActionId,
     val icon: ImageVector,
@@ -57,12 +61,11 @@ data class InputToolbarTool(
     val command: InputEditorCommand,
     val enabled: Boolean,
     val tintRole: InputToolbarToolTintRole = InputToolbarToolTintRole.Default,
+    val placement: InputToolbarToolPlacement = InputToolbarToolPlacement.Primary,
     val requiredPermission: String? = null,
 )
 
-data class InputEditorCapabilities(
-    val toolbarTools: ImmutableList<InputToolbarTool>,
-)
+data class InputEditorCapabilities(val toolbarTools: ImmutableList<InputToolbarTool>)
 
 data class InputEditorRecordingState(
     val isRecording: Boolean = false,
@@ -72,7 +75,7 @@ data class InputEditorRecordingState(
 )
 
 data class InputEditorSurfaceState(
-    val inputValue: TextFieldValue,
+    val inputState: androidx.compose.foundation.text.input.TextFieldState,
     val previewState: MarkdownRenderState,
     val focusRequestToken: Long = 0L,
     val isExpanded: Boolean = false,
@@ -82,17 +85,20 @@ data class InputEditorSurfaceState(
     val hints: ImmutableList<String> = persistentListOf(),
     val toolbarOrder: ImmutableList<InputToolbarActionId> = persistentListOf(),
     val capabilities: InputEditorCapabilities,
-    val actionBadge: InputEditorActionBadge? = null,
-)
+    val actionBadges: ImmutableList<InputEditorActionBadge> = persistentListOf(),
+    val hiddenTextRanges: ImmutableList<androidx.compose.ui.text.TextRange> = persistentListOf(),
+    val inputTransformation: androidx.compose.foundation.text.input.InputTransformation? = null,
+) {
+    val inputValue: TextFieldValue
+        get() = TextFieldValue(inputState.text.toString(), inputState.selection, inputState.composition)
+}
 
 data class InputToolbarRegistryState(
     val tools: ImmutableList<InputToolbarTool>,
     val highlightedCommands: Set<InputEditorCommand> = emptySet(),
 )
 
-class InputToolbarRegistry private constructor(
-    private val state: InputToolbarRegistryState,
-) {
+class InputToolbarRegistry private constructor(private val state: InputToolbarRegistryState) {
     fun resolveTools(persistedOrder: List<String>): ImmutableList<InputToolbarTool> {
         val normalizedOrder = normalizePersistedOrder(persistedOrder)
         val seen = mutableSetOf<InputToolbarActionId>()
@@ -140,4 +146,5 @@ data class InputEditorActionBadge(
     val text: String,
     val icon: ImageVector,
     val command: InputEditorCommand,
+    val benchmarkTag: String? = null,
 )

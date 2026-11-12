@@ -14,12 +14,11 @@ import com.lomo.domain.model.WorkspaceMount
  */
 internal object WorkspaceMountTransitions {
     /** The published mount when it is a ready, authorised, verified one; otherwise null. */
-    fun verifiedOrNull(current: WorkspaceMount): WorkspaceMount? =
-        current.takeIf { mount ->
-            mount.readiness is EngineReadiness.Ready &&
-                mount.authority != null &&
-                mount.freshness is ProjectionFreshness.Verified
-        }
+    fun verifiedOrNull(current: WorkspaceMount): WorkspaceMount? = current.takeIf { mount ->
+        mount.readiness is EngineReadiness.Ready &&
+            mount.authority != null &&
+            mount.freshness is ProjectionFreshness.Verified
+    }
 
     /**
      * The same mount republished as [ProjectionFreshness.Revalidating] while a candidate prepares.
@@ -34,10 +33,7 @@ internal object WorkspaceMountTransitions {
      * Restores verified freshness after a failed switch. Null when the current mount moved on to a
      * different authority or is no longer ready, so a stale snapshot cannot mask a real transition.
      */
-    fun restoreVerified(
-        current: WorkspaceMount,
-        verified: WorkspaceMount?,
-    ): WorkspaceMount? {
+    fun restoreVerified(current: WorkspaceMount, verified: WorkspaceMount?): WorkspaceMount? {
         val snapshot = verified ?: return null
         return if (current.authority == snapshot.authority && current.readiness is EngineReadiness.Ready) {
             current.copy(freshness = snapshot.freshness)

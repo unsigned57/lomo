@@ -1,13 +1,13 @@
 package com.lomo.detektrules
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.detektrules
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
@@ -50,10 +49,11 @@ import kotlin.io.path.writeText
  * Excludes:
  * - production source, MockK uses for non-stateful collaborators.
  */
-class MockedStatefulCollaboratorRuleTest : FunSpec({
-    test("flags mockk<MemoDao>") {
-        val findings = rule().findingsForTestSource(
-            """
+class MockedStatefulCollaboratorRuleTest :
+    FunSpec({
+        test("flags mockk<MemoDao>") {
+            val findings = rule().findingsForTestSource(
+                """
             package com.lomo.sample
 
             import io.mockk.mockk
@@ -61,14 +61,14 @@ class MockedStatefulCollaboratorRuleTest : FunSpec({
             interface MemoDao
             val dao = mockk<MemoDao>()
             """,
-        )
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Fake"
-    }
+            )
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Fake"
+        }
 
-    test("flags typed property initialised by mockk relaxed") {
-        val findings = rule().findingsForTestSource(
-            """
+        test("flags typed property initialised by mockk relaxed") {
+            val findings = rule().findingsForTestSource(
+                """
             package com.lomo.sample
 
             import io.mockk.mockk
@@ -76,13 +76,13 @@ class MockedStatefulCollaboratorRuleTest : FunSpec({
             interface MemoRepository
             private val repo: MemoRepository = mockk(relaxed = true)
             """,
-        )
-        findings.shouldHaveSize(1)
-    }
+            )
+            findings.shouldHaveSize(1)
+        }
 
-    test("allows mockk for non-stateful collaborator type") {
-        val findings = rule().findingsForTestSource(
-            """
+        test("allows mockk for non-stateful collaborator type") {
+            val findings = rule().findingsForTestSource(
+                """
             package com.lomo.sample
 
             import io.mockk.mockk
@@ -90,10 +90,10 @@ class MockedStatefulCollaboratorRuleTest : FunSpec({
             interface Logger
             val logger = mockk<Logger>()
             """,
-        )
-        findings.shouldHaveSize(0)
-    }
-})
+            )
+            findings.shouldHaveSize(0)
+        }
+    })
 
 private fun rule(config: Config = Config.empty): Rule =
     checkNotNull(LomoTestStyleRuleSetProvider().instance().rules[RuleName("MockedStatefulCollaborator")]) {

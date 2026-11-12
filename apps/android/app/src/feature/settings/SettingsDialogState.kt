@@ -8,32 +8,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.lomo.domain.model.SyncBackendType
 
-data class FormState(
-    val initialValue: String = "",
-    val value: String,
-    val secretVisible: Boolean = false,
-) {
+data class FormState(val initialValue: String = "", val value: String, val secretVisible: Boolean = false) {
     val isDirty: Boolean
         get() = value != initialValue
 }
 
 sealed interface SettingsDialogRoute {
-    data class RemoteProviderText(
-        val field: RemoteProviderTextField,
-    ) : SettingsDialogRoute {
+    data class RemoteProviderText(val field: RemoteProviderTextField) : SettingsDialogRoute {
         val provider: SyncBackendType = field.provider
         val secret: Boolean = field.secret
     }
 
-    data class RemoteProviderSelection(
-        val field: RemoteProviderSelectionField,
-    ) : SettingsDialogRoute {
+    data class RemoteProviderSelection(val field: RemoteProviderSelectionField) : SettingsDialogRoute {
         val provider: SyncBackendType = field.provider
     }
 
-    data class RemoteProviderConfirmation(
-        val action: RemoteProviderConfirmationAction,
-    ) : SettingsDialogRoute {
+    data class RemoteProviderConfirmation(val action: RemoteProviderConfirmationAction) : SettingsDialogRoute {
         val provider: SyncBackendType = action.provider
     }
 }
@@ -111,11 +101,7 @@ class SettingsDialogState {
     var showDeviceNameDialog by mutableStateOf(false)
     var deviceNameInput by mutableStateOf("")
 
-
-    fun openProviderTextDialog(
-        field: RemoteProviderTextField,
-        initialValue: String,
-    ) {
+    fun openProviderTextDialog(field: RemoteProviderTextField, initialValue: String) {
         activeProviderDialogRoute = SettingsDialogRoute.RemoteProviderText(field)
         providerTextFormState = FormState(initialValue = initialValue, value = initialValue)
     }
@@ -151,9 +137,8 @@ internal fun SettingsDialogState.providerTextDialogAction(
     initialValue: () -> String = { "" },
 ): () -> Unit = { openProviderTextDialog(field = field, initialValue = initialValue()) }
 
-internal fun SettingsDialogState.providerSelectionDialogAction(
-    field: RemoteProviderSelectionField,
-): () -> Unit = { openProviderSelectionDialog(field) }
+internal fun SettingsDialogState.providerSelectionDialogAction(field: RemoteProviderSelectionField): () -> Unit =
+    { openProviderSelectionDialog(field) }
 
 internal fun SettingsDialogState.providerConfirmationDialogAction(
     action: RemoteProviderConfirmationAction,
@@ -168,11 +153,13 @@ private val RemoteProviderTextField.provider: SyncBackendType
             RemoteProviderTextField.GitAuthorName,
             RemoteProviderTextField.GitAuthorEmail,
             -> SyncBackendType.GIT
+
             RemoteProviderTextField.WebDavBaseUrl,
             RemoteProviderTextField.WebDavEndpointUrl,
             RemoteProviderTextField.WebDavUsername,
             RemoteProviderTextField.WebDavPassword,
             -> SyncBackendType.WEBDAV
+
             RemoteProviderTextField.S3EndpointUrl,
             RemoteProviderTextField.S3Region,
             RemoteProviderTextField.S3Bucket,
@@ -196,6 +183,7 @@ private val RemoteProviderTextField.secret: Boolean
             RemoteProviderTextField.S3EncryptionPassword,
             RemoteProviderTextField.S3EncryptionPassword2,
             -> true
+
             RemoteProviderTextField.GitRemoteUrl,
             RemoteProviderTextField.GitBranch,
             RemoteProviderTextField.GitAuthorName,
@@ -216,9 +204,11 @@ private val RemoteProviderSelectionField.provider: SyncBackendType
     get() =
         when (this) {
             RemoteProviderSelectionField.GitSyncInterval -> SyncBackendType.GIT
+
             RemoteProviderSelectionField.WebDavProvider,
             RemoteProviderSelectionField.WebDavSyncInterval,
             -> SyncBackendType.WEBDAV
+
             RemoteProviderSelectionField.S3SyncInterval,
             RemoteProviderSelectionField.S3PathStyle,
             RemoteProviderSelectionField.S3EncryptionMode,
@@ -245,8 +235,9 @@ enum class SettingsSubPage {
     SYNC_BACKUP,
     STORAGE_FORMATS,
     INTERACTION_SECURITY,
+    QUICK_BALL,
     TYPOGRAPHY,
     COLOR_PALETTE,
     FONT,
-    ABOUT
+    ABOUT,
 }

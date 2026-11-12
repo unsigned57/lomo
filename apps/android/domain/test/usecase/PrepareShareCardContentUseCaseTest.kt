@@ -122,7 +122,8 @@ private class FakeShareMarkdownRepository : MarkdownWorkspaceRepository {
     }
 
     override suspend fun toggleTask(
+        operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,
         actionSpan: MarkdownSourceSpan,
-    ): com.lomo.domain.model.MemoDocumentMutation = error("not expected")
+    ): String = error("not expected")
 }

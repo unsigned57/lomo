@@ -43,7 +43,9 @@ class AppShutdownCoordinatorTest : AppFunSpec() {
             backgroundWork.cancelCount shouldBe 1
         }
 
-        test("given ui hidden trim memory when app lifecycle is handled then update transport lifecycle is closed once") {
+        test(
+            "given ui hidden trim memory when app lifecycle is handled then update transport lifecycle is closed once",
+        ) {
             val transportLifecycle = FakeAppUpdateTransportLifecycleRepository()
             val coordinator = AppShutdownCoordinator(transportLifecycle, FakeAppBackgroundWorkRepository())
 
@@ -52,7 +54,9 @@ class AppShutdownCoordinatorTest : AppFunSpec() {
             transportLifecycle.closeCount shouldBe 1
         }
 
-        test("given foreground trim memory when app lifecycle is handled then update transport lifecycle remains open") {
+        test(
+            "given foreground trim memory when app lifecycle is handled then update transport lifecycle remains open",
+        ) {
             val transportLifecycle = FakeAppUpdateTransportLifecycleRepository()
             val coordinator = AppShutdownCoordinator(transportLifecycle, FakeAppBackgroundWorkRepository())
 
@@ -93,9 +97,8 @@ private class FakeAppBackgroundWorkRepository : AppBackgroundWorkRepository {
     }
 }
 
-private class FakeAppUpdateTransportLifecycleRepository(
-    private val closeError: Throwable? = null,
-) : AppUpdateTransportLifecycleRepository {
+private class FakeAppUpdateTransportLifecycleRepository(private val closeError: Throwable? = null) :
+    AppUpdateTransportLifecycleRepository {
     var closeCount: Int = 0
         private set
 

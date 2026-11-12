@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract
 //!
 //! Capability: establish content identity (streaming sha256 + magic MIME) and workspace path
@@ -60,7 +68,7 @@ mod tests {
         // Precomputed sha256 of PNG_1X1 fixture.
         let expected = {
             use sha2::{Digest, Sha256};
-            format!("{:x}", Sha256::digest(PNG_1X1))
+            lomo_core::hex_encode(&Sha256::digest(PNG_1X1))
         };
         assert_eq!(digest.as_str(), expected);
         assert_eq!(digest.as_str().len(), 64);
@@ -257,7 +265,7 @@ mod tests {
             let wire = mime.as_str();
             let parsed = MediaMime::parse(wire).expect("parse wire");
             assert_eq!(parsed, mime);
-            assert!(!mime.preferred_extension().is_empty());
+            assert_ne!(mime.preferred_extension(), "");
         }
         let err = MediaMime::parse("image/tiff").expect_err("unsupported");
         assert_eq!(err.code(), "unsupported_media_mime");
@@ -266,7 +274,7 @@ mod tests {
     #[test]
     fn content_digest_parse_rejects_bad_hex() {
         let err = ContentDigest::parse("zz").expect_err("bad");
-        assert!(!err.code().is_empty());
+        assert_ne!(err.code(), "");
         assert_eq!(error_category(&err), ErrorCategory::Validation);
         let good = ContentDigest::of_slice(PNG_1X1);
         let round = ContentDigest::parse(good.as_str()).expect("parse good");

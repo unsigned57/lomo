@@ -36,77 +36,74 @@ import io.kotest.matchers.shouldBe
  * - Coverage preserved by: boundary verification cases re-expressed on the surviving document-command path.
  * - Why this is not fitting the test to the implementation: it pins the remaining live contract after dead-surface deletion.
  */
-class SafMemoCommandBoundaryTest : FunSpec({
-    test("given a verified result when affected facts match the target then they are returned") {
-        val affected = memoFacts(path = "2026-08-17.md", identity = "memo-1", fingerprint = "after")
-        val result =
-            WorkspaceNativeCommandResultSnapshot(
-                path = "2026-08-17.md",
-                resultFingerprint = "after",
-                bytesWritten = 12uL,
-                affectedMemo = affected,
-            )
+class SafMemoCommandBoundaryTest :
+    FunSpec({
+        test("given a verified result when affected facts match the target then they are returned") {
+            val affected = memoFacts(path = "2026-08-17.md", identity = "memo-1", fingerprint = "after")
+            val result =
+                WorkspaceNativeCommandResultSnapshot(
+                    path = "2026-08-17.md",
+                    resultFingerprint = "after",
+                    bytesWritten = 12uL,
+                    affectedMemo = affected,
+                )
 
-        result.requireAffectedMemo(path = "2026-08-17.md", identity = "memo-1") shouldBe affected
-    }
+            result.requireAffectedMemo(path = "2026-08-17.md", identity = "memo-1") shouldBe affected
+        }
 
-    test("given a result for another identity when boundary validates then it is rejected") {
-        val result =
-            WorkspaceNativeCommandResultSnapshot(
-                path = "2026-08-17.md",
-                resultFingerprint = "same",
-                bytesWritten = 12uL,
-                affectedMemo = memoFacts(path = "2026-08-17.md", identity = "memo-2", fingerprint = "same"),
-            )
+        test("given a result for another identity when boundary validates then it is rejected") {
+            val result =
+                WorkspaceNativeCommandResultSnapshot(
+                    path = "2026-08-17.md",
+                    resultFingerprint = "same",
+                    bytesWritten = 12uL,
+                    affectedMemo = memoFacts(path = "2026-08-17.md", identity = "memo-2", fingerprint = "same"),
+                )
 
-        val failure =
-            shouldThrow<IllegalArgumentException> {
-                result.requireAffectedMemo(path = "2026-08-17.md", identity = "memo-1")
-            }
+            val failure =
+                shouldThrow<IllegalArgumentException> {
+                    result.requireAffectedMemo(path = "2026-08-17.md", identity = "memo-1")
+                }
 
-        failure.message shouldBe "Affected memo identity does not match the mutation target"
-    }
+            failure.message shouldBe "Affected memo identity does not match the mutation target"
+        }
 
-    test("given an affected fingerprint drift when boundary validates then it is rejected") {
-        val result =
-            WorkspaceNativeCommandResultSnapshot(
-                path = "2026-08-17.md",
-                resultFingerprint = "after",
-                bytesWritten = 12uL,
-                affectedMemo = memoFacts(path = "2026-08-17.md", identity = "memo-1", fingerprint = "before"),
-            )
+        test("given an affected fingerprint drift when boundary validates then it is rejected") {
+            val result =
+                WorkspaceNativeCommandResultSnapshot(
+                    path = "2026-08-17.md",
+                    resultFingerprint = "after",
+                    bytesWritten = 12uL,
+                    affectedMemo = memoFacts(path = "2026-08-17.md", identity = "memo-1", fingerprint = "before"),
+                )
 
-        val failure =
-            shouldThrow<IllegalArgumentException> {
-                result.requireAffectedMemo(path = "2026-08-17.md", identity = "memo-1")
-            }
+            val failure =
+                shouldThrow<IllegalArgumentException> {
+                    result.requireAffectedMemo(path = "2026-08-17.md", identity = "memo-1")
+                }
 
-        failure.message shouldBe "Affected memo fingerprint does not match the verified document result"
-    }
+            failure.message shouldBe "Affected memo fingerprint does not match the verified document result"
+        }
 
-    test("given a result without affected facts when boundary validates then it is rejected") {
-        val result =
-            WorkspaceNativeCommandResultSnapshot(
-                path = "2026-08-17.md",
-                resultFingerprint = "after",
-                bytesWritten = 12uL,
-                affectedMemo = null,
-            )
+        test("given a result without affected facts when boundary validates then it is rejected") {
+            val result =
+                WorkspaceNativeCommandResultSnapshot(
+                    path = "2026-08-17.md",
+                    resultFingerprint = "after",
+                    bytesWritten = 12uL,
+                    affectedMemo = null,
+                )
 
-        val failure =
-            shouldThrow<IllegalArgumentException> {
-                result.requireAffectedMemo(path = "2026-08-17.md", identity = "memo-1")
-            }
+            val failure =
+                shouldThrow<IllegalArgumentException> {
+                    result.requireAffectedMemo(path = "2026-08-17.md", identity = "memo-1")
+                }
 
-        failure.message shouldBe "Completed document mutation did not publish Rust-parsed affected memo facts"
-    }
-})
+            failure.message shouldBe "Completed document mutation did not publish Rust-parsed affected memo facts"
+        }
+    })
 
-private fun memoFacts(
-    path: String,
-    identity: String,
-    fingerprint: String,
-): WorkspaceDocumentMemoFactsSnapshot =
+private fun memoFacts(path: String, identity: String, fingerprint: String): WorkspaceDocumentMemoFactsSnapshot =
     WorkspaceDocumentMemoFactsSnapshot(
         path = path,
         identity = identity,

@@ -41,10 +41,10 @@ import kotlinx.coroutines.yield
  * Excludes:
  * - Compose effects and the previewRevisions feed; the coordinator is driven directly.
  */
-class MemoListExpandCoordinatorUnresolvedRevisionContractTest : FunSpec({
+class MemoListExpandCoordinatorUnresolvedRevisionContractTest :
+    FunSpec({
 
-    fun memo(id: String, revision: Long, body: String = "body-$id"): Memo =
-        Memo(
+        fun memo(id: String, revision: Long, body: String = "body-$id"): Memo = Memo(
             id = id,
             timestamp = 1L,
             updatedAt = revision,
@@ -55,8 +55,7 @@ class MemoListExpandCoordinatorUnresolvedRevisionContractTest : FunSpec({
             contentKind = MemoContentKind.Full,
         )
 
-    fun uiModel(memo: Memo): MemoUiModel =
-        MemoUiModel(
+        fun uiModel(memo: Memo): MemoUiModel = MemoUiModel(
             memo = memo,
             processedContent = memo.content,
             renderDocument = emptyRenderDocument(),
@@ -67,95 +66,95 @@ class MemoListExpandCoordinatorUnresolvedRevisionContractTest : FunSpec({
             reminders = persistentListOf(),
         )
 
-    fun coordinator(
-        scope: kotlinx.coroutines.CoroutineScope,
-        loadFullMemo: suspend (String) -> Memo?,
-    ) = MemoListExpandCoordinator(
-        scope = scope,
-        loadFullMemo = loadFullMemo,
-        mapFullMemo = { loaded -> uiModel(loaded) },
-    )
+        fun coordinator(scope: kotlinx.coroutines.CoroutineScope, loadFullMemo: suspend (String) -> Memo?) =
+            MemoListExpandCoordinator(
+                scope = scope,
+                loadFullMemo = loadFullMemo,
+                mapFullMemo = { loaded -> uiModel(loaded) },
+            )
 
-    test("an unresolved request revision never lets a published snapshot skip revalidation") {
-        runTest {
-            var revision = 1L
-            var body = "first-body"
-            val loads = mutableListOf<String>()
-            val coordinator =
-                coordinator(this) { id ->
-                    loads += id
-                    memo(id, revision = revision, body = body)
-                }
+        test("an unresolved request revision never lets a published snapshot skip revalidation") {
+            runTest {
+                var revision = 1L
+                var body = "first-body"
+                val loads = mutableListOf<String>()
+                val coordinator =
+                    coordinator(this) { id ->
+                        loads += id
+                        memo(id, revision = revision, body = body)
+                    }
 
-            // The preview cannot resolve a revision for the expanded row (null), so the
-            // request stays unresolved; the snapshot published under it cannot later prove
-            // it still carries the current content.
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            testScheduler.advanceUntilIdle()
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
-                .model.memo.content shouldBe "first-body"
+                // The preview cannot resolve a revision for the expanded row (null), so the
+                // request stays unresolved; the snapshot published under it cannot later prove
+                // it still carries the current content.
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                testScheduler.advanceUntilIdle()
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                    .model.memo.content shouldBe "first-body"
 
-            revision = 2L
-            body = "second-body"
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            testScheduler.advanceUntilIdle()
+                revision = 2L
+                body = "second-body"
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                testScheduler.advanceUntilIdle()
 
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
-                .model.memo.content shouldBe "second-body"
-            loads shouldBe listOf("m1", "m1")
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                    .model.memo.content shouldBe "second-body"
+                loads shouldBe listOf("m1", "m1")
+            }
         }
-    }
 
-    test("collapse and re-expand under an unresolved request revision reloads instead of serving the cached snapshot") {
-        runTest {
-            var revision = 1L
-            var body = "cached-body"
-            val loads = mutableListOf<String>()
-            val coordinator =
-                coordinator(this) { id ->
-                    loads += id
-                    memo(id, revision = revision, body = body)
-                }
+        test(
+            "collapse and re-expand under an unresolved request revision reloads instead of serving the cached snapshot",
+        ) {
+            runTest {
+                var revision = 1L
+                var body = "cached-body"
+                val loads = mutableListOf<String>()
+                val coordinator =
+                    coordinator(this) { id ->
+                        loads += id
+                        memo(id, revision = revision, body = body)
+                    }
 
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            testScheduler.advanceUntilIdle()
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                testScheduler.advanceUntilIdle()
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
 
-            coordinator.sync("ws-a", emptyMap())
+                coordinator.sync("ws-a", emptyMap())
 
-            revision = 2L
-            body = "moved-body"
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            testScheduler.advanceUntilIdle()
+                revision = 2L
+                body = "moved-body"
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                testScheduler.advanceUntilIdle()
 
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
-                .model.memo.content shouldBe "moved-body"
-            loads shouldBe listOf("m1", "m1")
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                    .model.memo.content shouldBe "moved-body"
+                loads shouldBe listOf("m1", "m1")
+            }
         }
-    }
 
-    test("an unresolved request does not restart a load that is still in flight") {
-        runTest {
-            val gate = CompletableDeferred<Unit>()
-            val loads = mutableListOf<String>()
-            val coordinator =
-                coordinator(this) { id ->
-                    loads += id
-                    gate.await()
-                    memo(id, revision = 1)
-                }
+        test("an unresolved request does not restart a load that is still in flight") {
+            runTest {
+                val gate = CompletableDeferred<Unit>()
+                val loads = mutableListOf<String>()
+                val coordinator =
+                    coordinator(this) { id ->
+                        loads += id
+                        gate.await()
+                        memo(id, revision = 1)
+                    }
 
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            yield()
-            coordinator.sync("ws-a", mapOf("m1" to null))
-            yield()
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                yield()
+                coordinator.sync("ws-a", mapOf("m1" to null))
+                yield()
 
-            loads shouldBe listOf("m1")
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Loading>()
+                loads shouldBe listOf("m1")
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Loading>()
 
-            gate.complete(Unit)
-            testScheduler.advanceUntilIdle()
-            coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+                gate.complete(Unit)
+                testScheduler.advanceUntilIdle()
+                coordinator.states.value["m1"].shouldBeInstanceOf<MemoExpandEntry.Expanded>()
+            }
         }
-    }
-})
+    })

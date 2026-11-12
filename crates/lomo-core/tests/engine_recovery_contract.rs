@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract
 //!
 //! Capability: own one recoverable engine generation per workspace through an OS-backed lock and
@@ -158,7 +166,7 @@ mod tests {
         assert_eq!(first_nonce.len(), 64);
         assert!(first_nonce.bytes().all(|b| b.is_ascii_hexdigit()));
         assert_ne!(first_nonce, second_nonce);
-        let degenerate = format!("{:x}", Sha256::digest([0_u8; 16]));
+        let degenerate = lomo_core::hex_encode(&Sha256::digest([0_u8; 16]));
         assert_ne!(first_nonce, degenerate);
         assert_ne!(second_nonce, degenerate);
     }
@@ -478,10 +486,9 @@ mod tests {
                 ),
                 (
                     "checksum".to_owned(),
-                    serde_json::Value::String(format!(
-                        "{:x}",
-                        Sha256::digest(legacy_payload.as_bytes())
-                    )),
+                    serde_json::Value::String(lomo_core::hex_encode(&Sha256::digest(
+                        legacy_payload.as_bytes(),
+                    ))),
                 ),
             ]);
         fs::write(

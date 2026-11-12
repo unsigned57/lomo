@@ -1,0 +1,16 @@
+# Part of the opt-in two-device LAN journey; run via just uitest lan_share.
+appId: com.lomo.app
+---
+- longPressOn: '${LAN_PROBE}\s*'
+- tapOn:
+    id: "benchmark_memo_action_lan_share"
+- runFlow:
+    when:
+      visible:
+        id: ".*:id/permission_allow_button"
+    commands:
+      - tapOn:
+          id: ".*:id/permission_allow_button"
+- assertVisible:
+    id: "benchmark_lan_share_root"
+- waitForAnimationToEnd

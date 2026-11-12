@@ -38,8 +38,7 @@ class DataStoreSecuritySessionPolicy(
     override suspend fun current(): SecuritySessionState =
         applyEvent(SecuritySessionEvent.PreferenceRead(preferenceSource.read())).state
 
-    override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
-        current().credentialAuthorization()
+    override suspend fun authorizeCredentialRead(): CredentialReadAuthorization = current().credentialAuthorization()
 
     override fun recordAuthenticated() {
         applyEvent(SecuritySessionEvent.Authenticated)

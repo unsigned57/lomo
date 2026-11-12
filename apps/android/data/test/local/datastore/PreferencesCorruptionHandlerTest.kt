@@ -1,7 +1,6 @@
 package com.lomo.data.local.datastore
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.lomo.data.testing.DataFunSpec
@@ -63,10 +62,10 @@ class PreferencesCorruptionHandlerTest : DataFunSpec() {
                     PreferenceDataStoreFactory.create(
                         scope = backgroundScope,
                         corruptionHandler =
-                            lomoPreferencesCorruptionHandler(
-                                corruptionFile = { backing },
-                                registry = registry,
-                            ),
+                        lomoPreferencesCorruptionHandler(
+                            corruptionFile = { backing },
+                            registry = registry,
+                        ),
                         produceFile = { backing },
                     )
 
@@ -96,10 +95,10 @@ class PreferencesCorruptionHandlerTest : DataFunSpec() {
                     PreferenceDataStoreFactory.create(
                         scope = backgroundScope,
                         corruptionHandler =
-                            lomoPreferencesCorruptionHandler(
-                                corruptionFile = { backing },
-                                registry = registry,
-                            ),
+                        lomoPreferencesCorruptionHandler(
+                            corruptionFile = { backing },
+                            registry = registry,
+                        ),
                         produceFile = { backing },
                     )
                 store.edit { it[stringPreferencesKey("k")] = "v" }
@@ -120,10 +119,10 @@ class PreferencesCorruptionHandlerTest : DataFunSpec() {
                     PreferenceDataStoreFactory.create(
                         scope = backgroundScope,
                         corruptionHandler =
-                            lomoPreferencesCorruptionHandler(
-                                corruptionFile = { backing },
-                                registry = registry,
-                            ),
+                        lomoPreferencesCorruptionHandler(
+                            corruptionFile = { backing },
+                            registry = registry,
+                        ),
                         produceFile = { backing },
                     )
                 store.data.first()
@@ -142,9 +141,8 @@ class PreferencesCorruptionHandlerTest : DataFunSpec() {
     }
 }
 
-private fun tempPreferencesFile(): File =
-    Files
-        .createTempDirectory("lomo-prefs-corrupt")
-        .toFile()
-        .apply { deleteOnExit() }
-        .let { File(it, "lomo.preferences_pb") }
+private fun tempPreferencesFile(): File = Files
+    .createTempDirectory("lomo-prefs-corrupt")
+    .toFile()
+    .apply { deleteOnExit() }
+    .let { File(it, "lomo.preferences_pb") }

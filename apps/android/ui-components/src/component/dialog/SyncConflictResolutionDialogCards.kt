@@ -19,13 +19,10 @@ import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 
 @Composable
-internal fun ConflictFileCard(
-    source: SyncBackendType,
-    file: SyncConflictFile,
-    state: ConflictFileCardState,
-) {
+internal fun ConflictFileCard(source: SyncBackendType, file: SyncConflictFile, state: ConflictFileCardState) {
     val mergedText = file.suggestion?.mergedText
     val mergeAvailable = mergedText != null && mergedText != file.localContent && mergedText != file.remoteContent
 
@@ -68,13 +65,9 @@ internal fun ReviewFileCard(
 }
 
 @Composable
-private fun ConflictReviewCard(
-    choiceSelected: Boolean,
-    label: String,
-    content: @Composable () -> Unit,
-) {
+private fun ConflictReviewCard(choiceSelected: Boolean, label: String, content: @Composable () -> Unit) {
     val cardColor by animateColorAsState(
-        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        animationSpec = LocalLomoMotion.current.component.fastEffectsSpec(),
         targetValue = if (choiceSelected) {
             MaterialTheme.colorScheme.surfaceContainer
         } else {
@@ -87,7 +80,7 @@ private fun ConflictReviewCard(
         shape = AppShapes.ExtraLarge,
         colors = CardDefaults.cardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier.animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()),
+        modifier = Modifier.animateContentSize(animationSpec = LocalLomoMotion.current.layout.defaultSpatialSpec()),
     ) {
         Column(modifier = Modifier.padding(AppSpacing.Medium)) {
             content()

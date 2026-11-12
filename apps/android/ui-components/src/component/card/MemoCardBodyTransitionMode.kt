@@ -23,25 +23,27 @@ internal fun resolveMemoCardBodyCollapsedTargetPreviewMode(
     currentPreviewMode: MemoCardCollapsedPreviewMode,
     hasProcessedContent: Boolean,
     collapsedSummary: String,
-): MemoCardCollapsedPreviewMode =
-    when (bodyTransitionMode) {
-        MemoCardBodyTransitionMode.Snap -> currentPreviewMode
-        MemoCardBodyTransitionMode.StateContentTransform ->
-            resolveMemoCardCollapsedPreviewMode(
-                isCollapsedPreview = true,
-                hasProcessedContent = hasProcessedContent,
-                collapsedSummary = collapsedSummary,
-            )
-    }
+): MemoCardCollapsedPreviewMode = when (bodyTransitionMode) {
+    MemoCardBodyTransitionMode.Snap -> currentPreviewMode
+
+    MemoCardBodyTransitionMode.StateContentTransform ->
+        resolveMemoCardCollapsedPreviewMode(
+            isCollapsedPreview = true,
+            hasProcessedContent = hasProcessedContent,
+            collapsedSummary = collapsedSummary,
+        )
+}
 
 internal fun resolveMemoCardBodyVisualState(
     isExpanded: Boolean,
     collapsedPreviewMode: MemoCardCollapsedPreviewMode,
-): MemoCardBodyVisualState =
-    when {
-        isExpanded -> MemoCardBodyVisualState.Expanded
-        collapsedPreviewMode == MemoCardCollapsedPreviewMode.Summary -> MemoCardBodyVisualState.CollapsedSummary
-        collapsedPreviewMode == MemoCardCollapsedPreviewMode.MarkdownPreview ->
-            MemoCardBodyVisualState.CollapsedMarkdownPreview
-        else -> MemoCardBodyVisualState.Expanded
-    }
+): MemoCardBodyVisualState = when {
+    isExpanded -> MemoCardBodyVisualState.Expanded
+
+    collapsedPreviewMode == MemoCardCollapsedPreviewMode.Summary -> MemoCardBodyVisualState.CollapsedSummary
+
+    collapsedPreviewMode == MemoCardCollapsedPreviewMode.MarkdownPreview ->
+        MemoCardBodyVisualState.CollapsedMarkdownPreview
+
+    else -> MemoCardBodyVisualState.Expanded
+}

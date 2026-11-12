@@ -15,15 +15,11 @@ class FakeDirectorySettingsRepository : DirectorySettingsRepository {
     private val displayNames =
         MutableStateFlow<MutableMap<StorageArea, String?>>(mutableMapOf())
 
-    fun setLocation(
-        area: StorageArea,
-        location: StorageLocation?,
-    ) {
+    fun setLocation(area: StorageArea, location: StorageLocation?) {
         locations.value = locations.value.toMutableMap().also { values -> values[area] = location }
     }
 
-    override fun observeLocation(area: StorageArea): Flow<StorageLocation?> =
-        locations.map { values -> values[area] }
+    override fun observeLocation(area: StorageArea): Flow<StorageLocation?> = locations.map { values -> values[area] }
 
     override suspend fun currentLocation(area: StorageArea): StorageLocation? = locations.value[area]
 
@@ -31,20 +27,19 @@ class FakeDirectorySettingsRepository : DirectorySettingsRepository {
         setLocation(area = update.area, location = update.location)
     }
 
-    override fun observeDisplayName(area: StorageArea): Flow<String?> =
-        displayNames.map { values -> values[area] }
+    override fun observeDisplayName(area: StorageArea): Flow<String?> = displayNames.map { values -> values[area] }
 
-    override suspend fun prepareRootTransition(candidate: StorageLocation): WorkspaceRootTransition =
-        error("transitions not used by this test")
+    override suspend fun prepareRootTransition(
+        candidate: StorageLocation,
+        mediaChange: com.lomo.domain.model.MediaDirectoryChange?,
+    ): WorkspaceRootTransition = error("transitions not used by this test")
 
     override suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition =
         error("transitions not used by this test")
 
-    override suspend fun commitRootTransition(transitionId: String) =
-        error("transitions not used by this test")
+    override suspend fun commitRootTransition(transitionId: String) = error("transitions not used by this test")
 
-    override suspend fun rollbackRootTransition(transitionId: String) =
-        error("transitions not used by this test")
+    override suspend fun rollbackRootTransition(transitionId: String) = error("transitions not used by this test")
 
     override suspend fun pendingRootTransition(): WorkspaceRootTransition? = null
 

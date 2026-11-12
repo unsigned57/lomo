@@ -5,12 +5,12 @@ import com.lomo.nativebridge.StoreMemoCommit as BridgeMemoCommit
 import com.lomo.nativebridge.StoreMemoPage as BridgeMemoPage
 import com.lomo.nativebridge.StoreMemoQuery as BridgeMemoQuery
 import com.lomo.nativebridge.StoreMemoSnapshot as BridgeMemoSnapshot
-import com.lomo.nativebridge.StoreSidebarProjection as BridgeSidebarProjection
 import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 import com.lomo.nativebridge.StoreRebuildResult as BridgeRebuildResult
 import com.lomo.nativebridge.StoreSafMemoProjection as BridgeSafMemoProjection
+import com.lomo.nativebridge.StoreSidebarProjection as BridgeSidebarProjection
 
-/**
+/*
  * True FFI edge for store operations.
  *
  * Production: [com.lomo.data.engine.ManagedEngineSession] / workspace adapter.
@@ -39,15 +39,14 @@ internal interface StoreNativeReadBridge {
 /** Mutation and lifecycle JNI capabilities. */
 internal interface StoreNativeMutationBridge {
     /** Commits Rust-parsed facts after a workspace document command (Direct or SAF). */
-    fun commitWorkspaceDocumentFacts(
-        command: BridgeMemoCommand,
-        projection: BridgeSafMemoProjection,
-    ): BridgeMemoCommit
+    fun commitWorkspaceDocumentFacts(command: BridgeMemoCommand, projection: BridgeSafMemoProjection): BridgeMemoCommit
 
     fun startRebuild(batchSize: UInt): BridgeRebuildResult
 }
 
 /** Complete store FFI boundary. Read and mutation capabilities stay explicit sub-interfaces. */
-internal interface StoreNativeBridge : StoreNativeReadBridge, StoreNativeMutationBridge
+internal interface StoreNativeBridge :
+    StoreNativeReadBridge,
+    StoreNativeMutationBridge
 
 // MediaNativeBridge / ArchiveNativeBridge live under engine.media / engine.archive.

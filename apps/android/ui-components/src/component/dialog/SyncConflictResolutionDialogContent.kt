@@ -29,8 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import org.jetbrains.compose.resources.StringResource
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,16 +38,18 @@ import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewResolutionChoice
+import com.lomo.ui.component.diff.DiffViewer
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.sync_conflict_binary_file
 import com.lomo.ui.generated.resources.sync_conflict_collapse
 import com.lomo.ui.generated.resources.sync_conflict_expand
 import com.lomo.ui.generated.resources.sync_conflict_no_text_diffs
 import com.lomo.ui.generated.resources.sync_conflict_text_diff_too_large
-import com.lomo.ui.component.diff.DiffViewer
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.toImmutableList
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal fun ConflictFileHeader(
@@ -152,10 +152,7 @@ private fun ConflictReviewHeader(
 }
 
 @Composable
-private fun HeaderExpandIcon(
-    isBinary: Boolean,
-    isExpanded: Boolean,
-) {
+private fun HeaderExpandIcon(isBinary: Boolean, isExpanded: Boolean) {
     if (isBinary) return
     Row(verticalAlignment = Alignment.CenterVertically) {
         Surface(
@@ -179,11 +176,7 @@ private fun HeaderExpandIcon(
 }
 
 @Composable
-private fun HeaderSubtitleRow(
-    relativePath: String,
-    isBinary: Boolean,
-    suggestedLabel: String?,
-) {
+private fun HeaderSubtitleRow(relativePath: String, isBinary: Boolean, suggestedLabel: String?) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
@@ -263,8 +256,10 @@ private fun TextDiffResultBox(result: SimpleLineDiff.DiffResult) {
                     hunks = diffPresentation.hunks.toImmutableList(),
                     modifier = Modifier.padding(AppSpacing.ExtraSmall),
                 )
+
             ConflictTextDiffPresentation.NoTextDiffs ->
                 DiffPlaceholderText(Res.string.sync_conflict_no_text_diffs)
+
             ConflictTextDiffPresentation.TooLarge ->
                 DiffPlaceholderText(Res.string.sync_conflict_text_diff_too_large)
         }

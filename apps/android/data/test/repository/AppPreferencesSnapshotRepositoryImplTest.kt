@@ -12,6 +12,7 @@ import com.lomo.domain.model.AppPreferenceSnapshotField
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorPresetId
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.SettingDescriptor
 import com.lomo.domain.model.SettingValue
@@ -27,6 +28,14 @@ import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 
 /*
+
+ * Test Change Justification:
+ * Reason category: Preference schema expansion.
+ * Old behavior/assertion being replaced: the exhaustive catalog sample omitted quick-ball bindings.
+ * Why old assertion is no longer correct: the catalog now includes this persisted preference.
+ * Coverage preserved by: all existing snapshot/restore assertions remain, with a non-default gesture mapping.
+ * Why this is not fitting the test to the implementation: the fixture extends exhaustive field coverage;
+ * malformed values, atomicity and prior field expectations remain enforced.
  * Behavior Contract:
  * - Unit under test: AppPreferencesSnapshotRepositoryImpl.
  * - Owning layer: data
@@ -63,6 +72,16 @@ import java.nio.file.Files
  *   for threshold read/write, catalog-keyed mapping, defaults, and invalid persisted input.
  * - Why this is not fitting the test to the implementation: the assertions exercise the repository
  *   contract at the DataStore boundary and the catalog descriptor parser, not private mapping code.
+ *
+ * Test Change Justification:
+ * - Reason category: product feature removal (usage-based memo menu auto-reorder).
+ * - Old behavior/assertion being replaced: the snapshot round-trip and defaults asserted the three memo action fields.
+ * - Why old assertion is no longer correct: the memo_action_auto_reorder_enabled, memo_action_order
+ *   and memo_action_orders_by_scope settings were deleted from the settings catalog, DataStore and
+ *   snapshot; the redesigned memo menu has a fixed layout.
+ * - Coverage preserved by: snapshot round-trip and default assertions for every remaining field.
+ * - Why this is not fitting the test to the implementation: only sample values and assertions for
+ *   deleted settings were removed; the scenario and every remaining setting are unchanged.
  */
 class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
     init {
@@ -83,10 +102,7 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                 dataStore.updateShowInputHints(false)
                 dataStore.updateDoubleTapEditEnabled(false)
                 dataStore.updateFreeTextCopyEnabled(true)
-                dataStore.updateMemoActionAutoReorderEnabled(true)
                 dataStore.updateAutoOpenInputOnForeground(true)
-                dataStore.updateMemoActionOrder("history|copy")
-                dataStore.updateMemoActionOrdersByScope("""{"orders":{"search":["jump","copy"]}}""")
                 dataStore.updateInputToolbarToolOrder("backfill|camera")
                 dataStore.updateQuickSaveOnBackEnabled(false)
                 dataStore.updateScrollbarEnabled(false)
@@ -105,17 +121,19 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                         dateFormat = "MM/dd/yyyy",
                         timeFormat = "HH:mm",
                         themeMode = ThemeMode.DARK,
-                        calendarHeatmapThresholds = CalendarHeatmapThresholds.of(level1Max = 2, level2Max = 5, level3Max = 9),
+                        calendarHeatmapThresholds = CalendarHeatmapThresholds.of(
+                            level1Max = 2,
+                            level2Max = 5,
+                            level3Max = 9,
+                        ),
                         colorSource = ColorSource.Preset(ColorPresetId.OCEAN),
+                        contrastLevel = ContrastLevel.default(),
                         fontPreference = FontPreference.SystemDefault,
                         hapticFeedbackEnabled = false,
                         showInputHints = false,
                         doubleTapEditEnabled = false,
                         freeTextCopyEnabled = true,
-                        memoActionAutoReorderEnabled = true,
                         autoOpenInputOnForeground = true,
-                        memoActionOrder = listOf("history", "copy"),
-                        memoActionOrdersByScope = mapOf("main" to listOf("history", "copy"), "search" to listOf("jump", "copy")),
                         inputToolbarToolOrder = listOf("backfill", "camera"),
                         quickSaveOnBackEnabled = false,
                         scrollbarEnabled = false,
@@ -143,7 +161,6 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                 snapshot.calendarHeatmapThresholds shouldBe expectedDefaults.calendarHeatmapThresholds
                 snapshot.colorSource shouldBe expectedDefaults.colorSource
                 snapshot.fontPreference shouldBe expectedDefaults.fontPreference
-                snapshot.memoActionOrder shouldContainExactly emptyList()
                 snapshot.inputToolbarToolOrder shouldContainExactly emptyList()
                 snapshot.autoOpenInputOnForeground shouldBe expectedDefaults.autoOpenInputOnForeground
                 snapshot.shareCardSignatureText shouldBe expectedDefaults.shareCardSignatureText
@@ -174,8 +191,10 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                             when (val value = catalogValues.getValue(descriptor.snapshotField)) {
                                 is SettingValue.Bool ->
                                     preferences[booleanPreferencesKey(descriptor.storageKey)] = value.value
+
                                 is SettingValue.Decimal ->
                                     preferences[floatPreferencesKey(descriptor.storageKey)] = value.value
+
                                 is SettingValue.Text ->
                                     preferences[stringPreferencesKey(descriptor.storageKey)] = value.value
                             }
@@ -188,7 +207,9 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
             }
         }
 
-        test("given invalid persisted heatmap thresholds when snapshot is observed then the invalid setting is exposed") {
+        test(
+            "given invalid persisted heatmap thresholds when snapshot is observed then the invalid setting is exposed",
+        ) {
             runTest {
                 val rawDataStore =
                     PreferenceDataStoreFactory.create(
@@ -227,7 +248,9 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
     private fun createLomoDataStore(
         realDataStore: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>,
     ): LomoDataStore {
-        val constructor = LomoDataStore::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+        val constructor = LomoDataStore::class.java.getDeclaredConstructor(
+            androidx.datastore.core.DataStore::class.java,
+        )
         constructor.isAccessible = true
         return constructor.newInstance(realDataStore)
     }
@@ -237,31 +260,55 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
             deleteOnExit()
         }
 
-    private fun SettingDescriptor.testValue(): SettingValue =
-        when (snapshotField) {
-            AppPreferenceSnapshotField.DATE_FORMAT -> SettingValue.Text("dd/MM/yyyy")
-            AppPreferenceSnapshotField.TIME_FORMAT -> SettingValue.Text("HH:mm")
-            AppPreferenceSnapshotField.THEME_MODE -> SettingValue.Text(ThemeMode.DARK.value)
-            AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> SettingValue.Text("2,5,9")
-            AppPreferenceSnapshotField.COLOR_SOURCE -> SettingValue.Text(ColorSource.Preset(ColorPresetId.OCEAN).storageValue)
-            AppPreferenceSnapshotField.FONT_PREFERENCE -> SettingValue.Text(FontPreference.SystemDefault.storageValue)
-            AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> SettingValue.Bool(false)
-            AppPreferenceSnapshotField.SHOW_INPUT_HINTS -> SettingValue.Bool(false)
-            AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> SettingValue.Bool(false)
-            AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> SettingValue.Bool(true)
-            AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED -> SettingValue.Bool(true)
-            AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> SettingValue.Bool(true)
-            AppPreferenceSnapshotField.MEMO_ACTION_ORDER -> SettingValue.Text("history|copy")
-            AppPreferenceSnapshotField.MEMO_ACTION_ORDERS_BY_SCOPE -> SettingValue.Text("""{"orders":{"search":["jump","copy"]}}""")
-            AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> SettingValue.Text("backfill|camera")
-            AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED -> SettingValue.Bool(false)
-            AppPreferenceSnapshotField.SCROLLBAR_ENABLED -> SettingValue.Bool(false)
-            AppPreferenceSnapshotField.SHARE_CARD_SHOW_TIME -> SettingValue.Bool(false)
-            AppPreferenceSnapshotField.SHARE_CARD_SHOW_BRAND -> SettingValue.Bool(false)
-            AppPreferenceSnapshotField.SHARE_CARD_SIGNATURE_TEXT -> SettingValue.Text("Shared via Lomo")
-            AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE -> SettingValue.Decimal(1.2f)
-            AppPreferenceSnapshotField.TYPOGRAPHY_LINE_HEIGHT_SCALE -> SettingValue.Decimal(1.3f)
-            AppPreferenceSnapshotField.TYPOGRAPHY_LETTER_SPACING_SCALE -> SettingValue.Decimal(1.4f)
-            AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE -> SettingValue.Decimal(1.5f)
-        }
+    private fun SettingDescriptor.testValue(): SettingValue = when (snapshotField) {
+        AppPreferenceSnapshotField.DATE_FORMAT -> SettingValue.Text("dd/MM/yyyy")
+
+        AppPreferenceSnapshotField.TIME_FORMAT -> SettingValue.Text("HH:mm")
+
+        AppPreferenceSnapshotField.THEME_MODE -> SettingValue.Text(ThemeMode.DARK.value)
+
+        AppPreferenceSnapshotField.PURE_BLACK_DARK -> SettingValue.Bool(true)
+
+        AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> SettingValue.Text("2,5,9")
+
+        AppPreferenceSnapshotField.COLOR_SOURCE -> SettingValue.Text(
+            ColorSource.Preset(ColorPresetId.OCEAN).storageValue,
+        )
+
+        AppPreferenceSnapshotField.CONTRAST_LEVEL -> SettingValue.Text(ContrastLevel.HIGH.value)
+
+        AppPreferenceSnapshotField.FONT_PREFERENCE -> SettingValue.Text(FontPreference.SystemDefault.storageValue)
+
+        AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> SettingValue.Bool(false)
+
+        AppPreferenceSnapshotField.SHOW_INPUT_HINTS -> SettingValue.Bool(false)
+
+        AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> SettingValue.Bool(false)
+
+        AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> SettingValue.Bool(true)
+
+        AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> SettingValue.Bool(true)
+
+        AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> SettingValue.Text("backfill|camera")
+
+        AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED -> SettingValue.Bool(false)
+
+        AppPreferenceSnapshotField.SCROLLBAR_ENABLED -> SettingValue.Bool(false)
+
+        AppPreferenceSnapshotField.QUICK_BALL_CONFIG -> SettingValue.Text("v1|SEARCH|FILTER|LONG_TEXT|NONE|RECORD")
+
+        AppPreferenceSnapshotField.SHARE_CARD_SHOW_TIME -> SettingValue.Bool(false)
+
+        AppPreferenceSnapshotField.SHARE_CARD_SHOW_BRAND -> SettingValue.Bool(false)
+
+        AppPreferenceSnapshotField.SHARE_CARD_SIGNATURE_TEXT -> SettingValue.Text("Shared via Lomo")
+
+        AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE -> SettingValue.Decimal(1.2f)
+
+        AppPreferenceSnapshotField.TYPOGRAPHY_LINE_HEIGHT_SCALE -> SettingValue.Decimal(1.3f)
+
+        AppPreferenceSnapshotField.TYPOGRAPHY_LETTER_SPACING_SCALE -> SettingValue.Decimal(1.4f)
+
+        AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE -> SettingValue.Decimal(1.5f)
+    }
 }

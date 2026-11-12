@@ -24,21 +24,14 @@ internal fun shouldCollapseRepeatedQuoteRun(
         nextAfterRun?.isChineseTypographyContextChar() == true
 }
 
-internal fun shouldInsertCjkLatinBoundarySpace(
-    left: Char,
-    right: Char,
-): Boolean =
+internal fun shouldInsertCjkLatinBoundarySpace(left: Char, right: Char): Boolean =
     (left.isCjkScript() && right.isLatinAlphaNumeric()) ||
         (left.isLatinAlphaNumeric() && right.isCjkScript())
 
-internal fun canInsertBoundarySpace(
-    left: Char?,
-    right: Char,
-): Boolean =
-    left != null &&
-        !left.isWhitespace() &&
-        !right.isWhitespace() &&
-        shouldInsertCjkLatinBoundarySpace(left, right)
+internal fun canInsertBoundarySpace(left: Char?, right: Char): Boolean = left != null &&
+    !left.isWhitespace() &&
+    !right.isWhitespace() &&
+    shouldInsertCjkLatinBoundarySpace(left, right)
 
 internal fun CharSequence.previousNonWhitespaceChar(index: Int): Char? {
     for (cursor in index - 1 downTo 0) {
@@ -61,6 +54,7 @@ internal fun CharSequence.findMatchingCloseParenthesis(openIndex: Int): Int? {
     for (cursor in openIndex until length) {
         when (this[cursor]) {
             OPEN_PAREN -> depth++
+
             CLOSE_PAREN -> {
                 depth--
                 if (depth == 0) return cursor
@@ -80,10 +74,7 @@ internal fun CharSequence.hyphenRunLengthFrom(startIndex: Int): Int {
     return count
 }
 
-internal fun CharSequence.sameCharRunLengthFrom(
-    startIndex: Int,
-    char: Char,
-): Int {
+internal fun CharSequence.sameCharRunLengthFrom(startIndex: Int, char: Char): Int {
     var count = 0
     var cursor = startIndex
     while (cursor < length && this[cursor] == char) {

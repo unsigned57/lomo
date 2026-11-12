@@ -560,8 +560,9 @@ fn list_action(
 ) -> Result<PlatformAction, LomoError> {
     let action_id = ctx.next_action_id("scan-list")?;
     let capability = ctx.capability();
-    // Enumerate at the protocol limit. Independent reads are repartitioned below into batches of
-    // at most 63 actions, so one full listing page needs at most five read batches.
+    // Enumerate at the protocol limit — a SAF provider re-queries the whole directory per page,
+    // so wider pages shrink the round-trip count directly. Independent reads are repartitioned
+    // below into batches of at most 63 actions.
     let page_size = PageSize::new(MAX_SCAN_LIST_PAGE_SIZE)?;
     match state.root_path.as_deref() {
         Some(path) => {
@@ -583,7 +584,7 @@ fn list_action(
     }
 }
 
-const MAX_SCAN_LIST_PAGE_SIZE: u32 = 256;
+const MAX_SCAN_LIST_PAGE_SIZE: u32 = 512;
 const MAX_SCAN_READ_BATCH_SIZE: usize = 63;
 
 fn plan_next_read(

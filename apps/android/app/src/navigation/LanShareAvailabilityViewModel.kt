@@ -5,20 +5,17 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.share.LanShareUiCoordinator
 import com.lomo.domain.model.PreferenceDefaults
-
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 
 // behavior-contract: session-facade-ok: LAN share availability probe; no screen state machine
-class LanShareAvailabilityViewModel(
-    lanShareUiCoordinator: LanShareUiCoordinator,
-) : ViewModel() {
-        val lanShareEnabled: StateFlow<Boolean> =
-            lanShareUiCoordinator
-                .lanShareEnabled
-                .stateIn(
-                    scope = viewModelScope,
-                    started = appWhileSubscribed(),
-                    initialValue = PreferenceDefaults.LAN_SHARE_ENABLED,
-                )
-    }
+class LanShareAvailabilityViewModel(lanShareUiCoordinator: LanShareUiCoordinator) : ViewModel() {
+    val lanShareEnabled: StateFlow<Boolean> =
+        lanShareUiCoordinator
+            .lanShareEnabled
+            .stateIn(
+                scope = viewModelScope,
+                started = appWhileSubscribed(),
+                initialValue = PreferenceDefaults.LAN_SHARE_ENABLED,
+            )
+}

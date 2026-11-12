@@ -21,12 +21,10 @@ interface ReminderTokenFactory {
      * caller choices — the grammar default lives in Rust (`reminderDefaultIntervalMinutes`),
      * never in a Kotlin signature literal.
      */
-    fun buildInsertToken(
-        dueAt: LocalDateTime,
-        repeatCount: Int,
-        intervalMinutes: Int,
-        recurrence: Recurrence,
-    ): String
+    fun buildInsertToken(dueAt: LocalDateTime, repeatCount: Int, intervalMinutes: Int, recurrence: Recurrence): String
+
+    /** Due date decoded by the owner grammar; malformed tokens are rejected. */
+    fun dueAt(token: String): LocalDateTime
 
     fun planMarkDone(currentToken: String): String
 

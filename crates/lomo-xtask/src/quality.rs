@@ -36,7 +36,7 @@ pub fn format(workspace: &Workspace, mode: FormatMode) -> Result<()> {
     let kotlin_mode = match mode {
         FormatMode::Staged => "staged",
         FormatMode::All => "all",
-        FormatMode::Check => return Ok(()),
+        FormatMode::Check => "check",
     };
     let mut kotlin_format = policy_script(workspace, "quality/scripts/kotlin_detekt_format.sh");
     kotlin_format.arg(kotlin_mode);
@@ -71,13 +71,7 @@ pub fn ci(workspace: &Workspace) -> Result<serde_json::Value> {
     let verification = check(workspace)?;
     rust_full_gate(workspace, CoverageMode::On)?;
     native::generate_all(workspace, NativeProfile::Release)?;
-    kotlin_gate(
-        workspace,
-        KotlinGateOptions {
-            compose: true,
-            coverage: CoverageMode::On,
-        },
-    )?;
+    kotlin_gate(workspace, CoverageMode::On)?;
     let apk = crate::android::validate_built_apk(
         workspace,
         &workspace.kotlin_build,
@@ -100,13 +94,7 @@ pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     // android_ci consumes whatever is currently packaged; treat as shipping-class so size
     // honesty fails closed if Dev unstripped artifacts remain in app/jniLibs.
     native::verify_native_tree(workspace, &native::Abi::ALL, NativeProfile::Release)?;
-    kotlin_gate(
-        workspace,
-        KotlinGateOptions {
-            compose: true,
-            coverage,
-        },
-    )?;
+    kotlin_gate(workspace, coverage)?;
     let apk = crate::android::validate_built_apk(
         workspace,
         &workspace.kotlin_build,
@@ -115,15 +103,9 @@ pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     )?;
     crate::android::publish_apk(workspace, &apk, "debug", "all")?;
     // CI-verifiable half of the benchmark gate: the instrumented-test harness must compile
-    // and package. Scenario execution stays with `just android benchmark` on a device.
+    // and package. Scenario execution stays with `just build android benchmark` on a device.
     crate::android::benchmark_harness_assemble(workspace)?;
     Ok(())
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct KotlinGateOptions {
-    compose: bool,
-    coverage: CoverageMode,
 }
 
 fn rust_fast_gate(workspace: &Workspace) -> Result<()> {
@@ -179,7 +161,7 @@ fn workspace_property_fuzz(workspace: &Workspace) -> Result<()> {
 fn rust_full_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     rust_fast_gate(workspace)?;
     let mut deny = cargo(workspace);
-    deny.args(["deny", "check"]);
+    deny.args(["deny", "--config", "quality/rust/deny.toml", "check"]);
     run(&mut deny)?;
 
     if coverage == CoverageMode::Off {
@@ -219,16 +201,29 @@ fn rust_tests(workspace: &Workspace) -> Result<()> {
     run(&mut docs)
 }
 
-fn kotlin_gate(workspace: &Workspace, options: KotlinGateOptions) -> Result<()> {
-    let mut model = kotlin(workspace)?;
-    model.args(["show", "modules"]);
-    run(&mut model)?;
-
+/// Prepares the full Kotlin workspace build used by CI.
+///
+/// # Errors
+/// Returns errors invalidating debug resource merge state or preparing the Kotlin wrapper.
+pub fn kotlin_build_command(workspace: &Workspace) -> Result<std::process::Command> {
+    crate::android::invalidate_java_resource_merge_state(
+        workspace,
+        crate::android::AndroidVariant::Debug,
+    )?;
     let mut build = kotlin(workspace)?;
     build
         .arg("build")
         .arg("--build-dir")
         .arg(&workspace.kotlin_build);
+    Ok(build)
+}
+
+fn kotlin_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
+    let mut model = kotlin(workspace)?;
+    model.args(["show", "modules"]);
+    run(&mut model)?;
+
+    let mut build = kotlin_build_command(workspace)?;
     run(&mut build)?;
 
     for script in [
@@ -238,21 +233,9 @@ fn kotlin_gate(workspace: &Workspace, options: KotlinGateOptions) -> Result<()> 
         run_policy(workspace, script)?;
     }
     run_lint_policy(workspace)?;
-    if options.compose {
-        run_policy(
-            workspace,
-            "quality/scripts/kotlin_compose_static_analysis.sh",
-        )?;
-    }
-    for script in [
-        "quality/scripts/check_meaningful_tests.sh",
-        "quality/scripts/check_string_resource_parity.sh",
-        "quality/scripts/test/android_runtime_dependency_boundary_contract_test.sh",
-        "quality/scripts/test/kotlin_quality_check_contract_test.sh",
-    ] {
-        run_policy(workspace, script)?;
-    }
-    if options.coverage == CoverageMode::On {
+    run_policy(workspace, "quality/scripts/check_meaningful_tests.sh")?;
+    run_shell_contracts(workspace)?;
+    if coverage == CoverageMode::On {
         run_policy(workspace, "quality/scripts/kotlin_coverage_check.sh")
     } else {
         kotlin_tests(workspace)
@@ -277,7 +260,6 @@ fn run_policy(workspace: &Workspace, script: &str) -> Result<()> {
     command
         .env("LOMO_KOTLIN_BUILD_DIR", &workspace.kotlin_build)
         .env("LOMO_LINT_BUILD_DIR", &workspace.kotlin_build)
-        .env("LOMO_COMPOSE_BUILD_DIR", &workspace.kotlin_build)
         .env("LOMO_COVERAGE_BUILD_DIR", &workspace.kotlin_build);
     run(&mut command)
 }
@@ -286,8 +268,14 @@ fn run_policy(workspace: &Workspace, script: &str) -> Result<()> {
 /// script never carries a second copy of version/SDK numbers.
 pub fn run_lint_policy(workspace: &Workspace) -> Result<()> {
     let metadata = crate::android::AppMetadata::load(workspace)?;
+    let runtime_modules = crate::verification::ImpactGraph::load(&workspace.root)?
+        .kotlin_runtime_closure(&workspace.root, "app")?;
     let mut command = policy_script(workspace, "quality/scripts/kotlin_android_lint_check.sh");
     command
+        .env(
+            "LOMO_ANDROID_RUNTIME_MODULES",
+            serde_json::to_string(&runtime_modules)?,
+        )
         .env("LOMO_KOTLIN_BUILD_DIR", &workspace.kotlin_build)
         .env("LOMO_LINT_BUILD_DIR", &workspace.kotlin_build)
         .env("LOMO_APP_VERSION_CODE", metadata.version_code.to_string())
@@ -300,8 +288,11 @@ pub fn run_lint_policy(workspace: &Workspace) -> Result<()> {
 
 pub fn run_shell_contracts(workspace: &Workspace) -> Result<()> {
     for script in [
+        "quality/scripts/test/android_runtime_input_contract_test.sh",
         "quality/scripts/test/android_runtime_dependency_boundary_contract_test.sh",
         "quality/scripts/test/kotlin_quality_check_contract_test.sh",
+        "quality/scripts/test/check_meaningful_tests_smoke_test.sh",
+        "quality/scripts/test/check_string_resource_parity_smoke_test.sh",
         "quality/scripts/check_string_resource_parity.sh",
     ] {
         run_policy(workspace, script)

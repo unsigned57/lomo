@@ -36,10 +36,10 @@ package com.lomo.data.repository
 import android.content.Context
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
-import io.kotest.assertions.throwables.shouldThrow
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest

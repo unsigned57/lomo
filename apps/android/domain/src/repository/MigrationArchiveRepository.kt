@@ -10,13 +10,7 @@ interface MigrationArchiveRepository {
 
     suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary
 
-    suspend fun exportEncryptedSettings(
-        output: OutputStream,
-        password: String,
-    ): MigrationSettingsSummary
+    suspend fun exportEncryptedSettings(output: OutputStream, password: String): MigrationSettingsSummary
 
-    suspend fun importEncryptedSettings(
-        input: InputStream,
-        password: String,
-    ): MigrationSettingsSummary
+    suspend fun importEncryptedSettings(input: InputStream, password: String): MigrationSettingsSummary
 }

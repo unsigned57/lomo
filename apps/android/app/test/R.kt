@@ -2,6 +2,7 @@ package com.lomo.app
 
 object R {
     object string {
+        const val image_directory_scan_failed = 26
         const val action_auto_create = 1
         const val action_go_to_settings = 2
         const val cd_memo_editor_add_checkbox = 3
@@ -21,5 +22,10 @@ object R {
         const val setup_directory_message = 18
         const val setup_directory_title = 19
         const val update_download_failed_generic = 20
+        const val memo_coordinates_title = 21
+        const val memo_coordinates_permission_denied = 22
+        const val memo_coordinates_unavailable = 23
+        const val memo_coordinates_timeout = 24
+        const val memo_coordinates_invalid_fix = 25
     }
 }

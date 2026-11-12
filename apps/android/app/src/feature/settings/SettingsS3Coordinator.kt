@@ -10,7 +10,6 @@ import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncResult
-import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
@@ -367,28 +366,28 @@ class SettingsS3Coordinator(
         }.settingsStateIn(
             scope = scope,
             initialValue =
-                listOf(
-                    RemoteProviderCredentialFieldState(
-                        field = RemoteProviderCredentialField.S3AccessKeyId,
-                        status = accessKeyStatus.value,
-                    ),
-                    RemoteProviderCredentialFieldState(
-                        field = RemoteProviderCredentialField.S3SecretAccessKey,
-                        status = secretAccessKeyStatus.value,
-                    ),
-                    RemoteProviderCredentialFieldState(
-                        field = RemoteProviderCredentialField.S3SessionToken,
-                        status = sessionTokenStatus.value,
-                    ),
-                    RemoteProviderCredentialFieldState(
-                        field = RemoteProviderCredentialField.S3EncryptionPassword,
-                        status = encryptionPasswordStatus.value,
-                    ),
-                    RemoteProviderCredentialFieldState(
-                        field = RemoteProviderCredentialField.S3EncryptionPassword2,
-                        status = encryptionPassword2Status.value,
-                    ),
+            listOf(
+                RemoteProviderCredentialFieldState(
+                    field = RemoteProviderCredentialField.S3AccessKeyId,
+                    status = accessKeyStatus.value,
                 ),
+                RemoteProviderCredentialFieldState(
+                    field = RemoteProviderCredentialField.S3SecretAccessKey,
+                    status = secretAccessKeyStatus.value,
+                ),
+                RemoteProviderCredentialFieldState(
+                    field = RemoteProviderCredentialField.S3SessionToken,
+                    status = sessionTokenStatus.value,
+                ),
+                RemoteProviderCredentialFieldState(
+                    field = RemoteProviderCredentialField.S3EncryptionPassword,
+                    status = encryptionPasswordStatus.value,
+                ),
+                RemoteProviderCredentialFieldState(
+                    field = RemoteProviderCredentialField.S3EncryptionPassword2,
+                    status = encryptionPassword2Status.value,
+                ),
+            ),
         )
 
     private val providerSettingsController =
@@ -441,30 +440,35 @@ class SettingsS3Coordinator(
     private suspend fun testS3ConnectionState(): RemoteProviderConnectionTestState =
         when (val result = s3SyncSettingsUseCase.testConnection()) {
             is S3SyncResult.Success -> RemoteProviderConnectionTestState.Success(result.message)
+
             is S3SyncResult.Accepted ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.S3,
                     providerCode = S3SyncErrorCode.UNKNOWN.name,
                     detail = result.message,
                 )
+
             is S3SyncResult.Error ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.S3,
                     providerCode = result.code.name,
                     detail = result.message.ifBlank { "S3 connection failed" },
                 )
+
             S3SyncResult.NotConfigured ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.S3,
                     providerCode = S3SyncErrorCode.NOT_CONFIGURED.name,
                     detail = "S3 sync is not configured",
                 )
+
             is S3SyncResult.Conflict ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.S3,
                     providerCode = S3SyncErrorCode.UNKNOWN.name,
                     detail = result.message.ifBlank { "S3 sync conflict detected" },
                 )
+
             is S3SyncResult.Review ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.S3,
@@ -486,9 +490,6 @@ class SettingsS3Coordinator(
         return trimmed.startsWith("https://") || trimmed.startsWith("http://")
     }
 
-    private suspend fun runWithError(
-        fallbackMessage: String,
-        action: suspend () -> Unit,
-    ): SettingsOperationError? = runSettingsOperation(fallbackMessage, { null }, action)
-
+    private suspend fun runWithError(fallbackMessage: String, action: suspend () -> Unit): SettingsOperationError? =
+        runSettingsOperation(fallbackMessage, { null }, action)
 }

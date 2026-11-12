@@ -1,0 +1,45 @@
+# Native review query options must apply, persist across re-entry and reset through the sheet.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_daily_review"
+- assertVisible:
+    id: "benchmark_daily_review_root"
+- tapOn: "Review filters & order"
+- assertVisible: "Review recent.*"
+- assertVisible: "Review past.*"
+- assertVisible: "Completely random.*"
+- waitForAnimationToEnd
+- takeScreenshot: review-options
+- tapOn: "Reset"
+- tapOn: "Completely random.*"
+- tapOn: "Attachment"
+- back
+- assertVisible:
+    id: "benchmark_daily_review_root"
+- waitForAnimationToEnd
+- takeScreenshot: review-filtered
+- tapOn: "Review filters & order"
+- assertVisible: "Has"
+- waitForAnimationToEnd
+- takeScreenshot: review-options-restored
+- tapOn: "Reset"
+- tapOn: "Review past.*"
+- back
+- assertVisible:
+    id: "benchmark_daily_review_root"
+- back
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_main_drawer_button"
+- tapOn:
+    id: "benchmark_drawer_daily_review"
+- tapOn: "Review filters & order"
+- waitForAnimationToEnd
+- takeScreenshot: review-past-reentry
+- tapOn: "Reset"
+- back

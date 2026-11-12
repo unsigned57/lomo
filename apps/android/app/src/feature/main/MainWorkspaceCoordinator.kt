@@ -30,10 +30,7 @@ class MainWorkspaceCoordinator(
     suspend fun requestEngineStart(): com.lomo.domain.model.EngineReadiness =
         engineReadinessRepository.requestEngineStart()
 
-    suspend fun createDefaultDirectories(
-        forImage: Boolean,
-        forVoice: Boolean,
-    ) {
+    suspend fun createDefaultDirectories(forImage: Boolean, forVoice: Boolean) {
         initializeWorkspaceUseCase.ensureDefaultMediaDirectories(forImage, forVoice)
     }
 
@@ -41,8 +38,7 @@ class MainWorkspaceCoordinator(
         switchRootStorageUseCase.updateRootLocation(StorageLocation(path))
     }
 
-    suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary =
-        engineReadinessRepository.rebuildDerivedIndex()
+    suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary = engineReadinessRepository.rebuildDerivedIndex()
 
     suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport =
         engineReadinessRepository.createRecoveryDiagnosticReport()

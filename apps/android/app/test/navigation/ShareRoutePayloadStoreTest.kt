@@ -60,7 +60,9 @@ class ShareRoutePayloadStoreTest : AppFunSpec() {
             cacheDir.deleteRecursively()
         }
 
-        test("given persistent payload was consumed when memory state is cleared again then old payload is unavailable") {
+        test(
+            "given persistent payload was consumed when memory state is cleared again then old payload is unavailable",
+        ) {
             val cacheDir = Files.createTempDirectory("share-route-payload-store-repeat-test").toFile()
             ShareRoutePayloadStore.configurePersistentCacheForTest(cacheDir)
             val key = ShareRoutePayloadStore.putMemoContent("memo body after restart")

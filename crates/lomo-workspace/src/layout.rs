@@ -1,8 +1,8 @@
 //! Canonical workspace and session layout inventory (P-26 / R-09).
 //!
 //! [`WorkspaceLayout`] is the sole dispatch point for every path Lomo mints under
-//! `<workspace>/.lomo/` — the durable record codec tree plus internal subtrees
-//! (`local`, `identity`, `trash`, `purged`, `sync`, `migration-staging`). A new
+//! a storage root's `.lomo/` — the durable record codec tree plus internal subtrees
+//! (`local`, `identity`, `purged`, `sync`, `migration-staging`). Public trash lives in `.trash/`. A new
 //! `.lomo` child directory is added as a field here first; consumers never join
 //! `.lomo` segments themselves.
 //!
@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use crate::limits::{corruption, storage, validation};
 use crate::lomo_record::{LomoPayload, LomoRecordKind, read_record, write_record_atomic};
 
-/// The `.lomo` durable control directory name at a workspace root.
+/// Logical control directory routed to the host-private state root by the application.
 pub const LOMO_DIR_NAME: &str = ".lomo";
 /// The disposable `SQLite` projection root sibling to `.lomo` (owner: `lomo-store`).
 pub const LOMO_SQLITE_ROOT_NAME: &str = ".lomo-sqlite";
@@ -92,12 +92,12 @@ pub mod relative {
     pub const STATE_V2_HEADS_PREFIX: &str = ".lomo/state/v2/heads/";
     /// `.lomo/state/v2/objects/`.
     pub const STATE_V2_OBJECTS_PREFIX: &str = ".lomo/state/v2/objects/";
-    /// `.lomo/trash/` prefix (recoverable trash records).
-    pub const TRASH_PREFIX: &str = ".lomo/trash/";
-    /// `.lomo/trash/v1` — the trash record tree.
-    pub const TRASH_V1: &str = ".lomo/trash/v1";
-    /// `.lomo/trash/v1/` — record files inside the trash tree.
-    pub const TRASH_V1_PREFIX: &str = ".lomo/trash/v1/";
+    /// `.trash/` prefix (recoverable trash records).
+    pub const TRASH_PREFIX: &str = ".trash/";
+    /// `.trash` — the trash record tree.
+    pub const TRASH_V1: &str = ".trash";
+    /// `.trash/` — record files inside the trash tree.
+    pub const TRASH_V1_PREFIX: &str = ".trash/";
     /// `.lomo/purged/` prefix (permanent-delete tombstones).
     pub const PURGED_PREFIX: &str = ".lomo/purged/";
     /// `.lomo/purged/v1` — the purge record tree.
@@ -169,7 +169,7 @@ pub struct WorkspaceLayout {
     pub generation_record: PathBuf,
     /// `.lomo/identity/v1` — durable memo-identity bindings.
     pub identity: PathBuf,
-    /// `.lomo/trash/v1` — recoverable trash records.
+    /// `.trash` — recoverable memo Markdown documents.
     pub trash: PathBuf,
     /// `.lomo/purged/v1` — permanent-delete tombstone records.
     pub purged: PathBuf,
@@ -228,7 +228,7 @@ impl WorkspaceLayout {
             generation_record: local.join("generation.rec"),
             local,
             identity: root.join("identity").join("v1"),
-            trash: root.join("trash").join("v1"),
+            trash: workspace_root.join(relative::TRASH_V1),
             purged: root.join("purged").join("v1"),
             sync: root.join("sync").join("v1"),
             migration_staging: root.join("migration-staging"),

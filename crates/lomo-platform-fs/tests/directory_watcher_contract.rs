@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //!
 //! Capability: observe directory changes (creation, modification, deletion, rename) in Linux POSIX
@@ -112,7 +121,10 @@ mod tests {
 
         // Initially no events
         let initial_events = watcher.poll_events().must_succeed("poll initial");
-        assert!(initial_events.is_empty());
+        assert_eq!(
+            initial_events,
+            Vec::<lomo_platform_fs::DirectoryChangeEvent>::new()
+        );
 
         // 1. Create a file
         let file_path = watched_dir.join("test.md");

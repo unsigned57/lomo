@@ -35,12 +35,12 @@ import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import io.kotest.matchers.shouldBe
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppConfigStateProviderTest : AppFunSpec() {
@@ -58,12 +58,12 @@ class AppConfigStateProviderTest : AppFunSpec() {
                     }
                 val appConfigRepository =
                     object : FakeAppConfigRepository() {
-                        override fun observeLocation(area: StorageArea) =
-                            when (area) {
-                                StorageArea.ROOT ->
-                                    rootDirectoryUpstream.onSubscription { upstreamCollectors.incrementAndGet() }
-                                else -> super.observeLocation(area)
-                            }
+                        override fun observeLocation(area: StorageArea) = when (area) {
+                            StorageArea.ROOT ->
+                                rootDirectoryUpstream.onSubscription { upstreamCollectors.incrementAndGet() }
+
+                            else -> super.observeLocation(area)
+                        }
                     }
 
                 val provider =
@@ -71,7 +71,9 @@ class AppConfigStateProviderTest : AppFunSpec() {
                         appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                         appPreferencesSnapshotRepository = appConfigRepository,
                         customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
+                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(
+                            com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                        ),
                         preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
                         appScope = backgroundScope,
                     )

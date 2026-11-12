@@ -16,9 +16,9 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -337,9 +337,7 @@ class UpdateStartupOrchestrationContractTest : AppFunSpec() {
         )
     }
 
-    private fun newDownloadManager(
-        repository: FakeAppUpdateDownloadRepository,
-    ): AppUpdateDownloadManager {
+    private fun newDownloadManager(repository: FakeAppUpdateDownloadRepository): AppUpdateDownloadManager {
         val context = mockk<Context>()
         return AppUpdateDownloadManager(
             context = context,
@@ -348,42 +346,39 @@ class UpdateStartupOrchestrationContractTest : AppFunSpec() {
         )
     }
 
-    private fun sampleUpdateInfo(version: String): AppUpdateInfo =
-        AppUpdateInfo(
-            url = "https://example.com/releases/$version",
-            version = version,
-            releaseNotes = "notes",
-            apkDownloadUrl = "https://example.com/assets/lomo-v$version.apk",
-            apkFileName = "lomo-v$version.apk",
-            apkSizeBytes = 4_096L,
-            expectedPackageName = "com.lomo.app",
-            expectedVersionName = version,
-            expectedVersionCode = version.substringBefore('.').toLong() * 10L,
-        )
+    private fun sampleUpdateInfo(version: String): AppUpdateInfo = AppUpdateInfo(
+        url = "https://example.com/releases/$version",
+        version = version,
+        releaseNotes = "notes",
+        apkDownloadUrl = "https://example.com/assets/lomo-v$version.apk",
+        apkFileName = "lomo-v$version.apk",
+        apkSizeBytes = 4_096L,
+        expectedPackageName = "com.lomo.app",
+        expectedVersionName = version,
+        expectedVersionCode = version.substringBefore('.').toLong() * 10L,
+    )
 
-    private fun sampleDialogState(version: String): AppUpdateDialogState =
-        AppUpdateDialogState(
-            url = "https://example.com/releases/$version",
-            version = version,
-            releaseNotes = "notes",
-            apkDownloadUrl = "https://example.com/assets/lomo-v$version.apk",
-            apkFileName = "lomo-v$version.apk",
-            apkSizeBytes = 4_096L,
-            expectedPackageName = "com.lomo.app",
-            expectedVersionName = version,
-            expectedVersionCode = version.substringBefore('.').toLong() * 10L,
-        )
+    private fun sampleDialogState(version: String): AppUpdateDialogState = AppUpdateDialogState(
+        url = "https://example.com/releases/$version",
+        version = version,
+        releaseNotes = "notes",
+        apkDownloadUrl = "https://example.com/assets/lomo-v$version.apk",
+        apkFileName = "lomo-v$version.apk",
+        apkSizeBytes = 4_096L,
+        expectedPackageName = "com.lomo.app",
+        expectedVersionName = version,
+        expectedVersionCode = version.substringBefore('.').toLong() * 10L,
+    )
 
-    private fun AppUpdateDialogState.toExpectedUpdateInfo(): AppUpdateInfo =
-        AppUpdateInfo(
-            url = url,
-            version = version,
-            releaseNotes = releaseNotes,
-            apkDownloadUrl = apkDownloadUrl,
-            apkFileName = apkFileName,
-            apkSizeBytes = apkSizeBytes,
-            expectedPackageName = expectedPackageName,
-            expectedVersionName = expectedVersionName,
-            expectedVersionCode = expectedVersionCode,
-        )
+    private fun AppUpdateDialogState.toExpectedUpdateInfo(): AppUpdateInfo = AppUpdateInfo(
+        url = url,
+        version = version,
+        releaseNotes = releaseNotes,
+        apkDownloadUrl = apkDownloadUrl,
+        apkFileName = apkFileName,
+        apkSizeBytes = apkSizeBytes,
+        expectedPackageName = expectedPackageName,
+        expectedVersionName = expectedVersionName,
+        expectedVersionCode = expectedVersionCode,
+    )
 }

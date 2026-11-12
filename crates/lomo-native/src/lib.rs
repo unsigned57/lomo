@@ -12,6 +12,8 @@ use std::{
     time::Duration,
 };
 
+::boltffi::scaffolding!();
+
 use boltffi::{UnexpectedFfiCallbackError, data, error, export};
 use lomo_core as core;
 use lomo_workspace::{self as workspace, workspace_driver_registry};
@@ -43,10 +45,11 @@ pub use session_ffi::{
     SessionCivilDate, SessionCivilTime, SessionCreateMemoRequest, SessionDateCount,
     SessionDeleteMemoRequest, SessionDraftGuardDto, SessionHourCount, SessionMediaFailureDto,
     SessionMediaProtectionDto, SessionMediaSweepReportDto, SessionMemoView, SessionPinMemoRequest,
-    SessionRestoreRequest, SessionRestoreRevisionRequest, SessionSearchHit, SessionSearchMode,
-    SessionSearchOutcome, SessionSearchPage, SessionSearchRequest, SessionStatistics,
-    SessionStatisticsSnapshot, SessionTagCount, SessionTaskItem, SessionToggleTaskRequest,
-    SessionUpdateMemoRequest, SessionWeeklyHourCount, batch_from_ffi, result_to_ffi,
+    SessionReminderRewritePlan, SessionReminderRewriteRequest, SessionRestoreRequest,
+    SessionRestoreRevisionRequest, SessionSearchHit, SessionSearchMode, SessionSearchOutcome,
+    SessionSearchPage, SessionSearchRequest, SessionStatistics, SessionStatisticsSnapshot,
+    SessionTagCount, SessionTaskItem, SessionToggleTaskRequest, SessionUpdateMemoRequest,
+    SessionWeeklyHourCount, batch_from_ffi, result_to_ffi,
 };
 pub use store_ffi::{
     StoreInvalidationScope, StoreMemoBatchCommit, StoreMemoBatchDelete, StoreMemoCommand,
@@ -129,6 +132,7 @@ pub enum RenderNodeKind {
     Strong,
     Emphasis,
     Strikethrough,
+    Underline,
     Highlight,
     Code,
     Link,
@@ -585,6 +589,12 @@ pub enum PlatformAction {
         path: String,
         expected_target: ExpectedFingerprint,
     },
+    /// Metadata-only observation; it never reads content bytes.
+    Inspect {
+        action_id: String,
+        capability_token: String,
+        target: WorkspaceTarget,
+    },
 }
 
 #[data]
@@ -739,6 +749,21 @@ pub trait PlatformBatchHost: Send + Sync {
     fn execute(&self, batch: PlatformActionBatch) -> Result<PlatformBatchResult, EngineError>;
 }
 
+/// Observes the projection publications a memo create makes before its call returns.
+///
+/// Both methods run synchronously on the engine thread while the create holds its transaction
+/// lock; implementations only record or forward the publication and must not call back into
+/// the session.
+#[export]
+pub trait MemoCreateObserver: Send + Sync {
+    /// The create was admitted: its pending row — or a replayed committed receipt — is
+    /// queryable at this clock, before any workspace I/O.
+    fn accepted(&self, publication: StoreMemoCommit);
+
+    /// The admitted create failed and its pending row was removed at this clock.
+    fn withdrawn(&self, publication: StoreMemoCommit);
+}
+
 #[error]
 #[derive(Debug)]
 pub enum EngineError {
@@ -775,6 +800,7 @@ impl fmt::Display for EngineError {
 
 impl std::error::Error for EngineError {}
 
+#[export]
 pub struct LomoEngine {
     pub(crate) core: Arc<core::LomoEngine>,
     lan: Arc<Mutex<lomo_lan::LanServiceManager>>,
@@ -2049,12 +2075,12 @@ impl LomoEngine {
     )]
     pub fn record_stage_lease(
         &self,
-        workspace_root: Option<String>,
         staged: MediaStagedDto,
         owner_kind: MediaStageOwnerKindDto,
         owner_id: String,
     ) -> Result<MediaStageRecordDto, EngineError> {
-        media_ffi::ffi_record_stage_lease(workspace_root.as_deref(), staged, owner_kind, &owner_id)
+        let session = session_ffi::session_arc(self)?;
+        media_ffi::ffi_record_stage_lease(&session, staged, owner_kind, &owner_id)
     }
 
     /// Lists durable stage records leased by one exact holder.
@@ -2141,10 +2167,10 @@ impl LomoEngine {
     )]
     pub fn session_export_archive(
         &self,
-        workspace_root: String,
         file_name_hint: Option<String>,
+        media_capabilities: Vec<String>,
     ) -> Result<ArchiveExportResultDto, EngineError> {
-        session_ffi::session_export_archive(self, &workspace_root, file_name_hint.as_deref())
+        session_ffi::session_export_archive(self, file_name_hint.as_deref(), &media_capabilities)
     }
 
     /// Imports an archive through the session-owned switch: stage, activate, migrate, rebuild.
@@ -2536,6 +2562,15 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             capability,
             target,
         } => stat_to_ffi(action_id, capability, target),
+        core::PlatformAction::Inspect {
+            action_id,
+            capability,
+            target,
+        } => PlatformAction::Inspect {
+            action_id: action_id.as_str().to_owned(),
+            capability_token: capability.as_str().to_owned(),
+            target: target_to_ffi(target),
+        },
         core::PlatformAction::ListChildren {
             action_id,
             capability,
@@ -3076,6 +3111,7 @@ fn flatten_render_inlines(
             workspace::RenderInline::Strong { children, .. }
             | workspace::RenderInline::Emphasis { children, .. }
             | workspace::RenderInline::Strikethrough { children, .. }
+            | workspace::RenderInline::Underline { children, .. }
             | workspace::RenderInline::Highlight { children, .. }
             | workspace::RenderInline::Link { children, .. }
             | workspace::RenderInline::WikiReference { children, .. } => {
@@ -3129,6 +3165,7 @@ fn render_inline_node(inline: &workspace::RenderInline, depth: u32) -> RenderNod
         workspace::RenderInline::Strong { .. }
         | workspace::RenderInline::Emphasis { .. }
         | workspace::RenderInline::Strikethrough { .. }
+        | workspace::RenderInline::Underline { .. }
         | workspace::RenderInline::Highlight { .. }
         | workspace::RenderInline::SoftBreak { .. }
         | workspace::RenderInline::HardBreak { .. } => {}
@@ -3158,6 +3195,9 @@ const fn render_inline_kind_and_span(
         }
         workspace::RenderInline::Strikethrough { source_span, .. } => {
             (RenderNodeKind::Strikethrough, *source_span)
+        }
+        workspace::RenderInline::Underline { source_span, .. } => {
+            (RenderNodeKind::Underline, *source_span)
         }
         workspace::RenderInline::Highlight { source_span, .. } => {
             (RenderNodeKind::Highlight, *source_span)
@@ -3308,6 +3348,21 @@ pub fn build_reminder_token(request: ReminderTokenBuildRequest) -> Result<String
         Some(&embedded_id),
     )
     .map_err(EngineError::from)
+}
+
+#[export]
+/// Projects the due date of a validated reminder token through the workspace grammar.
+///
+/// # Errors
+/// Returns the owner's typed validation error for malformed or unsupported tokens.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free functions receive owned wire strings"
+)]
+pub fn reminder_due_at_local(token: String) -> Result<String, EngineError> {
+    workspace::reminder_token_facts(&token)
+        .map(|facts| facts.due_at_local)
+        .map_err(EngineError::from)
 }
 
 #[export]

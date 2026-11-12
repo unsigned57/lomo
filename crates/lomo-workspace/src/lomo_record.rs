@@ -184,6 +184,10 @@ pub fn decode_record(bytes: &[u8]) -> Result<LomoRecord, lomo_core::LomoError> {
 ///
 /// Storage errors on I/O failure. Never partially replaces the destination on success path.
 pub fn write_record_atomic(path: &Path, payload: &LomoPayload) -> Result<(), lomo_core::LomoError> {
+    write_bytes_atomic(path, &encode_record(payload)?)
+}
+
+pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), lomo_core::LomoError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| {
             storage(
@@ -192,7 +196,6 @@ pub fn write_record_atomic(path: &Path, payload: &LomoPayload) -> Result<(), lom
             )
         })?;
     }
-    let bytes = encode_record(payload)?;
     let tmp = path.with_extension("tmp");
     {
         let mut file = OpenOptions::new()
@@ -206,7 +209,7 @@ pub fn write_record_atomic(path: &Path, payload: &LomoPayload) -> Result<(), lom
                     &format!("cannot open temp {}: {err}", tmp.display()),
                 )
             })?;
-        file.write_all(&bytes).map_err(|err| {
+        file.write_all(bytes).map_err(|err| {
             storage(
                 "lomo_temp_write_failed",
                 &format!("cannot write temp {}: {err}", tmp.display()),

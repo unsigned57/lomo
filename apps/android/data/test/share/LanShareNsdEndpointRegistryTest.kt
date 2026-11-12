@@ -59,16 +59,12 @@ class LanShareNsdEndpointRegistryTest : DataFunSpec() {
     }
 }
 
-private fun nsdDevice(
-    deviceId: String,
-    host: String,
-): DiscoveredDevice =
-    DiscoveredDevice(
-        deviceId = deviceId,
-        name = "Pixel",
-        host = host,
-        port = TEST_PORT,
-    )
+private fun nsdDevice(deviceId: String, host: String): DiscoveredDevice = DiscoveredDevice(
+    deviceId = deviceId,
+    name = "Pixel",
+    host = host,
+    port = TEST_PORT,
+)
 
 private const val SERVICE_A_KEY = "Lomo-Pixel|_lomo-share._tcp."
 private const val SERVICE_B_KEY = "Lomo-Pixel (2)|_lomo-share._tcp."

@@ -16,18 +16,25 @@ internal fun ProviderSelectionDialog(
     when (route.field) {
         RemoteProviderSelectionField.GitSyncInterval ->
             GitSyncIntervalSelectionDialog(uiState, features, dialogState, options)
+
         RemoteProviderSelectionField.WebDavProvider ->
             WebDavProviderSelectionDialog(uiState, features, dialogState, options)
+
         RemoteProviderSelectionField.WebDavSyncInterval ->
             WebDavSyncIntervalSelectionDialog(uiState, features, dialogState, options)
+
         RemoteProviderSelectionField.S3PathStyle ->
             S3PathStyleSelectionDialog(uiState, features, dialogState, options)
+
         RemoteProviderSelectionField.S3EncryptionMode ->
             S3EncryptionModeSelectionDialog(uiState, features, dialogState, options)
+
         RemoteProviderSelectionField.S3RcloneFilenameEncryption ->
             S3RcloneFilenameEncryptionSelectionDialog(uiState, features, dialogState, options)
+
         RemoteProviderSelectionField.S3RcloneFilenameEncoding ->
             S3RcloneFilenameEncodingSelectionDialog(uiState, features, dialogState, options)
+
         RemoteProviderSelectionField.S3SyncInterval ->
             S3SyncIntervalSelectionDialog(uiState, features, dialogState, options)
     }

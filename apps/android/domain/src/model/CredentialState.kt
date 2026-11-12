@@ -37,9 +37,11 @@ val CredentialField.provider: CredentialProvider
             CredentialField.GIT_TOKEN,
             CredentialField.GIT_USERNAME,
             -> CredentialProvider.GIT
+
             CredentialField.WEBDAV_USERNAME,
             CredentialField.WEBDAV_PASSWORD,
             -> CredentialProvider.WEBDAV
+
             CredentialField.S3_ACCESS_KEY_ID,
             CredentialField.S3_SECRET_ACCESS_KEY,
             CredentialField.S3_SESSION_TOKEN,
@@ -48,19 +50,17 @@ val CredentialField.provider: CredentialProvider
             -> CredentialProvider.S3
         }
 
-fun CredentialProvider.identityField(): CredentialField? =
-    when (this) {
-        CredentialProvider.GIT -> CredentialField.GIT_USERNAME
-        CredentialProvider.WEBDAV -> CredentialField.WEBDAV_USERNAME
-        CredentialProvider.S3 -> CredentialField.S3_ACCESS_KEY_ID
-    }
+fun CredentialProvider.identityField(): CredentialField? = when (this) {
+    CredentialProvider.GIT -> CredentialField.GIT_USERNAME
+    CredentialProvider.WEBDAV -> CredentialField.WEBDAV_USERNAME
+    CredentialProvider.S3 -> CredentialField.S3_ACCESS_KEY_ID
+}
 
-fun CredentialProvider.secretField(): CredentialField =
-    when (this) {
-        CredentialProvider.GIT -> CredentialField.GIT_TOKEN
-        CredentialProvider.WEBDAV -> CredentialField.WEBDAV_PASSWORD
-        CredentialProvider.S3 -> CredentialField.S3_SECRET_ACCESS_KEY
-    }
+fun CredentialProvider.secretField(): CredentialField = when (this) {
+    CredentialProvider.GIT -> CredentialField.GIT_TOKEN
+    CredentialProvider.WEBDAV -> CredentialField.WEBDAV_PASSWORD
+    CredentialProvider.S3 -> CredentialField.S3_SECRET_ACCESS_KEY
+}
 
 val CredentialField.isRequiredForProviderConfiguration: Boolean
     get() =
@@ -71,6 +71,7 @@ val CredentialField.isRequiredForProviderConfiguration: Boolean
             CredentialField.S3_ACCESS_KEY_ID,
             CredentialField.S3_SECRET_ACCESS_KEY,
             -> true
+
             CredentialField.GIT_USERNAME,
             CredentialField.S3_SESSION_TOKEN,
             CredentialField.S3_ENCRYPTION_PASSWORD,
@@ -82,11 +83,13 @@ private val CredentialProvider.requiredFields: Set<CredentialField>
     get() =
         when (this) {
             CredentialProvider.GIT -> setOf(CredentialField.GIT_TOKEN)
+
             CredentialProvider.WEBDAV ->
                 setOf(
                     CredentialField.WEBDAV_USERNAME,
                     CredentialField.WEBDAV_PASSWORD,
                 )
+
             CredentialProvider.S3 ->
                 setOf(
                     CredentialField.S3_ACCESS_KEY_ID,
@@ -94,15 +97,9 @@ private val CredentialProvider.requiredFields: Set<CredentialField>
                 )
         }
 
-data class CredentialFieldState(
-    val field: CredentialField,
-    val status: StoredCredentialStatus,
-)
+data class CredentialFieldState(val field: CredentialField, val status: StoredCredentialStatus)
 
-data class CredentialState(
-    val provider: CredentialProvider,
-    val fields: List<CredentialFieldState>,
-) {
+data class CredentialState(val provider: CredentialProvider, val fields: List<CredentialFieldState>) {
     val readinessStatus: StoredCredentialStatus = aggregateReadinessStatus()
 
     val healthStatus: StoredCredentialStatus = aggregateHealthStatus()
@@ -126,19 +123,17 @@ data class CredentialState(
         return aggregateStatuses(requiredStatuses)
     }
 
-    private fun aggregateHealthStatus(): StoredCredentialStatus =
-        when {
-            fields.any { it.status == StoredCredentialStatus.Unreadable } -> StoredCredentialStatus.Unreadable
-            fields.any { it.status == StoredCredentialStatus.Invalid } -> StoredCredentialStatus.Invalid
-            else -> readinessStatus
-        }
+    private fun aggregateHealthStatus(): StoredCredentialStatus = when {
+        fields.any { it.status == StoredCredentialStatus.Unreadable } -> StoredCredentialStatus.Unreadable
+        fields.any { it.status == StoredCredentialStatus.Invalid } -> StoredCredentialStatus.Invalid
+        else -> readinessStatus
+    }
 
-    private fun aggregateStatuses(statuses: List<StoredCredentialStatus>): StoredCredentialStatus =
-        when {
-            statuses.isEmpty() -> StoredCredentialStatus.Missing
-            statuses.any { it == StoredCredentialStatus.Unreadable } -> StoredCredentialStatus.Unreadable
-            statuses.any { it == StoredCredentialStatus.Invalid } -> StoredCredentialStatus.Invalid
-            statuses.any { it == StoredCredentialStatus.Missing } -> StoredCredentialStatus.Missing
-            else -> StoredCredentialStatus.Present
-        }
+    private fun aggregateStatuses(statuses: List<StoredCredentialStatus>): StoredCredentialStatus = when {
+        statuses.isEmpty() -> StoredCredentialStatus.Missing
+        statuses.any { it == StoredCredentialStatus.Unreadable } -> StoredCredentialStatus.Unreadable
+        statuses.any { it == StoredCredentialStatus.Invalid } -> StoredCredentialStatus.Invalid
+        statuses.any { it == StoredCredentialStatus.Missing } -> StoredCredentialStatus.Missing
+        else -> StoredCredentialStatus.Present
+    }
 }

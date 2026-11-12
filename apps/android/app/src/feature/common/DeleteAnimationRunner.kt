@@ -9,48 +9,15 @@ internal suspend fun <T> runDeleteAnimationWithRollback(
     anchoredAfterKey: String?,
     mutation: suspend () -> Unit,
 ) {
-    runDeleteAnimationWithRollback(
-        items = listOf(DeleteAnimationItem(itemId, item, anchoredAfterKey)),
-        registry = registry,
-        mutation = mutation,
-    )
-}
-
-internal suspend fun <T> runDeleteAnimationWithRollback(
-    items: List<DeleteAnimationItem<T>>,
-    registry: ExitAnimationRegistry<T>,
-    mutation: suspend () -> Unit,
-) {
-    if (items.isEmpty()) {
-        return
-    }
-
-    items.forEach { item ->
-        registry.beginExit(
-            id = item.id,
-            item = item.snapshot,
-            anchoredAfterKey = item.anchoredAfterKey,
-        )
-    }
-
+    registry.beginExit(itemId, item, anchoredAfterKey)
     var committed = false
     try {
         mutation()
-        items.forEach { item ->
-            registry.markExitMutationCommitted(item.id)
-        }
+        registry.markExitMutationCommitted(itemId)
         committed = true
     } finally {
         if (!committed) {
-            items.forEach { item ->
-                registry.rollbackExit(item.id)
-            }
+            registry.rollbackExit(itemId)
         }
     }
 }
-
-data class DeleteAnimationItem<T>(
-    val id: String,
-    val snapshot: T,
-    val anchoredAfterKey: String?,
-)

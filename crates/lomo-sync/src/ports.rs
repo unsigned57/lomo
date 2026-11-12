@@ -391,7 +391,7 @@ impl MapRemoteObjectSource {
                 "fake remote object source has no bytes for the ensure-present path",
             )
         })?;
-        let digest = format!("{:x}", Sha256::digest(bytes));
+        let digest = lomo_core::hex_encode(&Sha256::digest(bytes));
         if digest != expected_digest.as_str() {
             return Err(validation(
                 "fake_remote_object_source_digest_mismatch",
@@ -535,7 +535,7 @@ impl RemoteSyncPort for FakeRemotePort {
         let Some(bytes) = self.objects.objects.get(path.as_str()) else {
             return Ok(None);
         };
-        let digest = format!("{:x}", Sha256::digest(bytes));
+        let digest = lomo_core::hex_encode(&Sha256::digest(bytes));
         if digest != expected_digest.as_str() {
             return Err(validation(
                 "fake_remote_object_source_digest_mismatch",

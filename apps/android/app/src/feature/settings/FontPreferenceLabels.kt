@@ -9,6 +9,7 @@ import com.lomo.domain.model.FontPreference
 internal fun fontPreferenceSummaryLabel(display: DisplaySectionState): String =
     when (val preference = display.fontPreference) {
         is FontPreference.SystemDefault -> stringResource(R.string.settings_font_system_default)
+
         is FontPreference.UserImported ->
             display.availableCustomFonts.firstOrNull { it.id == preference.id }?.displayName
                 ?: stringResource(R.string.settings_font_system_default)

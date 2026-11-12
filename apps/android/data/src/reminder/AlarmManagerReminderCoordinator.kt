@@ -1,21 +1,18 @@
 package com.lomo.data.reminder
 
 import android.content.Context
-import com.lomo.domain.repository.ReminderCoordinator
-import com.lomo.domain.model.ReminderInterval
-import com.lomo.domain.repository.MarkdownReminderRepository
-import com.lomo.domain.repository.MemoMutationRepository
-import com.lomo.domain.repository.MemoQueryRepository
-import com.lomo.domain.model.ReminderMarker
-import com.lomo.domain.repository.ReminderTokenFactory
-import com.lomo.data.engine.store.StoreMemoQuery
+import com.lomo.data.engine.store.StoreMemoSummary
 import com.lomo.data.engine.store.StorePageCursor
 import com.lomo.data.engine.store.StorePort
-import com.lomo.data.engine.store.StoreMemoSummary
 import com.lomo.data.local.datastore.LomoReminderPreferencesStore
 import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.ReminderInterval
 import com.lomo.domain.repository.EngineReadinessRepository
-
+import com.lomo.domain.repository.MarkdownReminderRepository
+import com.lomo.domain.repository.MemoQueryRepository
+import com.lomo.domain.repository.ReminderCoordinator
+import com.lomo.domain.repository.ReminderTokenFactory
+import com.lomo.domain.repository.WorkspaceMutationLease
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -52,10 +49,7 @@ interface MemoMutationReminderScheduler {
      * The set is deliberately explicit: an in-process active-alarm map is only a cache and
      * cannot be used as the cancellation authority after process death or a scheduler restart.
      */
-    suspend fun cancelForMemo(
-        memoId: String,
-        reminderIds: Set<String>,
-    )
+    suspend fun cancelForMemo(memoId: String, reminderIds: Set<String>)
 }
 
 /**
@@ -101,15 +95,16 @@ class AlarmManagerReminderScheduler(
         rollingWindow.applyPlanForMemos(setOf(memoId), alarms).reportOutcome("syncForMemo($memoId)")
     }
 
-    override suspend fun cancelForMemo(
-        memoId: String,
-        reminderIds: Set<String>,
-    ) {
+    override suspend fun cancelForMemo(memoId: String, reminderIds: Set<String>) {
         rollingWindow.cancelForMemo(memoId, reminderIds)
     }
 
     suspend fun rebuildAll() {
         val alarms = withSnoozeRecovery { queryRustPlan(System.currentTimeMillis()) }
+        // A reboot or force-stop can remove OS alarms while the ledger survives. A full
+        // restoration must re-register the plan, rather than treating ledger equality as
+        // proof that AlarmManager still holds it. Query first so failures preserve alarms.
+        rollingWindow.cancelAll()
         rollingWindow.applyPlan(alarms).reportOutcome("rebuildAll")
     }
 
@@ -118,10 +113,7 @@ class AlarmManagerReminderScheduler(
      * occurrence is scheduled from durable state rather than a Kotlin-side ad-hoc alarm. The
      * deadline instant is computed on the owner clock from the validated duration preference.
      */
-    suspend fun snooze(
-        memoId: String,
-        reminderId: String,
-    ) {
+    suspend fun snooze(memoId: String, reminderId: String) {
         val interval = reminderPreferences.reminderInterval.first()
         withSnoozeRecovery { storePort.snoozeReminder(reminderId, interval) }
         syncForMemo(memoId)
@@ -159,18 +151,17 @@ class AlarmManagerReminderScheduler(
      * exactly the premature ringing the pause exists to prevent; the next scheduled tick plans
      * normally from the recovered store.
      */
-    private fun <T> withSnoozeRecovery(block: () -> T): T =
-        try {
-            block()
-        } catch (failure: EngineCommandFailureException) {
-            if (failure.failure.code != REMINDER_RECOVERY_NEEDED) throw failure
-            storePort.recoverReminderSnooze()
-            Timber.tag(TAG).w(
-                failure,
-                "Reminder snooze store quarantined; this tick is paused until the next plan",
-            )
-            throw failure
-        }
+    private fun <T> withSnoozeRecovery(block: () -> T): T = try {
+        block()
+    } catch (failure: EngineCommandFailureException) {
+        if (failure.failure.code != REMINDER_RECOVERY_NEEDED) throw failure
+        storePort.recoverReminderSnooze()
+        Timber.tag(TAG).w(
+            failure,
+            "Reminder snooze store quarantined; this tick is paused until the next plan",
+        )
+        throw failure
+    }
 
     private fun queryRustPlan(nowMillis: Long): List<PlannedReminderAlarm> {
         readiness.workspaceAuthority.value
@@ -211,76 +202,71 @@ class AlarmManagerReminderCoordinator(
     private val scheduler: AlarmManagerReminderScheduler,
     private val memoQueryRepository: MemoQueryRepository,
     private val markdownReminderRepository: MarkdownReminderRepository,
-    private val memoMutationRepository: MemoMutationRepository,
+    private val storePort: StorePort,
+    private val mutationLease: WorkspaceMutationLease,
     private val reminderTokenFactory: ReminderTokenFactory,
 ) : ReminderCoordinator {
-        override val globalInterval: StateFlow<ReminderInterval> = scheduler.globalInterval
+    override val globalInterval: StateFlow<ReminderInterval> = scheduler.globalInterval
 
-        override suspend fun setGlobalInterval(interval: ReminderInterval) {
-            scheduler.setGlobalInterval(interval)
-        }
-
-        override suspend fun syncForMemo(memoId: String) {
-            scheduler.syncForMemo(memoId)
-        }
-
-        override suspend fun cancelForMemo(
-            memoId: String,
-            reminderIds: Set<String>,
-        ) {
-            scheduler.cancelForMemo(memoId, reminderIds)
-        }
-
-        override suspend fun rebuildAll() {
-            scheduler.rebuildAll()
-        }
-
-        override suspend fun snooze(
-            memoId: String,
-            reminderId: String,
-        ) {
-            scheduler.snooze(memoId, reminderId)
-        }
-
-        override suspend fun markDone(
-            memoId: String,
-            reminderId: String,
-        ) {
-            // Cancellation is owned by the re-plan inside mutateMemoMarker → syncForMemo:
-            // once the durable token carries `done`, the Rust plan no longer emits the
-            // occurrence and the ledger diff cancels its PendingIntent. A second explicit
-            // cancel would be a dead duplicate of the same authority.
-            mutateMemoMarker(memoId, reminderId) { token ->
-                reminderTokenFactory.planMarkDone(token)
-            }
-        }
-
-        override suspend fun recordFired(
-            memoId: String,
-            reminderId: String,
-        ) {
-            mutateMemoMarker(memoId, reminderId) { token ->
-                reminderTokenFactory.planRecordFired(token)
-            }
-        }
-
-        private suspend fun mutateMemoMarker(
-            memoId: String,
-            reminderId: String,
-            planToken: (String) -> String,
-        ) {
-            val marker =
-                memoQueryRepository
-                    .getMemoById(memoId)
-                    ?.run {
-                        reminders.singleOrNull { it.reference.opaqueId == reminderId }
-                    }
-                    ?: return
-            val newToken = planToken(marker.token)
-            if (newToken == marker.token) return
-            val mutation = markdownReminderRepository.rewriteReminder(marker.reference, newToken)
-            memoMutationRepository.commitDocumentMutation(mutation)
-            scheduler.syncForMemo(memoId)
-        }
-
+    override suspend fun setGlobalInterval(interval: ReminderInterval) {
+        scheduler.setGlobalInterval(interval)
     }
+
+    override suspend fun syncForMemo(memoId: String) {
+        scheduler.syncForMemo(memoId)
+    }
+
+    override suspend fun cancelForMemo(memoId: String, reminderIds: Set<String>) {
+        scheduler.cancelForMemo(memoId, reminderIds)
+    }
+
+    override suspend fun rebuildAll() {
+        scheduler.rebuildAll()
+    }
+
+    override suspend fun snooze(memoId: String, reminderId: String) {
+        scheduler.snooze(memoId, reminderId)
+    }
+
+    override suspend fun markDone(memoId: String, reminderId: String) {
+        // Cancellation follows the canonical session update and its single re-plan:
+        // once the durable token carries `done`, the Rust plan no longer emits the
+        // occurrence and the ledger diff cancels its PendingIntent. A second explicit
+        // cancel would be a dead duplicate of the same authority.
+        mutateMemoMarker(memoId, reminderId) { token ->
+            reminderTokenFactory.planMarkDone(token)
+        }
+    }
+
+    override suspend fun recordFired(memoId: String, reminderId: String) {
+        mutateMemoMarker(memoId, reminderId) { token ->
+            reminderTokenFactory.planRecordFired(token)
+        }
+    }
+
+    private suspend fun mutateMemoMarker(memoId: String, reminderId: String, planToken: (String) -> String) {
+        mutationLease.withWrite { _ ->
+            val memo = memoQueryRepository.getMemoById(memoId) ?: return@withWrite
+            val marker =
+                memo.reminders.singleOrNull { reminder -> reminder.reference.opaqueId == reminderId }
+                    ?: return@withWrite
+            val newToken = planToken(marker.token)
+            if (newToken == marker.token) return@withWrite
+            // behavior-contract: identity-mint-ok: reminder command owner freezes one retry token
+            val operationId = com.lomo.domain.model.MemoOperationId(java.util.UUID.randomUUID().toString())
+            val plan = markdownReminderRepository.planReminderRewrite(memoId, reminderId, marker.token, newToken)
+            storePort.applyMemoCommand(
+                com.lomo.data.engine.store.StoreMemoCommand(
+                    operationId = operationId.value,
+                    kind = com.lomo.data.engine.store.StoreMemoCommandKind.Update,
+                    memoId = plan.memoId,
+                    expectedRevision = plan.expectedRevision,
+                    expectedFingerprint = plan.expectedFingerprint,
+                    content = plan.content,
+                ),
+                onPublication = {},
+            )
+            scheduler.syncForMemo(memoId)
+        }
+    }
+}

@@ -17,10 +17,7 @@ internal val LocalTypographyScales = staticCompositionLocalOf { TypographyScales
 internal fun currentTypographyScales(): TypographyScales = LocalTypographyScales.current
 
 @Composable
-fun ProvideTypographyScales(
-    scales: TypographyScales,
-    content: @Composable () -> Unit,
-) {
+fun ProvideTypographyScales(scales: TypographyScales, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalTypographyScales provides scales) {
         content()
     }

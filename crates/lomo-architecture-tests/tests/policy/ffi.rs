@@ -14,7 +14,15 @@ use super::Violation;
 pub struct Export {
     pub rust: String,
     pub kotlin: String,
-    pub callback: bool,
+    pub kind: ExportKind,
+}
+
+/// The distinct foreign obligations emitted by the supported `BoltFFI` surface.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum ExportKind {
+    Callable,
+    Callback,
+    Class,
 }
 
 /// The full compile surface of one parsed file. rustc honors `#[export]` /
@@ -167,6 +175,15 @@ impl Scan {
     fn extern_crate(&mut self, extern_crate: &syn::ItemExternCrate) {
         self.unmodelable_marker(&extern_crate.attrs, "an extern crate");
         if extern_crate
+            .rename
+            .as_ref()
+            .is_some_and(|(_, alias)| alias == "boltffi")
+        {
+            return self.fail(
+                "an extern crate alias cannot shadow the trusted boltffi dependency".to_owned(),
+            );
+        }
+        if extern_crate
             .attrs
             .iter()
             .any(|attr| meta_is_macro_use(&attr.meta))
@@ -178,6 +195,35 @@ impl Scan {
                  out"
                 .to_owned(),
             );
+        }
+    }
+
+    /// Class declarations expose an identity; their methods are collected independently,
+    /// including impl blocks in other files. Raw linker markers are never class metadata.
+    fn outer_class(&mut self, attrs: &[syn::Attribute], name: &syn::Ident) {
+        for attr in attrs {
+            match meta_is_export(&attr.meta) {
+                Err(error) => return self.fail(error),
+                Ok(false) => {}
+                Ok(true)
+                    if attr.path().is_ident("export")
+                        || attr
+                            .path()
+                            .segments
+                            .iter()
+                            .map(|s| s.ident.to_string())
+                            .eq(["boltffi", "export"]) =>
+                {
+                    self.exports.insert(Export {
+                        rust: name.to_string(),
+                        kotlin: format!("com.lomo.nativebridge.{name}"),
+                        kind: ExportKind::Class,
+                    });
+                }
+                Ok(true) => {
+                    return self.fail(unmodelable_export_marker("an unsupported class marker"));
+                }
+            }
         }
     }
 
@@ -218,7 +264,7 @@ impl Scan {
                         self.exports.insert(Export {
                             rust: name.clone(),
                             kotlin: format!("com.lomo.nativebridge.{}", camel(&name)),
-                            callback: false,
+                            kind: ExportKind::Callable,
                         });
                     }
                     Ok(false) => {}
@@ -236,15 +282,45 @@ impl Scan {
                 }
             }
             Item::ForeignMod(foreign) => self.foreign_mod(foreign, "an extern block"),
+            Item::Struct(record) => {
+                self.outer_class(&record.attrs, &record.ident);
+                self.inside(|scan| {
+                    syn::visit::visit_generics(scan, &record.generics);
+                    for field in &record.fields {
+                        syn::visit::visit_field(scan, field);
+                    }
+                });
+            }
+            Item::Enum(record) => {
+                self.outer_class(&record.attrs, &record.ident);
+                self.inside(|scan| {
+                    syn::visit::visit_generics(scan, &record.generics);
+                    for variant in &record.variants {
+                        syn::visit::visit_variant(scan, variant);
+                    }
+                });
+            }
             Item::Macro(item_macro) => {
-                self.fail(unverifiable_macro(&macro_identity(item_macro)));
+                self.unmodelable_marker(&item_macro.attrs, "a macro invocation");
+                // Only the exact, argument-free upstream scaffolding invocation is trusted.
+                // Its expansion is a type tag and metadata-only linkage anchor, not callables.
+                let path = &item_macro.mac.path;
+                let scaffolding = item_macro.ident.is_none()
+                    && path.leading_colon.is_some()
+                    && path
+                        .segments
+                        .iter()
+                        .map(|s| s.ident.to_string())
+                        .eq(["boltffi", "scaffolding"])
+                    && item_macro.mac.tokens.is_empty();
+                if !scaffolding {
+                    self.fail(unverifiable_macro(&macro_identity(item_macro)));
+                }
             }
             Item::Use(using) => self.shadowing_use(&using.attrs, &using.tree),
             Item::ExternCrate(extern_crate) => self.extern_crate(extern_crate),
             Item::Const(_)
-            | Item::Enum(_)
             | Item::Static(_)
-            | Item::Struct(_)
             | Item::TraitAlias(_)
             | Item::Type(_)
             | Item::Union(_)
@@ -438,7 +514,7 @@ impl Scan {
                                 "com.lomo.nativebridge.{owner}{static_part}.{}",
                                 camel(&name)
                             ),
-                            callback: false,
+                            kind: ExportKind::Callable,
                         });
                     }
                 }
@@ -477,7 +553,7 @@ impl Scan {
                         self.exports.insert(Export {
                             rust: format!("{owner}::{name}"),
                             kotlin: format!("com.lomo.nativebridge.{owner}.{}", camel(&name)),
-                            callback: true,
+                            kind: ExportKind::Callback,
                         });
                     } else {
                         self.unmodelable_marker(
@@ -953,12 +1029,18 @@ pub fn contract_violations(
                 format!("missing generated symbol {}", export.kotlin),
             ));
         }
-        let consumed = if export.callback {
-            graph.edges.iter().any(|(base, implementation)| {
+        let consumed = match export.kind {
+            ExportKind::Callback => graph.edges.iter().any(|(base, implementation)| {
                 base == &export.kotlin && reachable.contains(implementation)
-            })
-        } else {
-            reachable.contains(&export.kotlin)
+            }),
+            ExportKind::Callable => reachable.contains(&export.kotlin),
+            ExportKind::Class => {
+                let member_prefix = format!("{}.", export.kotlin);
+                reachable.contains(&export.kotlin)
+                    || reachable.iter().any(|symbol| {
+                        symbol.starts_with(&member_prefix) && generated.contains(symbol)
+                    })
+            }
         };
         if !consumed {
             violations.push(Violation::new(
@@ -1838,7 +1920,7 @@ pub fn load_graph(
             }
             let source = Path::new(string(&facts, "path")?);
             let bytes = fs::read(source).map_err(|error| error.to_string())?;
-            if format!("{:x}", Sha256::digest(bytes)) != string(&facts, "source_digest")? {
+            if lomo_core::hex_encode(&Sha256::digest(bytes)) != string(&facts, "source_digest")? {
                 return Err(format!(
                     "stale resolved symbol facts for {}",
                     source.display()

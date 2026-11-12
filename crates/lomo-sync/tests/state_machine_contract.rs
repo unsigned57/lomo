@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract (P5-03 unified state machine)
 //!
 //! Capability: hermetic first-takeover, partial listing, and verify-before-baseline rules on
@@ -160,7 +169,7 @@ mod tests {
     #[test]
     fn verify_failure_leaves_baseline_unchanged() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "s-verify-fail").expect("session");
         let local = FakeLocalPort {
@@ -197,10 +206,13 @@ mod tests {
         .expect("cycle");
         assert!(!result.baseline_advanced);
         assert!(!result.baseline.is_established());
-        assert!(result.baseline.entries.is_empty());
+        assert_eq!(
+            result.baseline.entries,
+            Vec::<lomo_sync::BaselineEntry>::new()
+        );
         // Durable baseline was never written (still missing / empty).
         let on_disk = lomo_sync::read_baseline(&paths).expect("read");
-        assert!(on_disk.entries.is_empty());
+        assert_eq!(on_disk.entries, Vec::<lomo_sync::BaselineEntry>::new());
         assert_eq!(remote.verify_call_count(), 1);
         assert_eq!(remote.publish_call_count(), 1);
     }
@@ -208,7 +220,7 @@ mod tests {
     #[test]
     fn verify_success_advances_baseline() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session =
             SyncSession::new(fence(), SessionKind::Incremental, "s-verify-ok").expect("session");
         let local = FakeLocalPort {

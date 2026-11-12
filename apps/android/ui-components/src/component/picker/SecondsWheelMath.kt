@@ -19,11 +19,7 @@ internal object SecondsWheelMath {
 
     fun clamp(value: Int): Int = value.coerceIn(MIN, MAX)
 
-    fun centeredSecond(
-        firstVisibleIndex: Int,
-        firstVisibleOffsetPx: Int,
-        itemHeightPx: Int,
-    ): Int {
+    fun centeredSecond(firstVisibleIndex: Int, firstVisibleOffsetPx: Int, itemHeightPx: Int): Int {
         require(itemHeightPx > 0) { "itemHeightPx must be positive (was $itemHeightPx)" }
         val roundUp = firstVisibleOffsetPx * 2 >= itemHeightPx
         return clamp(firstVisibleIndex + if (roundUp) 1 else 0)

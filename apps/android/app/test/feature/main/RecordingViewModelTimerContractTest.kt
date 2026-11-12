@@ -27,8 +27,8 @@ package com.lomo.app.feature.main
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
-import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.model.RecordingSessionState
+import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.usecase.RecordingSessionUseCase
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -36,7 +36,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -66,10 +65,7 @@ class RecordingViewModelTimerContractTest : AppFunSpec() {
     }
 }
 
-private class FakeDurationSession(
-    durationMillis: Long = 0L,
-    amplitude: Int = 0,
-) : RecordingSession {
+private class FakeDurationSession(durationMillis: Long = 0L, amplitude: Int = 0) : RecordingSession {
     override val state: StateFlow<RecordingSessionState> =
         MutableStateFlow<RecordingSessionState>(RecordingSessionState.Idle).asStateFlow()
 
@@ -79,7 +75,7 @@ private class FakeDurationSession(
 
     override val errorMessage: StateFlow<String?> = MutableStateFlow<String?>(null).asStateFlow()
 
-    override suspend fun startRecording() {}
+    override suspend fun startRecording(draftId: com.lomo.domain.model.DraftId) {}
 
     override suspend fun stopRecording(): String? = null
 

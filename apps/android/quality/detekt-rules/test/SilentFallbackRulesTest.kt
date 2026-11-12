@@ -38,18 +38,19 @@ import kotlin.io.path.writeText
  * Excludes:
  * - Runtime exception mapping and UI error presentation.
  */
-class SilentFallbackRulesTest : FunSpec({
-    test("registers NoSilentCatchFallback and NoSwallowedThrowable in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoSilentCatchFallback")].shouldNotBeNull()
-        rules[RuleName("NoSwallowedThrowable")].shouldNotBeNull()
-    }
+class SilentFallbackRulesTest :
+    FunSpec({
+        test("registers NoSilentCatchFallback and NoSwallowedThrowable in rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoSilentCatchFallback")].shouldNotBeNull()
+            rules[RuleName("NoSwallowedThrowable")].shouldNotBeNull()
+        }
 
-    test("NoSilentCatchFallback: flags empty catch block") {
-        val findings =
-            rule("NoSilentCatchFallback").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSilentCatchFallback: flags empty catch block") {
+            val findings =
+                rule("NoSilentCatchFallback").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -62,17 +63,17 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun doSomething() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Empty catch block"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Empty catch block"
+        }
 
-    test("NoSilentCatchFallback: flags catch block returning null") {
-        val findings =
-            rule("NoSilentCatchFallback").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSilentCatchFallback: flags catch block returning null") {
+            val findings =
+                rule("NoSilentCatchFallback").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -85,17 +86,17 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun doSomething(): String = "test"
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Silent catch fallback"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Silent catch fallback"
+        }
 
-    test("NoSilentCatchFallback: flags catch block returning emptyList()") {
-        val findings =
-            rule("NoSilentCatchFallback").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSilentCatchFallback: flags catch block returning emptyList()") {
+            val findings =
+                rule("NoSilentCatchFallback").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -108,17 +109,17 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun fetch(): List<String> = listOf("a")
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Silent catch fallback"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Silent catch fallback"
+        }
 
-    test("NoSilentCatchFallback: flags catch block returning empty string") {
-        val findings =
-            rule("NoSilentCatchFallback").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSilentCatchFallback: flags catch block returning empty string") {
+            val findings =
+                rule("NoSilentCatchFallback").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -131,17 +132,17 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun fetch(): String = "ok"
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Silent catch fallback"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Silent catch fallback"
+        }
 
-    test("NoSilentCatchFallback: flags catch block returning 0") {
-        val findings =
-            rule("NoSilentCatchFallback").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSilentCatchFallback: flags catch block returning 0") {
+            val findings =
+                rule("NoSilentCatchFallback").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -154,17 +155,17 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun calculate(): Int = 42
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Silent catch fallback"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Silent catch fallback"
+        }
 
-    test("NoSilentCatchFallback: allows catch block that rethrows") {
-        val findings =
-            rule("NoSilentCatchFallback").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSilentCatchFallback: allows catch block that rethrows") {
+            val findings =
+                rule("NoSilentCatchFallback").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -179,16 +180,16 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun calculate(): Int = 42
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoSilentCatchFallback: allows catch block with behavior-contract comment") {
-        val findings =
-            rule("NoSilentCatchFallback").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSilentCatchFallback: allows catch block with behavior-contract comment") {
+            val findings =
+                rule("NoSilentCatchFallback").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -202,16 +203,16 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun doSomething(): String = "test"
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoSwallowedThrowable: flags catch(t: Throwable)") {
-        val findings =
-            rule("NoSwallowedThrowable").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSwallowedThrowable: flags catch(t: Throwable)") {
+            val findings =
+                rule("NoSwallowedThrowable").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -225,17 +226,17 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun calculate(): Int = 42
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Catching Throwable directly is forbidden"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Catching Throwable directly is forbidden"
+        }
 
-    test("NoSwallowedThrowable: allows catch(t: Throwable) when immediately rethrown") {
-        val findings =
-            rule("NoSwallowedThrowable").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSwallowedThrowable: allows catch(t: Throwable) when immediately rethrown") {
+            val findings =
+                rule("NoSwallowedThrowable").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -251,16 +252,16 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun cleanup() {}
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoSwallowedThrowable: allows catch(t: Throwable) with behavior-contract comment") {
-        val findings =
-            rule("NoSwallowedThrowable").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoSwallowedThrowable: allows catch(t: Throwable) with behavior-contract comment") {
+            val findings =
+                rule("NoSwallowedThrowable").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository {
@@ -276,24 +277,18 @@ class SilentFallbackRulesTest : FunSpec({
                     private fun cleanup() {}
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
-})
+            findings shouldBe emptyList()
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

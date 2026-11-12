@@ -1,0 +1,7 @@
+# Keep machine-specific compiler/cache settings local and portable checkouts self-contained.
+include = [
+    { path = "local.toml", optional = true },
+]
+
+[build]
+target-dir = "target/cargo"

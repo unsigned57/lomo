@@ -46,10 +46,12 @@ class SettingsSyncCoordinatorSupportTest : AppFunSpec() {
                         action = { throw IllegalStateException("boom") },
                     )
 
-                (result) shouldBe (SettingsOperationError.GitSync(
+                (result) shouldBe (
+                    SettingsOperationError.GitSync(
                         code = GitSyncErrorCode.UNKNOWN,
                         detail = "boom",
-                    ))
+                    )
+                    )
             }
         }
 

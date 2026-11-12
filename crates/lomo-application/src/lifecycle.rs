@@ -8,7 +8,7 @@ use lomo_store::{
     purge_record_relative_path,
 };
 use lomo_workspace::{
-    DocumentPatchCommand, MemoId, MemoIdentityChange, SourceFingerprint, decode_trash_record,
+    DocumentPatchCommand, MemoId, SourceFingerprint, decode_trash_record,
     trash_record_relative_path,
 };
 use serde::Serialize;
@@ -16,7 +16,6 @@ use serde::Serialize;
 use crate::{
     document_plan::{LoadedDocument, project_memo},
     error::{conflict, resource_limit, validation},
-    lock::TransactionLock,
     record_plan::{StateChange, state_files},
     resource::{MAX_TRANSACTION_BYTES, MAX_TRANSACTION_FILES},
     session::WorkspaceSession,
@@ -137,15 +136,15 @@ impl WorkspaceSession {
         &self,
         request: &RestoreMemoRequest,
     ) -> Result<RestoreMemoResult, LomoError> {
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        let held = self.write_behind.exclusive()?;
         let digest = payload_digest(&request)?;
-        if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
+        if let Some(receipt) = self.replay(&held, &request.operation_id, &digest)? {
             return Ok(RestoreMemoResult {
                 commit_result: receipt,
             });
         }
-        self.recover_pending()?;
-        self.restore_trashed(request, digest)
+        self.recover_pending(&held)?;
+        self.restore_trashed(&held, request, digest)
     }
 
     /// Replaces the active body with a historical snapshot through the shared write path.
@@ -180,15 +179,15 @@ impl WorkspaceSession {
         &self,
         request: &PermanentDeleteRequest,
     ) -> Result<RestoreMemoResult, LomoError> {
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        let held = self.write_behind.exclusive()?;
         let digest = payload_digest(&request)?;
-        if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
+        if let Some(receipt) = self.replay(&held, &request.operation_id, &digest)? {
             return Ok(RestoreMemoResult {
                 commit_result: receipt,
             });
         }
-        self.recover_pending()?;
-        self.drop_trashed(request, digest)
+        self.recover_pending(&held)?;
+        self.drop_trashed(&held, request, digest)
     }
 
     /// Permanently drops trashed memos as bounded, replay-safe child batches.
@@ -205,7 +204,7 @@ impl WorkspaceSession {
         &self,
         request: &PermanentDeleteManyRequest,
     ) -> Result<PermanentDeleteManyResult, LomoError> {
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        let held = self.write_behind.exclusive()?;
         let mut targets = request.targets.clone();
         targets.sort_by(|left, right| left.memo_id.as_str().cmp(right.memo_id.as_str()));
         if targets.is_empty() {
@@ -225,8 +224,10 @@ impl WorkspaceSession {
             ));
         }
         require_batch_parent_room(&request.operation_id)?;
-        self.recover_pending()?;
-        let outcome = self.commit_delete_targets(&request.operation_id, &targets, &mut || false)?;
+        self.recover_pending(&held)?;
+        let outcome =
+            self.commit_delete_targets(&held, &request.operation_id, &targets, &mut || false)?;
+        drop(held);
         let idempotent_replay = outcome.batches.iter().all(|batch| batch.idempotent_replay);
         let commit_result = outcome.batches.last().cloned().ok_or_else(|| {
             validation(
@@ -262,9 +263,9 @@ impl WorkspaceSession {
         request: &EmptyTrashRequest,
         is_cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<EmptyTrashResult, LomoError> {
-        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        let held = self.write_behind.exclusive()?;
         require_batch_parent_room(&request.operation_id)?;
-        self.recover_pending()?;
+        self.recover_pending(&held)?;
         let mut targets = Vec::new();
         let mut cursor: Option<PageCursor> = None;
         loop {
@@ -298,7 +299,9 @@ impl WorkspaceSession {
         }
         targets.sort_by(|left, right| left.memo_id.as_str().cmp(right.memo_id.as_str()));
         targets.dedup_by(|left, right| left.memo_id == right.memo_id);
-        let outcome = self.commit_delete_targets(&request.operation_id, &targets, is_cancelled)?;
+        let outcome =
+            self.commit_delete_targets(&held, &request.operation_id, &targets, is_cancelled)?;
+        drop(held);
         let idempotent_replay = outcome.batches.iter().all(|batch| batch.idempotent_replay);
         Ok(EmptyTrashResult {
             removed: u64::try_from(outcome.deleted.len())
@@ -319,6 +322,7 @@ impl WorkspaceSession {
     /// when each uncommitted chunk is planned and fails closed instead of silently re-chunking.
     fn commit_delete_targets(
         &self,
+        held: &crate::write_behind::Exclusive<'_>,
         parent_operation: &OperationId,
         targets: &[PermanentDeleteManyTarget],
         is_cancelled: &mut dyn FnMut() -> bool,
@@ -336,12 +340,12 @@ impl WorkspaceSession {
             let token = batch_token(chunk)?;
             let child_id = OperationId::parse(&format!("{}.{token}", parent_operation.as_str()))?;
             let digest = payload_digest(&(parent_operation, chunk))?;
-            if let Some(receipt) = self.replay(&child_id, &digest)? {
+            if let Some(receipt) = self.replay(held, &child_id, &digest)? {
                 deleted.extend(chunk.iter().map(|target| target.memo_id.clone()));
                 batches.push(receipt);
                 continue;
             }
-            let receipt = self.commit_delete_chunk(&child_id, chunk, digest)?;
+            let receipt = self.commit_delete_chunk(held, &child_id, chunk, digest)?;
             deleted.extend(chunk.iter().map(|target| target.memo_id.clone()));
             batches.push(receipt);
         }
@@ -355,6 +359,7 @@ impl WorkspaceSession {
     /// Plans and commits one bounded permanent-delete chunk as a single durable intent.
     fn commit_delete_chunk(
         &self,
+        held: &crate::write_behind::Exclusive<'_>,
         child_id: &OperationId,
         chunk: &[PermanentDeleteManyTarget],
         digest: String,
@@ -382,7 +387,7 @@ impl WorkspaceSession {
                 ));
             }
             let trash_path = RelativeWorkspacePath::parse(
-                trash_record_relative_path(target.memo_id.as_str())?.as_str(),
+                trash_record_relative_path(target.memo_id.as_str(), &summary.source_path)?.as_str(),
             )?;
             let trash_file = self.io().require(&trash_path)?;
             retained_bytes =
@@ -444,14 +449,18 @@ impl WorkspaceSession {
                 "permanent delete chunk exceeds the transaction byte budget",
             ));
         }
-        self.commit_transaction(TransactionInput {
-            operation_id: child_id.clone(),
-            memo_id: first.memo_id.clone(),
-            path: RelativeWorkspacePath::parse(&first.source_path)?,
-            payload_digest: digest,
-            files,
-            mutations: vec![publication],
-        })
+        self.commit_transaction(
+            held,
+            TransactionInput {
+                operation_id: child_id.clone(),
+                memo_id: first.memo_id.clone(),
+                path: RelativeWorkspacePath::parse(&first.source_path)?,
+                payload_digest: digest,
+                files,
+                mutations: vec![publication],
+                staging: Vec::new(),
+            },
+        )
     }
 
     /// Plans the durable purge tombstone for one permanently deleted memo.
@@ -482,28 +491,31 @@ impl WorkspaceSession {
 impl WorkspaceSession {
     fn restore_trashed(
         &self,
+        held: &crate::write_behind::Exclusive<'_>,
         request: &RestoreMemoRequest,
         digest: String,
     ) -> Result<RestoreMemoResult, LomoError> {
         let current = self.trashed_snapshot(&request.memo_id)?;
         let trash_path = RelativeWorkspacePath::parse(
-            trash_record_relative_path(request.memo_id.as_str())?.as_str(),
+            trash_record_relative_path(request.memo_id.as_str(), &current.summary.source_path)?
+                .as_str(),
         )?;
         let trash_file = self.io().require(&trash_path)?;
         let trash = decode_trash_record(&trash_file.bytes)?;
         let path = RelativeWorkspacePath::parse(&trash.source_path)?;
-        let loaded = LoadedDocument::load(&self.io(), path.clone())?;
+        let loaded = LoadedDocument::load(
+            &self.io(),
+            path.clone(),
+            crate::document_plan::DocumentRead::UncataloguedDestination,
+        )?;
         let command = DocumentPatchCommand::Append {
             path: loaded.logical_path.clone(),
             expected_fingerprint: loaded.document.source().fingerprint().clone(),
             time_part: trash.time_part.clone(),
-            content: trash.body,
+            content: trash.body.clone(),
         };
-        let changed = loaded.apply(
-            request.operation_id.clone(),
-            MemoIdentityChange::Restore(request.memo_id.clone()),
-            &command,
-        )?;
+        let identity_change = loaded.identities.trash_restore_change(&trash)?;
+        let changed = loaded.apply(request.operation_id.clone(), identity_change, &command)?;
         let fingerprint = changed.document.source().fingerprint().as_str();
         let projection = project_memo(
             &path,
@@ -521,26 +533,30 @@ impl WorkspaceSession {
             StateChange::Restore,
             epoch_millis()?,
         )?);
-        let receipt = self.commit_transaction(TransactionInput {
-            operation_id: request.operation_id.clone(),
-            memo_id: request.memo_id.clone(),
-            path,
-            payload_digest: digest,
-            files,
-            mutations: vec![DocumentPublication {
-                history: None,
-                mutation: SafProjectionMutation {
-                    operation_id: request.operation_id.as_str().to_owned(),
-                    kind: SafProjectionMutationKind::Restore,
-                    memo_id: request.memo_id.as_str().to_owned(),
-                    expected_revision: current.summary.content_revision,
-                    expected_fingerprint: Some(current.summary.file_fingerprint),
-                    projection: Some(projection),
-                    trashed_at_ms: None,
-                    batch_targets: Vec::new(),
-                },
-            }],
-        })?;
+        let receipt = self.commit_transaction(
+            held,
+            TransactionInput {
+                operation_id: request.operation_id.clone(),
+                memo_id: request.memo_id.clone(),
+                path,
+                payload_digest: digest,
+                files,
+                mutations: vec![DocumentPublication {
+                    history: None,
+                    mutation: SafProjectionMutation {
+                        operation_id: request.operation_id.as_str().to_owned(),
+                        kind: SafProjectionMutationKind::Restore,
+                        memo_id: request.memo_id.as_str().to_owned(),
+                        expected_revision: current.summary.content_revision,
+                        expected_fingerprint: Some(current.summary.file_fingerprint),
+                        projection: Some(projection),
+                        trashed_at_ms: None,
+                        batch_targets: Vec::new(),
+                    },
+                }],
+                staging: Vec::new(),
+            },
+        )?;
         Ok(RestoreMemoResult {
             commit_result: receipt,
         })
@@ -548,39 +564,49 @@ impl WorkspaceSession {
 
     fn drop_trashed(
         &self,
+        held: &crate::write_behind::Exclusive<'_>,
         request: &PermanentDeleteRequest,
         digest: String,
     ) -> Result<RestoreMemoResult, LomoError> {
         let current = self.trashed_snapshot(&request.memo_id)?;
         let path = RelativeWorkspacePath::parse(&current.summary.source_path)?;
-        let loaded = LoadedDocument::load(&self.io(), path.clone())?;
+        let loaded = LoadedDocument::load(
+            &self.io(),
+            path.clone(),
+            crate::document_plan::DocumentRead::UncataloguedDestination,
+        )?;
         let trash_path = RelativeWorkspacePath::parse(
-            trash_record_relative_path(request.memo_id.as_str())?.as_str(),
+            trash_record_relative_path(request.memo_id.as_str(), &current.summary.source_path)?
+                .as_str(),
         )?;
         let trash_file = self.io().require(&trash_path)?;
         let projection = remaining_projection(&request.memo_id, &current, loaded.fingerprint())?;
         let tombstone =
             self.purge_tombstone_file(&request.memo_id, &request.operation_id, epoch_millis()?)?;
-        let receipt = self.commit_transaction(TransactionInput {
-            operation_id: request.operation_id.clone(),
-            memo_id: request.memo_id.clone(),
-            path,
-            payload_digest: digest,
-            files: vec![PlannedFile::delete(trash_path, &trash_file), tombstone],
-            mutations: vec![DocumentPublication {
-                history: None,
-                mutation: SafProjectionMutation {
-                    operation_id: request.operation_id.as_str().to_owned(),
-                    kind: SafProjectionMutationKind::PermanentDelete,
-                    memo_id: request.memo_id.as_str().to_owned(),
-                    expected_revision: current.summary.content_revision,
-                    expected_fingerprint: Some(current.summary.file_fingerprint),
-                    projection: Some(projection),
-                    trashed_at_ms: None,
-                    batch_targets: Vec::new(),
-                },
-            }],
-        })?;
+        let receipt = self.commit_transaction(
+            held,
+            TransactionInput {
+                operation_id: request.operation_id.clone(),
+                memo_id: request.memo_id.clone(),
+                path,
+                payload_digest: digest,
+                files: vec![PlannedFile::delete(trash_path, &trash_file), tombstone],
+                mutations: vec![DocumentPublication {
+                    history: None,
+                    mutation: SafProjectionMutation {
+                        operation_id: request.operation_id.as_str().to_owned(),
+                        kind: SafProjectionMutationKind::PermanentDelete,
+                        memo_id: request.memo_id.as_str().to_owned(),
+                        expected_revision: current.summary.content_revision,
+                        expected_fingerprint: Some(current.summary.file_fingerprint),
+                        projection: Some(projection),
+                        trashed_at_ms: None,
+                        batch_targets: Vec::new(),
+                    },
+                }],
+                staging: Vec::new(),
+            },
+        )?;
         Ok(RestoreMemoResult {
             commit_result: receipt,
         })

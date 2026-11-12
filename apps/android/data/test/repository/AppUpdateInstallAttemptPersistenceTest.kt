@@ -45,10 +45,15 @@ import java.nio.file.Files
  */
 class AppUpdateInstallAttemptPersistenceTest : DataFunSpec() {
     init {
-        test("given missing install permission when repository is recreated then permission-waiting attempt metadata is restored") {
+        test(
+            "given missing install permission when repository is recreated then permission-waiting attempt metadata is restored",
+        ) {
             runTest {
                 val stateFile = Files.createTempFile("lomo-update-attempt", ".json").toFile()
-                val context = updateContext(cacheDir = Files.createTempDirectory("lomo-update-cache").toFile(), canInstall = false)
+                val context = updateContext(
+                    cacheDir = Files.createTempDirectory("lomo-update-cache").toFile(),
+                    canInstall = false,
+                )
                 val firstRepository =
                     repository(
                         context = context,
@@ -75,7 +80,9 @@ class AppUpdateInstallAttemptPersistenceTest : DataFunSpec() {
             }
         }
 
-        test("given verified apk when installer wait starts then verified metadata is persisted before terminal completion") {
+        test(
+            "given verified apk when installer wait starts then verified metadata is persisted before terminal completion",
+        ) {
             runTest {
                 val stateFile = Files.createTempFile("lomo-update-verified-attempt", ".json").toFile()
                 val cacheDir = Files.createTempDirectory("lomo-update-cache-verified").toFile()
@@ -87,7 +94,10 @@ class AppUpdateInstallAttemptPersistenceTest : DataFunSpec() {
                             val persisted = stateStore.observe().first()
                             assertSoftly {
                                 persisted?.phase shouldBe AppUpdateInstallPhase.WaitingForInstallerResult
-                                persisted?.downloadedFilePath shouldBe File(cacheDir, "updates/lomo-v1.6.0-vc44.apk").absolutePath
+                                persisted?.downloadedFilePath shouldBe File(
+                                    cacheDir,
+                                    "updates/lomo-v1.6.0-vc44.apk",
+                                ).absolutePath
                                 persisted?.verifiedPackageMetadata?.packageName shouldBe "com.lomo.app"
                                 persisted?.verifiedPackageMetadata?.versionName shouldBe "1.6.0"
                                 persisted?.verifiedPackageMetadata?.versionCode shouldBe 44L
@@ -119,10 +129,15 @@ class AppUpdateInstallAttemptPersistenceTest : DataFunSpec() {
             }
         }
 
-        test("given download fails after attempt is persisted when flow exits then terminal failed attempt keeps update evidence") {
+        test(
+            "given download fails after attempt is persisted when flow exits then terminal failed attempt keeps update evidence",
+        ) {
             runTest {
                 val stateFile = Files.createTempFile("lomo-update-download-failed-attempt", ".json").toFile()
-                val context = updateContext(cacheDir = Files.createTempDirectory("lomo-update-cache-failed").toFile(), canInstall = true)
+                val context = updateContext(
+                    cacheDir = Files.createTempDirectory("lomo-update-cache-failed").toFile(),
+                    canInstall = true,
+                )
                 val stateStore = JsonFileAppUpdateInstallAttemptStore(stateFile)
                 val downloadFailure = IOException("network unavailable")
                 val repository =
@@ -151,7 +166,9 @@ class AppUpdateInstallAttemptPersistenceTest : DataFunSpec() {
             }
         }
 
-        test("given installer launch fails after verified metadata when flow exits then failed attempt retains apk metadata") {
+        test(
+            "given installer launch fails after verified metadata when flow exits then failed attempt retains apk metadata",
+        ) {
             runTest {
                 val stateFile = Files.createTempFile("lomo-update-launch-failed-attempt", ".json").toFile()
                 val cacheDir = Files.createTempDirectory("lomo-update-cache-launch-failed").toFile()
@@ -186,10 +203,15 @@ class AppUpdateInstallAttemptPersistenceTest : DataFunSpec() {
             }
         }
 
-        test("given cancellation during download when flow exits then cancellation is propagated without failed attempt conversion") {
+        test(
+            "given cancellation during download when flow exits then cancellation is propagated without failed attempt conversion",
+        ) {
             runTest {
                 val stateFile = Files.createTempFile("lomo-update-cancelled-attempt", ".json").toFile()
-                val context = updateContext(cacheDir = Files.createTempDirectory("lomo-update-cache-cancelled").toFile(), canInstall = true)
+                val context = updateContext(
+                    cacheDir = Files.createTempDirectory("lomo-update-cache-cancelled").toFile(),
+                    canInstall = true,
+                )
                 val stateStore = JsonFileAppUpdateInstallAttemptStore(stateFile)
                 val cancellation = CancellationException("collector cancelled")
                 val repository =
@@ -223,58 +245,43 @@ private fun repository(
     verifier: AppUpdateApkVerifier = PersistenceRejectingVerifier(message = "unused"),
     installerResultObserver: AppUpdateInstallerResultObserver = PersistenceRecordingInstallerResultObserver(),
     installerLauncher: AppUpdateInstallerLauncher = RecordingInstallerLauncher,
-): AppUpdateDownloadRepositoryImpl =
-    AppUpdateDownloadRepositoryImpl(
-        context = context,
-        resources = FakeDataAndroidResources(),
-        downloader = downloader,
-        apkVerifier = verifier,
-        installerResultObserver = installerResultObserver,
-        attemptStore = stateStore,
-        installerLauncher = installerLauncher,
-    )
+): AppUpdateDownloadRepositoryImpl = AppUpdateDownloadRepositoryImpl(
+    context = context,
+    resources = FakeDataAndroidResources(),
+    downloader = downloader,
+    apkVerifier = verifier,
+    installerResultObserver = installerResultObserver,
+    attemptStore = stateStore,
+    installerLauncher = installerLauncher,
+)
 
 private object WritingDownloader : AppUpdateApkDownloader {
-    override suspend fun download(
-        downloadUrl: String,
-        outputFile: File,
-        onProgress: suspend (Int) -> Unit,
-    ) {
+    override suspend fun download(downloadUrl: String, outputFile: File, onProgress: suspend (Int) -> Unit) {
         outputFile.writeText("fake-apk")
         onProgress(100)
     }
 }
 
-private class ThrowingDownloader(
-    private val failure: Throwable,
-) : AppUpdateApkDownloader {
-    override suspend fun download(
-        downloadUrl: String,
-        outputFile: File,
-        onProgress: suspend (Int) -> Unit,
-    ) {
+private class ThrowingDownloader(private val failure: Throwable) : AppUpdateApkDownloader {
+    override suspend fun download(downloadUrl: String, outputFile: File, onProgress: suspend (Int) -> Unit): Unit =
         throw failure
-    }
 }
 
 private object AcceptingVerifier : AppUpdateApkVerifier {
     override fun verify(
         apkFile: File,
         updateInfo: com.lomo.domain.model.AppUpdateInfo,
-    ): DownloadedApkVerificationResult =
-        DownloadedApkVerificationResult.Valid(
-            VerifiedAppUpdatePackageMetadata(
-                packageName = "com.lomo.app",
-                versionName = "1.6.0",
-                versionCode = 44L,
-                signerCertificateSha256Digests = setOf("release-signer"),
-            ),
-        )
+    ): DownloadedApkVerificationResult = DownloadedApkVerificationResult.Valid(
+        VerifiedAppUpdatePackageMetadata(
+            packageName = "com.lomo.app",
+            versionName = "1.6.0",
+            versionCode = 44L,
+            signerCertificateSha256Digests = setOf("release-signer"),
+        ),
+    )
 }
 
-private class PersistenceRejectingVerifier(
-    private val message: String,
-) : AppUpdateApkVerifier {
+private class PersistenceRejectingVerifier(private val message: String) : AppUpdateApkVerifier {
     override fun verify(
         apkFile: File,
         updateInfo: com.lomo.domain.model.AppUpdateInfo,
@@ -289,17 +296,12 @@ private object RecordingInstallerLauncher : AppUpdateInstallerLauncher {
     }
 }
 
-private class ThrowingInstallerLauncher(
-    private val failure: Throwable,
-) : AppUpdateInstallerLauncher {
-    override fun launch(apkFile: File) {
-        throw failure
-    }
+private class ThrowingInstallerLauncher(private val failure: Throwable) : AppUpdateInstallerLauncher {
+    override fun launch(apkFile: File): Unit = throw failure
 }
 
-private class PersistenceRecordingInstallerResultObserver(
-    private val onAwait: suspend () -> Unit = {},
-) : AppUpdateInstallerResultObserver {
+private class PersistenceRecordingInstallerResultObserver(private val onAwait: suspend () -> Unit = {}) :
+    AppUpdateInstallerResultObserver {
     override suspend fun awaitInstallerResult(
         verifiedDownloadedApk: VerifiedAppUpdatePackageMetadata,
         updateInfo: com.lomo.domain.model.AppUpdateInfo,
@@ -309,10 +311,7 @@ private class PersistenceRecordingInstallerResultObserver(
     }
 }
 
-private fun updateContext(
-    cacheDir: File,
-    canInstall: Boolean,
-): Context {
+private fun updateContext(cacheDir: File, canInstall: Boolean): Context {
     val context = mockk<Context>()
     val packageManager = mockk<PackageManager>()
     every { context.cacheDir } returns cacheDir
@@ -323,15 +322,14 @@ private fun updateContext(
     return context
 }
 
-private fun updateInfo(): com.lomo.domain.model.AppUpdateInfo =
-    com.lomo.domain.model.AppUpdateInfo(
-        url = "https://example.com/releases/1.6.0",
-        version = "1.6.0",
-        releaseNotes = "Release notes",
-        apkDownloadUrl = "https://example.com/assets/lomo-v1.6.0-vc44.apk",
-        apkFileName = "lomo-v1.6.0-vc44.apk",
-        apkSizeBytes = 4_096L,
-        expectedPackageName = "com.lomo.app",
-        expectedVersionName = "1.6.0",
-        expectedVersionCode = 44L,
-    )
+private fun updateInfo(): com.lomo.domain.model.AppUpdateInfo = com.lomo.domain.model.AppUpdateInfo(
+    url = "https://example.com/releases/1.6.0",
+    version = "1.6.0",
+    releaseNotes = "Release notes",
+    apkDownloadUrl = "https://example.com/assets/lomo-v1.6.0-vc44.apk",
+    apkFileName = "lomo-v1.6.0-vc44.apk",
+    apkSizeBytes = 4_096L,
+    expectedPackageName = "com.lomo.app",
+    expectedVersionName = "1.6.0",
+    expectedVersionCode = 44L,
+)

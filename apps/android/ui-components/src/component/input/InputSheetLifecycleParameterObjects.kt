@@ -7,7 +7,8 @@ internal data class InputSheetLifecycleState(
     val sessionState: InputSheetSessionState,
     val sheetState: InputSheetState,
     val inputText: String,
-    val presentationState: InputSheetPresentationState,
+    /** Preview hides the source text, so it withdraws the caret and keyboard. */
+    val editorAcceptsFocus: Boolean,
     val focusRequester: FocusRequester,
     val focusParkingRequester: FocusRequester,
     val focusRequestToken: Long,
@@ -15,11 +16,10 @@ internal data class InputSheetLifecycleState(
 )
 
 internal data class InputSheetFocusRequestState(
-    val isSheetVisible: Boolean,
-    val isSheetEntrySettled: Boolean,
-    val presentationState: InputSheetPresentationState,
+    val sessionState: InputSheetSessionState,
+    /** Preview hides the source text, so it withdraws the caret and keyboard. */
+    val editorAcceptsFocus: Boolean,
     val isRecording: Boolean,
-    val isDismissing: Boolean,
     val focusRequester: FocusRequester,
     val focusParkingRequester: FocusRequester,
     val focusRequestToken: Long,

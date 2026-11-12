@@ -1,130 +1,66 @@
 package com.lomo.ui.component.input
 
-import androidx.compose.material3.MotionScheme
-
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.MaterialTheme
 
 @Composable
 internal fun InputSheetFocusParkingTarget(focusParkingRequester: FocusRequester) {
     Box(
         modifier =
-            Modifier
-                .size(1.dp)
-                .focusRequester(focusParkingRequester)
-                .focusable()
-                .clearAndSetSemantics { },
+        Modifier
+            .size(1.dp)
+            .focusRequester(focusParkingRequester)
+            .focusable()
+            .clearAndSetSemantics { },
     )
 }
 
 @Composable
-internal fun InputSheetDismissScrim(
-    scrimAlpha: Float,
-    enabled: Boolean = true,
-    onRequestDismiss: () -> Unit,
-) {
+internal fun InputSheetDismissScrim(scrimAlpha: Float, enabled: Boolean = true, onRequestDismiss: () -> Unit) {
     Box(
         modifier =
-            Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.scrim.copy(alpha = scrimAlpha))
-                .pointerInput(enabled) {
-                    if (enabled) {
-                        detectTapGestures(onTap = { onRequestDismiss() })
-                    }
-                },
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = scrimAlpha))
+            .pointerInput(enabled) {
+                if (enabled) {
+                    detectTapGestures(onTap = { onRequestDismiss() })
+                }
+            },
     )
 }
 
-internal fun inputSheetVisibilityEnterTransition(motionScheme: MotionScheme): EnterTransition =
+internal fun inputSheetVisibilityEnterTransition(motionScheme: MotionScheme): EnterTransition = fadeIn(
+    animationSpec = motionScheme.defaultEffectsSpec(),
+) +
     slideInVertically(
-        initialOffsetY = { height -> height },
-        animationSpec =
-            motionScheme.slowSpatialSpec(),
+        initialOffsetY = { height -> height / 3 },
+        animationSpec = motionScheme.defaultSpatialSpec(),
     )
 
-internal fun inputSheetVisibilityExitTransition(motionScheme: MotionScheme): ExitTransition =
+internal fun inputSheetVisibilityExitTransition(motionScheme: MotionScheme): ExitTransition = fadeOut(
+    animationSpec = motionScheme.fastEffectsSpec(),
+) +
     slideOutVertically(
-        targetOffsetY = { height -> height },
-        animationSpec =
-            motionScheme.slowSpatialSpec(),
+        targetOffsetY = { height -> height / 3 },
+        animationSpec = motionScheme.fastSpatialSpec(),
     )
-
-@Composable
-internal fun InputSheetSurfaceContent(
-    motionStage: InputSheetMotionStage,
-    modifier: Modifier = Modifier,
-    content: @Composable (InputSheetMotionStage, Modifier) -> Unit,
-) {
-    Column(modifier = modifier) {
-        InputSheetCompactChrome(visible = motionStage.showsCompactChrome())
-        content(
-            motionStage,
-            Modifier
-                .fillMaxWidth()
-                .then(
-                    if (motionStage.usesExpandedSurfaceForm()) {
-                        Modifier.weight(1f)
-                    } else {
-                        Modifier
-                    },
-                ),
-        )
-    }
-}
-
-@Composable
-private fun InputSheetCompactChrome(visible: Boolean) {
-    val motionScheme = MaterialTheme.motionScheme
-    AnimatedVisibility(
-        visible = visible,
-        enter =
-            fadeIn(
-                animationSpec =
-                    motionScheme.defaultEffectsSpec(),
-            ) +
-                expandVertically(
-                    animationSpec =
-                        motionScheme.defaultSpatialSpec(),
-                ),
-        exit =
-            fadeOut(
-                animationSpec =
-                    motionScheme.fastEffectsSpec(),
-            ) +
-                shrinkVertically(
-                    animationSpec =
-                        motionScheme.fastSpatialSpec(),
-                ),
-    ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            InputSheetDragHandle(
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
-    }
-}

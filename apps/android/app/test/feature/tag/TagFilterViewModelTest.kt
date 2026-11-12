@@ -1,11 +1,16 @@
 package com.lomo.app.feature.tag
 
-import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
-
-import com.lomo.app.testing.fakes.testMemoUiMapper
-
 /*
  * Behavior Contract:
+ * Test Change Justification:
+ * Reason category: explicit activation input adaptation.
+ * Old behavior/assertion being replaced: root-only activations implicitly read attachment candidates from a journal.
+ * Why old assertion is no longer correct: activation now receives a prepared attachment change explicitly;
+ * these existing root-only calls select the committed attachment configuration with a null change.
+ * Coverage preserved by: every existing mount, state and failure assertion is retained without weakening.
+ * Why this is not fitting the test to the implementation: stale pending candidates must not influence restoration.
+ * TDD proof: Regression preservation - transaction-green-first.log and verification-green.log under
+ * target/lomo/reports/manual/directory-selection/; index-validation-red.log exposes premature activation.
  * - Unit under test: TagFilterViewModel
  * - Owning layer: app
  * - Priority tier: P1
@@ -39,9 +44,8 @@ import com.lomo.app.testing.fakes.testMemoUiMapper
 import androidx.lifecycle.SavedStateHandle
 import androidx.paging.PagingData
 import com.lomo.app.feature.common.AppConfigUiCoordinator
-import com.lomo.app.feature.main.MemoUiMapper
-import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.MainWorkspaceCoordinator
+import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
@@ -50,14 +54,14 @@ import com.lomo.app.testing.collectWhileSubscribed
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeMediaRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
+import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
+import com.lomo.app.testing.fakes.testMemoUiMapper
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.FakeSaveImageUseCase
 import com.lomo.domain.usecase.GetMemosByTagPageUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
-import com.lomo.domain.usecase.SaveImageResult
-import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.kotest.assertions.throwables.shouldThrow
@@ -91,7 +95,9 @@ class TagFilterViewModelTest : AppFunSpec() {
             repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
             validator = ValidateMemoContentUseCase(),
         )
-    private val deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository))
+    private val deleteMemoUseCase = DeleteMemoUseCase(
+        com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
+    )
     private val toggleMemoCheckboxUseCase =
         storeBackedToggleMemoCheckboxUseCase(memoRepository)
     private val saveImageUseCase = FakeSaveImageUseCase(mediaRepository)
@@ -137,7 +143,7 @@ class TagFilterViewModelTest : AppFunSpec() {
                 advanceUntilIdle()
                 pagingEmissions shouldBe emptyList()
 
-                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace"), mediaChange = null)
                 runCurrent()
                 advanceUntilIdle()
                 pagingEmissions.size shouldBe 1
@@ -249,7 +255,10 @@ class TagFilterViewModelTest : AppFunSpec() {
                 memoRepository.setActiveMemos(listOf(memo))
                 val viewModel = createViewModel(tagName = "work")
 
-                viewModel.toggleTodo(memo = memo, actionSpan = com.lomo.domain.model.markdown.MarkdownSourceSpan(0u, 3u))
+                viewModel.toggleTodo(
+                    memo = memo,
+                    actionSpan = com.lomo.domain.model.markdown.MarkdownSourceSpan(0u, 3u),
+                )
                 advanceUntilIdle()
 
                 val updated = memoRepository.currentActiveMemos().first()
@@ -265,7 +274,10 @@ class TagFilterViewModelTest : AppFunSpec() {
                 memoRepository.updateMemoFailure = IllegalStateException("toggle failed")
                 val viewModel = createViewModel(tagName = "work")
 
-                viewModel.toggleTodo(memo = memo, actionSpan = com.lomo.domain.model.markdown.MarkdownSourceSpan(0u, 3u))
+                viewModel.toggleTodo(
+                    memo = memo,
+                    actionSpan = com.lomo.domain.model.markdown.MarkdownSourceSpan(0u, 3u),
+                )
                 advanceUntilIdle()
 
                 viewModel.errorMessage.value shouldBe "Failed to update todo: toggle failed"
@@ -316,60 +328,58 @@ class TagFilterViewModelTest : AppFunSpec() {
     private fun TestScope.createViewModel(tagName: String): TagFilterViewModel =
         createViewModel(savedStateHandle = SavedStateHandle(mapOf("tagName" to tagName)))
 
-    private fun TestScope.createViewModel(savedStateHandle: SavedStateHandle): TagFilterViewModel =
-        TagFilterViewModel(
-            TagFilterViewModelDependencies(
-                getMemosByTagPageUseCase =
-                    GetMemosByTagPageUseCase(
-                        com.lomo.app.testing.fakes.FakeMemoSearchRepository(memoRepository),
-                    ),
-                observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
-                appConfigStateProvider =
-                    com.lomo.app.feature.common.AppConfigStateProvider(
-                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                        appPreferencesSnapshotRepository = appConfigRepository,
-                        customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
-                        preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
-                        appScope = CoroutineScope(SupervisorJob() + testDispatcher),
-                    ),
-                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                imageMapProvider = imageMapProvider,
-                memoUiMapper = testMemoUiMapper(dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher)),
-                deleteMemoUseCase = deleteMemoUseCase,
-                updateMemoContentUseCase = updateMemoContentUseCase,
-                toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
-                saveImageUseCase = saveImageUseCase,
-                loadEditableMemoUseCase =
-                    com.lomo.domain.usecase.LoadEditableMemoUseCase(
-                        com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository),
-                    ),
-                workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
-                    every { mount } returns engineReadinessRepository.mount
-                },
+    private fun TestScope.createViewModel(savedStateHandle: SavedStateHandle): TagFilterViewModel = TagFilterViewModel(
+        TagFilterViewModelDependencies(
+            getMemosByTagPageUseCase =
+            GetMemosByTagPageUseCase(
+                com.lomo.app.testing.fakes.FakeMemoSearchRepository(memoRepository),
             ),
-            savedStateHandle = savedStateHandle,
-        ).also { viewModel ->
-            collectWhileSubscribed(viewModel.deletingMemoIds)
-        }
+            observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
+            appConfigStateProvider =
+            com.lomo.app.feature.common.AppConfigStateProvider(
+                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                appPreferencesSnapshotRepository = appConfigRepository,
+                customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(
+                    com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                ),
+                preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
+                appScope = CoroutineScope(SupervisorJob() + testDispatcher),
+            ),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            imageMapProvider = imageMapProvider,
+            memoUiMapper = testMemoUiMapper(
+                dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher),
+            ),
+            deleteMemoUseCase = deleteMemoUseCase,
+            updateMemoContentUseCase = updateMemoContentUseCase,
+            toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
+            saveImageUseCase = saveImageUseCase,
+            loadEditableMemoUseCase =
+            com.lomo.domain.usecase.LoadEditableMemoUseCase(
+                com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository),
+            ),
+            workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
+                every { mount } returns engineReadinessRepository.mount
+            },
+        ),
+        savedStateHandle = savedStateHandle,
+    ).also { viewModel ->
+        collectWhileSubscribed(viewModel.deletingMemoIds)
+    }
 
-    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =
-        ObserveActiveDayCountUseCase(
-            com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
-        )
+    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase = ObserveActiveDayCountUseCase(
+        com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
+    )
 
-    private fun sampleMemo(
-        id: String = "memo-0",
-        content: String = "content",
-    ): Memo =
-        Memo(
-            id = id,
-            timestamp = 1L,
-            content = content,
-            rawContent = "- 10:00 $content",
-            dateKey = "2026_03_24",
-            contentRevision = 1L,
-            fileFingerprint = "fp-$id",
-            projectedCharCount = "- 10:00 $content".length.toLong(),
-        )
+    private fun sampleMemo(id: String = "memo-0", content: String = "content"): Memo = Memo(
+        id = id,
+        timestamp = 1L,
+        content = content,
+        rawContent = "- 10:00 $content",
+        dateKey = "2026_03_24",
+        contentRevision = 1L,
+        fileFingerprint = "fp-$id",
+        projectedCharCount = "- 10:00 $content".length.toLong(),
+    )
 }

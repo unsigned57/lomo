@@ -1,7 +1,6 @@
 package com.lomo.app.feature.gallery
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,28 +11,34 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.theme.AppShapes
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.glass.GlassStyle
+import dev.chrisbanes.haze.glass.hazeGlass
 
 private val GALLERY_REEL_TOP_BAR_HORIZONTAL_PADDING = 16.dp
 private val GALLERY_REEL_TOP_BAR_TOP_PADDING = 8.dp
 private val GALLERY_REEL_TOP_BAR_TOUCH_SIZE = 44.dp
 private val GALLERY_REEL_TOP_BAR_ICON_SIZE = 24.dp
-private const val GALLERY_REEL_TOP_BAR_PILL_ALPHA = 0.72f
-private val GALLERY_REEL_TOP_BAR_PILL_ELEVATION = 3.dp
+private const val GALLERY_REEL_TOP_BAR_GLASS_TINT_ALPHA = 0.24f
 
 @Composable
-internal fun BoxScope.GalleryReelTopBar(
+internal fun GalleryReelTopBar(
+    hazeState: HazeState,
     onClose: () -> Unit,
     onShowMenu: (() -> Unit)?,
     modifier: Modifier = Modifier,
@@ -42,22 +47,23 @@ internal fun BoxScope.GalleryReelTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
         modifier =
-            modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(
-                    horizontal = GALLERY_REEL_TOP_BAR_HORIZONTAL_PADDING,
-                    vertical = GALLERY_REEL_TOP_BAR_TOP_PADDING,
-                ),
+        modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(
+                horizontal = GALLERY_REEL_TOP_BAR_HORIZONTAL_PADDING,
+                vertical = GALLERY_REEL_TOP_BAR_TOP_PADDING,
+            ),
     ) {
         GalleryReelTopBarPillButton(
+            hazeState = hazeState,
             imageVector = Icons.Rounded.Close,
             contentDescription = stringResource(R.string.gallery_reel_close),
             onClick = onClose,
         )
         if (onShowMenu != null) {
             GalleryReelTopBarPillButton(
+                hazeState = hazeState,
                 imageVector = Icons.Rounded.MoreVert,
                 contentDescription = stringResource(R.string.cd_more_options),
                 onClick = onShowMenu,
@@ -70,22 +76,31 @@ internal fun BoxScope.GalleryReelTopBar(
 
 @Composable
 private fun GalleryReelTopBarPillButton(
+    hazeState: HazeState,
     imageVector: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
 ) {
+    val surfaceColor = MaterialTheme.colorScheme.surfaceContainer
+    val glassStyle = remember(surfaceColor) {
+        GlassStyle.clear.then {
+            shape(AppShapes.Full)
+            backgroundColor(surfaceColor)
+            tint(surfaceColor.copy(alpha = GALLERY_REEL_TOP_BAR_GLASS_TINT_ALPHA))
+        }
+    }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = GALLERY_REEL_TOP_BAR_PILL_ALPHA),
+        color = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = AppShapes.Full,
-        tonalElevation = GALLERY_REEL_TOP_BAR_PILL_ELEVATION,
+        modifier = Modifier.hazeGlass(input = HazeInput.Sources(hazeState), style = glassStyle),
     ) {
-        IconButton(
+        LomoIconButton(
             onClick = onClick,
             colors =
-                IconButtonDefaults.iconButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ),
+            IconButtonDefaults.iconButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ),
             modifier = Modifier.size(GALLERY_REEL_TOP_BAR_TOUCH_SIZE),
         ) {
             Icon(

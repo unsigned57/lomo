@@ -5,7 +5,6 @@
     <string name="sidebar_trash">回收站</string>
     <string name="sidebar_daily_review">随机漫步</string>
     <string name="sidebar_gallery">画廊</string>
-    <string name="sidebar_tasks">任务</string>
     <string name="sidebar_statistics">统计</string>
     <string name="sidebar_settings">设置</string>
     
@@ -20,8 +19,6 @@
     <string name="cd_play_audio">播放音频</string>
     <string name="cd_pause_audio">暂停音频</string>
     <string name="cd_audio_playback_failed">音频播放失败，点按重试。</string>
-    <string name="cd_action_sheet_scroll_backward">向前滚动备忘录操作</string>
-    <string name="cd_action_sheet_scroll_forward">向后滚动备忘录操作</string>
     <string name="markdown_image_content_description">图片</string>
     <string name="markdown_image_load_failed">图片加载失败</string>
     <string name="calendar_heatmap_date_format">M月d日</string>
@@ -32,7 +29,7 @@
     <plurals name="period_report_memo_count">
         <item quantity="other">%1$d 条备忘录</item>
     </plurals>
-    <string name="period_report_daily_average">平均每天 %1$.1f 条</string>
+    <string name="period_report_daily_average">平均每天 %1$s 条</string>
 
     <!-- Memo Sheet -->
     <string name="action_copy">复制</string>
@@ -48,12 +45,11 @@
     <string name="action_jump">跳转</string>
     <string name="info_created">创建时间</string>
     <string name="info_characters">字符数</string>
-    <string name="memo_info_characters_value">字符数：%1$d</string>
-    <string name="memo_info_created_value">创建时间：%1$s</string>
     <string name="clipboard_label_memo">备忘录</string>
     <string name="loading_message">加载中…</string>
 
     <!-- Input Sheet -->
+    <string name="input_memo_title">速记</string>
     <string name="input_discard_title">放弃草稿？</string>
     <string name="input_discard_message">未保存的内容将会丢失。</string>
     <string name="input_discard_confirm">放弃</string>
@@ -113,4 +109,6 @@
     </plurals>
     <string name="reminder_done">已完成</string>
     <string name="memo_card_pending">保存中…</string>
+    <!-- Page Indicator -->
+    <string name="cd_page_indicator">第 %1$d 页，共 %2$d 页</string>
 </resources>

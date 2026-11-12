@@ -1,0 +1,52 @@
+# Behavior Contract:
+# Capability: creating a memo beneath pinned rows retains Markdown task presentation; owner: app; P1.
+# Given a pinned memo, when a new Markdown memo is submitted, then both identities remain visible.
+# The screenshot records task alignment, completion decoration, list markers and code presentation.
+# Host RED/GREEN: NewMemoCreationCoordinatorTest and MarkdownTaskPresentationTest.
+# Excludes: physical-device frame timing and arbitrary Markdown syntax conformance.
+appId: com.lomo.app
+---
+- evalScript: ${output.probe = "uitest pinned-prefix " + Date.now()}
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- inputText: "${output.probe}"
+- hideKeyboard
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible: "${output.probe}"
+- longPressOn: "${output.probe}"
+- tapOn: "Pin"
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- inputText: "# Markdown probe"
+- pressKey: Enter
+- inputText: "- [x] completed task probe"
+- pressKey: Enter
+- inputText: "open task probe"
+- pressKey: Enter
+- pressKey: Enter
+- inputText: "1. first item"
+- pressKey: Enter
+- inputText: "second item"
+- pressKey: Enter
+- pressKey: Enter
+- inputText: "```kotlin"
+- pressKey: Enter
+- inputText: "val value = 1"
+- pressKey: Enter
+- inputText: "```"
+- hideKeyboard
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible: "${output.probe}"
+- assertVisible: "completed task probe"
+- assertVisible: "open task probe"
+- takeScreenshot: pinned-markdown-created
+- longPressOn: "${output.probe}"
+- tapOn: "Unpin"

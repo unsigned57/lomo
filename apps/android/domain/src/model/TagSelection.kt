@@ -18,7 +18,4 @@ value class TagPath(val value: String) {
 
 enum class TagSelectionMode { Exact, Subtree }
 
-data class TagSelection(
-    val path: TagPath,
-    val mode: TagSelectionMode,
-)
+data class TagSelection(val path: TagPath, val mode: TagSelectionMode)

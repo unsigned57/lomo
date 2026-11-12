@@ -1,9 +1,6 @@
 package com.lomo.ui.component.markdown
 
-internal data class MarkdownImagePagerIndicatorState(
-    val currentPage: Int,
-    val pageCount: Int,
-)
+internal data class MarkdownImagePagerIndicatorState(val currentPage: Int, val pageCount: Int)
 
 internal fun resolveMarkdownImagePagerIndicatorState(
     currentPage: Int,

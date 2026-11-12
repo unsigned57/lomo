@@ -1,5 +1,6 @@
 package com.lomo.ui.component.picker
 
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.DatePicker
@@ -8,7 +9,10 @@ import androidx.compose.material3.DatePickerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 
 /**
@@ -21,11 +25,7 @@ import androidx.compose.ui.unit.dp
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExpressiveDatePickerSurface(
-    state: DatePickerState,
-    modifier: Modifier = Modifier,
-    title: String? = null,
-) {
+fun ExpressiveDatePickerSurface(state: DatePickerState, modifier: Modifier = Modifier, title: String? = null) {
     val colors = DatePickerDefaults.colors(
         todayContentColor = MaterialTheme.colorScheme.primary,
         todayDateBorderColor = MaterialTheme.colorScheme.primary,
@@ -35,21 +35,33 @@ fun ExpressiveDatePickerSurface(
         selectedYearContainerColor = MaterialTheme.colorScheme.primary,
         selectedYearContentColor = MaterialTheme.colorScheme.onPrimary,
     )
-    DatePicker(
-        state = state,
-        showModeToggle = false,
-        title = title?.let {
-            {
-                androidx.compose.material3.Text(
-                    text = it,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp),
-                )
-            }
-        },
-        headline = null,
-        colors = colors,
-        modifier = modifier.fillMaxWidth(),
-    )
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        // Material's seven fixed day cells need 360dp. Fit the entire calendar to the
+        // actual content width; scaling only drawing would leave hit targets clipped.
+        val density = LocalDensity.current
+        val scale = minOf(1f, maxWidth / CALENDAR_WIDTH)
+        CompositionLocalProvider(
+            LocalDensity provides Density(density.density * scale, density.fontScale),
+        ) {
+            DatePicker(
+                state = state,
+                showModeToggle = false,
+                title = title?.let {
+                    {
+                        androidx.compose.material3.Text(
+                            text = it,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp),
+                        )
+                    }
+                },
+                headline = null,
+                colors = colors,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }
+
+private val CALENDAR_WIDTH = 360.dp

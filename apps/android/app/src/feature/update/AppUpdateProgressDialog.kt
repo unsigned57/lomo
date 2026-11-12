@@ -12,21 +12,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,8 +36,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.lomo.app.R
 import com.lomo.domain.model.AppUpdateInstallState
+import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.component.common.LomoTextButton
+import com.lomo.ui.theme.AppShapes
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LomoAppUpdateProgressDialog(
     state: AppUpdateProgressDialogState?,
@@ -58,48 +58,48 @@ fun LomoAppUpdateProgressDialog(
         onDismissRequest = onDismiss,
         modifier = modifier,
         properties =
-            DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-            ),
+        DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
     ) {
         Box(
             modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = UPDATE_PROGRESS_SCRIM_ALPHA))
-                    .padding(horizontal = 24.dp),
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = UPDATE_PROGRESS_SCRIM_ALPHA))
+                .padding(horizontal = 24.dp),
             contentAlignment = Alignment.Center,
         ) {
             Surface(
                 modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = UPDATE_PROGRESS_MAX_WIDTH)
-                        .clip(UPDATE_PROGRESS_SHAPE),
+                Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = UPDATE_PROGRESS_MAX_WIDTH)
+                    .clip(UPDATE_PROGRESS_SHAPE),
                 shape = UPDATE_PROGRESS_SHAPE,
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 10.dp,
-                shadowElevation = 18.dp,
+                tonalElevation = 6.dp,
+                shadowElevation = 6.dp,
                 border =
-                    BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = UPDATE_PROGRESS_BORDER_ALPHA),
-                    ),
+                BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = UPDATE_PROGRESS_BORDER_ALPHA),
+                ),
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
                     UpdateProgressBackdrop(modifier = Modifier.matchParentSize())
                     Column(
                         modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp, vertical = 28.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                     ) {
                         Text(
                             text = presentation.title.asText(),
-                            style = MaterialTheme.typography.headlineSmall,
+                            style = MaterialTheme.typography.headlineSmallEmphasized,
                             fontWeight = FontWeight.SemiBold,
                             color = progressAccentColor(presentation.tone),
                             textAlign = TextAlign.Center,
@@ -134,19 +134,13 @@ fun LomoAppUpdateProgressDialog(
 }
 
 @Composable
-private fun UpdateProgressMainVisual(
-    installState: AppUpdateInstallState,
-    presentation: UpdateProgressPresentation,
-) {
+private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presentation: UpdateProgressPresentation) {
     when (installState) {
         AppUpdateInstallState.Idle,
         AppUpdateInstallState.Preparing,
         -> {
-            CircularProgressIndicator(
-                modifier = Modifier.size(56.dp),
-                strokeWidth = 4.dp,
+            ExpressiveLoadingIndicator(
                 color = progressAccentColor(presentation.tone),
-                trackColor = progressTrackColor(),
             )
         }
 
@@ -164,13 +158,13 @@ private fun UpdateProgressMainVisual(
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
                 )
-                LinearProgressIndicator(
+                LinearWavyProgressIndicator(
                     progress = { progress / 100f },
                     modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(10.dp)
-                            .clip(PROGRESS_BAR_SHAPE),
+                    Modifier
+                        .fillMaxWidth()
+                        .height(WAVY_PROGRESS_BAR_HEIGHT)
+                        .clip(PROGRESS_BAR_SHAPE),
                     color = progressAccentColor(presentation.tone),
                     trackColor = progressTrackColor(),
                     gapSize = 0.dp,
@@ -299,12 +293,8 @@ private fun UpdateProgressActions(
 }
 
 @Composable
-private fun UpdateProgressPrimaryAction(
-    text: String,
-    tone: UpdateProgressTone,
-    onClick: () -> Unit,
-) {
-    TextButton(
+private fun UpdateProgressPrimaryAction(text: String, tone: UpdateProgressTone, onClick: () -> Unit) {
+    LomoTextButton(
         onClick = onClick,
         colors = ButtonDefaults.textButtonColors(contentColor = progressAccentColor(tone)),
     ) {
@@ -313,70 +303,71 @@ private fun UpdateProgressPrimaryAction(
 }
 
 @Composable
-private fun UpdateProgressSecondaryAction(
-    text: String,
-    onClick: () -> Unit,
-) {
-    TextButton(
+private fun UpdateProgressSecondaryAction(text: String, onClick: () -> Unit) {
+    LomoTextButton(
         onClick = onClick,
         colors =
-            ButtonDefaults.textButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
+        ButtonDefaults.textButtonColors(
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
     ) {
         Text(text = text)
     }
 }
 
 @Composable
-private fun UpdateProgressTitle.asText(): String =
-    when (this) {
-        UpdateProgressTitle.Preparing -> stringResource(R.string.update_progress_title_preparing)
-        UpdateProgressTitle.Downloading -> stringResource(R.string.update_progress_title_downloading)
-        UpdateProgressTitle.Installing -> stringResource(R.string.update_progress_title_installing)
-        UpdateProgressTitle.Completed -> stringResource(R.string.update_progress_title_completed)
-        UpdateProgressTitle.RequiresInstallPermission ->
-            stringResource(R.string.update_progress_title_requires_install_permission)
-        UpdateProgressTitle.Failed -> stringResource(R.string.update_progress_title_failed)
-    }
+private fun UpdateProgressTitle.asText(): String = when (this) {
+    UpdateProgressTitle.Preparing -> stringResource(R.string.update_progress_title_preparing)
+
+    UpdateProgressTitle.Downloading -> stringResource(R.string.update_progress_title_downloading)
+
+    UpdateProgressTitle.Installing -> stringResource(R.string.update_progress_title_installing)
+
+    UpdateProgressTitle.Completed -> stringResource(R.string.update_progress_title_completed)
+
+    UpdateProgressTitle.RequiresInstallPermission ->
+        stringResource(R.string.update_progress_title_requires_install_permission)
+
+    UpdateProgressTitle.Failed -> stringResource(R.string.update_progress_title_failed)
+}
 
 @Composable
-private fun supportingMessageAsText(message: UpdateProgressSupportingMessage): String =
-    when (message) {
-        is UpdateProgressSupportingMessage.Default ->
-            when (message.key) {
-                UpdateProgressMessageKey.Preparing -> stringResource(R.string.update_progress_preparing)
-                UpdateProgressMessageKey.Downloading -> stringResource(R.string.update_progress_downloading)
-                UpdateProgressMessageKey.Installing -> stringResource(R.string.update_progress_installing)
-                UpdateProgressMessageKey.Completed -> stringResource(R.string.update_progress_completed)
-            }
-        is UpdateProgressSupportingMessage.Raw -> message.value
-    }
+private fun supportingMessageAsText(message: UpdateProgressSupportingMessage): String = when (message) {
+    is UpdateProgressSupportingMessage.Default ->
+        when (message.key) {
+            UpdateProgressMessageKey.Preparing -> stringResource(R.string.update_progress_preparing)
+            UpdateProgressMessageKey.Downloading -> stringResource(R.string.update_progress_downloading)
+            UpdateProgressMessageKey.Installing -> stringResource(R.string.update_progress_installing)
+            UpdateProgressMessageKey.Completed -> stringResource(R.string.update_progress_completed)
+        }
+
+    is UpdateProgressSupportingMessage.Raw -> message.value
+}
 
 @Composable
-private fun progressAccentColor(tone: UpdateProgressTone): Color =
-    when (tone) {
-        UpdateProgressTone.Neutral -> MaterialTheme.colorScheme.onSurface
-        UpdateProgressTone.Progress -> MaterialTheme.colorScheme.primary
-        UpdateProgressTone.Success -> MaterialTheme.colorScheme.primary
-        UpdateProgressTone.Error -> MaterialTheme.colorScheme.error
-    }
+private fun progressAccentColor(tone: UpdateProgressTone): Color = when (tone) {
+    UpdateProgressTone.Neutral -> MaterialTheme.colorScheme.onSurface
+    UpdateProgressTone.Progress -> MaterialTheme.colorScheme.primary
+    UpdateProgressTone.Success -> MaterialTheme.colorScheme.primary
+    UpdateProgressTone.Error -> MaterialTheme.colorScheme.error
+}
 
 @Composable
-private fun progressSupportingColor(tone: UpdateProgressTone): Color =
-    when (tone) {
-        UpdateProgressTone.Error -> MaterialTheme.colorScheme.error
-        UpdateProgressTone.Neutral,
-        UpdateProgressTone.Progress,
-        UpdateProgressTone.Success,
-        -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+private fun progressSupportingColor(tone: UpdateProgressTone): Color = when (tone) {
+    UpdateProgressTone.Error -> MaterialTheme.colorScheme.error
+
+    UpdateProgressTone.Neutral,
+    UpdateProgressTone.Progress,
+    UpdateProgressTone.Success,
+    -> MaterialTheme.colorScheme.onSurfaceVariant
+}
 
 @Composable
-private fun progressTrackColor(): Color = MaterialTheme.colorScheme.surfaceVariant
+private fun progressTrackColor(): Color = MaterialTheme.colorScheme.surfaceContainerHighest
 
-private val UPDATE_PROGRESS_SHAPE = RoundedCornerShape(28.dp)
-private val PROGRESS_BAR_SHAPE = RoundedCornerShape(999.dp)
+private val UPDATE_PROGRESS_SHAPE = AppShapes.ExtraLarge
+private val PROGRESS_BAR_SHAPE = AppShapes.Full
+private val WAVY_PROGRESS_BAR_HEIGHT = 16.dp
 private val UPDATE_PROGRESS_MAX_WIDTH = 420.dp
 private const val UPDATE_PROGRESS_SCRIM_ALPHA = 0.58f
 private const val UPDATE_PROGRESS_BORDER_ALPHA = 0.88f

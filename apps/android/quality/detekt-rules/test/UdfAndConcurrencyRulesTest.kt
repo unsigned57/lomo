@@ -9,7 +9,6 @@ import dev.detekt.test.utils.compileForTest
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -59,18 +58,19 @@ import kotlin.io.path.writeText
  * Why this is not fitting the test to the implementation: only the cited directory changed; the rule
  *   detection logic, finding counts, and the "finding must cite the contract" guard are unchanged.
  */
-class UdfAndConcurrencyRulesTest : FunSpec({
-    test("registers ViewModelSingleStateFlow and NoInSituRevisionBypass in rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("ViewModelSingleStateFlow")].shouldNotBeNull()
-        rules[RuleName("NoInSituRevisionBypass")].shouldNotBeNull()
-    }
+class UdfAndConcurrencyRulesTest :
+    FunSpec({
+        test("registers ViewModelSingleStateFlow and NoInSituRevisionBypass in rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("ViewModelSingleStateFlow")].shouldNotBeNull()
+            rules[RuleName("NoInSituRevisionBypass")].shouldNotBeNull()
+        }
 
-    test("ViewModelSingleStateFlow: flags ViewModel with no screen-state machine flow") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: flags ViewModel with no screen-state machine flow") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -81,19 +81,19 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     private val _isLoading = MutableStateFlow(false)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Missing screen-state machine"
-        findings.single().message shouldContain "quality/udf-contract.md"
-        findings.single().message shouldContain "session-facade-ok"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Missing screen-state machine"
+            findings.single().message shouldContain "quality/udf-contract.md"
+            findings.single().message shouldContain "session-facade-ok"
+        }
 
-    test("ViewModelSingleStateFlow: allows exactly one combine/stateIn machine with private mutable inputs") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: allows exactly one combine/stateIn machine with private mutable inputs") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -111,16 +111,16 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                             .stateIn(viewModelScope, appWhileSubscribed(), SampleState("", false))
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("ViewModelSingleStateFlow: allows machine exposed from private MutableStateFlow backing via asStateFlow") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: allows machine exposed from private MutableStateFlow backing via asStateFlow") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -134,16 +134,16 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     val state: StateFlow<SampleState> = _state.asStateFlow()
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("ViewModelSingleStateFlow: allows machine delegated from a constructor dependency") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: allows machine delegated from a constructor dependency") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -157,16 +157,16 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     val state: StateFlow<SampleState> = coordinator.state
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("ViewModelSingleStateFlow: flags ViewModel exposing two in-VM built screen-state machines") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: flags ViewModel exposing two in-VM built screen-state machines") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -184,18 +184,20 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     val historyState: StateFlow<SampleHistoryState> = _history.asStateFlow()
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Multiple in-VM built screen-state machine flows in SampleViewModel"
-        findings.single().message shouldContain "quality/udf-contract.md"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Multiple in-VM built screen-state machine flows in SampleViewModel"
+            findings.single().message shouldContain "quality/udf-contract.md"
+        }
 
-    test("ViewModelSingleStateFlow: allows one built machine plus delegated re-exposures of dependency-owned state") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test(
+            "ViewModelSingleStateFlow: allows one built machine plus delegated re-exposures of dependency-owned state",
+        ) {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -216,16 +218,16 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     val versionHistoryState: StateFlow<SampleHistoryState> = coordinator.historyState
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("ViewModelSingleStateFlow: class-level session-facade-ok marker skips all checks") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: class-level session-facade-ok marker skips all checks") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -237,16 +239,16 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     private var sessionId: String = ""
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("ViewModelSingleStateFlow: flags exposed MutableStateFlow, MutableState, and mutableStateOf state") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: flags exposed MutableStateFlow, MutableState, and mutableStateOf state") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.compose.runtime.MutableState
@@ -267,19 +269,19 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                             .stateIn(viewModelScope, appWhileSubscribed(), SampleState(""))
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(3)
-        findings.forEach { finding -> finding.message shouldContain "Forbidden exposed mutable state" }
-        findings.forEach { finding -> finding.message shouldContain "quality/udf-contract.md" }
-        findings.forEach { finding -> finding.message shouldContain "session-facade-ok" }
-    }
+            findings.shouldHaveSize(3)
+            findings.forEach { finding -> finding.message shouldContain "Forbidden exposed mutable state" }
+            findings.forEach { finding -> finding.message shouldContain "quality/udf-contract.md" }
+            findings.forEach { finding -> finding.message shouldContain "session-facade-ok" }
+        }
 
-    test("ViewModelSingleStateFlow: allows private MutableStateFlow backing") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: allows private MutableStateFlow backing") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -296,16 +298,16 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                             .stateIn(viewModelScope, appWhileSubscribed(), SampleState(""))
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("ViewModelSingleStateFlow: flags var business property") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: flags var business property") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -322,18 +324,18 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                             .stateIn(viewModelScope, appWhileSubscribed(), SampleState(""))
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Forbidden 'var' business property 'currentQuery'"
-        findings.single().message shouldContain "quality/udf-contract.md"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Forbidden 'var' business property 'currentQuery'"
+            findings.single().message shouldContain "quality/udf-contract.md"
+        }
 
-    test("ViewModelSingleStateFlow: allows var Job cancellation handles") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "app/src/feature/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: allows var Job cancellation handles") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "app/src/feature/SampleViewModel.kt",
+                    """
                 package com.lomo.app.feature
 
                 import androidx.lifecycle.ViewModel
@@ -352,16 +354,16 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                             .stateIn(viewModelScope, appWhileSubscribed(), SampleState(""))
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("ViewModelSingleStateFlow: ignores ViewModel outside /app/src/") {
-        val findings =
-            rule("ViewModelSingleStateFlow").findingsForSource(
-                "data/src/repository/SampleViewModel.kt",
-                """
+        test("ViewModelSingleStateFlow: ignores ViewModel outside /app/src/") {
+            val findings =
+                rule("ViewModelSingleStateFlow").findingsForSource(
+                    "data/src/repository/SampleViewModel.kt",
+                    """
                 package com.lomo.data.repository
 
                 import kotlinx.coroutines.flow.MutableStateFlow
@@ -371,16 +373,16 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     private var currentQuery: String = ""
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoInSituRevisionBypass: flags reading snapshot inside mutation and piping revision") {
-        val findings =
-            rule("NoInSituRevisionBypass").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoInSituRevisionBypass: flags reading snapshot inside mutation and piping revision") {
+            val findings =
+                rule("NoInSituRevisionBypass").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository(private val port: Any) {
@@ -395,17 +397,17 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Optimistic concurrency bypass (Audit U2 / TOCTOU)"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Optimistic concurrency bypass (Audit U2 / TOCTOU)"
+        }
 
-    test("NoInSituRevisionBypass: allows mutation taking expectedRevision from parameter") {
-        val findings =
-            rule("NoInSituRevisionBypass").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoInSituRevisionBypass: allows mutation taking expectedRevision from parameter") {
+            val findings =
+                rule("NoInSituRevisionBypass").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository(private val port: Any) {
@@ -419,16 +421,16 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoInSituRevisionBypass: allows in-situ read with behavior-contract comment") {
-        val findings =
-            rule("NoInSituRevisionBypass").findingsForSource(
-                "data/src/repository/SampleRepository.kt",
-                """
+        test("NoInSituRevisionBypass: allows in-situ read with behavior-contract comment") {
+            val findings =
+                rule("NoInSituRevisionBypass").findingsForSource(
+                    "data/src/repository/SampleRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 class SampleRepository(private val port: Any) {
@@ -444,23 +446,19 @@ class UdfAndConcurrencyRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
-})
+            findings.shouldHaveSize(0)
+        }
+    })
 
-private fun rule(name: String): Rule =
-    LomoArchitectureRuleSetProvider()
-        .instance()
-        .rules[RuleName(name)]
-        ?.invoke(Config.empty)
-        ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
+private fun rule(name: String): Rule = LomoArchitectureRuleSetProvider()
+    .instance()
+    .rules[RuleName(name)]
+    ?.invoke(Config.empty)
+    ?: error("Rule '$name' is not registered in LomoArchitectureRuleSetProvider")
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("detekt-test")
     val file = tempDir.resolve(relativePath)
     file.parent?.createDirectories()

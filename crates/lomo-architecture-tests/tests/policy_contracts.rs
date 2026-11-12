@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //! Capability: architectural enforcement survives syntax variations, inactive edges and source evasion.
 //! Scenarios: given aliased/optional/target/build dependencies, real package identity is checked;
@@ -87,18 +96,21 @@ rusqlite = ["database"]
                 Some("kotlin-owner-dependency")
             );
         }
-        assert!(
+        assert_eq!(
             module_rules(
                 "apps/android/app",
                 "dependencies: [{\"//data\": runtime-only}, //domain, //ui-components]"
-            )
-            .is_empty()
+            ),
+            []
         );
     }
 
     #[test]
     fn binding_capability_cannot_escape_through_an_exported_dependency() {
-        assert!(module_rules("apps/android/data", "dependencies: [//native-bindings]").is_empty());
+        assert_eq!(
+            module_rules("apps/android/data", "dependencies: [//native-bindings]"),
+            []
+        );
         for (module, yaml) in [
             (
                 "apps/android/data",
@@ -164,12 +176,12 @@ rusqlite = ["database"]
 
     #[test]
     fn domain_external_capabilities_are_admitted_by_identity() {
-        assert!(
+        assert_eq!(
             module_rules(
                 "apps/android/domain",
                 "dependencies: [org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0]"
-            )
-            .is_empty()
+            ),
+            []
         );
         assert_eq!(
             module_rules(
@@ -215,7 +227,7 @@ rusqlite = ["database"]
             &[json!({"name": "next-codec", "kind": null})],
         );
         let violations = checked(rust_rules(Path::new("/repo"), &input));
-        assert!(violations.is_empty(), "{violations:#?}");
+        assert_eq!(violations, [], "{violations:#?}");
     }
 
     #[test]
@@ -223,7 +235,7 @@ rusqlite = ["database"]
         for version in ["1.0.0", "2.0.0-alpha01"] {
             let yaml = format!("dependencies: [org.example:immutable-model:{version}]");
             let violations = module_rules("apps/android/domain", &yaml);
-            assert!(violations.is_empty(), "{violations:#?}");
+            assert_eq!(violations, [], "{violations:#?}");
         }
     }
 
@@ -268,12 +280,12 @@ rusqlite = ["database"]
             );
         }
         let network = "dependencies: [org.example:network-codec:1.0.0]";
-        assert!(module_rules("apps/android/data", network).is_empty());
+        assert_eq!(module_rules("apps/android/data", network), []);
         let ui = "dependencies: [org.example:screen:1.0.0]";
-        assert!(module_rules("apps/android/app", ui).is_empty());
+        assert_eq!(module_rules("apps/android/app", ui), []);
         assert_eq!(module_rules("apps/android/data", ui).len(), 1);
         let ffi = "dependencies: [org.example:bridge:1.0.0]";
-        assert!(module_rules("apps/android/native-bindings", ffi).is_empty());
+        assert_eq!(module_rules("apps/android/native-bindings", ffi), []);
         assert_eq!(module_rules("apps/android/app", ffi).len(), 1);
     }
 
@@ -325,13 +337,13 @@ rusqlite = ["database"]
             "schema_version = 1\n[cargo]\n[maven]",
         ));
         let no_dependencies = metadata("lomo-core", "crates/lomo-core", &[]);
-        assert!(
+        assert_eq!(
             checked(policy::rust_dependency_violations(
                 Path::new("/repo"),
                 &no_dependencies,
                 &empty
-            ))
-            .is_empty()
+            )),
+            []
         );
     }
 
@@ -389,7 +401,7 @@ rusqlite = ["database"]
             ("lomo-core", "crates/lomo-core", json!("dev")),
         ] {
             let input = metadata(owner, path, &[json!({"name": "rusqlite", "kind": kind})]);
-            assert!(checked(rust_rules(Path::new("/repo"), &input)).is_empty());
+            assert_eq!(checked(rust_rules(Path::new("/repo"), &input)), []);
         }
     }
 
@@ -424,14 +436,17 @@ rusqlite = ["database"]
             json!({"packages": [], "workspace_members": []}),
             json!({"packages": [], "workspace_members": ["absent"]}),
         ] {
-            assert!(!rejected(rust_rules(Path::new("/repo"), &input)).is_empty());
+            assert_ne!(rejected(rust_rules(Path::new("/repo"), &input)), "");
         }
     }
 
     #[test]
     fn a_manifest_comment_cannot_replace_workspace_lint_inheritance() {
         let valid = "[package]\nname = 'fixture'\n[lints]\nworkspace = true";
-        assert!(checked(policy::rust_manifest_violations("Cargo.toml", valid)).is_empty());
+        assert_eq!(
+            checked(policy::rust_manifest_violations("Cargo.toml", valid)),
+            []
+        );
         for source in [
             "# [lints]\n# workspace = true\n[package]\nname = 'fixture'",
             "[lints]\nworkspace = false",
@@ -466,7 +481,7 @@ rusqlite = ["database"]
         let tools = boltffi_tools_fixture(BOLTFFI_GIT, "aaa111");
         let manifest = boltffi_manifest_fixture(BOLTFFI_GIT, "aaa111");
         let violations = checked(policy::boltffi_pin_violations(&tools, &manifest));
-        assert!(violations.is_empty(), "{violations:#?}");
+        assert_eq!(violations, [], "{violations:#?}");
 
         for drifted in [
             // A rev bump on either side alone is an ABI split.
@@ -511,12 +526,12 @@ rusqlite = ["database"]
                 "[workspace.dependencies]\nboltffi_core = { rev = \"aaa111\" }\n",
             ),
         ] {
-            assert!(
-                !rejected(policy::boltffi_pin_violations(
+            assert_ne!(
+                rejected(policy::boltffi_pin_violations(
                     tools_source,
                     manifest_source
-                ))
-                .is_empty(),
+                )),
+                "",
                 "{tools_source} | {manifest_source}"
             );
         }
@@ -537,7 +552,7 @@ rusqlite = ["database"]
             "#[expect(clippy::all, reason = \"convenience\")] fn f() {}",
             "macro_rules! escape { () => { #[allow(unsafe_code)] fn f() {} }; }",
         ] {
-            assert!(!source_rules(source).is_empty(), "{source}");
+            assert_ne!(source_rules(source), [], "{source}");
         }
     }
 
@@ -568,8 +583,13 @@ rusqlite = ["database"]
             const EXAMPLE: &str = r#"unsafe { } #[allow(unsafe_code)]"#;
             fn safe() { println!("unsafe #[allow(unsafe_code)]"); }
         "##;
-        assert!(source_rules(source).is_empty());
-        assert!(source_rules("#[expect(clippy::too_many_lines, reason = \"one bounded protocol table\")] fn f() {}").is_empty());
+        assert_eq!(source_rules(source), []);
+        assert_eq!(
+            source_rules(
+                "#[expect(clippy::too_many_lines, reason = \"one bounded protocol table\")] fn f() {}"
+            ),
+            []
+        );
     }
 
     #[test]
@@ -599,7 +619,7 @@ rusqlite = ["database"]
     #[test]
     fn current_detekt_configs_cannot_disable_or_exclude_the_hard_boundaries() {
         let source = include_str!("../../../quality/detekt/config/app.yml");
-        assert!(checked(policy::detekt_config_violations("app", source)).is_empty());
+        assert_eq!(checked(policy::detekt_config_violations("app", source)), []);
         for modified in [
             source.replace(
                 "NoHandwrittenNativeDeclaration:\n    active: true",
@@ -614,7 +634,10 @@ rusqlite = ["database"]
                 "NoSourceSuppressions:\n    active: true\n    severity: warning",
             ),
         ] {
-            assert!(!checked(policy::detekt_config_violations("app", &modified)).is_empty());
+            assert_ne!(
+                checked(policy::detekt_config_violations("app", &modified)),
+                []
+            );
         }
     }
 
@@ -669,7 +692,7 @@ rusqlite = ["database"]
             "#[derive(Deserialize)]\npub struct PayloadRef { pub digest: String }",
             "#[derive(Deserialize)]\nstruct HiddenRequest { memo_id: String }",
         ] {
-            assert!(invariant_rules(app, source).is_empty(), "{source}");
+            assert_eq!(invariant_rules(app, source), [], "{source}");
         }
     }
 
@@ -704,7 +727,7 @@ rusqlite = ["database"]
             "fn apply() { let line_index = 0; }",
             "fn apply() {\n    // behavior-contract: identity-mint-ok: conflict session id derives from the owner-issued parent session id\n    let session_id = format!(\"{}-conflict\", parent_id);\n}",
         ] {
-            assert!(invariant_rules(path, source).is_empty(), "{source}");
+            assert_eq!(invariant_rules(path, source), [], "{source}");
         }
     }
 
@@ -731,7 +754,7 @@ rusqlite = ["database"]
             "fn f(title: T) { if title.to_string().contains(\"x\") {} }",
             "fn from_message_body() {}",
         ] {
-            assert!(invariant_rules(path, source).is_empty(), "{source}");
+            assert_eq!(invariant_rules(path, source), [], "{source}");
         }
     }
 
@@ -757,15 +780,15 @@ rusqlite = ["database"]
             "fn f() { file.take(limit).read_to_end(&mut bytes).unwrap(); }",
             "fn f() {\n    // behavior-contract: bounded-io-ok: durable record <= 1MiB schema cap\n    let _b = fs::read(&path).unwrap();\n}",
         ] {
-            assert!(invariant_rules(path, source).is_empty(), "{source}");
+            assert_eq!(invariant_rules(path, source), [], "{source}");
         }
         // Non-boundary crates keep ordinary bounded-record reads.
-        assert!(
+        assert_eq!(
             invariant_rules(
                 "crates/lomo-application/src/fixture.rs",
                 "fn f() { let _b = fs::read(&path).unwrap(); }"
-            )
-            .is_empty()
+            ),
+            []
         );
     }
 
@@ -790,15 +813,15 @@ rusqlite = ["database"]
             "fn f() { let _ = self.fetch_object(key).unwrap(); }",
             "fn f() {\n    for p in paths {\n        // behavior-contract: loop-io-ok: single resumable page\n        self.get_object(p).unwrap();\n    }\n}",
         ] {
-            assert!(invariant_rules(path, source).is_empty(), "{source}");
+            assert_eq!(invariant_rules(path, source), [], "{source}");
         }
         // The rule is scoped to remote boundary crates only.
-        assert!(
+        assert_eq!(
             invariant_rules(
                 "crates/lomo-application/src/fixture.rs",
                 "fn f() { for p in paths { self.load_object(p).unwrap(); } }"
-            )
-            .is_empty()
+            ),
+            []
         );
     }
 
@@ -848,8 +871,9 @@ rusqlite = ["database"]
             ),
         ] {
             let files = vec![(source.0.to_owned(), source.1.to_owned())];
-            assert!(
-                checked(policy::kotlin_authority_violations(&root, &files)).is_empty(),
+            assert_eq!(
+                checked(policy::kotlin_authority_violations(&root, &files)),
+                [],
                 "{}",
                 source.1
             );

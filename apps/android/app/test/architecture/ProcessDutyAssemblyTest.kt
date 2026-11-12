@@ -36,8 +36,7 @@ import org.koin.core.module.Module
 class ProcessDutyAssemblyTest : AppFunSpec() {
     private val dataModuleCount = 3
 
-    private fun fakeDataModules(): List<Module> =
-        List(dataModuleCount) { org.koin.dsl.module {} }
+    private fun fakeDataModules(): List<Module> = List(dataModuleCount) { org.koin.dsl.module {} }
 
     init {
         test("owned process installs data modules plus the app graph") {

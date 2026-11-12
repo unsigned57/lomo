@@ -91,11 +91,20 @@ class ProviderSettingsControllerTest : AppFunSpec() {
                                     UnifiedSyncState.Idle
                                 }
                             },
-                            updateEnabledAction = { value -> updatedEnabled = value; null },
+                            updateEnabledAction = { value ->
+                                updatedEnabled = value
+                                null
+                            },
                             updateAutoSyncEnabledAction = { null },
-                            updateAutoSyncIntervalAction = { value -> updatedInterval = value; null },
+                            updateAutoSyncIntervalAction = { value ->
+                                updatedInterval = value
+                                null
+                            },
                             updateSyncOnRefreshEnabledAction = { null },
-                            triggerSyncNowAction = { manualSyncCount += 1; null },
+                            triggerSyncNowAction = {
+                                manualSyncCount += 1
+                                null
+                            },
                             testConnectionAction = { RemoteProviderConnectionTestState.Success("connected") },
                             mapConnectionFailure = { throwable ->
                                 RemoteProviderConnectionTestState.Error(
@@ -200,11 +209,26 @@ class ProviderSettingsControllerTest : AppFunSpec() {
                             credentialFields = MutableStateFlow(emptyList()),
                             rawSyncState = MutableStateFlow(Unit),
                             mapToUnifiedSyncState = { UnifiedSyncState.Idle },
-                            updateEnabledAction = { value -> updatedEnabled = value; null },
-                            updateAutoSyncEnabledAction = { value -> updatedAutoSyncEnabled = value; null },
-                            updateAutoSyncIntervalAction = { value -> updatedInterval = value; null },
-                            updateSyncOnRefreshEnabledAction = { value -> updatedSyncOnRefresh = value; null },
-                            triggerSyncNowAction = { manualSyncCount += 1; null },
+                            updateEnabledAction = { value ->
+                                updatedEnabled = value
+                                null
+                            },
+                            updateAutoSyncEnabledAction = { value ->
+                                updatedAutoSyncEnabled = value
+                                null
+                            },
+                            updateAutoSyncIntervalAction = { value ->
+                                updatedInterval = value
+                                null
+                            },
+                            updateSyncOnRefreshEnabledAction = { value ->
+                                updatedSyncOnRefresh = value
+                                null
+                            },
+                            triggerSyncNowAction = {
+                                manualSyncCount += 1
+                                null
+                            },
                             testConnectionAction = { RemoteProviderConnectionTestState.Success("connected") },
                             mapConnectionFailure = { throwable ->
                                 RemoteProviderConnectionTestState.Error(

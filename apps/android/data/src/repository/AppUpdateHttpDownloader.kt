@@ -13,27 +13,18 @@ import java.io.File
 import java.io.FileOutputStream
 
 internal interface AppUpdateApkDownloader {
-    suspend fun download(
-        downloadUrl: String,
-        outputFile: File,
-        onProgress: suspend (Int) -> Unit,
-    )
+    suspend fun download(downloadUrl: String, outputFile: File, onProgress: suspend (Int) -> Unit)
 }
 
 internal interface AppUpdateHttpClientProvider {
     suspend fun <T> withHttpClient(block: suspend (HttpClient) -> T): T
 }
 
-internal class AppUpdateHttpDownloader(
-    private val httpClientProvider: AppUpdateHttpClientProvider,
-) : AppUpdateApkDownloader {
+internal class AppUpdateHttpDownloader(private val httpClientProvider: AppUpdateHttpClientProvider) :
+    AppUpdateApkDownloader {
     constructor(httpClient: HttpClient) : this(StaticAppUpdateHttpClientProvider(httpClient))
 
-    override suspend fun download(
-        downloadUrl: String,
-        outputFile: File,
-        onProgress: suspend (Int) -> Unit,
-    ) {
+    override suspend fun download(downloadUrl: String, outputFile: File, onProgress: suspend (Int) -> Unit) {
         httpClientProvider.withHttpClient { httpClient ->
             httpClient
                 .prepareGet(downloadUrl) {
@@ -106,12 +97,9 @@ internal class AppUpdateHttpDownloader(
     }
 }
 
-private class StaticAppUpdateHttpClientProvider(
-    private val httpClient: HttpClient,
-) : AppUpdateHttpClientProvider {
+private class StaticAppUpdateHttpClientProvider(private val httpClient: HttpClient) : AppUpdateHttpClientProvider {
     override suspend fun <T> withHttpClient(block: suspend (HttpClient) -> T): T = block(httpClient)
 }
 
-internal class AppUpdateDownloadHttpException(
-    val statusCode: Int,
-) : IllegalStateException("Unexpected app update HTTP status $statusCode")
+internal class AppUpdateDownloadHttpException(val statusCode: Int) :
+    IllegalStateException("Unexpected app update HTTP status $statusCode")

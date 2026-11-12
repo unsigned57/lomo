@@ -7,15 +7,10 @@ import com.lomo.domain.repository.MemoVersionRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
-class LoadMemoRevisionHistoryUseCase(
-    private val repository: MemoVersionRepository,
-) {
+class LoadMemoRevisionHistoryUseCase(private val repository: MemoVersionRepository) {
     fun historyEnabled(): Flow<Boolean> = flowOf(true)
 
-    suspend operator fun invoke(
-        memo: Memo,
-        cursor: MemoRevisionCursor? = null,
-    ): MemoRevisionPage =
+    suspend operator fun invoke(memo: Memo, cursor: MemoRevisionCursor? = null): MemoRevisionPage =
         repository.listMemoRevisions(
             memo = memo,
             cursor = cursor,

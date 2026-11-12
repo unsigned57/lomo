@@ -10,7 +10,6 @@ import org.jetbrains.kotlin.psi.KtConstantExpression
 import org.jetbrains.kotlin.psi.KtDoWhileExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtExpression
-import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtIfExpression
 import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
@@ -21,9 +20,7 @@ import org.jetbrains.kotlin.psi.KtPrimaryConstructor
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtSecondaryConstructor
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
-import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.KtWhenConditionWithExpression
-import org.jetbrains.kotlin.psi.KtWhenEntry
 import org.jetbrains.kotlin.psi.KtWhenExpression
 import org.jetbrains.kotlin.psi.KtWhileExpression
 import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
@@ -34,14 +31,13 @@ import org.jetbrains.kotlin.psi.psiUtil.parents
  * invariant and audit anchor; markers use the declared `behavior-contract` vocabulary.
  */
 
-internal class NoMintedIdentityRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Identity fields (operationId, sessionId, *Id/*Token/*Epoch/*Generation/*Fence/*Revision/" +
-        "*Nonce/*Secret/*Key/*Fingerprint/*Digest) must come from their owner, not from " +
-        "UUID/Random/hash/clock mints at call sites (audit I1: A04, B03, B04, C09).",
-) {
+internal class NoMintedIdentityRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Identity fields (operationId, sessionId, *Id/*Token/*Epoch/*Generation/*Fence/*Revision/" +
+            "*Nonce/*Secret/*Key/*Fingerprint/*Digest) must come from their owner, not from " +
+            "UUID/Random/hash/clock mints at call sites (audit I1: A04, B03, B04, C09).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*identity-mint-ok""")
 
     private val mintCalleeNames =
@@ -49,6 +45,7 @@ internal class NoMintedIdentityRule(
             "randomUUID", "currentTimeMillis", "nanoTime",
             "nextInt", "nextLong", "nextBytes", "nextDouble", "nextFloat", "nextBoolean", "nextChar",
         )
+
     // Content-derived hashes are measured, not forged — they only violate the invariant when
     // they feed sequencing identity (a digest can never be a generation/fence/revision).
     private val derivedCalleeNames = setOf("hashCode", "md5Hex", "sha256Hex", "sha256", "md5", "digest")
@@ -73,6 +70,7 @@ internal class NoMintedIdentityRule(
                 argName != null ->
                     isIdentityName(argName) &&
                         (kind == MintKind.FORGED || (kind == MintKind.MEASURED && isSequencingName(argName)))
+
                 else -> isWireConstructor && kind == MintKind.FORGED
             }
             if (!identityTarget) continue
@@ -168,7 +166,10 @@ internal class NoMintedIdentityRule(
         if (callee in derivedCalleeNames) return MintKind.MEASURED
         if (callee == "randomUUID") return MintKind.FORGED
         if (callee in mintCalleeNames) {
-            val qualified = (expression.parent as? KtDotQualifiedExpression)?.takeIf { it.selectorExpression == expression }
+            val qualified = (expression.parent as? KtDotQualifiedExpression)?.takeIf {
+                it.selectorExpression ==
+                    expression
+            }
             val receiverText = qualified?.receiverExpression?.text.orEmpty()
             return if (receiverText.contains("Random") || receiverText in mintQualifiedRoots ||
                 receiverText.endsWith(".System") || receiverText == "System"
@@ -206,20 +207,18 @@ internal class NoMintedIdentityRule(
 
     private val mintOwnerPrefixes = listOf("new", "mint", "next", "issue")
 
-    private fun isMintOwnerName(name: String): Boolean =
-        mintOwnerPrefixes.any { prefix ->
-            name.startsWith(prefix, ignoreCase = true) &&
-                name.drop(prefix.length).firstOrNull()?.let { it.isUpperCase() || it == '_' } == true
-        }
+    private fun isMintOwnerName(name: String): Boolean = mintOwnerPrefixes.any { prefix ->
+        name.startsWith(prefix, ignoreCase = true) &&
+            name.drop(prefix.length).firstOrNull()?.let { it.isUpperCase() || it == '_' } == true
+    }
 }
 
-internal class NoErrorMessageControlFlowRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Error disposition must come from typed codes, never from matching diagnostic message text " +
-        "(audit I2: B01 message-string classification, conflict_session_missing special-casing).",
-) {
+internal class NoErrorMessageControlFlowRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Error disposition must come from typed codes, never from matching diagnostic message text " +
+            "(audit I2: B01 message-string classification, conflict_session_missing special-casing).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*error-text-ok""")
 
     // A diagnostic read is either a qualified property access (`error.message`) or a bare
@@ -309,29 +308,29 @@ internal class NoErrorMessageControlFlowRule(
         )
     }
 
-    private fun org.jetbrains.kotlin.psi.KtElement.isInDecisionPosition(): Boolean =
-        parents.any { ancestor ->
-            when (ancestor) {
-                is KtIfExpression -> ancestor.condition != null &&
+    private fun org.jetbrains.kotlin.psi.KtElement.isInDecisionPosition(): Boolean = parents.any { ancestor ->
+        when (ancestor) {
+            is KtIfExpression ->
+                ancestor.condition != null &&
                     ancestor.condition!!.textRange.contains(textRange)
-                is KtWhenConditionWithExpression -> true
-                is KtWhileExpression -> ancestor.condition?.textRange?.contains(textRange) == true
-                is KtDoWhileExpression -> ancestor.condition?.textRange?.contains(textRange) == true
-                else -> false
-            }
+
+            is KtWhenConditionWithExpression -> true
+
+            is KtWhileExpression -> ancestor.condition?.textRange?.contains(textRange) == true
+
+            is KtDoWhileExpression -> ancestor.condition?.textRange?.contains(textRange) == true
+
+            else -> false
         }
+    }
 
     private fun isDiagnosticText(expression: KtExpression, context: org.jetbrains.kotlin.psi.KtElement): Boolean =
         expression.text.trim().containsDiagnosticRead() || isDiagnosticAlias(expression, context)
 
-    private fun String.containsDiagnosticRead(): Boolean =
-        qualifiedDiagnostic.containsMatchIn(this) ||
-            diagnosticWord.findAll(this).any { match -> match.value.first().isLowerCase() }
+    private fun String.containsDiagnosticRead(): Boolean = qualifiedDiagnostic.containsMatchIn(this) ||
+        diagnosticWord.findAll(this).any { match -> match.value.first().isLowerCase() }
 
-    private fun isDiagnosticAlias(
-        expression: KtExpression,
-        context: org.jetbrains.kotlin.psi.KtElement,
-    ): Boolean {
+    private fun isDiagnosticAlias(expression: KtExpression, context: org.jetbrains.kotlin.psi.KtElement): Boolean {
         val bareName = (expression as? KtNameReferenceExpression)?.getReferencedName()
             ?: return false
         val function = context.parents.filterIsInstance<KtNamedFunction>().firstOrNull() ?: return false
@@ -343,14 +342,13 @@ internal class NoErrorMessageControlFlowRule(
     }
 }
 
-internal class NoPlaceholderCollaboratorRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Production source must not declare NoOp/Disabled/Empty/Stub/Fake/Dummy implementations of " +
-        "capability interfaces; a placeholder silently drops facts (audit I4: T57 " +
-        "NoOpMemoSnapshotPreferencesRepository).",
-) {
+internal class NoPlaceholderCollaboratorRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Production source must not declare NoOp/Disabled/Empty/Stub/Fake/Dummy implementations of " +
+            "capability interfaces; a placeholder silently drops facts (audit I4: T57 " +
+            "NoOpMemoSnapshotPreferencesRepository).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*placeholder-ok""")
     private val placeholderName = Regex("""(?i)^(noop|disabled|empty|stub|fake|dummy|throwaway)\w*$""")
 
@@ -408,14 +406,13 @@ internal class NoPlaceholderCollaboratorRule(
     }
 }
 
-internal class NoCapabilitySeamRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Capability collaborators must be required, not optional: no nullable capability constructor " +
-        "parameters, no NoOp/null defaults, and no getOrNull() optional resolution in DI modules " +
-        "(audit I4: T57 capability seams).",
-) {
+internal class NoCapabilitySeamRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Capability collaborators must be required, not optional: no nullable capability constructor " +
+            "parameters, no NoOp/null defaults, and no getOrNull() optional resolution in DI modules " +
+            "(audit I4: T57 capability seams).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*capability-seam-ok""")
     private val placeholderValue = Regex("""(?i)^(noop|disabled|empty|stub|fake|dummy)\w*$""")
 
@@ -457,6 +454,7 @@ internal class NoCapabilitySeamRule(
                         "Inject the real collaborator at the composition root (audit I4), or mark " +
                         "'// behavior-contract: capability-seam-ok: <reason>'.",
                 )
+
             isNullable && !isDataClassOwner ->
                 reportElement(
                     parameter,
@@ -464,6 +462,7 @@ internal class NoCapabilitySeamRule(
                         "missing wiring and degrades to a no-op path (audit I4). Require the collaborator, " +
                         "or mark '// behavior-contract: capability-seam-ok: <reason>'.",
                 )
+
             isNullable && isDependencyCarrier && default != null && default.text.trim() == "null" ->
                 reportElement(
                     parameter,
@@ -493,17 +492,18 @@ internal class NoCapabilitySeamRule(
     }
 }
 
-internal class NoSecretInWorkPayloadRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "WorkManager payloads persist plaintext; they may carry secret field NAMES but never secret " +
-        "values (audit I6: B15 credential material in WorkData).",
-) {
+internal class NoSecretInWorkPayloadRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "WorkManager payloads persist plaintext; they may carry secret field NAMES but never secret " +
+            "values (audit I6: B15 credential material in WorkData).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*secret-payload-ok""")
 
     private val secretToken =
-        Regex("""(?i).*(password|passwd|secret|credential|token|privatekey|accesskey|apikey|authtoken|bearer|sessionkey|encryptionkey).*""")
+        Regex(
+            """(?i).*(password|passwd|secret|credential|token|privatekey|accesskey|apikey|authtoken|bearer|sessionkey|encryptionkey).*""",
+        )
     private val indirectionSuffix =
         Regex("""(?i).*(fieldkey|fieldname|keyname|keyalias|alias|ref|handle|id|name)$""")
 
@@ -523,10 +523,12 @@ internal class NoSecretInWorkPayloadRule(
                     when {
                         argExpr is KtBinaryExpression && argExpr.operationReference.text == "to" ->
                             argExpr.right?.let(valueExpressions::add)
+
                         argExpr is KtCallExpression && argExpr.calleeExpression?.text == "Pair" ->
                             argExpr.valueArguments.getOrNull(1)?.getArgumentExpression()?.let(valueExpressions::add)
                     }
                 }
+
             callee.startsWith("put") && expression.valueArguments.size >= 2 -> {
                 val named = expression.valueArguments.firstOrNull {
                     it.getArgumentName()?.asName?.identifier == "value"
@@ -556,27 +558,31 @@ internal class NoSecretInWorkPayloadRule(
     }
 }
 
-internal class NoNamePredicateDeleteRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Destructive operations must select targets by exact identity, never by fuzzy name predicates " +
-        "like it.name.contains(key) (audit I8: A05 fuzzy deletion).",
-) {
+internal class NoNamePredicateDeleteRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Destructive operations must select targets by exact identity, never by fuzzy name predicates " +
+            "like it.name.contains(key) (audit I8: A05 fuzzy deletion).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*fuzzy-delete-ok""")
 
     private val fuzzyCalls = setOf("contains", "startsWith", "endsWith", "matches", "containsMatchIn", "find")
-    private val nameReceiver = Regex("""(?i)(^|\.)(name|filename|namewithoutextension|filenamewithoutextension|displayname|basename)$""")
+    private val nameReceiver = Regex(
+        """(?i)(^|\.)(name|filename|namewithoutextension|filenamewithoutextension|displayname|basename)$""",
+    )
     private val destructiveCallees =
         setOf(
             "delete", "deleteIfExists", "deleteRecursively", "deleteIfExistsRecursively",
             "unlink", "removeIf", "removeAll", "retainAll", "remove", "deleteFile", "moveToTrash",
         )
+
     // A destructive context is a call site (`removeIf`, `delete`) or a declaration whose name
     // *begins* with a destructive verb. Query-shaped names (`walkTrashMarkdownFiles`,
     // `listTrashFiles`) enumerate a set; deletion still uses the returned exact handles.
     private val destructiveContextName =
-        Regex("""(?i)(delete|remove|trash|purge|wipe|unlink|destroy|clean|clear|prune|evict|drop|moveToTrash|moveToBin|empty)\w*""")
+        Regex(
+            """(?i)(delete|remove|trash|purge|wipe|unlink|destroy|clean|clear|prune|evict|drop|moveToTrash|moveToBin|empty)\w*""",
+        )
 
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
@@ -600,27 +606,28 @@ internal class NoNamePredicateDeleteRule(
         )
     }
 
-    private fun hasDestructiveContext(expression: KtExpression): Boolean =
-        expression.parents.any { ancestor ->
-            when (ancestor) {
-                is KtCallExpression ->
-                    ancestor.calleeExpression?.text in destructiveCallees
-                is KtNamedFunction ->
-                    ancestor.name?.let { destructiveContextName.matches(it) } == true
-                is KtProperty ->
-                    ancestor.name?.let { destructiveContextName.matches(it) } == true
-                else -> false
-            }
+    private fun hasDestructiveContext(expression: KtExpression): Boolean = expression.parents.any { ancestor ->
+        when (ancestor) {
+            is KtCallExpression ->
+                ancestor.calleeExpression?.text in destructiveCallees
+
+            is KtNamedFunction ->
+                ancestor.name?.let { destructiveContextName.matches(it) } == true
+
+            is KtProperty ->
+                ancestor.name?.let { destructiveContextName.matches(it) } == true
+
+            else -> false
         }
+    }
 }
 
-internal class NoCorruptionEmptyResetRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "A corruption handler must not silently reset durable state to empty; corruption is a typed " +
-        "failure to surface, not a zero-fill (audit I2: C15 emptyPreferences reset).",
-) {
+internal class NoCorruptionEmptyResetRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "A corruption handler must not silently reset durable state to empty; corruption is a typed " +
+            "failure to surface, not a zero-fill (audit I2: C15 emptyPreferences reset).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*corruption-reset-ok""")
     private val emptyFactories = setOf("emptyPreferences", "emptyMap", "emptyList", "emptySet", "emptySequence")
 
@@ -659,13 +666,12 @@ internal class NoCorruptionEmptyResetRule(
     }
 }
 
-internal class NoDomainClockRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "domain must not read the platform wall clock or timezone inline; time enters as a value or an " +
-        "injected provider seam (audit I2/C09: dual time authority, RemoteSyncConflictDialogUseCase clock).",
-) {
+internal class NoDomainClockRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "domain must not read the platform wall clock or timezone inline; time enters as a value or an " +
+            "injected provider seam (audit I2/C09: dual time authority, RemoteSyncConflictDialogUseCase clock).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*domain-clock-ok""")
 
     private val clockRead =
@@ -714,17 +720,17 @@ internal class NoDomainClockRule(
     }
 }
 
-internal class NoConstantStatusValueRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Measured status fields (progress/percent/ratio/fraction/confidence) must receive measured " +
-        "values, not literal constants; a constant status is a dead surface (audit I4: B05 " +
-        "getStatus, B11 Transferring(0f)).",
-) {
+internal class NoConstantStatusValueRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Measured status fields (progress/percent/ratio/fraction/confidence) must receive measured " +
+            "values, not literal constants; a constant status is a dead surface (audit I4: B05 " +
+            "getStatus, B11 Transferring(0f)).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*constant-status-ok""")
 
     private val measuredNames = setOf("progress", "percent", "ratio", "fraction", "confidence", "completionRatio")
+
     // In-flight status constructors (…Transferring/…Downloading/…) measure live work; positional
     // literals are dead surfaces there. Model types like `*Progress` are exempt at the callee
     // level — their `progress`-named arguments still flag via `measuredNames`.

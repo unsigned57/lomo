@@ -22,9 +22,7 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicLong
 
 @JvmInline
-value class MemoEditorSubmissionId(
-    val value: Long,
-) {
+value class MemoEditorSubmissionId(val value: Long) {
     init {
         require(value > 0L) { "Memo editor submission id must be positive" }
     }
@@ -38,9 +36,7 @@ enum class MemoEditorSubmissionStatus {
 
 /** Owns the editor-local submission id and accepts only its matching terminal acknowledgement. */
 @Stable
-internal class MemoEditorSubmissionGate(
-    private val onCommitted: () -> Unit,
-) {
+internal class MemoEditorSubmissionGate(private val onCommitted: () -> Unit) {
     var status by mutableStateOf(MemoEditorSubmissionStatus.Idle)
         private set
 
@@ -100,7 +96,9 @@ internal class MemoEditorSubmissionGate(
         val active = activeSubmissionId ?: return
         when (state) {
             is MemoEditorSubmissionState.Committed -> if (state.submissionId == active) commit(active)
+
             is MemoEditorSubmissionState.Failed -> if (state.submissionId == active) fail(active)
+
             MemoEditorSubmissionState.Idle,
             is MemoEditorSubmissionState.Submitting,
             -> Unit
@@ -120,17 +118,11 @@ internal class MemoEditorSubmissionGate(
 sealed interface MemoEditorSubmissionState {
     data object Idle : MemoEditorSubmissionState
 
-    data class Submitting(
-        val submissionId: MemoEditorSubmissionId,
-    ) : MemoEditorSubmissionState
+    data class Submitting(val submissionId: MemoEditorSubmissionId) : MemoEditorSubmissionState
 
-    data class Committed(
-        val submissionId: MemoEditorSubmissionId,
-    ) : MemoEditorSubmissionState
+    data class Committed(val submissionId: MemoEditorSubmissionId) : MemoEditorSubmissionState
 
-    data class Failed(
-        val submissionId: MemoEditorSubmissionId,
-    ) : MemoEditorSubmissionState
+    data class Failed(val submissionId: MemoEditorSubmissionId) : MemoEditorSubmissionState
 }
 
 /** Runs editor mutations in their ViewModel scope and publishes one acknowledged terminal state. */
@@ -155,8 +147,11 @@ internal class MemoEditorSubmissionStateMachine {
                         }
                         false
                     }
+
                     is MemoEditorSubmissionState.Committed -> current.submissionId != submissionId
+
                     is MemoEditorSubmissionState.Failed -> current.submissionId != submissionId
+
                     MemoEditorSubmissionState.Idle -> true
                 }
                 if (shouldLaunch) {
@@ -186,11 +181,7 @@ internal class MemoEditorSubmissionStateMachine {
         }
     }
 
-    fun reject(
-        submissionId: MemoEditorSubmissionId,
-        failure: Exception,
-        onFailure: (Exception) -> Unit,
-    ) {
+    fun reject(submissionId: MemoEditorSubmissionId, failure: Exception, onFailure: (Exception) -> Unit) {
         synchronized(transitionLock) {
             val current = _state.value
             check(current !is MemoEditorSubmissionState.Submitting || current.submissionId == submissionId) {
@@ -201,22 +192,20 @@ internal class MemoEditorSubmissionStateMachine {
         }
     }
 
-    suspend fun await(submissionId: MemoEditorSubmissionId): Boolean =
-        state
-            .filter { candidate ->
-                when (candidate) {
-                    is MemoEditorSubmissionState.Committed -> candidate.submissionId == submissionId
-                    is MemoEditorSubmissionState.Failed -> candidate.submissionId == submissionId
-                    MemoEditorSubmissionState.Idle,
-                    is MemoEditorSubmissionState.Submitting,
-                    -> false
-                }
-            }.first() is MemoEditorSubmissionState.Committed
+    suspend fun await(submissionId: MemoEditorSubmissionId): Boolean = state
+        .filter { candidate ->
+            when (candidate) {
+                is MemoEditorSubmissionState.Committed -> candidate.submissionId == submissionId
 
-    private fun transitionTerminal(
-        submissionId: MemoEditorSubmissionId,
-        terminal: MemoEditorSubmissionState,
-    ) {
+                is MemoEditorSubmissionState.Failed -> candidate.submissionId == submissionId
+
+                MemoEditorSubmissionState.Idle,
+                is MemoEditorSubmissionState.Submitting,
+                -> false
+            }
+        }.first() is MemoEditorSubmissionState.Committed
+
+    private fun transitionTerminal(submissionId: MemoEditorSubmissionId, terminal: MemoEditorSubmissionState) {
         synchronized(transitionLock) {
             val current = _state.value
             if (current is MemoEditorSubmissionState.Submitting && current.submissionId == submissionId) {
@@ -230,7 +219,7 @@ internal class MemoEditorSubmissionStateMachine {
 internal class MemoEditorCommitCoordinator(
     draftId: () -> DraftId,
     private val scope: CoroutineScope,
-    private val createMemo: suspend (MemoCreateAttempt) -> Memo,
+    private val createMemo: suspend (MemoCreateAttempt, onAccepted: (memoId: String) -> Unit) -> Memo,
     private val updateMemo: suspend (MemoUpdateAttempt) -> Unit,
     private val onCreateCommitted: () -> Unit,
     private val onUpdateCommitted: () -> Unit,
@@ -249,32 +238,27 @@ internal class MemoEditorCommitCoordinator(
     private val _committedCreate = MutableStateFlow<CommittedCreate?>(null)
     val committedCreate: StateFlow<CommittedCreate?> = _committedCreate.asStateFlow()
 
-    data class CommittedCreate(
-        val submissionId: MemoEditorSubmissionId,
-        val memo: Memo,
-    )
+    data class CommittedCreate(val submissionId: MemoEditorSubmissionId, val memo: Memo)
 
     fun committedMemo(submissionId: MemoEditorSubmissionId): Memo? =
         _committedCreate.value?.takeIf { it.submissionId == submissionId }?.memo
 
+    /** [onAccepted] learns the engine-admitted memo id before the durable commit settles. */
     fun create(
         submissionId: MemoEditorSubmissionId,
         content: String,
-        timestampMillis: Long? = null,
+        timestampMillis: Long?,
+        onAccepted: (memoId: String) -> Unit,
     ) {
         onStarted()
         stateMachine.launch(scope, submissionId, onFailure) { previous ->
-            val committed = createMemo(attempts.create(content, timestampMillis, previous))
+            val committed = createMemo(attempts.create(content, timestampMillis, previous), onAccepted)
             _committedCreate.value = CommittedCreate(submissionId, committed)
             onCreateCommitted()
         }
     }
 
-    fun update(
-        submissionId: MemoEditorSubmissionId,
-        session: MemoEditSession,
-        newContent: String,
-    ) {
+    fun update(submissionId: MemoEditorSubmissionId, session: MemoEditSession, newContent: String) {
         onStarted()
         stateMachine.launch(scope, submissionId, onFailure) { previous ->
             updateMemo(attempts.update(session, newContent, previous))
@@ -284,10 +268,7 @@ internal class MemoEditorCommitCoordinator(
 
     suspend fun await(submissionId: MemoEditorSubmissionId): Boolean = stateMachine.await(submissionId)
 
-    fun reject(
-        submissionId: MemoEditorSubmissionId,
-        failure: Exception,
-    ) {
+    fun reject(submissionId: MemoEditorSubmissionId, failure: Exception) {
         stateMachine.reject(submissionId, failure, onFailure)
     }
 }
@@ -303,11 +284,7 @@ internal class MemoEditorUpdateSubmission(
     private val stateMachine = MemoEditorSubmissionStateMachine()
     val state: StateFlow<MemoEditorSubmissionState> = stateMachine.state
 
-    suspend fun submit(
-        submissionId: MemoEditorSubmissionId,
-        session: MemoEditSession,
-        newContent: String,
-    ): Boolean {
+    suspend fun submit(submissionId: MemoEditorSubmissionId, session: MemoEditSession, newContent: String): Boolean {
         stateMachine.launch(scope, submissionId, onFailure) { previous ->
             updateMemo(attempts.update(session, newContent, previous))
         }
@@ -322,9 +299,7 @@ internal class MemoEditorUpdateSubmission(
  * construction — a create attempt must lease under the identity that owns the staged media, not
  * the one minted before recovery ran.
  */
-internal class MemoEditorAttemptStore(
-    private val draftId: () -> DraftId,
-) {
+internal class MemoEditorAttemptStore(private val draftId: () -> DraftId) {
     private sealed interface Frozen {
         data class Create(val requestedTime: Long?, val command: MemoCreateAttempt) : Frozen
         data class Update(val command: MemoUpdateAttempt) : Frozen
@@ -335,7 +310,9 @@ internal class MemoEditorAttemptStore(
         val existing = frozen as? Frozen.Create
         if (previous is MemoEditorSubmissionState.Failed && existing != null &&
             existing.command.content == content && existing.requestedTime == timestampMillis
-        ) return existing.command
+        ) {
+            return existing.command
+        }
         val command =
             MemoCreateAttempt(
                 operationId = nextOperationId(),
@@ -356,7 +333,9 @@ internal class MemoEditorAttemptStore(
         val existing = frozen as? Frozen.Update
         if (previous is MemoEditorSubmissionState.Failed &&
             existing != null && existing.command.replays(session, content)
-        ) return existing.command
+        ) {
+            return existing.command
+        }
         val command =
             MemoUpdateAttempt(
                 operationId = nextOperationId(),
@@ -371,8 +350,5 @@ internal class MemoEditorAttemptStore(
     private fun nextOperationId(): MemoOperationId = newMemoOperationId()
 }
 
-private fun MemoUpdateAttempt.replays(
-    session: MemoEditSession,
-    content: String,
-): Boolean =
+private fun MemoUpdateAttempt.replays(session: MemoEditSession, content: String): Boolean =
     snapshot == session.snapshot && this.content == content && draftId == session.draftId

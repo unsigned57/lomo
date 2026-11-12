@@ -17,11 +17,7 @@ internal fun String.toStyledShareTextFromHtmlFragment(imagePlaceholder: String):
     return state.toStyledShareText()
 }
 
-private fun String.consumeShareHtmlSegment(
-    state: StyledShareTextState,
-    index: Int,
-    tagStart: Int,
-): Int {
+private fun String.consumeShareHtmlSegment(state: StyledShareTextState, index: Int, tagStart: Int): Int {
     if (tagStart > index) {
         state.appendText(substring(index, tagStart))
     }
@@ -40,13 +36,9 @@ private fun String.consumeShareHtmlSegment(
 internal sealed interface HtmlShareTag {
     data object LineBreak : HtmlShareTag
 
-    data class OpenStyle(
-        val kind: ShareInlineStyleKind,
-    ) : HtmlShareTag
+    data class OpenStyle(val kind: ShareInlineStyleKind) : HtmlShareTag
 
-    data class CloseStyle(
-        val kind: ShareInlineStyleKind,
-    ) : HtmlShareTag
+    data class CloseStyle(val kind: ShareInlineStyleKind) : HtmlShareTag
 }
 
 internal fun String.toSupportedHtmlShareTag(): HtmlShareTag? {

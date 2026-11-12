@@ -1,41 +1,49 @@
 package com.lomo.data.repository
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
  * Why old assertion is no longer correct: Transitioning to Kotest
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
+ *
+ * Test Change Justification:
+ * - Reason category: product feature removal (usage-based memo menu auto-reorder).
+ * - Old behavior/assertion being replaced: the repository fixture wired a MemoActionPreferencesRepositoryImpl delegate.
+ * - Why old assertion is no longer correct: the memo_action_auto_reorder_enabled, memo_action_order
+ *   and memo_action_orders_by_scope settings were deleted from the settings catalog, DataStore and
+ *   snapshot; the redesigned memo menu has a fixed layout.
+ * - Coverage preserved by: all remaining preference delegates and their assertions.
+ * - Why this is not fitting the test to the implementation: only sample values and assertions for
+ *   deleted settings were removed; the scenario and every remaining setting are unchanged.
  */
 
-
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.test.runTest
-import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.core.Preferences
-import java.io.File
-import java.nio.file.Files
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 
 /*
  * Behavior Contract:
@@ -59,7 +67,10 @@ class SettingsRepositoryImplTest : DataFunSpec() {
         test("applyLocation propagates update failure") {
             runTest {
                 val (dataSource, _, repository) = setUpTest()
-                val update = StorageAreaUpdate(area = StorageArea.ROOT, location = StorageLocation("content://lomo/root"))
+                val update = StorageAreaUpdate(
+                    area = StorageArea.ROOT,
+                    location = StorageLocation("content://lomo/root"),
+                )
                 dataSource.throwOnSetRoot = true
 
                 val exception = runCatching { repository.applyLocation(update) }.exceptionOrNull()
@@ -107,36 +118,39 @@ class SettingsRepositoryImplTest : DataFunSpec() {
         }
     }
 
-    private fun kotlinx.coroutines.test.TestScope.setUpTest(): Triple<SettingsFakeWorkspaceConfigSource, LomoDataStore, SettingsRepositoryImpl> {
+    private fun TestScope.setUpTest(): Triple<
+        SettingsFakeWorkspaceConfigSource,
+        LomoDataStore,
+        SettingsRepositoryImpl,
+        > {
         val dataSource = SettingsFakeWorkspaceConfigSource()
         val dataStore = createLomoDataStore(backgroundScope)
         val repository =
             SettingsRepositoryImpl(
                 directoryRepository = DirectorySettingsRepositoryImpl(dataSource, dataStore),
                 preferencesRepository =
-                    PreferencesRepositoryImpl(
-                        preferences =
-                            PreferencesRepositoryDelegates(
-                                dateTimePreferencesRepository = DateTimePreferencesRepositoryImpl(dataStore),
-                                storagePreferencesRepository = StoragePreferencesRepositoryImpl(dataStore),
-                                interactionPreferencesRepository = InteractionPreferencesRepositoryImpl(dataStore),
-                                interactionBehaviorPreferencesRepository =
-                                    InteractionBehaviorPreferencesRepositoryImpl(dataStore),
-                                memoActionPreferencesRepository = MemoActionPreferencesRepositoryImpl(dataStore),
-                                inputToolbarPreferencesRepository = InputToolbarPreferencesRepositoryImpl(dataStore),
-                                sidebarTagOrderPreferencesRepository =
-                                    SidebarTagOrderPreferencesRepositoryImpl(dataStore),
-                            ),
-                        securityAndDisplay =
-                            SecurityAndDisplayPreferencesDelegates(
-                                securityPreferencesRepository = SecurityPreferencesRepositoryImpl(dataStore),
-                                shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),
-                                syncInboxPreferencesRepository = SyncInboxPreferencesRepositoryImpl(dataStore),
-                                typographyPreferencesRepository = TypographyPreferencesRepositoryImpl(dataStore),
-                                colorSchemePreferencesRepository = ColorSchemePreferencesRepositoryImpl(dataStore),
-                                fontPreferencesRepository = FontPreferencesRepositoryImpl(dataStore),
-                            ),
+                PreferencesRepositoryImpl(
+                    preferences =
+                    PreferencesRepositoryDelegates(
+                        dateTimePreferencesRepository = DateTimePreferencesRepositoryImpl(dataStore),
+                        storagePreferencesRepository = StoragePreferencesRepositoryImpl(dataStore),
+                        interactionPreferencesRepository = InteractionPreferencesRepositoryImpl(dataStore),
+                        interactionBehaviorPreferencesRepository =
+                        InteractionBehaviorPreferencesRepositoryImpl(dataStore),
+                        inputToolbarPreferencesRepository = InputToolbarPreferencesRepositoryImpl(dataStore),
+                        sidebarTagOrderPreferencesRepository =
+                        SidebarTagOrderPreferencesRepositoryImpl(dataStore),
                     ),
+                    securityAndDisplay =
+                    SecurityAndDisplayPreferencesDelegates(
+                        securityPreferencesRepository = SecurityPreferencesRepositoryImpl(dataStore),
+                        shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),
+                        syncInboxPreferencesRepository = SyncInboxPreferencesRepositoryImpl(dataStore),
+                        typographyPreferencesRepository = TypographyPreferencesRepositoryImpl(dataStore),
+                        colorSchemePreferencesRepository = ColorSchemePreferencesRepositoryImpl(dataStore),
+                        fontPreferencesRepository = FontPreferencesRepositoryImpl(dataStore),
+                    ),
+                ),
             )
         return Triple(dataSource, dataStore, repository)
     }
@@ -149,7 +163,9 @@ class SettingsRepositoryImplTest : DataFunSpec() {
             scope = scope,
             produceFile = { backingFile },
         )
-        val constructor = LomoDataStore::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+        val constructor = LomoDataStore::class.java.getDeclaredConstructor(
+            androidx.datastore.core.DataStore::class.java,
+        )
         constructor.isAccessible = true
         return constructor.newInstance(realDataStore)
     }
@@ -166,8 +182,7 @@ private class SettingsFakeWorkspaceConfigSource : WorkspaceConfigSource {
         roots.value = roots.value + (type to pathOrUri)
     }
 
-    override fun getRootFlow(type: StorageRootType): Flow<String?> =
-        roots.map { it[type] }
+    override fun getRootFlow(type: StorageRootType): Flow<String?> = roots.map { it[type] }
 
     override fun getRootDisplayNameFlow(type: StorageRootType): Flow<String?> =
         roots.map { it[type]?.substringAfterLast('/') }

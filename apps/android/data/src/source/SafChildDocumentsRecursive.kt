@@ -18,29 +18,27 @@ internal fun safQueryChildDocumentsWithIdsRecursive(
     context: Context,
     rootUri: Uri,
     baseDocId: String,
-): List<FileMetadataWithId> =
-    safQueryChildDocumentsWithIdsRecursiveCommon(
-        context = context,
-        rootUri = rootUri,
-        baseDocId = baseDocId,
-        excludeTrash = true,
-        shouldSkip = { _, _ -> false },
-        fileFilter = { it.endsWith(SAF_MARKDOWN_SUFFIX) }
-    )
+): List<FileMetadataWithId> = safQueryChildDocumentsWithIdsRecursiveCommon(
+    context = context,
+    rootUri = rootUri,
+    baseDocId = baseDocId,
+    excludeTrash = true,
+    shouldSkip = { _, _ -> false },
+    fileFilter = { it.endsWith(SAF_MARKDOWN_SUFFIX) },
+)
 
 internal fun safStreamChildDocumentsWithIdsRecursive(
     documentAccess: SafDocumentAccess,
     rootUri: Uri,
     baseDocId: String,
-): Flow<FileMetadataWithId> =
-    safStreamChildDocumentsWithIdsRecursiveCommon(
-        documentAccess = documentAccess,
-        rootUri = rootUri,
-        baseDocId = baseDocId,
-        excludeTrash = true,
-        shouldSkip = { _, _ -> false },
-        fileFilter = { it.endsWith(SAF_MARKDOWN_SUFFIX) }
-    )
+): Flow<FileMetadataWithId> = safStreamChildDocumentsWithIdsRecursiveCommon(
+    documentAccess = documentAccess,
+    rootUri = rootUri,
+    baseDocId = baseDocId,
+    excludeTrash = true,
+    shouldSkip = { _, _ -> false },
+    fileFilter = { it.endsWith(SAF_MARKDOWN_SUFFIX) },
+)
 
 internal fun safQueryChildDocumentsWithIdsRecursiveCommon(
     context: Context,
@@ -59,15 +57,15 @@ internal fun safQueryChildDocumentsWithIdsRecursiveCommon(
             processChildDocumentsCursor(
                 cursor = cursor,
                 context =
-                    ChildDocumentsCursorContext(
-                        rootUri = rootUri,
-                        prefix = prefix,
-                        excludeTrash = excludeTrash,
-                        shouldSkip = shouldSkip,
-                        fileFilter = fileFilter,
-                        queue = queue,
-                    ),
-                results = results
+                ChildDocumentsCursorContext(
+                    rootUri = rootUri,
+                    prefix = prefix,
+                    excludeTrash = excludeTrash,
+                    shouldSkip = shouldSkip,
+                    fileFilter = fileFilter,
+                    queue = queue,
+                ),
+                results = results,
             )
         }
     }
@@ -81,36 +79,35 @@ internal fun safStreamChildDocumentsWithIdsRecursiveCommon(
     excludeTrash: Boolean,
     shouldSkip: (name: String, isDirectory: Boolean) -> Boolean,
     fileFilter: (name: String) -> Boolean,
-): Flow<FileMetadataWithId> =
-    flow {
-        val queue = ArrayDeque<Pair<String, String>>().apply { add(baseDocId to "") }
-        while (queue.isNotEmpty()) {
-            val (parentDocId, prefix) = queue.removeFirst()
-            val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
-            val children =
-                documentAccess.contentResolver.query(
-                    childUri,
-                    METADATA_WITH_ID_PROJECTION,
-                    null,
-                    null,
-                    null,
-                )
-            children?.use { cursor ->
-                processStreamChildDocumentsCursor(
-                    cursor = cursor,
-                    context =
-                        ChildDocumentsCursorContext(
-                            rootUri = rootUri,
-                            prefix = prefix,
-                            excludeTrash = excludeTrash,
-                            shouldSkip = shouldSkip,
-                            fileFilter = fileFilter,
-                            queue = queue,
-                        )
-                )
-            }
+): Flow<FileMetadataWithId> = flow {
+    val queue = ArrayDeque<Pair<String, String>>().apply { add(baseDocId to "") }
+    while (queue.isNotEmpty()) {
+        val (parentDocId, prefix) = queue.removeFirst()
+        val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
+        val children =
+            documentAccess.contentResolver.query(
+                childUri,
+                METADATA_WITH_ID_PROJECTION,
+                null,
+                null,
+                null,
+            )
+        children?.use { cursor ->
+            processStreamChildDocumentsCursor(
+                cursor = cursor,
+                context =
+                ChildDocumentsCursorContext(
+                    rootUri = rootUri,
+                    prefix = prefix,
+                    excludeTrash = excludeTrash,
+                    shouldSkip = shouldSkip,
+                    fileFilter = fileFilter,
+                    queue = queue,
+                ),
+            )
         }
-    }.flowOn(documentAccess.ioDispatcher)
+    }
+}.flowOn(documentAccess.ioDispatcher)
 
 private data class ChildDocumentsCursorContext(
     val rootUri: Uri,
@@ -124,7 +121,7 @@ private data class ChildDocumentsCursorContext(
 private fun processChildDocumentsCursor(
     cursor: Cursor,
     context: ChildDocumentsCursorContext,
-    results: MutableList<FileMetadataWithId>
+    results: MutableList<FileMetadataWithId>,
 ) {
     val idx = MetadataColumnIndexes.from(cursor)
     while (cursor.moveToNext()) {
@@ -145,7 +142,7 @@ private fun processChildDocumentsCursor(
                         documentId = row.docId,
                         uriString = docUri.toString(),
                         size = row.size,
-                    )
+                    ),
                 )
             }
         }
@@ -154,7 +151,7 @@ private fun processChildDocumentsCursor(
 
 private suspend fun kotlinx.coroutines.flow.FlowCollector<FileMetadataWithId>.processStreamChildDocumentsCursor(
     cursor: Cursor,
-    context: ChildDocumentsCursorContext
+    context: ChildDocumentsCursorContext,
 ) {
     val idx = MetadataColumnIndexes.from(cursor)
     while (cursor.moveToNext()) {
@@ -175,7 +172,7 @@ private suspend fun kotlinx.coroutines.flow.FlowCollector<FileMetadataWithId>.pr
                         documentId = row.docId,
                         uriString = docUri.toString(),
                         size = row.size,
-                    )
+                    ),
                 )
             }
         }

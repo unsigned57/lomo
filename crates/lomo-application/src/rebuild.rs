@@ -24,7 +24,7 @@ use crate::{
     config::WorkspaceSessionConfig,
     csprng::{generate_hex_token, mint_memo_id},
     error::{corruption, storage, validation},
-    workspace_io::{WorkspaceIo, deadline},
+    workspace_io::{FileSnapshot, MAX_WORKSPACE_READ_BATCH, WorkspaceIo, deadline},
 };
 
 /// Workspace facts already scanned for a projection rebuild or fingerprint reconcile.
@@ -267,7 +267,7 @@ pub(crate) fn list_workspace_listing(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
 ) -> Result<ScanEvidence, LomoError> {
-    list_recursive(config, executor)
+    list_recursive(config, executor, ListingScope::WorkspaceFacts)
 }
 
 /// The (path, listing fingerprint) map one enumeration produces — the same view
@@ -310,25 +310,74 @@ pub(crate) fn listing_evidence_digest(listing: &[DocumentMetadata]) -> String {
     listing_token_digest(&listing_token_map(listing))
 }
 
-/// Re-lists the parent directory of each `written` path and stores its current listing
-/// fingerprint into `tokens`.
-///
-/// Files written mid-scan or mid-commit post-date the enumeration that provoked the work;
-/// the parent directory re-list is the same listing evidence a fresh scan of the finished
-/// filesystem reports. Paths under directories the workspace listing never admits
-/// (`.git`, `.lomo/local`) are skipped, as is a path the re-list finds absent.
+fn listing_parent(path: &str) -> Result<WorkspaceTarget, LomoError> {
+    path.rsplit_once('/')
+        .map_or(Ok(WorkspaceTarget::Root), |(parent, _)| {
+            RelativeWorkspacePath::parse(parent).map(WorkspaceTarget::Relative)
+        })
+}
+
+fn update_written_token(
+    path: &RelativeWorkspacePath,
+    metadata: &DocumentMetadata,
+    tokens: &mut BTreeMap<String, String>,
+) -> Result<(), LomoError> {
+    if metadata.kind() != DocumentKind::File {
+        return Err(corruption(
+            "written_target_not_file",
+            "written target is no longer a file",
+        ));
+    }
+    tokens.insert(
+        path.as_str().to_owned(),
+        metadata.evidence().fingerprint().to_owned(),
+    );
+    Ok(())
+}
+
+fn known_siblings_up_to(
+    target: &WorkspaceTarget,
+    tokens: &BTreeMap<String, String>,
+    limit: usize,
+) -> usize {
+    match target {
+        WorkspaceTarget::Root => tokens
+            .keys()
+            .filter(|path| !path.contains('/'))
+            .take(limit)
+            .count(),
+        WorkspaceTarget::Relative(parent) => {
+            let prefix = format!("{}/", parent.as_str());
+            tokens
+                .range(prefix.clone()..)
+                .take_while(|(path, _)| path.starts_with(&prefix))
+                .filter(|(path, _)| {
+                    path.rsplit_once('/')
+                        .is_some_and(|(directory, _)| directory == parent.as_str())
+                })
+                .take(limit)
+                .count()
+        }
+    }
+}
+
+/// Refreshes written-file tokens without amplifying a small change into sibling enumeration.
+/// One read-lane batch uses exact metadata observations. A larger write set uses bulk listing
+/// only when it is at least as large as the parent's known membership, bounding normal bulk
+/// metadata to at most old members plus writes rather than the size of an unchanged library.
+/// Content CAS evidence remains independent and is never weakened to a listing change token.
 ///
 /// # Errors
-/// Propagates listing failures for a directory that must exist — a write just landed there.
+/// A written target that vanished or ceased to be a file cannot certify this projection.
 pub(crate) fn refresh_listing_tokens(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
     written: &[RelativeWorkspacePath],
-    tokens: &mut BTreeMap<String, String>,
-) -> Result<(), LomoError> {
-    let mut parents: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    inventory: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, LomoError> {
+    let mut parents: BTreeMap<WorkspaceTarget, BTreeSet<RelativeWorkspacePath>> = BTreeMap::new();
     for path in written {
-        let rel = path.as_str().to_owned();
+        let rel = path.as_str();
         if rel == lomo_workspace::GIT_ROOT_NAME
             || rel.starts_with(".git/")
             || rel == lomo_rel::LOCAL
@@ -338,29 +387,59 @@ pub(crate) fn refresh_listing_tokens(
         {
             continue;
         }
-        let parent = std::path::Path::new(&rel)
-            .parent()
-            .and_then(|p| p.to_str())
-            .map_or_else(String::new, str::to_owned);
-        parents.entry(parent).or_default().push(rel);
+        parents
+            .entry(listing_parent(rel)?)
+            .or_default()
+            .insert(path.clone());
     }
-    for (parent, children) in parents {
-        let listed = if parent.is_empty() {
-            list_target_tokens(config, executor, &WorkspaceTarget::Root)?
+    let mut exact = Vec::new();
+    let mut bulk = Vec::new();
+    for (target, paths) in parents {
+        if paths.len() <= MAX_WORKSPACE_READ_BATCH
+            || known_siblings_up_to(&target, inventory, paths.len() + 1) > paths.len()
+        {
+            exact.extend(paths);
         } else {
-            list_target_tokens(
-                config,
-                executor,
-                &WorkspaceTarget::Relative(RelativeWorkspacePath::parse(&parent)?),
-            )?
-        };
-        for child in children {
-            if let Some(token) = listed.get(&child) {
-                tokens.insert(child, token.clone());
-            }
+            bulk.push((target, paths));
         }
     }
-    Ok(())
+    let io = WorkspaceIo::physical(config, executor);
+    let mut refreshed = BTreeMap::new();
+    for chunk in exact.chunks(MAX_WORKSPACE_READ_BATCH) {
+        for (path, metadata) in chunk.iter().zip(io.inspect_batch(chunk)?) {
+            update_written_token(path, &metadata, &mut refreshed)?;
+        }
+    }
+    let targets: Vec<_> = bulk.iter().map(|(target, _)| target.clone()).collect();
+    for ((_, paths), page) in bulk
+        .into_iter()
+        .zip(list_targets_pages(config, executor, &targets)?)
+    {
+        let items = match page {
+            ListingPage::Items(items) => items,
+            ListingPage::Rejected(error) => return Err(error),
+        };
+        let mut listed = BTreeMap::new();
+        for item in &items {
+            let WorkspaceTarget::Relative(path) = item.target() else {
+                return Err(corruption(
+                    "invalid_child_listing",
+                    "a directory listing returned its root",
+                ));
+            };
+            listed.insert(path.as_str(), item);
+        }
+        for path in paths {
+            let metadata = listed.get(path.as_str()).ok_or_else(|| {
+                storage(
+                    "written_target_missing",
+                    format!("written file disappeared: {}", path.as_str()),
+                )
+            })?;
+            update_written_token(&path, metadata, &mut refreshed)?;
+        }
+    }
+    Ok(refreshed)
 }
 
 /// Scans workspace Markdown and `.lomo` facts without replacing SQLite.
@@ -368,7 +447,7 @@ pub(crate) fn scan_projection_inventory(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
 ) -> Result<ProjectionInventory, LomoError> {
-    let evidence = list_recursive(config, executor)?;
+    let evidence = list_recursive(config, executor, ListingScope::WorkspaceFacts)?;
     let listing = evidence.admitted_listing()?;
     scan_projection_inventory_from_listing(config, executor, listing)
 }
@@ -379,6 +458,7 @@ pub(crate) fn scan_projection_inventory_from_listing(
     listing: &[DocumentMetadata],
 ) -> Result<ProjectionInventory, LomoError> {
     let all_files = listing_file_paths(listing);
+    let mut listing_tokens = listing_token_map(listing);
 
     let mut markdown_files = Vec::new();
     let mut history_files = Vec::new();
@@ -389,23 +469,24 @@ pub(crate) fn scan_projection_inventory_from_listing(
     let mut written_paths = Vec::new();
     for path in all_files {
         let path_str = path.as_str();
-        if has_extension(path_str, "md") && !path_str.starts_with(lomo_rel::ROOT_PREFIX) {
+        if path_str.starts_with(lomo_rel::TRASH_PREFIX) && has_extension(path_str, "md") {
+            trash_files.push(path);
+        } else if has_extension(path_str, "md") && !path_str.starts_with(lomo_rel::ROOT_PREFIX) {
             markdown_files.push(path);
         } else if path_str.starts_with(lomo_rel::HISTORY_PREFIX) && has_extension(path_str, "rec") {
             history_files.push(path);
         } else if path_str.starts_with(lomo_rel::STATE_PREFIX) && has_extension(path_str, "rec") {
             state_files.push(path);
-        } else if path_str.starts_with(lomo_rel::TRASH_PREFIX) && has_extension(path_str, "rec") {
-            trash_files.push(path);
         } else if path_str.starts_with(lomo_rel::PURGED_PREFIX) && has_extension(path_str, "rec") {
             purge_files.push(path);
         }
     }
 
-    let active_memos = scan_markdown_files(
+    let documents = scan_markdown_files(
         config,
         executor,
         &markdown_files,
+        &listing_tokens,
         &mut history_files,
         &mut Vec::new(),
         &mut written_paths,
@@ -414,8 +495,12 @@ pub(crate) fn scan_projection_inventory_from_listing(
     history_files.dedup();
     let purged_ids = scan_purged_ids(config, executor, &purge_files)?;
     let trash_memos = scan_trash_files(config, executor, &trash_files, &purged_ids)?;
-    let history_revisions =
-        crate::rebuild_records::history(&WorkspaceIo { config, executor }, &history_files)?;
+    let history_revisions = crate::rebuild_records::history(
+        &WorkspaceIo::physical(config, executor),
+        &history_files,
+        documents.history_tips,
+    )?;
+    let active_memos = documents.memos;
     // Pin facts attach only to identities this scan projects a row for — document
     // emissions plus trash claims that survived purge suppression. Anything else is a
     // dead tip the projection can never carry.
@@ -424,13 +509,16 @@ pub(crate) fn scan_projection_inventory_from_listing(
         .map(|memo| memo.memo_id.clone())
         .chain(trash_memos.iter().map(|trash| trash.memo.memo_id.clone()))
         .collect();
-    let pin_scan =
-        crate::rebuild_records::pins(&WorkspaceIo { config, executor }, &state_files, &live_ids)?;
+    let pin_scan = crate::rebuild_records::pins(
+        &WorkspaceIo::physical(config, executor),
+        &state_files,
+        &live_ids,
+    )?;
     // The scan may have written identity records or initial history chains while it ran; the
     // committed listing rows must describe the filesystem at scan completion, so their tokens
     // come from a parent-directory re-list, not from the pre-scan listing.
-    let mut listing_tokens = listing_token_map(listing);
-    refresh_listing_tokens(config, executor, &written_paths, &mut listing_tokens)?;
+    let refreshed = refresh_listing_tokens(config, executor, &written_paths, &listing_tokens)?;
+    listing_tokens.extend(refreshed);
     // Absorbed duplicate heads stay tolerated evidence — never baseline rows. A committed
     // copy would drop out of the path diff and let a claim gone stale stay invisible to
     // every later reconcile, so they are re-verified on every pass instead.
@@ -482,6 +570,13 @@ pub(crate) fn materialize_scanned_projection(
     rebuild.finish()
 }
 
+/// Parsed documents and the immutable history facts their scan already admitted.
+pub(crate) struct ScannedDocuments {
+    pub memos: Vec<ScannedMemoProjection>,
+    /// Canonical tip objects already admitted while ensuring each memo has history.
+    pub history_tips: Vec<lomo_workspace::HistoryRevisionV2>,
+}
+
 /// Parses one batch of documents and reconciles their identity records.
 ///
 /// `history_files` accumulates history record paths the scan must still index (initial-history
@@ -495,30 +590,149 @@ pub(crate) fn scan_markdown_files(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
     markdown_files: &[RelativeWorkspacePath],
+    listed_files: &BTreeMap<String, String>,
     history_files: &mut Vec<RelativeWorkspacePath>,
     initial_history: &mut Vec<ScannedHistoryProjection>,
     written_paths: &mut Vec<RelativeWorkspacePath>,
-) -> Result<Vec<ScannedMemoProjection>, LomoError> {
-    let io = WorkspaceIo { config, executor };
-    let mut active_memos = Vec::new();
-    for md_path in markdown_files {
-        let snapshot = io.require(md_path)?;
-        let source = SourceBytes::try_from_bytes(snapshot.bytes)?;
-        let filename = md_path
-            .as_str()
-            .rsplit('/')
-            .next()
-            .ok_or_else(|| validation("invalid_workspace_path", "document needs a filename"))?;
-        let stem = filename.strip_suffix(".md").unwrap_or(filename);
-        let document = parse_workspace_document(&source, stem)?;
-        let chronologies = document
-            .memos()
-            .iter()
-            .map(|memo| memo_chronology(stem, memo.time_part(), &config.time_zone))
-            .collect::<Result<Vec<_>, _>>()?;
-        let path = WorkspaceRelativePath::parse(md_path.as_str())?;
-        let identity_map = reconcile_identity(&io, &path, &document, written_paths)?;
-        for binding in identity_map.bindings() {
+) -> Result<ScannedDocuments, LomoError> {
+    let io = WorkspaceIo::physical(config, executor);
+    let mut documents = ScannedDocuments {
+        memos: Vec::new(),
+        history_tips: Vec::new(),
+    };
+    if !markdown_files.is_empty() {
+        prepare_scan_directories(&io)?;
+    }
+    for chunk in markdown_files.chunks(MAX_WORKSPACE_READ_BATCH) {
+        let snapshots = io.require_batch(chunk)?;
+        // Share one eight-lane budget between documents and memo chains. A large daily
+        // document uses the spare lanes instead of serialising every initial-history write.
+        let memo_lanes = MAX_WORKSPACE_READ_BATCH / chunk.len();
+        let scanned = scan_batch(chunk.iter().zip(snapshots).collect(), |(path, snapshot)| {
+            scan_document(&io, path, snapshot, listed_files, memo_lanes)
+        })?;
+        for scanned in scanned {
+            documents.memos.extend(scanned.memos);
+            documents.history_tips.extend(scanned.history_tips);
+            history_files.extend(scanned.history_files);
+            initial_history.extend(scanned.initial_history);
+            written_paths.extend(scanned.written_paths);
+        }
+    }
+    Ok(documents)
+}
+
+/// Join every bounded worker, including after failure, before admitting any batch facts.
+fn scan_batch<T: Send, R: Send>(
+    items: Vec<T>,
+    scan: impl Fn(T) -> Result<R, LomoError> + Sync,
+) -> Result<Vec<R>, LomoError> {
+    if items.len() <= 1 {
+        return items.into_iter().map(scan).collect();
+    }
+    std::thread::scope(|scope| {
+        let scan = &scan;
+        let workers: Vec<_> = items
+            .into_iter()
+            .map(|item| std::thread::Builder::new().spawn_scoped(scope, move || scan(item)))
+            .collect();
+        workers
+            .into_iter()
+            .map(|worker| match worker {
+                Ok(worker) => worker.join().map_err(|panic| {
+                    storage("document_scan_panicked", format!("scan worker: {panic:?}"))
+                })?,
+                Err(error) => Err(storage("document_scan_spawn_failed", error.to_string())),
+            })
+            .collect::<Vec<_>>()
+    })
+    .into_iter()
+    .collect()
+}
+
+/// Shared parents must exist before independent writers can create children: SAF directory
+/// creation is not an atomic create-if-absent operation and may otherwise rename a duplicate.
+fn prepare_scan_directories(io: &WorkspaceIo<'_>) -> Result<(), LomoError> {
+    for prefix in [
+        lomo_rel::IDENTITY_V1_PREFIX,
+        lomo_rel::HISTORY_V2_OBJECTS_PREFIX,
+        lomo_rel::HISTORY_V2_HEADS_PREFIX,
+    ] {
+        let action = PlatformAction::ensure_directory(
+            ActionId::parse(&format!("scan-mkdir-{}", generate_hex_token(16)?))?,
+            io.config.capability.clone(),
+            RelativeWorkspacePath::parse(prefix.trim_end_matches('/'))?,
+        );
+        let PlatformActionOutput::DirectoryReady { .. } = io.execute(action)? else {
+            return Err(corruption(
+                "invalid_ensure_directory_output",
+                "expected a directory receipt",
+            ));
+        };
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct ScannedDocument {
+    memos: Vec<ScannedMemoProjection>,
+    history_tips: Vec<lomo_workspace::HistoryRevisionV2>,
+    history_files: Vec<RelativeWorkspacePath>,
+    initial_history: Vec<ScannedHistoryProjection>,
+    written_paths: Vec<RelativeWorkspacePath>,
+}
+
+fn scan_document(
+    io: &WorkspaceIo<'_>,
+    md_path: &RelativeWorkspacePath,
+    snapshot: FileSnapshot,
+    listed_files: &BTreeMap<String, String>,
+    memo_lanes: usize,
+) -> Result<ScannedDocument, LomoError> {
+    let config = io.config;
+    let mut scanned = ScannedDocument::default();
+    let source = SourceBytes::try_from_bytes(snapshot.bytes)?;
+    let filename = md_path
+        .as_str()
+        .rsplit('/')
+        .next()
+        .ok_or_else(|| validation("invalid_workspace_path", "document needs a filename"))?;
+    let stem = filename.strip_suffix(".md").unwrap_or(filename);
+    let document = parse_workspace_document(&source, stem)?;
+    let chronologies = document
+        .memos()
+        .iter()
+        .map(|memo| memo_chronology(stem, memo.time_part(), &config.time_zone))
+        .collect::<Result<Vec<_>, _>>()?;
+    let path = WorkspaceRelativePath::parse(md_path.as_str())?;
+    let identity_map = reconcile_identity(
+        io,
+        &path,
+        &document,
+        &mut scanned.written_paths,
+        listed_files,
+    )?;
+    let existing_ids = identity_map
+        .bindings()
+        .iter()
+        .map(|binding| {
+            let id = binding.memo_id();
+            let head_path = crate::record_plan::history_head_relative_path(id)?;
+            Ok(listed_files.contains_key(head_path.as_str()).then_some(id))
+        })
+        .collect::<Result<Vec<_>, LomoError>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    scanned.history_tips.extend(
+        crate::record_plan::history_tips(io, &existing_ids)?
+            .into_iter()
+            .map(|tip| tip.revision),
+    );
+    let existing_ids: BTreeSet<_> = existing_ids.into_iter().collect();
+    for chunk in identity_map.bindings().chunks(memo_lanes) {
+        let memo_scans = scan_batch(chunk.iter().collect(), |binding| {
+            let mut memo_scan = ScannedDocument::default();
             let memo = binding
                 .locator()
                 .resolve(config.root_id, &path, &document)?;
@@ -530,14 +744,22 @@ pub(crate) fn scan_markdown_files(
                         "validated block chronology is absent",
                     )
                 })?;
-            let history_before = history_files.len();
-            if let Some(projection) =
-                ensure_initial_history(&io, binding.memo_id(), memo, chronology, history_files)?
-            {
-                initial_history.push(projection);
-                written_paths.extend(history_files.iter().skip(history_before).cloned());
+            if !existing_ids.contains(&binding.memo_id()) {
+                let history_before = memo_scan.history_files.len();
+                let projection = create_initial_history(
+                    io,
+                    binding.memo_id(),
+                    memo,
+                    chronology,
+                    &mut memo_scan.history_files,
+                    &mut memo_scan.history_tips,
+                )?;
+                memo_scan.initial_history.push(projection);
+                memo_scan
+                    .written_paths
+                    .extend(memo_scan.history_files.iter().skip(history_before).cloned());
             }
-            active_memos.push(ScannedMemoProjection {
+            memo_scan.memos.push(ScannedMemoProjection {
                 memo_id: binding.memo_id().as_str().to_owned(),
                 source_path: md_path.as_str().to_owned(),
                 file_fingerprint: source.fingerprint().as_str().to_owned(),
@@ -553,9 +775,17 @@ pub(crate) fn scan_markdown_files(
                     .map(ReminderReference::from)
                     .collect(),
             });
+            Ok(memo_scan)
+        })?;
+        for memo_scan in memo_scans {
+            scanned.memos.extend(memo_scan.memos);
+            scanned.history_tips.extend(memo_scan.history_tips);
+            scanned.history_files.extend(memo_scan.history_files);
+            scanned.initial_history.extend(memo_scan.initial_history);
+            scanned.written_paths.extend(memo_scan.written_paths);
         }
     }
-    Ok(active_memos)
+    Ok(scanned)
 }
 
 /// Writes initial durable history for one memo when no head exists yet.
@@ -563,19 +793,15 @@ pub(crate) fn scan_markdown_files(
 /// Returns the projection row for the revision just written — the memo's complete durable chain,
 /// since a missing head means no earlier history exists — so a path-scoped caller can use it
 /// directly as the memo's `history_replaces` fact without re-walking what it just wrote.
-/// `None` means an existing head already anchors the chain.
-fn ensure_initial_history(
+fn create_initial_history(
     io: &WorkspaceIo<'_>,
     id: &lomo_workspace::MemoId,
     memo: &lomo_workspace::WorkspaceMemo,
     chronology: i64,
     inventory: &mut Vec<RelativeWorkspacePath>,
-) -> Result<Option<ScannedHistoryProjection>, LomoError> {
-    if crate::record_plan::history_tip(io, id)?.is_some() {
-        return Ok(None);
-    }
-    let prepared = crate::record_plan::history_files(
-        io,
+    tips: &mut Vec<lomo_workspace::HistoryRevisionV2>,
+) -> Result<ScannedHistoryProjection, LomoError> {
+    let prepared = crate::record_plan::history_files_after_tip(
         &lomo_workspace::HistorySnapshotV1 {
             memo_id: id.as_str().to_owned(),
             revision: 1,
@@ -587,14 +813,16 @@ fn ensure_initial_history(
             .to_owned(),
             created_at_ms: chronology,
         },
+        None,
     )?;
-    let projection = prepared.projection.clone();
+    let projection = prepared.projection;
     for file in prepared.files {
-        let current = io.read(file.path())?;
-        file.apply(io, &crate::transaction::CurrentState::Bytes(current))?;
+        let current = file.observe(io)?;
+        file.apply(io, &current)?;
         inventory.push(file.path().clone());
     }
-    Ok(Some(projection))
+    tips.push(prepared.revision);
+    Ok(projection)
 }
 
 fn reconcile_identity(
@@ -602,10 +830,17 @@ fn reconcile_identity(
     path: &WorkspaceRelativePath,
     document: &lomo_workspace::WorkspaceDocument,
     written_paths: &mut Vec<RelativeWorkspacePath>,
+    listed_files: &BTreeMap<String, String>,
 ) -> Result<MemoIdentityMap, LomoError> {
     let record_path = memo_identity_record_path(io.config.root_id, path)?;
     let record_path = RelativeWorkspacePath::parse(record_path.as_str())?;
-    let before = io.read(&record_path)?;
+    // Enumeration decides which records must be read. An unlisted slot is create-only:
+    // a concurrent claimant must survive the platform's absence/name arbitration untouched.
+    let before = if listed_files.contains_key(record_path.as_str()) {
+        Some(io.require(&record_path)?)
+    } else {
+        None
+    };
     let operation = lomo_core::OperationId::parse(&format!("scan-{}", generate_hex_token(16)?))?;
     let mut map = if let Some(snapshot) = &before {
         MemoIdentityMap::decode(&snapshot.bytes)?.reconcile_external(operation, document)?
@@ -648,7 +883,7 @@ fn reconcile_identity(
 
 /// Decodes every durable purge tombstone and returns the suppressed memo identities.
 ///
-/// A tombstone must sit at its canonical `sha256(memo_id)` path — the same name authority the
+/// A tombstone must sit at its canonical source-labelled identity path — the same name authority the
 /// path-scoped reconcile relies on when a tombstone row is added or removed — and a corrupt
 /// tombstone fails the scan rather than silently dropping suppression.
 fn scan_purged_ids(
@@ -664,7 +899,7 @@ fn scan_purged_ids(
         if purge_path.as_str() != expected.as_str() {
             return Err(corruption(
                 "purge_record_path_mismatch",
-                "durable purge tombstone is not stored at its canonical hashed path",
+                "durable purge tombstone is not stored at its canonical source-labelled path",
             ));
         }
         purged_ids.insert(tombstone.memo_id);
@@ -672,7 +907,7 @@ fn scan_purged_ids(
     Ok(purged_ids)
 }
 
-/// Decodes one trash record and proves the file sits at its canonical `sha256(memo_id)` path.
+/// Decodes one trash record and proves the file sits at its canonical source-labelled identity path.
 ///
 /// Shared by the full scan and the path-scoped reconcile so both admit exactly the same
 /// durable facts. `ScannedTrashProjection::from_record` is the single record→projection
@@ -683,11 +918,11 @@ pub(crate) fn decode_trash_projection(
     trash_path: &str,
 ) -> Result<ScannedTrashProjection, LomoError> {
     let trash = decode_trash_record(bytes)?;
-    let expected = trash_record_relative_path(&trash.memo_id)?;
+    let expected = trash_record_relative_path(&trash.memo_id, &trash.source_path)?;
     if trash_path != expected.as_str() {
         return Err(corruption(
             "trash_record_path_mismatch",
-            "durable trash record is not stored at its canonical hashed path",
+            "durable trash record is not stored at its canonical source-labelled path",
         ));
     }
     ScannedTrashProjection::from_record(&trash)
@@ -728,12 +963,170 @@ fn listing_file_paths(listing: &[DocumentMetadata]) -> Vec<RelativeWorkspacePath
         .collect()
 }
 
+/// Page size for workspace scans — the largest page the platform contract admits, so a directory
+/// re-queried per page (SAF) enumerates in one round trip where smaller pages would chain.
+const WORKSPACE_SCAN_PAGE_SIZE: u32 = 512;
+
+/// Independent listing chains the engine joins into one platform batch — the same bound the
+/// engine's parallel read lane enforces, so a wider batch would only queue serially while a
+/// narrower one wastes provider round trips.
+const LISTING_BATCH_WIDTH: usize = 8;
+
 /// One fully-paged listing for a single target.
 pub(crate) enum ListingPage {
     /// Every item under the target.
     Items(Vec<DocumentMetadata>),
     /// The platform rejected the listing mid-enumeration; partial rows are not evidence.
     Rejected(LomoError),
+}
+
+/// One open cursor chain over a listing target. A chain only ever continues through the cursor
+/// the provider issued for its previous page — never a guessed offset — so chains over
+/// independent directories can share a batch without breaking provider cursor semantics.
+struct ListingChain {
+    /// Caller-chosen correlation returned with the settled page (`list_targets_pages` uses the
+    /// target index; the recursive walk does not correlate).
+    tag: usize,
+    target: WorkspaceTarget,
+    cursor: Option<String>,
+    items: Vec<DocumentMetadata>,
+}
+
+impl ListingChain {
+    const fn new(tag: usize, target: WorkspaceTarget) -> Self {
+        Self {
+            tag,
+            target,
+            cursor: None,
+            items: Vec::new(),
+        }
+    }
+
+    fn next_action(&self, config: &WorkspaceSessionConfig) -> Result<PlatformAction, LomoError> {
+        let action_id = ActionId::parse(&format!("list-{}", generate_hex_token(8)?))?;
+        let page_size = PageSize::new(WORKSPACE_SCAN_PAGE_SIZE)?;
+        Ok(match &self.target {
+            WorkspaceTarget::Root => PlatformAction::list_root(
+                action_id,
+                config.capability.clone(),
+                self.cursor.clone(),
+                page_size,
+            ),
+            WorkspaceTarget::Relative(rel) => PlatformAction::list_children(
+                action_id,
+                config.capability.clone(),
+                rel.clone(),
+                self.cursor.clone(),
+                page_size,
+            ),
+        })
+    }
+}
+
+/// Executes one platform batch that advances every open `chains` entry by one listing page.
+///
+/// Settled chains — cursor proven complete, action rejected, or page slot unwitnessed by a
+/// truncated result prefix — are returned as `(tag, ListingPage)` pairs in `chains` order; the
+/// rest stay open in `chains` for the next round. Per-page results stay aligned with the chain
+/// that requested them, so parallel chains can never cross-attribute rows.
+fn page_round(
+    config: &WorkspaceSessionConfig,
+    executor: &Arc<dyn PlatformActionExecutor>,
+    chains: &mut Vec<ListingChain>,
+) -> Result<Vec<(usize, ListingPage)>, LomoError> {
+    debug_assert!(!chains.is_empty());
+    let actions = chains
+        .iter()
+        .map(|chain| chain.next_action(config))
+        .collect::<Result<Vec<_>, _>>()?;
+    let job_id = lomo_core::JobId::parse(&format!("job-list-{}", generate_hex_token(8)?))?;
+    let batch_id = lomo_core::BatchId::parse(&format!("batch-list-{}", generate_hex_token(8)?))?;
+    let batch = PlatformActionBatch::new(job_id, batch_id, 1, deadline()?, actions)?;
+    let result = executor.execute(&batch)?;
+    result.validate_against(&batch)?;
+    let results = result.action_results();
+
+    let mut settled = Vec::new();
+    let mut kept = Vec::with_capacity(chains.len());
+    for (index, mut chain) in chains.drain(..).enumerate() {
+        match results.get(index).map(lomo_core::ActionResult::outcome) {
+            Some(
+                lomo_core::ActionOutcome::Applied(PlatformActionOutput::Listed { page })
+                | lomo_core::ActionOutcome::AlreadySatisfied(PlatformActionOutput::Listed { page }),
+            ) => {
+                chain.items.extend(page.items().iter().cloned());
+                chain.cursor = page.next_cursor().map(|c| c.as_str().to_owned());
+                if chain.cursor.is_some() {
+                    kept.push(chain);
+                } else {
+                    settled.push((chain.tag, ListingPage::Items(chain.items)));
+                }
+            }
+            Some(lomo_core::ActionOutcome::Failed(error)) => {
+                settled.push((chain.tag, ListingPage::Rejected(error.clone())));
+            }
+            Some(
+                lomo_core::ActionOutcome::Applied(_)
+                | lomo_core::ActionOutcome::AlreadySatisfied(_),
+            ) => {
+                return Err(corruption("invalid_list_output", "expected Listed output"));
+            }
+            None => {
+                settled.push((
+                    chain.tag,
+                    ListingPage::Rejected(storage(
+                        "list_batch_truncated",
+                        "provider ended the listing batch without a result for every requested page",
+                    )),
+                ));
+            }
+        }
+    }
+    *chains = kept;
+    Ok(settled)
+}
+
+/// Pages every `targets` chain to completion, batching independent cursor chains up to
+/// [`LISTING_BATCH_WIDTH`] wide. The returned vector preserves `targets` order; each entry is the
+/// terminal page for that target only — a rejected chain never contaminates its neighbors.
+fn list_targets_pages(
+    config: &WorkspaceSessionConfig,
+    executor: &Arc<dyn PlatformActionExecutor>,
+    targets: &[WorkspaceTarget],
+) -> Result<Vec<ListingPage>, LomoError> {
+    let mut settled: Vec<Option<ListingPage>> = targets.iter().map(|_| None).collect();
+    let mut seeds: Vec<usize> = (0..targets.len()).collect();
+    let mut chains: Vec<ListingChain> = Vec::new();
+    loop {
+        while chains.len() < LISTING_BATCH_WIDTH {
+            let Some(index) = seeds.pop() else {
+                break;
+            };
+            let Some(target) = targets.get(index) else {
+                break;
+            };
+            chains.push(ListingChain::new(index, target.clone()));
+        }
+        if chains.is_empty() {
+            break;
+        }
+        for (tag, page) in page_round(config, executor, &mut chains)? {
+            if let Some(slot) = settled.get_mut(tag) {
+                *slot = Some(page);
+            }
+        }
+    }
+    Ok(settled
+        .into_iter()
+        .map(|page| {
+            page.unwrap_or_else(|| {
+                ListingPage::Rejected(storage(
+                    "list_chain_unsettled",
+                    "listing chain ended without a settled page",
+                ))
+            })
+        })
+        .collect())
 }
 
 /// Pages one listing target to completion.
@@ -746,141 +1139,282 @@ pub(crate) fn list_target_pages(
     executor: &Arc<dyn PlatformActionExecutor>,
     target: &WorkspaceTarget,
 ) -> Result<ListingPage, LomoError> {
-    let mut items = Vec::new();
-    let mut cursor = None;
-    loop {
-        let action_id = ActionId::parse(&format!("list-{}", generate_hex_token(8)?))?;
-        let page_size = PageSize::new(256)?;
-        let action = match target {
-            WorkspaceTarget::Root => {
-                PlatformAction::list_root(action_id, config.capability.clone(), cursor, page_size)
-            }
-            WorkspaceTarget::Relative(rel) => PlatformAction::list_children(
-                action_id,
-                config.capability.clone(),
-                rel.clone(),
-                cursor,
-                page_size,
-            ),
-        };
-
-        let job_id = lomo_core::JobId::parse(&format!("job-list-{}", generate_hex_token(8)?))?;
-        let batch_id =
-            lomo_core::BatchId::parse(&format!("batch-list-{}", generate_hex_token(8)?))?;
-        let batch = PlatformActionBatch::new(job_id, batch_id, 1, deadline()?, vec![action])?;
-
-        let result = executor.execute(&batch)?;
-        result.validate_against(&batch)?;
-
-        let first_res = result
-            .action_results()
-            .first()
-            .ok_or_else(|| storage("list_empty_result", "missing action result for list"))?;
-
-        let output = match first_res.outcome() {
-            lomo_core::ActionOutcome::Applied(out)
-            | lomo_core::ActionOutcome::AlreadySatisfied(out) => out,
-            lomo_core::ActionOutcome::Failed(err) => {
-                return Ok(ListingPage::Rejected(err.clone()));
-            }
-        };
-
-        let page = match output {
-            PlatformActionOutput::Listed { page } => page,
-            PlatformActionOutput::Stat { .. }
-            | PlatformActionOutput::DirectoryReady { .. }
-            | PlatformActionOutput::ReadToExchange { .. }
-            | PlatformActionOutput::Read { .. }
-            | PlatformActionOutput::WriteComplete { .. }
-            | PlatformActionOutput::MoveComplete { .. }
-            | PlatformActionOutput::DeleteComplete { .. } => {
-                return Err(corruption("invalid_list_output", "expected Listed output"));
-            }
-        };
-
-        items.extend(page.items().iter().cloned());
-        cursor = page.next_cursor().map(|c| c.as_str().to_owned());
-        if cursor.is_none() {
-            break;
-        }
-    }
-    Ok(ListingPage::Items(items))
+    Ok(
+        list_targets_pages(config, executor, std::slice::from_ref(target))?
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| {
+                ListingPage::Rejected(storage(
+                    "list_empty_result",
+                    "missing action result for list",
+                ))
+            }),
+    )
 }
 
-/// Re-lists one listing target (`Root` or a relative directory) and returns each file entry's
-/// current listing fingerprint.
-///
-/// Path-scoped reconcile uses this to learn the post-write change tokens of files it wrote
-/// while the workspace-wide listing was already taken — the fingerprint a fresh listing would
-/// report for the same file state.
-///
-/// # Errors
-/// Propagates listing failures: a directory the scan just wrote cannot fail to enumerate.
-pub(crate) fn list_target_tokens(
+/// Admits one entry of a completed directory listing: files join the workspace listing,
+/// directories queue for their own listing chains, and carrier subtrees (`.git`,
+/// `.lomo/local`, `.lomo/sync`) never enter the walk.
+fn admit_listing_item(
+    item: &DocumentMetadata,
+    files: &mut Vec<DocumentMetadata>,
+    pending: &mut Vec<WorkspaceTarget>,
+    skipped_sync_subtrees: &mut u64,
+) {
+    if let WorkspaceTarget::Relative(path) = item.target() {
+        match path.as_str() {
+            lomo_workspace::GIT_ROOT_NAME
+            | lomo_rel::ROOT
+            | lomo_rel::LOCAL
+            | lomo_media::STAGE_DIR_NAME
+            | lomo_media::MEDIA_TRASH_DIR_NAME
+            | lomo_media::MEDIA_DELETE_INTENT_DIR_NAME => return,
+            // The sync control tree is a carrier, not workspace content: it never enters the
+            // admitted listing and its churn can never wake a reconcile.
+            lomo_rel::SYNC => {
+                *skipped_sync_subtrees += 1;
+                return;
+            }
+            _ => {}
+        }
+    }
+    match item.kind() {
+        DocumentKind::File => files.push(item.clone()),
+        DocumentKind::Directory => pending.push(item.target().clone()),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ListingScope {
+    Documents,
+    WorkspaceFacts,
+}
+
+pub(crate) fn list_document_listing(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
-    target: &WorkspaceTarget,
-) -> Result<BTreeMap<String, String>, LomoError> {
-    match list_target_pages(config, executor, target)? {
-        ListingPage::Items(items) => Ok(items
-            .into_iter()
-            .filter(|item| item.kind() == DocumentKind::File)
-            .filter_map(|item| match item.target() {
-                WorkspaceTarget::Relative(path) => Some((
-                    path.as_str().to_owned(),
-                    item.evidence().fingerprint().to_owned(),
-                )),
-                WorkspaceTarget::Root => None,
-            })
-            .collect()),
-        ListingPage::Rejected(error) => Err(error),
-    }
+) -> Result<ScanEvidence, LomoError> {
+    list_recursive(config, executor, ListingScope::Documents)
 }
 
 fn list_recursive(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
+    scope: ListingScope,
 ) -> Result<ScanEvidence, LomoError> {
+    if matches!(scope, ListingScope::WorkspaceFacts) {
+        normalize_plain_trash(config, executor)?;
+    }
     let mut files = Vec::new();
-    let mut dirs_to_visit = vec![WorkspaceTarget::Root];
+    let control = RelativeWorkspacePath::parse(lomo_rel::ROOT)?;
+    let mut pending = vec![WorkspaceTarget::Root];
+    if matches!(scope, ListingScope::WorkspaceFacts)
+        && WorkspaceIo::physical(config, executor)
+            .stat(&control)?
+            .is_some()
+    {
+        pending.push(WorkspaceTarget::Relative(control));
+    }
     let mut skipped_sync_subtrees = 0u64;
-
-    while let Some(target) = dirs_to_visit.pop() {
-        let items = match list_target_pages(config, executor, &target)? {
-            ListingPage::Items(items) => items,
-            ListingPage::Rejected(error) => {
-                return Ok(ScanEvidence::incomplete(
-                    error,
-                    files,
-                    skipped_sync_subtrees,
-                ));
+    // The walk keeps up to LISTING_BATCH_WIDTH independent cursor chains open: directories the
+    // listing discovers are fanned into shared platform batches while each chain still advances
+    // strictly through the cursor its own provider page issued. Only independent directories
+    // interleave — page order inside one chain is untouched.
+    let mut chains: Vec<ListingChain> = Vec::new();
+    loop {
+        while chains.len() < LISTING_BATCH_WIDTH {
+            match pending.pop() {
+                Some(target) => chains.push(ListingChain::new(0, target)),
+                None => break,
             }
-        };
-        for item in &items {
-            if let WorkspaceTarget::Relative(path) = item.target() {
-                match path.as_str() {
-                    lomo_workspace::GIT_ROOT_NAME | lomo_rel::LOCAL => continue,
-                    // The sync control tree is a carrier, not workspace content: it never
-                    // enters the admitted listing and its churn can never wake a reconcile.
-                    lomo_rel::SYNC => {
-                        skipped_sync_subtrees += 1;
-                        continue;
+        }
+        if chains.is_empty() {
+            break;
+        }
+        for (_tag, page) in page_round(config, executor, &mut chains)? {
+            match page {
+                ListingPage::Items(items) => {
+                    for item in &items {
+                        admit_listing_item(
+                            item,
+                            &mut files,
+                            &mut pending,
+                            &mut skipped_sync_subtrees,
+                        );
                     }
-                    _ => {}
                 }
-            }
-            match item.kind() {
-                DocumentKind::File => {
-                    files.push(item.clone());
-                }
-                DocumentKind::Directory => {
-                    dirs_to_visit.push(item.target().clone());
+                ListingPage::Rejected(error) => {
+                    return Ok(ScanEvidence::incomplete(
+                        error,
+                        files,
+                        skipped_sync_subtrees,
+                    ));
                 }
             }
         }
     }
 
     Ok(ScanEvidence::complete(files, skipped_sync_subtrees))
+}
+
+/// Older `.trash` daily Markdown is still user content. Admit it as individual recoverable
+/// documents before scanning, without reading or importing any external `.lomo` records.
+fn normalize_plain_trash(
+    config: &WorkspaceSessionConfig,
+    executor: &Arc<dyn PlatformActionExecutor>,
+) -> Result<(), LomoError> {
+    let io = WorkspaceIo::physical(config, executor);
+    let directory = RelativeWorkspacePath::parse(lomo_rel::TRASH_V1)?;
+    if io.stat(&directory)?.is_none() {
+        return Ok(());
+    }
+    let listing = match list_target_pages(config, executor, &WorkspaceTarget::Relative(directory))?
+    {
+        ListingPage::Items(items) => items,
+        ListingPage::Rejected(error) => return Err(error),
+    };
+    for item in listing {
+        if item.kind() != DocumentKind::File {
+            continue;
+        }
+        let WorkspaceTarget::Relative(path) = item.target() else {
+            return Err(corruption(
+                "invalid_trash_path",
+                "trash listing contains a root entry",
+            ));
+        };
+        if has_extension(path.as_str(), "md") {
+            if lomo_workspace::is_trash_record_path(path.as_str()) {
+                // Only the previous bare digest form needs admission. Dated records incur no
+                // extra reads here; their facts/path are checked by the ordinary scan.
+                if path
+                    .as_str()
+                    .strip_prefix(lomo_rel::TRASH_PREFIX)
+                    .is_some_and(|name| name.len() == 67)
+                {
+                    normalize_trash_record_name(&io, path)?;
+                }
+            } else {
+                normalize_plain_trash_document(&io, path)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn normalize_trash_record_name(
+    io: &WorkspaceIo<'_>,
+    path: &RelativeWorkspacePath,
+) -> Result<(), LomoError> {
+    let source = io.require(path)?;
+    let record = decode_trash_record(&source.bytes)?;
+    let canonical = trash_record_relative_path(&record.memo_id, &record.source_path)?;
+    let digest_name = canonical
+        .as_str()
+        .rsplit_once('-')
+        .ok_or_else(|| {
+            corruption(
+                "invalid_trash_path",
+                "canonical trash name requires an identity suffix",
+            )
+        })?
+        .1;
+    if path.as_str() != format!("{}{digest_name}", lomo_rel::TRASH_PREFIX) {
+        return Err(corruption(
+            "trash_record_path_mismatch",
+            "trash filename does not match its recovery identity",
+        ));
+    }
+    let destination = RelativeWorkspacePath::parse(canonical.as_str())?;
+    if let Some(existing) = io.read(&destination)? {
+        if existing.bytes != source.bytes {
+            return Err(crate::error::conflict(
+                "trash_admission_conflict",
+                "dated trash already contains different recovery facts",
+            ));
+        }
+    } else {
+        io.write(&destination, None, &source.bytes)?;
+    }
+    // Write the complete verified snapshot first; source CAS makes interrupted admission resumable.
+    io.delete(path, &source)
+}
+
+fn normalize_plain_trash_document(
+    io: &WorkspaceIo<'_>,
+    path: &RelativeWorkspacePath,
+) -> Result<(), LomoError> {
+    let source = io.require(path)?;
+    let logical = WorkspaceRelativePath::parse(path.as_str())?;
+    let document = parse_workspace_document(
+        &SourceBytes::try_from_bytes(source.bytes.clone())?,
+        crate::document_plan::filename_stem(path)?,
+    )?;
+    let mapping = memo_identity_record_path(io.config.root_id, &logical)?;
+    let mapping_path = RelativeWorkspacePath::parse(mapping.as_str())?;
+    let mut listed = BTreeMap::new();
+    if let Some(metadata) = io.stat(&mapping_path)? {
+        listed.insert(
+            mapping.as_str().to_owned(),
+            metadata.evidence().fingerprint().to_owned(),
+        );
+    }
+    let identities = reconcile_identity(io, &logical, &document, &mut Vec::new(), &listed)?;
+    let destination = RelativeWorkspacePath::parse(
+        path.as_str()
+            .strip_prefix(lomo_rel::TRASH_PREFIX)
+            .ok_or_else(|| {
+                corruption("invalid_trash_path", "daily trash must live under .trash")
+            })?,
+    )?;
+    for binding in identities.bindings() {
+        let memo = document
+            .memos()
+            .get(binding.locator().block_index() as usize)
+            .ok_or_else(|| {
+                corruption("invalid_trash_binding", "trash identity has no memo block")
+            })?;
+        let projection = crate::document_plan::project_memo(
+            &destination,
+            binding.memo_id(),
+            document.source().fingerprint().as_str(),
+            memo,
+            &io.config.time_zone,
+        )?;
+        // Daily files carry no deletion timestamp. Their first admission is the recorded event;
+        // a resumed admission keeps the timestamp of the already-written snapshot.
+        let trash = crate::record_plan::trash_snapshot(
+            &projection,
+            memo.time_part(),
+            crate::workspace_io::epoch_millis()?,
+        )?;
+        admit_plain_trash_snapshot(io, trash)?;
+    }
+    // Each complete recoverable body is durable first. Source CAS prevents a concurrent edit
+    // from being unlinked; a crash resumes with the same private identity map and exact snapshots.
+    io.delete(path, &source)
+}
+
+fn admit_plain_trash_snapshot(
+    io: &WorkspaceIo<'_>,
+    mut trash: lomo_workspace::TrashRecordV1,
+) -> Result<(), LomoError> {
+    let path = RelativeWorkspacePath::parse(
+        trash_record_relative_path(&trash.memo_id, &trash.source_path)?.as_str(),
+    )?;
+    if let Some(previous) = io.read(&path)? {
+        let admitted = decode_trash_record(&previous.bytes)?;
+        trash.trashed_at_ms = admitted.trashed_at_ms;
+        if trash != admitted {
+            return Err(crate::error::conflict(
+                "trash_admission_conflict",
+                "daily trash changed while its recoverable documents were being admitted",
+            ));
+        }
+        return Ok(());
+    }
+    io.write(&path, None, &lomo_workspace::encode_trash_record(&trash)?)?;
+    Ok(())
 }
 
 /// Reads a workspace file via platform action and returns its byte contents.
@@ -892,7 +1426,7 @@ pub fn read_workspace_file(
     executor: &Arc<dyn PlatformActionExecutor>,
     path: &RelativeWorkspacePath,
 ) -> Result<Vec<u8>, LomoError> {
-    Ok(WorkspaceIo { config, executor }.require(path)?.bytes)
+    Ok(WorkspaceIo::physical(config, executor).require(path)?.bytes)
 }
 
 pub(crate) fn has_extension(path: &str, ext: &str) -> bool {

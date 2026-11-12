@@ -1,11 +1,11 @@
 package com.lomo.ui.component.markdown
 
-import com.lomo.ui.testing.UiComponentsFunSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextDecoration
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 /*
  * Test Contract:
@@ -18,38 +18,38 @@ import androidx.compose.ui.text.style.TextDecoration
 class MarkdownTextStyleResolverTest : UiComponentsFunSpec() {
     init {
         test("unspecified markdown text color falls back to visible theme color") {
-        val fallbackColor = Color(0xFF223344)
+            val fallbackColor = Color(0xFF223344)
 
-        val resolved =
-            resolveMarkdownParagraphTextStyle(
-                baseStyle = TextStyle(color = Color.Unspecified),
-                fallbackColor = fallbackColor,
-                text = "未完成 todo item",
-            )
+            val resolved =
+                resolveMarkdownParagraphTextStyle(
+                    baseStyle = TextStyle(color = Color.Unspecified),
+                    fallbackColor = fallbackColor,
+                    text = "未完成 todo item",
+                )
 
-        (resolved.color) shouldBe (fallbackColor)
-        (Color.Unspecified) shouldNotBe (resolved.color)
+            (resolved.color) shouldBe (fallbackColor)
+            (Color.Unspecified) shouldNotBe (resolved.color)
         }
     }
 
     init {
         test("explicit markdown text color and decoration stay unchanged") {
-        val explicitColor = Color(0xFF667788)
-        val fallbackColor = Color(0xFF223344)
+            val explicitColor = Color(0xFF667788)
+            val fallbackColor = Color(0xFF223344)
 
-        val resolved =
-            resolveMarkdownParagraphTextStyle(
-                baseStyle =
+            val resolved =
+                resolveMarkdownParagraphTextStyle(
+                    baseStyle =
                     TextStyle(
                         color = explicitColor,
                         textDecoration = TextDecoration.LineThrough,
                     ),
-                fallbackColor = fallbackColor,
-                text = "已完成 todo item",
-            )
+                    fallbackColor = fallbackColor,
+                    text = "已完成 todo item",
+                )
 
-        (resolved.color) shouldBe (explicitColor)
-        (resolved.textDecoration) shouldBe (TextDecoration.LineThrough)
+            (resolved.color) shouldBe (explicitColor)
+            (resolved.textDecoration) shouldBe (TextDecoration.LineThrough)
         }
     }
 }

@@ -59,10 +59,7 @@ private data class EncryptedMigrationSettingsEnvelope(
  * AAD. Version 1 envelopes predate AAD and decrypt without it; version 2 envelopes bind
  * version/kdf/cipher/iterations so metadata tampering can never slide under a valid tag.
  */
-private data class EnvelopeProfile(
-    val iterations: Int,
-    val metadataAuthenticated: Boolean,
-)
+private data class EnvelopeProfile(val iterations: Int, val metadataAuthenticated: Boolean)
 
 private val ENVELOPE_PROFILES: Map<Int, EnvelopeProfile> =
     mapOf(
@@ -78,10 +75,7 @@ private val ENVELOPE_PROFILES: Map<Int, EnvelopeProfile> =
             ),
     )
 
-internal fun encryptSettings(
-    plainText: ByteArray,
-    password: String,
-): String {
+internal fun encryptSettings(plainText: ByteArray, password: String): String {
     val random = SecureRandom()
     val salt = ByteArray(SETTINGS_SALT_BYTES).also(random::nextBytes)
     val nonce = ByteArray(SETTINGS_NONCE_BYTES).also(random::nextBytes)
@@ -135,18 +129,12 @@ internal fun InputStream.readSettingsEnvelopeText(): String {
  * steers decryption (format version, KDF/cipher names, iteration count) into the GCM tag so a
  * metadata edit is indistinguishable from a corrupted ciphertext.
  */
-private fun envelopeAssociatedData(
-    version: Int,
-    kdf: String,
-    cipher: String,
-    iterations: Int,
-): ByteArray =
-    (
-        "lomo-settings-envelope" +
-            "|version=" + version +
-            "|kdf=" + kdf +
-            "|cipher=" + cipher +
-            "|iterations=" + iterations
+private fun envelopeAssociatedData(version: Int, kdf: String, cipher: String, iterations: Int): ByteArray = (
+    "lomo-settings-envelope" +
+        "|version=" + version +
+        "|kdf=" + kdf +
+        "|cipher=" + cipher +
+        "|iterations=" + iterations
     ).toByteArray(Charsets.UTF_8)
 
 /** Single throw site for envelope-format failures — keeps the parser's `throw` count honest. */
@@ -226,10 +214,7 @@ private fun parseAndValidateEnvelope(envelopeText: String): ValidatedEnvelope {
     )
 }
 
-internal fun decryptSettings(
-    envelopeText: String,
-    password: String,
-): ByteArray {
+internal fun decryptSettings(envelopeText: String, password: String): ByteArray {
     val validated = parseAndValidateEnvelope(envelopeText)
     return try {
         val cipher = Cipher.getInstance(SETTINGS_CIPHER)
@@ -259,11 +244,7 @@ internal fun decryptSettings(
     }
 }
 
-private fun deriveSettingsKey(
-    password: String,
-    salt: ByteArray,
-    iterations: Int,
-): SecretKeySpec {
+private fun deriveSettingsKey(password: String, salt: ByteArray, iterations: Int): SecretKeySpec {
     val spec = PBEKeySpec(password.toCharArray(), salt, iterations, SETTINGS_KEY_BITS)
     val factory = SecretKeyFactory.getInstance(SETTINGS_KDF)
     return SecretKeySpec(factory.generateSecret(spec).encoded, "AES")

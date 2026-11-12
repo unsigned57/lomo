@@ -8,15 +8,9 @@ source "$script_dir/kotlin_detekt_env.sh"
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}"
+build_dir="${LOMO_KOTLIN_BUILD_DIR:-${LOMO_GENERATED_ROOT:-$repo_root/target/lomo}/build/kotlin}"
 
-cargo_target="${CARGO_TARGET_DIR:-$repo_root/target}"
-report_root="${LOMO_GENERATED_ROOT:-$cargo_target/lomo}"
-case "$report_root" in
-  /*) ;;
-  *) report_root="$repo_root/$report_root" ;;
-esac
-report_root="$report_root/reports/detekt"
+report_root="$repo_root/reports/detekt"
 mkdir -p "$report_root"
 
 # The architecture/style gate must always load its own rule set. An ambient
@@ -47,7 +41,7 @@ case "$mode" in
     # (NoInferredMutableFlowExposure / ForbiddenMethodCall appear in full but not
     # light). Without this, a "full" run whose type resolution silently degraded
     # would still report success.
-    bash "$script_dir/test/detekt_full_analysis_contract_test.sh"
+    LOMO_DETEKT_CANARY_MODULES="$modules_csv" bash "$script_dir/test/detekt_full_analysis_contract_test.sh"
     ;;
   *) echo "kotlin-detekt-check: unknown analysis mode $mode" >&2; exit 1 ;;
 esac

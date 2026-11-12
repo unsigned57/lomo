@@ -8,16 +8,15 @@ import com.lomo.app.R
 import java.io.File
 
 @Composable
-internal fun s3LocalSyncDirectorySubtitle(pathOrUri: String): String =
-    pathOrUri
-        .takeIf(String::isNotBlank)
-        ?.let { path ->
-            stringResource(
-                R.string.settings_s3_local_sync_directory_selected_subtitle,
-                s3LocalSyncDirectoryDisplayName(path),
-            )
-        }
-        ?: stringResource(R.string.settings_not_set)
+internal fun s3LocalSyncDirectorySubtitle(pathOrUri: String): String = pathOrUri
+    .takeIf(String::isNotBlank)
+    ?.let { path ->
+        stringResource(
+            R.string.settings_s3_local_sync_directory_selected_subtitle,
+            s3LocalSyncDirectoryDisplayName(path),
+        )
+    }
+    ?: stringResource(R.string.settings_not_set)
 
 private fun s3LocalSyncDirectoryDisplayName(pathOrUri: String): String {
     val trimmed = pathOrUri.trim()

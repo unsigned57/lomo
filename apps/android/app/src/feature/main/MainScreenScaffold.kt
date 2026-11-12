@@ -3,11 +3,8 @@ package com.lomo.app.feature.main
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
@@ -17,28 +14,22 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
-import com.lomo.ui.component.common.EnterAnimationRegistry
-import com.lomo.domain.model.Memo
-import com.lomo.domain.model.MemoListFilter
-import com.lomo.domain.model.MemoSortOption
-import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.app.feature.memo.MemoMenuSelection
-import com.lomo.ui.component.menu.PrewarmMemoMenuMotion
-import kotlinx.collections.immutable.ImmutableSet
+import com.lomo.domain.model.Memo
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.EnterAnimationRegistry
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MainScreenScaffoldContent(
-    isExpanded: Boolean,
     actions: MainScreenActions,
+    sidebarToggle: MainSidebarToggle,
     snackbarHostState: SnackbarHostState,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     searchQuery: String,
@@ -58,39 +49,31 @@ internal fun MainScreenScaffoldContent(
     onShowMemoMenu: (MemoMenuSelection) -> Unit,
     onReminderClick: (String, String) -> Unit,
     isFilterActive: Boolean,
-    onScrollToTop: () -> Unit,
     isMemoFilterSheetVisible: Boolean,
     memoListFilterController: com.lomo.app.feature.common.MemoListFilterController,
     onDismissMemoFilterSheet: () -> Unit,
     onRetryEngine: () -> Unit,
     onRebuildDerivedIndex: () -> Unit,
     onExportDiagnostics: () -> Unit,
+    fab: @Composable () -> Unit,
 ) {
-    val isFabVisible =
-        rememberMainScreenFabVisibility(scrollBehavior) &&
-            uiState is MainViewModel.MainScreenState.Ready
-
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets =
-            WindowInsets.displayCutout
-                .union(WindowInsets.systemBars)
-                .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
+        WindowInsets.displayCutout
+            .union(WindowInsets.systemBars),
         topBar = {
             MainScreenTopBarSlot(
                 actions = actions,
+                sidebarToggle = sidebarToggle,
                 scrollBehavior = scrollBehavior,
                 isFilterActive = isFilterActive,
-                showNavigationIcon = !isExpanded,
             )
         },
         floatingActionButton = {
-            MainScreenFabSlot(
-                isVisible = isFabVisible,
-                onClick = actions.onFabClick,
-                onLongClick = onScrollToTop,
-            )
+            // Scaffold already accounts for system bars; leave room for downward gestures.
+            Box(Modifier.padding(bottom = 40.dp)) { fab() }
         },
         floatingActionButtonPosition = FabPosition.Center,
     ) { padding ->
@@ -119,7 +102,6 @@ internal fun MainScreenScaffoldContent(
             onRetryEngine = onRetryEngine,
             onRebuildDerivedIndex = onRebuildDerivedIndex,
             onExportDiagnostics = onExportDiagnostics,
-            isFilterActive = isFilterActive,
         )
     }
 
@@ -128,55 +110,26 @@ internal fun MainScreenScaffoldContent(
         controller = memoListFilterController,
         onDismiss = onDismissMemoFilterSheet,
     )
-
-    PrewarmMemoMenuMotion()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainScreenTopBarSlot(
     actions: MainScreenActions,
+    sidebarToggle: MainSidebarToggle,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     isFilterActive: Boolean,
-    showNavigationIcon: Boolean,
 ) {
     MainTopBar(
         title = "Lomo",
         scrollBehavior = scrollBehavior,
-        onMenu = actions.onMenuOpen,
+        menuToggle = sidebarToggle,
+        onMenu = actions.onMenuToggle,
         onSearch = actions.onSearch,
         onFilter = actions.onOpenMemoFilterPanel,
         onClearFilter = actions.onClearFilter,
         isFilterActive = isFilterActive,
-        showNavigationIcon = showNavigationIcon,
     )
-}
-
-@Composable
-private fun MainScreenFabSlot(
-    isVisible: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-) {
-    MainFab(
-        isVisible = isVisible,
-        onClick = onClick,
-        modifier = Modifier.offset(y = (-16).dp),
-        onLongClick = onLongClick,
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun rememberMainScreenFabVisibility(
-    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
-): Boolean {
-    val isFabVisible by remember {
-        androidx.compose.runtime.derivedStateOf {
-            scrollBehavior.state.collapsedFraction < MAIN_SCREEN_FAB_VISIBILITY_THRESHOLD
-        }
-    }
-    return isFabVisible
 }
 
 @Composable
@@ -205,16 +158,15 @@ private fun MainScreenScaffoldBody(
     onRetryEngine: () -> Unit,
     onRebuildDerivedIndex: () -> Unit,
     onExportDiagnostics: () -> Unit,
-    isFilterActive: Boolean,
 ) {
     Box(
         modifier =
-            Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .benchmarkAnchorRoot(BenchmarkAnchorContract.MAIN_ROOT),
+        Modifier
+            .padding(padding)
+            .fillMaxSize()
+            .benchmarkAnchorRoot(BenchmarkAnchorContract.MAIN_ROOT),
     ) {
-        MainScreenAnimatedBody(
+        MainScreenBody(
             uiState = uiState,
             searchQuery = searchQuery,
             pagedUiMemos = pagedUiMemos,
@@ -238,7 +190,6 @@ private fun MainScreenScaffoldBody(
             onRetryEngine = onRetryEngine,
             onRebuildDerivedIndex = onRebuildDerivedIndex,
             onExportDiagnostics = onExportDiagnostics,
-            isFilterActive = isFilterActive,
         )
     }
 }

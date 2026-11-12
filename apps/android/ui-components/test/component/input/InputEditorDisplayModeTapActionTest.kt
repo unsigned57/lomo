@@ -16,37 +16,37 @@ import io.kotest.matchers.shouldBe
 class InputEditorDisplayModeTapActionTest : UiComponentsFunSpec() {
     init {
         test("repeated tap on current edit mode collapses") {
-        val action =
-            resolveInputEditorDisplayModeTapAction(
-                currentMode = InputEditorDisplayMode.Edit,
-                tappedMode = InputEditorDisplayMode.Edit,
-            )
+            val action =
+                resolveInputEditorDisplayModeTapAction(
+                    currentMode = InputEditorDisplayMode.Edit,
+                    tappedMode = InputEditorDisplayMode.Edit,
+                )
 
-        (action) shouldBe (InputEditorDisplayModeTapAction.Collapse)
+            (action) shouldBe (InputEditorDisplayModeTapAction.Collapse)
         }
     }
 
     init {
         test("repeated tap on current preview mode collapses") {
-        val action =
-            resolveInputEditorDisplayModeTapAction(
-                currentMode = InputEditorDisplayMode.Preview,
-                tappedMode = InputEditorDisplayMode.Preview,
-            )
+            val action =
+                resolveInputEditorDisplayModeTapAction(
+                    currentMode = InputEditorDisplayMode.Preview,
+                    tappedMode = InputEditorDisplayMode.Preview,
+                )
 
-        (action) shouldBe (InputEditorDisplayModeTapAction.Collapse)
+            (action) shouldBe (InputEditorDisplayModeTapAction.Collapse)
         }
     }
 
     init {
         test("tapping the other mode switches without collapsing") {
-        val action =
-            resolveInputEditorDisplayModeTapAction(
-                currentMode = InputEditorDisplayMode.Edit,
-                tappedMode = InputEditorDisplayMode.Preview,
-            )
+            val action =
+                resolveInputEditorDisplayModeTapAction(
+                    currentMode = InputEditorDisplayMode.Edit,
+                    tappedMode = InputEditorDisplayMode.Preview,
+                )
 
-        (action) shouldBe (InputEditorDisplayModeTapAction.ChangeMode(InputEditorDisplayMode.Preview))
+            (action) shouldBe (InputEditorDisplayModeTapAction.ChangeMode(InputEditorDisplayMode.Preview))
         }
     }
 }

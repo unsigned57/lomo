@@ -1,4 +1,6 @@
 //! Behavior Contract
+//! Storage scenarios: external `.lomo` is ignored without deleting its source; private state can reset while existing `.trash` Markdown remains recoverable.
+//! Storage evidence: `storage-red.log` observed an external control tree; `plain-trash-red.log` rejected an old daily trash file; `privacy-tests.log` verifies the final behavior.
 //!
 //! Capability: `lomo-native` `BoltFFI` is a type bridge onto `lomo-application`. Memo writes and
 //! dual-mode search cross JNI as DTO conversion plus a synchronous `PlatformBatchHost` callback;
@@ -31,7 +33,16 @@
 //! facade reads the current memo, Then the published snapshot is returned before the write resumes.
 //! Read-concurrency TDD proof: RED times out while the native session mutex is held over host I/O;
 //! GREEN uses the same controlled host barrier and asserts the pre-commit body.
+//! Acceptance scenario: Given a create paused inside its Markdown write, When the observer has
+//! been told the create was accepted, Then that pending memo is already queryable through the
+//! facade and the returned commit carries the same id at a later revision; a commit failing after
+//! acceptance reports a later withdrawal and leaves no row.
+//! Acceptance TDD proof: RED 2026-11-07 — `session_create_memo` took no observer and published
+//! only after durable I/O. GREEN: `cargo test -p lomo-native --test session_ffi_contract
+//! create_acceptance --locked`.
 
+#[cfg(test)]
+mod create_observer;
 #[cfg(test)]
 mod support;
 
@@ -51,9 +62,9 @@ mod tests {
 
     use lomo_core::{CapabilityToken, PlatformActionExecutor};
     use lomo_native::{
-        EngineConfig, EngineError, LomoEngine, PlatformActionBatch, PlatformBatchHost,
-        PlatformBatchResult, SessionCreateMemoRequest, SessionSearchMode, SessionSearchOutcome,
-        SessionSearchRequest, WorkspaceDescriptor,
+        EngineConfig, EngineError, LomoEngine, MemoCreateObserver, PlatformActionBatch,
+        PlatformBatchHost, PlatformBatchResult, SessionCreateMemoRequest, SessionSearchMode,
+        SessionSearchOutcome, SessionSearchRequest, StoreMemoCommit, WorkspaceDescriptor,
     };
     use lomo_platform_fs::FsPlatformActionExecutor;
     use tempfile::tempdir;
@@ -123,16 +134,19 @@ mod tests {
             .test_ok("open session");
         let created = session
             .engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "create-concurrent".to_owned(),
-                relative_path: None,
-                time_token: None,
-                content: "published body".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "create-concurrent".to_owned(),
+                    relative_path: None,
+                    time_token: None,
+                    content: "published body".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_ok("seed memo");
         armed.store(true, Ordering::SeqCst);
         std::thread::scope(|scope| {
@@ -172,6 +186,143 @@ mod tests {
                 .unwrap_or_else(|| panic!("memo must exist"));
             assert_eq!(snapshot.body, "published body");
         });
+    }
+
+    #[derive(Debug)]
+    enum Observed {
+        Accepted(StoreMemoCommit),
+        Withdrawn(StoreMemoCommit),
+    }
+
+    struct RecordingObserver(mpsc::Sender<Observed>);
+
+    impl MemoCreateObserver for RecordingObserver {
+        fn accepted(&self, publication: StoreMemoCommit) {
+            self.0
+                .send(Observed::Accepted(publication))
+                .test_ok("record acceptance");
+        }
+
+        fn withdrawn(&self, publication: StoreMemoCommit) {
+            self.0
+                .send(Observed::Withdrawn(publication))
+                .test_ok("record withdrawal");
+        }
+    }
+
+    fn create_request(operation: &str, expected: Option<String>) -> SessionCreateMemoRequest {
+        SessionCreateMemoRequest {
+            operation_id: operation.to_owned(),
+            relative_path: None,
+            time_token: None,
+            content: format!("body of {operation}"),
+            expected_document_fingerprint: expected,
+            pinned: false,
+            pending_promotes: Vec::new(),
+            chronology_epoch_ms: None,
+        }
+    }
+
+    /// Given a host that pauses the markdown write, when the create is accepted and its write
+    /// is still paused, then the memo is queryable with its committed intent (not pending) and
+    /// the final commit carries a later revision without any withdrawal.
+    #[test]
+    fn create_acceptance_is_queryable_while_the_markdown_write_is_paused() {
+        let session = open_direct_engine();
+        let executor = FsPlatformActionExecutor::new(&session.exchange).test_ok("executor");
+        executor
+            .bind_root(
+                CapabilityToken::parse("notes-root").test_ok("direct capability"),
+                &session.workspace,
+            )
+            .test_ok("bind");
+        let armed = Arc::new(AtomicBool::new(true));
+        let (entered, entered_rx) = mpsc::channel();
+        let (resume, resume_rx) = mpsc::channel();
+        session
+            .engine
+            .open_workspace_session(
+                Box::new(PausedBatchHost {
+                    executor,
+                    armed: Arc::clone(&armed),
+                    entered,
+                    resume: Mutex::new(resume_rx),
+                }),
+                "UTC".to_owned(),
+                "yyyy_MM_dd".to_owned(),
+                session.workspace.to_string_lossy().into_owned(),
+            )
+            .test_ok("open session");
+        let (observed_tx, observed_rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let engine = &session.engine;
+            let writer = scope.spawn(move || {
+                engine
+                    .session_create_memo(
+                        create_request("create-accepted", None),
+                        Box::new(RecordingObserver(observed_tx)),
+                    )
+                    .map_err(Box::new)
+            });
+            let Observed::Accepted(accepted) = observed_rx
+                .recv_timeout(Duration::from_secs(5))
+                .test_ok("acceptance precedes the write")
+            else {
+                panic!("first publication must be the acceptance");
+            };
+            entered_rx
+                .recv_timeout(Duration::from_secs(5))
+                .test_ok("writer reached host barrier");
+            let pending = engine
+                .get_memo(accepted.memo_id.clone())
+                .test_ok("read pending")
+                .test_ok("accepted memo is queryable");
+            resume.send(()).test_ok("release writer");
+            let committed = writer.join().test_ok("writer thread").test_ok("commit");
+
+            // Write-behind: the create's intent is committed before its markdown write
+            // converges, so the row observed during the paused write is already durable.
+            assert!(!pending.summary.is_pending);
+            assert_eq!(pending.body, "body of create-accepted");
+            assert_eq!(committed.memo_id, accepted.memo_id);
+            assert!(committed.core_revision > accepted.core_revision);
+            assert!(
+                observed_rx.try_recv().is_err(),
+                "a committed create is never withdrawn"
+            );
+        });
+    }
+
+    #[test]
+    fn create_acceptance_failing_its_commit_reports_the_withdrawal() {
+        let session = open_direct_engine();
+        attach_posix_session(&session);
+        let (observed_tx, observed_rx) = mpsc::channel();
+
+        let failure = session
+            .engine
+            .session_create_memo(
+                create_request("create-withdrawn", Some("0".repeat(64))),
+                Box::new(RecordingObserver(observed_tx)),
+            )
+            .test_err("stale baseline must fail the commit");
+
+        let Observed::Accepted(accepted) = observed_rx.try_recv().test_ok("acceptance") else {
+            panic!("acceptance comes first");
+        };
+        let Observed::Withdrawn(withdrawn) = observed_rx.try_recv().test_ok("withdrawal") else {
+            panic!("withdrawal follows a failed commit");
+        };
+        assert_eq!(withdrawn.memo_id, accepted.memo_id);
+        assert!(withdrawn.core_revision > accepted.core_revision);
+        assert_eq!(failure.code(), "stale_document_baseline");
+        assert!(
+            session
+                .engine
+                .get_memo(accepted.memo_id)
+                .test_ok("read withdrawn")
+                .is_none()
+        );
     }
 
     struct DirectSession {
@@ -224,6 +375,222 @@ mod tests {
             .test_ok("open session");
     }
 
+    #[test]
+    fn private_mount_ignores_external_controls_and_reindexes_documents() {
+        let ctx = open_direct_engine();
+        let legacy = ctx
+            .workspace
+            .parent()
+            .test_ok("fixture parent")
+            .join("old-app-state");
+        let executor =
+            Arc::new(FsPlatformActionExecutor::new(&ctx.exchange).test_ok("legacy executor"));
+        let capability = CapabilityToken::parse("notes-root").test_ok("capability");
+        executor
+            .bind_root(capability.clone(), &ctx.workspace)
+            .test_ok("legacy bind");
+        let session = lomo_application::WorkspaceSession::open(
+            lomo_application::WorkspaceSessionConfig {
+                capability,
+                root_id: lomo_workspace::WorkspaceRootId::Notes,
+                workspace_generation: lomo_workspace::load_or_mint_workspace_generation(
+                    &ctx.workspace,
+                )
+                .test_ok("old generation"),
+                time_zone: "UTC".to_owned(),
+                date_format: lomo_application::calendar::DateFormat::default(),
+                state_dir: legacy.join("state"),
+                cache_dir: legacy.join("cache"),
+                runtime_dir: legacy.join("runtime"),
+                exchange_dir: ctx.exchange.clone(),
+                media_stage_root: ctx.workspace.clone(),
+            },
+            executor,
+        )
+        .test_ok("legacy session");
+        let created = session
+            .create_memo(lomo_application::CreateMemoRequest {
+                operation_id: lomo_core::OperationId::parse("legacy-create").test_ok("operation"),
+                relative_path: Some(
+                    lomo_core::RelativeWorkspacePath::parse("2026_11_08.md").test_ok("path"),
+                ),
+                time_token: Some("12:00:00".to_owned()),
+                content: "retain my history".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: true,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .test_ok("old memo");
+        session.settle_workspace().test_ok("old writes converge");
+        let id = created.memo_id.as_str().to_owned();
+        drop(session);
+        attach_posix_session(&ctx);
+        assert!(
+            ctx.engine
+                .get_memo(id)
+                .test_ok("discarded old identity")
+                .is_none()
+        );
+        let outcome = ctx
+            .engine
+            .session_search(SessionSearchRequest {
+                filters: lomo_native::StoreMemoFilters::default(),
+                query_epoch: 1,
+                mode: SessionSearchMode::Fulltext,
+                text: "retain my history".to_owned(),
+                cursor: None,
+                page_size: 20,
+            })
+            .test_ok("reindex user documents");
+        let SessionSearchOutcome::Ready { page } = outcome else {
+            panic!("search must be ready");
+        };
+        assert_eq!(page.items.len(), 1);
+        assert!(
+            !page
+                .items
+                .first()
+                .test_ok("reindexed memo")
+                .summary
+                .is_pinned,
+            "new private state starts without the old pin"
+        );
+        assert!(
+            ctx.workspace.join(".lomo").is_dir(),
+            "reset never deletes the user's source tree"
+        );
+    }
+
+    #[test]
+    fn existing_plain_dot_trash_markdown_remains_recoverable_after_private_state_reset() {
+        let session = open_direct_engine();
+        fs::create_dir_all(session.workspace.join(".trash")).test_ok("old trash directory");
+        fs::write(
+            session.workspace.join(".trash/2026_11_08.md"),
+            "- 12:00:00\nold deleted memo\n",
+        )
+        .test_ok("old trash Markdown");
+        attach_posix_session(&session);
+        let outcome = session
+            .engine
+            .session_search(SessionSearchRequest {
+                filters: lomo_native::StoreMemoFilters {
+                    trash_only: true,
+                    include_trash: true,
+                    ..lomo_native::StoreMemoFilters::default()
+                },
+                query_epoch: 1,
+                mode: SessionSearchMode::Fulltext,
+                text: "old deleted memo".to_owned(),
+                cursor: None,
+                page_size: 20,
+            })
+            .test_ok("trash query");
+        let SessionSearchOutcome::Ready { page } = outcome else {
+            panic!("trash query must be ready");
+        };
+        assert_eq!(page.items.len(), 1);
+        session
+            .engine
+            .session_restore_memo(lomo_native::SessionRestoreRequest {
+                operation_id: "restore-plain-trash".to_owned(),
+                memo_id: page
+                    .items
+                    .first()
+                    .test_ok("trash memo")
+                    .summary
+                    .memo_id
+                    .clone(),
+            })
+            .test_ok("restore old Markdown");
+        session
+            .engine
+            .session_settle_workspace()
+            .test_ok("restore converges");
+        assert!(
+            fs::read_to_string(session.workspace.join("2026_11_08.md"))
+                .test_ok("restored main document")
+                .contains("old deleted memo")
+        );
+    }
+
+    #[test]
+    fn private_records_do_not_materialize_in_the_selected_workspace() {
+        let session = open_direct_engine();
+        attach_posix_session(&session);
+        assert!(
+            !session.workspace.join(".lomo").exists(),
+            "control records belong to the app-private session"
+        );
+    }
+
+    #[test]
+    fn soft_delete_keeps_readable_markdown_in_dot_trash_and_restore_removes_it() {
+        let session = open_direct_engine();
+        fs::create_dir_all(session.workspace.join("images")).test_ok("image directory");
+        fs::write(session.workspace.join("images/a.png"), b"attached image").test_ok("image file");
+        attach_posix_session(&session);
+        let commit = session
+            .engine
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "trash-markdown-create".to_owned(),
+                    relative_path: None,
+                    time_token: Some("12:00:00".to_owned()),
+                    content: "recover this memo\n![image](images/a.png)".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
+            .test_ok("create");
+        let source_path = session
+            .engine
+            .get_memo(commit.memo_id.clone())
+            .test_ok("created memo query")
+            .test_ok("created memo")
+            .summary
+            .source_path;
+        session
+            .engine
+            .session_delete_memo(lomo_native::SessionDeleteMemoRequest {
+                operation_id: "trash-markdown-delete".to_owned(),
+                memo_id: commit.memo_id.clone(),
+                expected_document_fingerprint: commit.file_fingerprint,
+            })
+            .test_ok("delete");
+        session
+            .engine
+            .session_settle_workspace()
+            .test_ok("delete converges");
+        let trash = session.workspace.join(
+            lomo_workspace::trash_record_relative_path(&commit.memo_id, &source_path)
+                .test_ok("trash path")
+                .as_str(),
+        );
+        let bytes = fs::read_to_string(&trash).test_ok("read public trash Markdown");
+        assert!(bytes.contains("recover this memo\n![image](images/a.png)"));
+        session
+            .engine
+            .session_restore_memo(lomo_native::SessionRestoreRequest {
+                operation_id: "trash-markdown-restore".to_owned(),
+                memo_id: commit.memo_id,
+            })
+            .test_ok("restore");
+        session
+            .engine
+            .session_settle_workspace()
+            .test_ok("restore converges");
+        assert!(
+            !trash.exists(),
+            "restoring removes its public trash document"
+        );
+        assert!(dated_markdown(&session.workspace).contains("recover this memo"));
+    }
+
     fn dated_markdown(workspace: &Path) -> String {
         let mut bodies = Vec::new();
         for entry in fs::read_dir(workspace).test_ok("list workspace") {
@@ -241,16 +608,19 @@ mod tests {
         let session = open_direct_engine();
         let error = session
             .engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "op-create-unopened".to_owned(),
-                relative_path: None,
-                time_token: None,
-                content: "orphan".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-create-unopened".to_owned(),
+                    relative_path: None,
+                    time_token: None,
+                    content: "orphan".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_err("create without session");
         assert_eq!(error.code(), "workspace_session_unavailable");
         assert!(
@@ -280,17 +650,20 @@ mod tests {
             .test_ok("open session with hyphen date format");
         let commit = session
             .engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "op-create-hyphen-date".to_owned(),
-                relative_path: None,
-                time_token: Some("09:30:00".to_owned()),
-                content: "dated format wiring".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                // 2026-05-23T12:00:00Z — a real instant the journal stamp resolves locally.
-                chronology_epoch_ms: Some(1_779_537_600_000),
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-create-hyphen-date".to_owned(),
+                    relative_path: None,
+                    time_token: Some("09:30:00".to_owned()),
+                    content: "dated format wiring".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    // 2026-05-23T12:00:00Z — a real instant the journal stamp resolves locally.
+                    chronology_epoch_ms: Some(1_779_537_600_000),
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_ok("create memo");
         let loaded = session
             .engine
@@ -401,22 +774,29 @@ mod tests {
         attach_posix_session(&session);
         let commit = session
             .engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "op-create-great-wall".to_owned(),
-                relative_path: None,
-                time_token: Some("10:15:00".to_owned()),
-                content: "八达岭长城".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-create-great-wall".to_owned(),
+                    relative_path: None,
+                    time_token: Some("10:15:00".to_owned()),
+                    content: "八达岭长城".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_ok("create memo");
         assert!(
             commit.memo_id.starts_with("m_") && commit.memo_id.len() == 34,
             "session must mint CSPRNG memo ids, got {}",
             commit.memo_id
         );
+        session
+            .engine
+            .session_settle_workspace()
+            .test_ok("committed writes converge");
         let markdown = dated_markdown(&session.workspace);
         assert!(
             markdown.contains("- 10:15:00"),
@@ -485,16 +865,19 @@ mod tests {
         attach_posix_session(&session);
         let commit = session
             .engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "op-create-search-target".to_owned(),
-                relative_path: None,
-                time_token: Some("11:00:00".to_owned()),
-                content: "八达岭长城".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-create-search-target".to_owned(),
+                    relative_path: None,
+                    time_token: Some("11:00:00".to_owned()),
+                    content: "八达岭长城".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_ok("create searchable memo");
         let outcome = session
             .engine
@@ -525,16 +908,19 @@ mod tests {
         attach_posix_session(&session);
         let error = session
             .engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "not a valid id".to_owned(),
-                relative_path: None,
-                time_token: None,
-                content: "should not land".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "not a valid id".to_owned(),
+                    relative_path: None,
+                    time_token: None,
+                    content: "should not land".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_err("invalid operation id");
         assert_eq!(error.code(), "invalid_operation_id");
         assert!(
@@ -549,16 +935,19 @@ mod tests {
         attach_posix_session(&session);
         let commit = session
             .engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "op-create-task-list".to_owned(),
-                relative_path: None,
-                time_token: Some("12:00:00".to_owned()),
-                content: "- [ ] buy milk".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-create-task-list".to_owned(),
+                    relative_path: None,
+                    time_token: Some("12:00:00".to_owned()),
+                    content: "- [ ] buy milk".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_ok("create task memo");
         let tasks = session.engine.session_list_tasks().test_ok("list tasks");
         assert_eq!(tasks.len(), 1, "session must project one checkbox task");

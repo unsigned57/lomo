@@ -1,0 +1,57 @@
+# Real photo import, immediate rendering, grouped paging and live viewer count.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- addMedia:
+    - "../assets/image-1.png"
+    - "../assets/image-2.png"
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    id: "benchmark_input_editor"
+- repeat:
+    times: 10
+    commands:
+      - eraseText: 100
+- inputText: "uitest media navigation probe #uitest_media_tag"
+- tapOn: "Add Image"
+- runFlow:
+    when:
+      visible: "Setup Image Storage Directory"
+    commands:
+      - tapOn: "Auto Create"
+      - waitForAnimationToEnd
+      - tapOn: "Add Image"
+- tapOn:
+    text: "Photo taken on.*"
+    index: 0
+- tapOn:
+    text: "Photo taken on.*"
+    index: 1
+- tapOn: "Add \\(2\\)"
+- waitForAnimationToEnd
+- takeScreenshot: editor-system-bars
+- tapOn:
+    id: "benchmark_input_submit"
+- assertNotVisible:
+    id: "benchmark_input_sheet_root"
+- assertVisible:
+    id: "benchmark_main_root"
+- tapOn:
+    id: "benchmark_main_search_button"
+- inputText: "uitest media navigation probe"
+- hideKeyboard
+- assertVisible: "^image$"
+- tapOn:
+    text: "^image$"
+    index: 0
+- assertVisible:
+    id: "benchmark_gallery_reel_root"
+- takeScreenshot: search-image-viewer
+- tapOn:
+    text: "#uitest_media_tag"
+    index: 0
+- assertVisible:
+    id: "benchmark_tag_root"
+- takeScreenshot: image-tag-collection

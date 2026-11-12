@@ -19,11 +19,11 @@ import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateDownloadRepository
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppUpdateTransportLifecycleRepository
-import java.io.File
-import org.koin.dsl.module
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.bind
+import org.koin.dsl.module
+import java.io.File
 
 val appUpdateDataModule = module {
     singleOf(::AppUpdateRepositoryImpl) bind AppUpdateRepository::class

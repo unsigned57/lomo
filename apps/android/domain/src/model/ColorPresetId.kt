@@ -8,10 +8,7 @@ package com.lomo.domain.model
  * tests, sync payloads, and future export/import flows can validate preset IDs without pulling in
  * Compose.
  */
-enum class ColorPresetId(
-    val value: String,
-    val seedArgb: Int,
-) {
+enum class ColorPresetId(val value: String, val seedArgb: Int) {
     INDIGO("indigo", PresetSeeds.INDIGO),
     FOREST("forest", PresetSeeds.FOREST),
     OCEAN("ocean", PresetSeeds.OCEAN),

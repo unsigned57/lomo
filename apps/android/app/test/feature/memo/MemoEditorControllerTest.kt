@@ -22,10 +22,14 @@
  * - Compose sheet animation, activity-result launchers, repository writes, and media save wiring.
  *
  * Test Change Justification:
- * - Reason category: editor submission lifecycle and controller state machine.
- * - Old behavior/assertion being replaced: unconditional editor close on submission dispatch.
- * - Why old assertion is no longer correct: editor must remain open until durable acknowledgement is received.
- * - Coverage preserved by: all text editing, cursor insertion, mode switching, and submission retry scenarios remain fully tested.
+ * - Reason category: editor submission lifecycle and controller state machine; editor back-press query removal.
+ * - Old behavior/assertion being replaced: unconditional editor close on submission dispatch; consumeBackPress()
+ *   returning true once from the long form and false from the compact card.
+ * - Why old assertion is no longer correct: editor must remain open until durable acknowledgement is received;
+ *   the sheet now collapses through setExpanded(false) itself, so consumeBackPress() had no caller and was deleted.
+ * - Coverage preserved by: all text editing, cursor insertion, mode switching, and submission retry scenarios remain
+ *   fully tested; the collapse scenario still asserts compact mode with text and selection intact, and that a
+ *   second collapse from compact changes nothing.
  * - Why this is not fitting the test to the implementation: verifies invariant preventing user draft data loss.
  */
 
@@ -62,6 +66,30 @@ class MemoEditorControllerTest : AppFunSpec() {
 
             controller.appendMarkdownBlock("![image](path)")
             controller.inputValue.text shouldBe "Hello \n![image](path)\n World"
+        }
+
+        /*
+         * Behavior Contract:
+         * - Capability: Multi-image markdown block insertion.
+         * - Given: A text editor with active cursor.
+         * - When: `appendImagesMarkdown` is invoked with empty or multiple paths.
+         * - Then: Empty paths leave text unchanged; multiple paths insert consecutive image lines separated by newline, cursor at end.
+         */
+        test("appendImagesMarkdown formats multiple images as consecutive block lines") {
+            val controller = MemoEditorController()
+            controller.openForCreate("Prefix Note")
+            controller.updateInputValue(TextFieldValue("Prefix Note", TextRange(11)))
+
+            // Empty list leaves text untouched
+            controller.appendImagesMarkdown(emptyList())
+            controller.inputValue.text shouldBe "Prefix Note"
+            controller.inputValue.selection shouldBe TextRange(11)
+
+            // Multiple images appended atomically
+            val images = listOf("images/1.jpg", "images/2.png")
+            controller.appendImagesMarkdown(images)
+            controller.inputValue.text shouldBe "Prefix Note\n![image](images/1.jpg)\n![image](images/2.png)"
+            controller.inputValue.selection shouldBe TextRange(controller.inputValue.text.length)
         }
         /*
          * Behavior Contract:
@@ -173,12 +201,13 @@ class MemoEditorControllerTest : AppFunSpec() {
             (controller.inputValue.text) shouldBe ("draft")
             (controller.inputValue.selection) shouldBe (TextRange(5))
 
-            ((controller.consumeBackPress())) shouldBe true
+            controller.setExpanded(false)
             (controller.mode) shouldBe (MemoEditorMode.Compact)
             (controller.inputValue.text) shouldBe ("draft")
             (controller.inputValue.selection) shouldBe (TextRange(5))
 
-            ((controller.consumeBackPress())) shouldBe false
+            controller.setExpanded(false)
+            (controller.mode) shouldBe (MemoEditorMode.Compact)
 
             controller.close()
             controller.openForCreate("fresh")

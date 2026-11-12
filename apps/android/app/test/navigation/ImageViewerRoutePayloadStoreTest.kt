@@ -1,63 +1,39 @@
-/*
- * Behavior Contract:
- * - Unit under test: ImageViewerRoutePayloadStoreTest
- * - Owning layer: app
- * - Priority tier: P0
- *
- * Scenarios:
- * - Happy: standard happy path for ImageViewerRoutePayloadStoreTest.
- * - Boundary: boundary and edge cases for ImageViewerRoutePayloadStoreTest.
- * - Failure: failure and error scenarios for ImageViewerRoutePayloadStoreTest.
- * - Must-not-happen: invariants are never violated for ImageViewerRoutePayloadStoreTest.
- *
- * - Behavior focus: test behavioral outcomes of ImageViewerRoutePayloadStoreTest.
- * - Observable outcomes: assertions verify expected outcomes.
- * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
- * - Excludes: none.
- */
-
 package com.lomo.app.navigation
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
+import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.fakes.imageMemoFixture
 import io.kotest.matchers.shouldBe
 
+/*
+ * Behavior Contract:
+ * Capability: image-route payload retains memo metadata independently of gallery paging (P1).
+ * Scenarios:
+ * Given a memo absent from a gallery page, when cached navigation is read, then it retains images and tags
+ * without consuming the snapshot. Missing/expired keys remain explicitly absent.
+ * Production scope: apps/android/app/src/navigation/NavRoute.kt
+ * TDD proof: search media journey RED; GREEN with memo-backed payload and device navigation.
+ * Test Change Justification:
+ * Reason category: image navigation carries its originating memo instead of only URLs.
+ * Old behavior/assertion being replaced: URL-only cache access.
+ * Why old assertion is no longer correct: URLs cannot supply tags for older search results.
+ * Coverage preserved by: non-consuming repeat access and unknown-key absence, plus tag snapshot.
+ * Why this is not fitting the test to the implementation: verifies the navigated memo identity,
+ * images and tags regardless of which gallery rows are currently loaded.
+ * Excludes: process-death cache expiry and device rendering.
+ * Observable outcomes: repeatable cached memo reads with images and tags, and absence for unknown keys.
+ */
 class ImageViewerRoutePayloadStoreTest : AppFunSpec() {
     init {
-        afterTest {
-            ImageViewerRoutePayloadStore.clearForTest()
+        afterTest { ImageViewerRoutePayloadStore.clearForTest() }
+        test("given a memo payload when read twice then its image and tags remain available") {
+            val request = createImageViewerRequest(imageMemoFixture(), "b.jpg")
+            val key = ImageViewerRoutePayloadStore.put(request)
+            ImageViewerRoutePayloadStore.get(key) shouldBe request
+            ImageViewerRoutePayloadStore.get(key)?.memo?.tags shouldBe request.memo.tags
+        }
+        test("given an unknown key when read then absence is explicit") {
+            ImageViewerRoutePayloadStore.get("missing") shouldBe null
         }
     }
-
-    init {
-        test("getImageUrls returns stored value without consuming it") {
-            val key = ImageViewerRoutePayloadStore.putImageUrls(listOf("a.jpg", "b.jpg"))
-
-            (ImageViewerRoutePayloadStore.getImageUrls(key)) shouldBe (listOf("a.jpg", "b.jpg"))
-            (ImageViewerRoutePayloadStore.getImageUrls(key)) shouldBe (listOf("a.jpg", "b.jpg"))
-        }
-    }
-
-    init {
-        test("getImageUrls returns null for unknown key") {
-            (ImageViewerRoutePayloadStore.getImageUrls("missing")) shouldBe null
-        }
-    }
-
 }

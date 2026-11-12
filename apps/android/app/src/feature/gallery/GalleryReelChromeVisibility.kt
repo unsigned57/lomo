@@ -16,4 +16,3 @@ fun nextChromeVisibilityOnPageChange(current: GalleryReelChromeVisibility): Gall
         GalleryReelChromeVisibility.Visible -> GalleryReelChromeVisibility.Visible
         GalleryReelChromeVisibility.Hidden -> GalleryReelChromeVisibility.Hidden
     }
-

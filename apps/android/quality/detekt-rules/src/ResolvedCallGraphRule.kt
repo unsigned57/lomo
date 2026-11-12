@@ -13,15 +13,15 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.psi.KtCallExpression
-import org.jetbrains.kotlin.psi.KtCallableReferenceExpression
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
+import org.jetbrains.kotlin.psi.KtCallableReferenceExpression
 import org.jetbrains.kotlin.psi.KtClassBody
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
-import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtPsiFactory
+import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
@@ -31,10 +31,12 @@ import java.security.MessageDigest
 
 /** Emits compiler-resolved call identities for the architecture-owned foreign capability check. */
 @OptIn(KaExperimentalApi::class)
-internal class ResolvedCallGraphRule(config: Config) : LomoBaseRule(
-    config,
-    "Foreign export reachability uses resolved calls, override edges and explicit platform callbacks.",
-), RequiresAnalysisApi {
+internal class ResolvedCallGraphRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Foreign export reachability uses resolved calls, override edges and explicit platform callbacks.",
+    ),
+    RequiresAnalysisApi {
     private val edges = sortedSetOf<Pair<String, String>>(compareBy({ it.first }, { it.second }))
     private val references = sortedSetOf<Pair<String, String>>(compareBy({ it.first }, { it.second }))
     private val roots = sortedSetOf<String>()
@@ -56,7 +58,27 @@ internal class ResolvedCallGraphRule(config: Config) : LomoBaseRule(
         Files.createDirectories(output.parent)
         Files.writeString(
             output,
-            """{"schema_version":3,"path":${quoted(file.path())},"source_digest":${quoted(digest)},"declarations":${strings(declarations)},"classes":${strings(classes)},"roots":${strings(roots)},"edges":[${edges.joinToString(",") { "[${quoted(it.first)},${quoted(it.second)}]" }}],"references":[${references.joinToString(",") { "[${quoted(it.first)},${quoted(it.second)}]" }}]}""",
+            """{"schema_version":3,"path":${quoted(
+                file.path(),
+            )},"source_digest":${quoted(
+                digest,
+            )},"declarations":${strings(
+                declarations,
+            )},"classes":${strings(
+                classes,
+            )},"roots":${strings(
+                roots,
+            )},"edges":[${edges.joinToString(
+                ",",
+            ) {
+                "[${quoted(
+                    it.first,
+                )},${quoted(
+                    it.second,
+                )}]"
+            }}],"references":[${references.joinToString(
+                ",",
+            ) { "[${quoted(it.first)},${quoted(it.second)}]" }}]}""",
         )
         writeGeneratedDeclarations(file, Path.of(outputRoot))
     }
@@ -107,7 +129,13 @@ internal class ResolvedCallGraphRule(config: Config) : LomoBaseRule(
         super.visitCallExpression(expression)
         val from = enclosingIdentity(expression) ?: return
         val target = analyze(expression) {
-            expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol?.symbol?.let(::symbolIdentity)
+            expression.resolveToCall()
+                ?.successfulCallOrNull<KaCallableMemberCall<*, *>>()
+                ?.partiallyAppliedSymbol
+                ?.symbol
+                ?.let(
+                    ::symbolIdentity,
+                )
         } ?: return
         edges.add(from to target)
     }
@@ -116,7 +144,13 @@ internal class ResolvedCallGraphRule(config: Config) : LomoBaseRule(
         super.visitSimpleNameExpression(expression)
         val from = enclosingIdentity(expression) ?: return
         val target = analyze(expression) {
-            expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol?.symbol?.let(::symbolIdentity)
+            expression.resolveToCall()
+                ?.successfulCallOrNull<KaCallableMemberCall<*, *>>()
+                ?.partiallyAppliedSymbol
+                ?.symbol
+                ?.let(
+                    ::symbolIdentity,
+                )
         } ?: return
         edges.add(from to target)
     }
@@ -135,7 +169,13 @@ internal class ResolvedCallGraphRule(config: Config) : LomoBaseRule(
         if (expression.getStrictParentOfType<KtValueArgument>() == null) return
         val from = enclosingIdentity(expression) ?: return
         val target = analyze(expression) {
-            expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol?.symbol?.let(::symbolIdentity)
+            expression.resolveToCall()
+                ?.successfulCallOrNull<KaCallableMemberCall<*, *>>()
+                ?.partiallyAppliedSymbol
+                ?.symbol
+                ?.let(
+                    ::symbolIdentity,
+                )
         } ?: return
         references.add(from to target)
     }
@@ -169,9 +209,11 @@ internal class ResolvedCallGraphRule(config: Config) : LomoBaseRule(
         symbol?.let(::symbolIdentity) ?: "${declaration.containingKtFile.path()}#${declaration.textOffset}"
     }
 
-    private fun symbolIdentity(symbol: KaCallableSymbol): String? =
-        if (symbol is KaConstructorSymbol) symbol.containingClassId?.asSingleFqName()?.asString()
-        else symbol.callableId?.asSingleFqName()?.asString()
+    private fun symbolIdentity(symbol: KaCallableSymbol): String? = if (symbol is KaConstructorSymbol) {
+        symbol.containingClassId?.asSingleFqName()?.asString()
+    } else {
+        symbol.callableId?.asSingleFqName()?.asString()
+    }
 
     private fun writeGeneratedDeclarations(file: KtFile, directory: Path) {
         val generatedSource = System.getenv("LOMO_BINDINGS_SOURCE") ?: return
@@ -179,13 +221,27 @@ internal class ResolvedCallGraphRule(config: Config) : LomoBaseRule(
         if (Files.exists(destination)) return
         val source = Path.of(generatedSource)
         val parsed = KtPsiFactory(file.project).createFile(Files.readString(source))
-        val functions = parsed.collectDescendantsOfType<KtNamedFunction>()
-            .filter { !it.hasModifier(KtTokens.PRIVATE_KEYWORD) }
-            .mapNotNull { it.fqName?.asString() }.toSortedSet()
-        Files.writeString(destination, """{"schema_version":3,"path":${quoted(source.toString())},"source_digest":${quoted(sha256(Files.readAllBytes(source)))},"declarations":${strings(functions)}}""")
+        val declarations = buildSet {
+            parsed.collectDescendantsOfType<KtNamedFunction>()
+                .filter { !it.hasModifier(KtTokens.PRIVATE_KEYWORD) }
+                .mapNotNullTo(this) { it.fqName?.asString() }
+            parsed.collectDescendantsOfType<KtClassOrObject>()
+                .filter { !it.hasModifier(KtTokens.PRIVATE_KEYWORD) }
+                .mapNotNullTo(this) { it.fqName?.asString() }
+        }.toSortedSet()
+        Files.writeString(
+            destination,
+            """{"schema_version":3,"path":${quoted(
+                source.toString(),
+            )},"source_digest":${quoted(
+                sha256(Files.readAllBytes(source)),
+            )},"declarations":${strings(declarations)}}""",
+        )
     }
 
-    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance(
+        "SHA-256",
+    ).digest(bytes).joinToString("") { "%02x".format(it) }
     private fun strings(values: Collection<String>): String = values.joinToString(",", "[", "]", transform = ::quoted)
     private fun quoted(value: String): String = buildString {
         append('"')

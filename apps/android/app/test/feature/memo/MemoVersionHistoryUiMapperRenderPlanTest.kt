@@ -24,6 +24,18 @@
  * - Room schema ownership, sync backend redesign, and Compose pixel rendering.
  *
  * Test Change Justification:
+ * - Reason category: production model change (typed version preview).
+ * - Old behavior/assertion being replaced: models exposed a non-null `renderDocument` field.
+ * - Why old assertion is no longer correct: a revision body may exceed the owner's presentation
+ *   budget; the model now carries `MemoVersionPreview.Rendered` or `.Unavailable` so one oversized
+ *   version cannot crash the history sheet.
+ * - Coverage preserved by: the same plain-text projections are asserted through
+ *   `MemoVersionPreview.Rendered`; the budget-refusal scenario asserts `.Unavailable`.
+ * - Why this is not fitting the test to the implementation: the expected rendered text is
+ *   unchanged; only the field that carries it gained the failure case.
+ * - Production scope: apps/android/app/src/feature/memo/MemoVersionHistoryUiMapper.kt
+ *
+ * Test Change Justification:
  * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
  * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
  *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
@@ -43,7 +55,7 @@ import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 
 class MemoVersionHistoryUiMapperRenderPlanTest : AppFunSpec() {
     private val mapper = MemoVersionHistoryUiMapper(FakeMarkdownWorkspaceRepository())
@@ -66,8 +78,8 @@ class MemoVersionHistoryUiMapperRenderPlanTest : AppFunSpec() {
                 ),
             )
             val models = mapper.mapToUiModels(revisions, null, null, emptyMap())
-            models.single().renderDocument.plainText shouldBe "hello"
-            models.single().renderDocument shouldNotBe null
+            models.single().preview.shouldBeInstanceOf<MemoVersionPreview.Rendered>()
+                .document.plainText shouldBe "hello"
         }
     }
 }

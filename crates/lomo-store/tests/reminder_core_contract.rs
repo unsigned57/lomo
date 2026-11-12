@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract — P3-07 reminder core
 //!
 //! - Unit under test: `lomo_store::reminder` (DST resolve, plan, catch-up, snooze, commands)
@@ -658,8 +667,8 @@ mod tests {
             .iter()
             .find(|a| !a.is_catch_up)
             .expect("future occurrence");
-        assert!(!catch_up.occurrence_id.is_empty());
-        assert!(!future.occurrence_id.is_empty());
+        assert_ne!(catch_up.occurrence_id, "");
+        assert_ne!(future.occurrence_id, "");
         assert_ne!(
             catch_up.occurrence_id, future.occurrence_id,
             "each firing must have its own occurrence identity"

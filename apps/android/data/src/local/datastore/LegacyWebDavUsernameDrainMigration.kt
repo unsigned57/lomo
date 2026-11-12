@@ -19,9 +19,8 @@ import timber.log.Timber
  * A pre-existing credential value wins over the stale plaintext copy — the plaintext only
  * ever fills an empty slot.
  */
-internal class LegacyWebDavUsernameDrainMigration(
-    private val credentialStoreFactory: () -> WebDavCredentialStore,
-) : DataMigration<Preferences> {
+internal class LegacyWebDavUsernameDrainMigration(private val credentialStoreFactory: () -> WebDavCredentialStore) :
+    DataMigration<Preferences> {
     override suspend fun shouldMigrate(currentData: Preferences): Boolean =
         !currentData[LomoDataStoreKeys.WEBDAV_USERNAME].isNullOrBlank()
 

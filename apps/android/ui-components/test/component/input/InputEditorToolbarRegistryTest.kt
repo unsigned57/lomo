@@ -59,7 +59,9 @@ class InputEditorToolbarRegistryTest : UiComponentsFunSpec() {
                     InputToolbarActionId("camera"),
                     InputToolbarActionId("image"),
                 )
-            registry.normalizePersistedOrder(listOf("memo-special", "camera", "unknown", "memo-special")) shouldContainExactly
+            registry.normalizePersistedOrder(
+                listOf("memo-special", "camera", "unknown", "memo-special"),
+            ) shouldContainExactly
                 listOf(InputToolbarActionId("memo-special"), InputToolbarActionId("camera"))
         }
 
@@ -104,12 +106,11 @@ class InputEditorToolbarRegistryTest : UiComponentsFunSpec() {
         }
     }
 
-    private fun contractTool(id: String): InputToolbarTool =
-        InputToolbarTool(
-            id = InputToolbarActionId(id),
-            icon = Icons.Rounded.Image,
-            contentDescriptionRes = android.R.string.ok,
-            command = InputEditorCommand.Action(InputToolbarActionId(id)),
-            enabled = true,
-        )
+    private fun contractTool(id: String): InputToolbarTool = InputToolbarTool(
+        id = InputToolbarActionId(id),
+        icon = Icons.Rounded.Image,
+        contentDescriptionRes = android.R.string.ok,
+        command = InputEditorCommand.Action(InputToolbarActionId(id)),
+        enabled = true,
+    )
 }

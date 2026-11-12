@@ -258,7 +258,7 @@ mod tests {
             fence(GENERATION, DATASET, "ef"),
         ] {
             let temporary = tempdir().expect("temp");
-            let paths = SyncPaths::for_workspace(temporary.path());
+            let paths = SyncPaths::for_control_root(temporary.path());
             let session = session("fence-rotate");
             write_session(&paths, &session).expect("session head");
             let baseline = established_baseline(&rotated, &[("memo/a.md", &dig(1), "tok-a")]);
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn a_resolved_conflict_under_a_rotated_fence_never_publishes() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session = session("fence-conflict");
         write_session(&paths, &session).expect("session head");
 
@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn baseline_advances_only_requested_paths_and_never_partially() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let session = session("baseline-mix");
         write_session(&paths, &session).expect("session head");
 
@@ -476,7 +476,7 @@ mod tests {
     #[test]
     fn a_path_held_by_an_open_conflict_never_advances_baseline() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let open_record = conflict_path_from_open(
             &path("memo/held.md"),
             Some(&dig(0x41)),
@@ -527,7 +527,7 @@ mod tests {
         // (a) remote moved: token differs from baseline → PullPresent needs the digest.
         {
             let temporary = tempdir().expect("temp");
-            let paths = SyncPaths::for_workspace(temporary.path());
+            let paths = SyncPaths::for_control_root(temporary.path());
             let session = session("digest-pull");
             write_session(&paths, &session).expect("session head");
             let d_base = dig(0x10);
@@ -563,7 +563,7 @@ mod tests {
         // path needs the digest to compare against the tombstone).
         {
             let temporary = tempdir().expect("temp");
-            let paths = SyncPaths::for_workspace(temporary.path());
+            let paths = SyncPaths::for_control_root(temporary.path());
             let session = session("digest-tombstone");
             write_session(&paths, &session).expect("session head");
             let d_base = dig(0x20);
@@ -605,7 +605,7 @@ mod tests {
         // (c) fully in sync (token match + local == baseline): resolution stays silent.
         {
             let temporary = tempdir().expect("temp");
-            let paths = SyncPaths::for_workspace(temporary.path());
+            let paths = SyncPaths::for_control_root(temporary.path());
             let session = session("digest-insync");
             write_session(&paths, &session).expect("session head");
             let d_base = dig(0x30);
@@ -636,7 +636,7 @@ mod tests {
     #[test]
     fn a_tombstone_under_a_rotated_dataset_never_recovers_into_ensure_absent() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let fence_a = base_fence();
         let fence_b = fence(GENERATION, "ds-rotated", IDENTITY);
         let d_del = digest_of(b"deleted body");
@@ -730,7 +730,7 @@ mod tests {
         // Single-shot cycle.
         {
             let temporary = tempdir().expect("temp");
-            let paths = SyncPaths::for_workspace(temporary.path());
+            let paths = SyncPaths::for_control_root(temporary.path());
             let session = session("cancel-main");
             write_session(&paths, &session).expect("session head");
             let baseline = established_baseline(&base_fence(), &[("memo/x.md", &dig(1), "tok-x")]);
@@ -783,7 +783,7 @@ mod tests {
         // Streaming entry point.
         {
             let temporary = tempdir().expect("temp");
-            let paths = SyncPaths::for_workspace(temporary.path());
+            let paths = SyncPaths::for_control_root(temporary.path());
             let session = session("cancel-stream");
             write_session(&paths, &session).expect("session head");
             let baseline = established_baseline(&base_fence(), &[("memo/y.md", &dig(3), "tok-y")]);
@@ -836,7 +836,7 @@ mod tests {
     #[test]
     fn one_sided_remote_movement_reopens_the_record_with_fresh_digests() {
         let temporary = tempdir().expect("temp");
-        let paths = SyncPaths::for_workspace(temporary.path());
+        let paths = SyncPaths::for_control_root(temporary.path());
         let d_l1 = dig(0x61);
         let d_r1 = dig(0x62);
         let d_r2 = dig(0x63);

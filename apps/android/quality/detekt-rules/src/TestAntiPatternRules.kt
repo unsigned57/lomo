@@ -3,23 +3,24 @@ package com.lomo.detektrules
 import dev.detekt.api.Config
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.psi.KtBinaryExpression
-import org.jetbrains.kotlin.psi.KtParenthesizedExpression
-import org.jetbrains.kotlin.psi.KtIsExpression
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtIsExpression
 import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.psi.KtNamedFunction
+import org.jetbrains.kotlin.psi.KtParenthesizedExpression
 import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.psi.KtStringTemplateExpression
+import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 
-internal class NoRelaxedMockkRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Tests must not use relaxed MockK for stateful collaborators. Use Fake* or a test harness.",
-) {
+internal class NoRelaxedMockkRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Tests must not use relaxed MockK for stateful collaborators. Use Fake* or a test harness.",
+    ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
         val file = expression.containingKtFile
@@ -82,12 +83,11 @@ internal class NoRelaxedMockkRule(
     }
 }
 
-internal class NoThreadSleepInTestsRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Tests must use deterministic schedulers, fake clocks, or coroutine test utilities instead of Thread.sleep.",
-) {
+internal class NoThreadSleepInTestsRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Tests must use deterministic schedulers, fake clocks, or coroutine test utilities instead of Thread.sleep.",
+    ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
         val file = expression.containingKtFile
@@ -103,12 +103,11 @@ internal class NoThreadSleepInTestsRule(
     }
 }
 
-internal class NoInteractionOnlyTestRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Tests that verify collaborator calls must also assert an observable behavior outcome.",
-) {
+internal class NoInteractionOnlyTestRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Tests that verify collaborator calls must also assert an observable behavior outcome.",
+    ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
         val file = expression.containingKtFile
@@ -146,12 +145,11 @@ internal class NoInteractionOnlyTestRule(
     }
 }
 
-internal class NoAssertionlessTestRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Tests must contain at least one observable assertion (e.g. shouldBe, assertTrue, awaitItem, fail).",
-) {
+internal class NoAssertionlessTestRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Tests must contain at least one observable assertion (e.g. shouldBe, assertTrue, awaitItem, fail).",
+    ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
         val file = expression.containingKtFile
@@ -181,12 +179,11 @@ internal class NoAssertionlessTestRule(
     }
 }
 
-internal class NoFlowFirstForStateSequenceRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "ViewModel state-flow tests should use Turbine or explicit state assertions instead of first() for user-visible state sequences.",
-) {
+internal class NoFlowFirstForStateSequenceRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "ViewModel state-flow tests should use Turbine or explicit state assertions instead of first() for user-visible state sequences.",
+    ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
         val file = expression.containingKtFile
@@ -208,12 +205,11 @@ internal class NoFlowFirstForStateSequenceRule(
     }
 }
 
-internal class ExcessiveMockStubbingRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Too many mock stubbings (every/coEvery) detected. Model behavior with Fake* or test harness instead of mocking SUT dependencies.",
-) {
+internal class ExcessiveMockStubbingRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Too many mock stubbings (every/coEvery) detected. Model behavior with Fake* or test harness instead of mocking SUT dependencies.",
+    ) {
     private var everyCount = 0
 
     override fun visitKtFile(file: KtFile) {
@@ -223,7 +219,7 @@ internal class ExcessiveMockStubbingRule(
         if (everyCount > limit) {
             reportFile(
                 file,
-                "Excessive mock stubbings ($everyCount > $limit). Model behavior with a Fake*, test harness, Turbine, or call-recording fake instead of stubbing multiple dependencies."
+                "Excessive mock stubbings ($everyCount > $limit). Model behavior with a Fake*, test harness, Turbine, or call-recording fake instead of stubbing multiple dependencies.",
             )
         }
     }
@@ -276,41 +272,46 @@ private fun KtCallExpression.testScenarioBodyText(): String? {
     return lambda.text
 }
 
-internal class NoSourceStringBehaviorTestRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Non-architecture tests must not assert on Kotlin source-string tokens. Extract the production logic into a testable unit.",
-) {
+internal class NoSourceStringBehaviorTestRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Non-architecture tests must not assert on Kotlin source-string tokens. Extract the production logic into a testable unit.",
+    ) {
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         if (!file.isTestFile()) return
-        
+
         val path = file.path()
         val isArchitecture = path.contains("/architecture/")
         val hasBoundaryMarker = file.text.lineSequence().take(30).any { it.contains("// architectural-boundary-check") }
         if (isArchitecture || hasBoundaryMarker) return
 
-        // Check if it contains File and readText() and string assertions
+        // Source paths and extension filters distinguish source-policy input from durable data.
+        // This syntax-only rule does not resolve runtime-computed filenames.
+        val hasKotlinSourceInput = file.collectDescendantsOfType<KtStringTemplateExpression>().any { literal ->
+            val value = literal.entries.joinToString("") { it.text }
+            value.endsWith(".kt") || value.endsWith(".kts") || value == "kt" || value == "kts"
+        }
         val hasFileReference = file.text.contains("File(") || file.text.contains("java.io.File")
-        val hasReadText = file.text.contains(".readText()")
-        val hasAssertion = file.text.contains("shouldContain") || file.text.contains(".contains(") || file.text.contains("assertTrue")
-        
-        if (hasFileReference && hasReadText && hasAssertion) {
+        val hasReadText = file.text.contains(".readText()") || file.text.contains(".readLines()")
+        val hasAssertion = file.text.contains(
+            "shouldContain",
+        ) || file.text.contains(".contains(") || file.text.contains("assertTrue")
+
+        if (hasKotlinSourceInput && hasFileReference && hasReadText && hasAssertion) {
             reportFile(
                 file,
-                "Source-string assertion test forbidden. Extract the production logic into a testable unit and assert observable outcomes. To allow an architecture-boundary file, add the '// architectural-boundary-check' marker."
+                "Source-string assertion test forbidden. Extract the production logic into a testable unit and assert observable outcomes. To allow an architecture-boundary file, add the '// architectural-boundary-check' marker.",
             )
         }
     }
 }
 
-internal class ShouldBeInstanceOfAssertionRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Prefer shouldBeInstanceOf<T>() over `(x is T) shouldBe true` for type-narrowing assertions.",
-) {
+internal class ShouldBeInstanceOfAssertionRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Prefer shouldBeInstanceOf<T>() over `(x is T) shouldBe true` for type-narrowing assertions.",
+    ) {
     override fun visitBinaryExpression(expression: KtBinaryExpression) {
         super.visitBinaryExpression(expression)
         if (expression.operationReference.text != "shouldBe") return

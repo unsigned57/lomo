@@ -49,7 +49,9 @@ import java.io.File
  */
 class SearchCollectionBoundaryContractTest : AppFunSpec() {
     init {
-        test("given search collection migration when constructor inspected then search depends on common projection boundary") {
+        test(
+            "given search collection migration when constructor inspected then search depends on common projection boundary",
+        ) {
             val viewModelParameterTypes =
                 SearchViewModel::class.java.declaredConstructors
                     .flatMap { constructor -> constructor.parameterTypes.map(Class<*>::getName) }

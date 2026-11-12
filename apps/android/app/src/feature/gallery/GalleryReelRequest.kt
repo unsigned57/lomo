@@ -8,4 +8,3 @@ data class GalleryReelRequest(
     val initialMemoIndex: Int,
     val initialImageIndex: Int,
 )
-

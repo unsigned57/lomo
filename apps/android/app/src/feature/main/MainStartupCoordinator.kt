@@ -8,33 +8,33 @@ import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onEach
 
-
 class MainStartupCoordinator(
     private val getCurrentAppBuildVersionUseCase: GetCurrentAppBuildVersionUseCase,
-    private val startupMaintenanceUseCase: StartupMaintenanceUseCase,
+    startupMaintenanceUseCase: () -> StartupMaintenanceUseCase,
     private val appConfigStateProvider: AppConfigStateProvider,
     private val audioPlayerManager: AudioPlayerManager,
     private val observeWorkspaceSessionUseCase: ObserveWorkspaceSessionUseCase,
 ) {
-        suspend fun initializeRootDirectory(): String? {
-            observeWorkspaceSessionUseCase.awaitSettledReadiness()
-            return observeWorkspaceSessionUseCase.activeWorkspaceLocation.value
-                ?.raw
-                .also(audioPlayerManager.setRootLocation)
-        }
+    // Homepage observation must not construct the sync/archive maintenance graph.
+    private val startupMaintenanceUseCase by lazy(startupMaintenanceUseCase)
 
-        suspend fun runDeferredStartupTasks(rootDir: String?) {
-            startupMaintenanceUseCase.runDeferredStartupTasks(
-                rootDir = rootDir,
-                currentVersion = getCurrentAppBuildVersionUseCase(),
-            )
-        }
-
-        fun observeRootDirectoryChanges(): Flow<String?> =
-            observeWorkspaceSessionUseCase.observeActiveRootPath()
-                .onEach(audioPlayerManager.setRootLocation)
-
-        fun observeVoiceDirectoryChanges(): Flow<String?> =
-            appConfigStateProvider.voiceDirectory
-                .onEach(audioPlayerManager.setVoiceLocation)
+    suspend fun initializeRootDirectory(): String? {
+        observeWorkspaceSessionUseCase.awaitSettledReadiness()
+        return observeWorkspaceSessionUseCase.activeWorkspaceLocation.value
+            ?.raw
+            .also(audioPlayerManager.setRootLocation)
     }
+
+    suspend fun runDeferredStartupTasks(rootDir: String?) {
+        startupMaintenanceUseCase.runDeferredStartupTasks(
+            rootDir = rootDir,
+            currentVersion = getCurrentAppBuildVersionUseCase(),
+        )
+    }
+
+    fun observeRootDirectoryChanges(): Flow<String?> = observeWorkspaceSessionUseCase.observeActiveRootPath()
+        .onEach(audioPlayerManager.setRootLocation)
+
+    fun observeVoiceDirectoryChanges(): Flow<String?> = appConfigStateProvider.voiceDirectory
+        .onEach(audioPlayerManager.setVoiceLocation)
+}

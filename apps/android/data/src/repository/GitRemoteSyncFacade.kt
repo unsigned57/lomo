@@ -61,7 +61,7 @@ class GitRemoteSyncFacade(
         val status = cycleStatus.refresh()
         return GitSyncStatus(
             hasLocalChanges =
-                ((status?.ensurePresentCount ?: 0) + (status?.ensureAbsentCount ?: 0)) > 0,
+            ((status?.ensurePresentCount ?: 0) + (status?.ensureAbsentCount ?: 0)) > 0,
             aheadCount = (status?.ensurePresentCount ?: 0) + (status?.ensureAbsentCount ?: 0),
             behindCount = status?.pullPresentCount ?: 0,
             lastSyncTime = status?.lastSuccessfulAtMs,
@@ -132,30 +132,30 @@ class GitRemoteSyncFacade(
         }
     }
 
-    private suspend fun enqueueRustCycle(message: String): GitSyncResult =
-        when (
-            val outcome =
-                rustSyncScheduler.enqueueOneShot(secretFieldKey = CredentialField.GIT_TOKEN.name)
-        ) {
-            is RustSyncEnqueueOutcome.Accepted -> GitSyncResult.Accepted(message)
-            is RustSyncEnqueueOutcome.Rejected ->
-                when (outcome.reason) {
-                    RustSyncEnqueueRejection.NO_DIRECT_ROOT -> GitSyncResult.DirectPathRequired
-                    RustSyncEnqueueRejection.NO_ACTIVE_BACKEND,
-                    RustSyncEnqueueRejection.INCOMPLETE_CONFIG,
-                    -> GitSyncResult.NotConfigured
-                }
-        }
+    private suspend fun enqueueRustCycle(message: String): GitSyncResult = when (
+        val outcome =
+            rustSyncScheduler.enqueueOneShot(secretFieldKey = CredentialField.GIT_TOKEN.name)
+    ) {
+        is RustSyncEnqueueOutcome.Accepted -> GitSyncResult.Accepted(message)
+
+        is RustSyncEnqueueOutcome.Rejected ->
+            when (outcome.reason) {
+                RustSyncEnqueueRejection.NO_DIRECT_ROOT -> GitSyncResult.DirectPathRequired
+
+                RustSyncEnqueueRejection.NO_ACTIVE_BACKEND,
+                RustSyncEnqueueRejection.INCOMPLETE_CONFIG,
+                -> GitSyncResult.NotConfigured
+            }
+    }
 
     private fun revokeLeaseQuietly(leaseId: String) {
         runCatching { secretSupplier.revokeLease(leaseId) }
         // behavior-contract: silent-result-ok: revoke best-effort; process death drops leases
     }
 
-    private fun RemoteSyncBoundaryFailure.toGitResult(): GitSyncResult =
-        GitSyncResult.Error(
-            code = GitSyncErrorCode.UNKNOWN,
-            message = diagnostic.ifBlank { code },
-            exception = this,
-        )
+    private fun RemoteSyncBoundaryFailure.toGitResult(): GitSyncResult = GitSyncResult.Error(
+        code = GitSyncErrorCode.UNKNOWN,
+        message = diagnostic.ifBlank { code },
+        exception = this,
+    )
 }

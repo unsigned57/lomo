@@ -24,26 +24,13 @@ interface AlarmPlatformGateway {
      * [occurrenceId] is carried in the intent data URI and in the deterministic request code.
      * Two occurrences of the same reminder therefore never alias one PendingIntent.
      */
-    fun pendingIntent(
-        occurrenceId: String,
-        memoId: String,
-        reminderId: String,
-    ): PendingIntent
+    fun pendingIntent(occurrenceId: String, memoId: String, reminderId: String): PendingIntent
 
-    fun setAlarmClock(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    )
+    fun setAlarmClock(triggerAtUtcMillis: Long, operation: PendingIntent)
 
-    fun setAndAllowWhileIdle(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    )
+    fun setAndAllowWhileIdle(triggerAtUtcMillis: Long, operation: PendingIntent)
 
-    fun setInexact(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    )
+    fun setInexact(triggerAtUtcMillis: Long, operation: PendingIntent)
 
     fun cancel(operation: PendingIntent)
 }
@@ -54,18 +41,13 @@ class AndroidAlarmManagerGateway(
     private val alarmManager: AlarmManager =
         context.getSystemService(Context.ALARM_SERVICE) as AlarmManager,
 ) : AlarmPlatformGateway {
-    override fun canScheduleExactAlarms(): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            alarmManager.canScheduleExactAlarms()
-        } else {
-            true
-        }
+    override fun canScheduleExactAlarms(): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        alarmManager.canScheduleExactAlarms()
+    } else {
+        true
+    }
 
-    override fun pendingIntent(
-        occurrenceId: String,
-        memoId: String,
-        reminderId: String,
-    ): PendingIntent {
+    override fun pendingIntent(occurrenceId: String, memoId: String, reminderId: String): PendingIntent {
         val intent =
             Intent(context, ReminderAlarmReceiver::class.java).apply {
                 action = ReminderIntents.ACTION_FIRE
@@ -82,18 +64,12 @@ class AndroidAlarmManagerGateway(
         )
     }
 
-    override fun setAlarmClock(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    ) {
+    override fun setAlarmClock(triggerAtUtcMillis: Long, operation: PendingIntent) {
         val info = AlarmManager.AlarmClockInfo(triggerAtUtcMillis, null)
         alarmManager.setAlarmClock(info, operation)
     }
 
-    override fun setAndAllowWhileIdle(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    ) {
+    override fun setAndAllowWhileIdle(triggerAtUtcMillis: Long, operation: PendingIntent) {
         alarmManager.setAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
             triggerAtUtcMillis,
@@ -101,10 +77,7 @@ class AndroidAlarmManagerGateway(
         )
     }
 
-    override fun setInexact(
-        triggerAtUtcMillis: Long,
-        operation: PendingIntent,
-    ) {
+    override fun setInexact(triggerAtUtcMillis: Long, operation: PendingIntent) {
         alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtUtcMillis, operation)
     }
 
@@ -125,11 +98,10 @@ class AndroidAlarmSchedulePort(
 ) : AlarmSchedulePort {
     constructor(context: Context) : this(gateway = AndroidAlarmManagerGateway(context))
 
-    override fun exactAlarmCapability(): ExactAlarmCapability =
-        ExactAlarmCapability(
-            canScheduleExactAlarms = gateway.canScheduleExactAlarms(),
-            sdkInt = sdkInt,
-        )
+    override fun exactAlarmCapability(): ExactAlarmCapability = ExactAlarmCapability(
+        canScheduleExactAlarms = gateway.canScheduleExactAlarms(),
+        sdkInt = sdkInt,
+    )
 
     override fun schedule(request: AlarmScheduleRequest): AlarmScheduleResult {
         val pendingIntent =
@@ -145,6 +117,7 @@ class AndroidAlarmSchedulePort(
                         triggerAtUtcMillis = request.triggerAtUtcMillis,
                     )
                 }
+
                 else -> {
                     gateway.setAlarmClock(request.triggerAtUtcMillis, pendingIntent)
                     AlarmScheduleResult(
@@ -180,11 +153,7 @@ class AndroidAlarmSchedulePort(
         }
     }
 
-    override fun cancel(
-        occurrenceId: String,
-        memoId: String,
-        reminderId: String,
-    ) {
+    override fun cancel(occurrenceId: String, memoId: String, reminderId: String) {
         gateway.cancel(gateway.pendingIntent(occurrenceId, memoId, reminderId))
     }
 }

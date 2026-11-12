@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract (P5-01 codec)
 //!
 //! Capability: workspace-owned `.lomo` durable record codec uses magic+schema+len+checksum;
@@ -47,7 +56,7 @@ mod tests {
 
         let decoded = decode_record(&bytes).test_ok("decode");
         assert_eq!(decoded.payload, payload);
-        assert!(!decoded.checksum_hex.is_empty());
+        assert_ne!(decoded.checksum_hex, "");
 
         let path = paths.state.join("memo-1.rec");
         write_record_atomic(&path, &payload).test_ok("write");

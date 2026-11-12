@@ -10,54 +10,46 @@ class EnterAnimationRegistry {
     private val _enterState = MutableStateFlow(EnterAnimationState())
     val enterState: StateFlow<EnterAnimationState> = _enterState.asStateFlow()
 
-    fun beginEnter(id: String) {
-        _enterState.update { state ->
-            state.copy(activeEnters = state.activeEnters + id)
-        }
-    }
-
-    fun beginPendingHeadEnter(baseline: HeadEnterBaseline): EnterRequestId {
+    fun beginPendingEnter(baselineKeys: Set<String>): EnterRequestId {
+        check(_enterState.value.pendingEnter == null) { "A creation presentation is already pending" }
         val requestId = EnterRequestId(++nextRequestValue)
         _enterState.update { state ->
-            state.copy(
-                pendingHeadEnters = state.pendingHeadEnters +
-                    PendingHeadEnter(
-                        requestId = requestId,
-                        baseline = baseline,
-                    ),
-            )
+            state.copy(pendingEnter = PendingEnter.Creating(requestId, baselineKeys.toSet()))
         }
         return requestId
     }
 
-    fun resolvePendingHeadEnter(
-        requestId: EnterRequestId,
-        headId: String,
-    ) {
+    fun bindPendingEnter(requestId: EnterRequestId, itemId: String) {
         _enterState.update { state ->
-            if (state.pendingHeadEnters.none { it.requestId == requestId }) {
+            if (state.pendingEnter?.requestId != requestId) {
                 state
             } else {
-                state.copy(
-                    activeEnters = state.activeEnters + headId,
-                    pendingHeadEnters = state.pendingHeadEnters.filterNot { it.requestId == requestId },
-                )
+                state.copy(pendingEnter = PendingEnter.AwaitingViewport(requestId, itemId))
+            }
+        }
+    }
+
+    /** The viewport owner acknowledges position before any row can start its enter. */
+    fun startPendingEnter(requestId: EnterRequestId) {
+        _enterState.update { state ->
+            val pending = state.pendingEnter
+            if (pending?.requestId != requestId) {
+                state
+            } else {
+                check(pending is PendingEnter.AwaitingViewport) { "Creation has no committed identity" }
+                state.copy(activeEnters = state.activeEnters + pending.itemId, pendingEnter = null)
             }
         }
     }
 
     fun cancelEnterRequest(requestId: EnterRequestId) {
         _enterState.update { state ->
-            state.copy(
-                pendingHeadEnters = state.pendingHeadEnters.filterNot { it.requestId == requestId },
-            )
+            if (state.pendingEnter?.requestId == requestId) state.copy(pendingEnter = null) else state
         }
     }
 
     fun settleEnter(id: String) {
-        _enterState.update { state ->
-            state.copy(activeEnters = state.activeEnters - id)
-        }
+        _enterState.update { state -> state.copy(activeEnters = state.activeEnters - id) }
     }
 
     fun clear() {

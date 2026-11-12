@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 // adversarial re-audit (round 3) of the schema-3 FFI gate landed by 12-修复-工程门禁.
 //
 // The shipped gate code under test is `tests/policy/ffi.rs`, included verbatim via `#[path]`
@@ -315,10 +324,7 @@ mod tests {
     /// with sources) plus empty `data`/`domain`/`ui-components` inventories.
     fn write_facts(root: &Path, facts_root: &Path, zombie_rooted: bool) {
         let sha = |path: &Path| -> String {
-            format!(
-                "{:x}",
-                Sha256::digest(fs::read(path).expect("fixture read"))
-            )
+            lomo_core::hex_encode(&Sha256::digest(fs::read(path).expect("fixture read")))
         };
         let app_dir = facts_root.join("app");
         fs::create_dir_all(&app_dir).expect("facts dir");

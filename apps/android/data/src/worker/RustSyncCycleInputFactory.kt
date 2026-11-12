@@ -26,21 +26,20 @@ internal class RustSyncCycleInputFactory(
         backend: SyncBackendType,
         root: String,
         secretFieldKeyOverride: String? = null,
-    ): Data? =
-        when (backend) {
-            SyncBackendType.WEBDAV -> webDavInput(root, secretFieldKeyOverride)
-            SyncBackendType.S3 -> s3Input(root, secretFieldKeyOverride)
-            SyncBackendType.GIT -> gitInput(root, secretFieldKeyOverride)
-            SyncBackendType.NONE,
-            SyncBackendType.INBOX,
-            SyncBackendType.UNKNOWN,
-            -> null
-        }
+    ): Data? = when (backend) {
+        SyncBackendType.WEBDAV -> webDavInput(root, secretFieldKeyOverride)
 
-    private suspend fun webDavInput(
-        root: String,
-        secretFieldKeyOverride: String?,
-    ): Data? {
+        SyncBackendType.S3 -> s3Input(root, secretFieldKeyOverride)
+
+        SyncBackendType.GIT -> gitInput(root, secretFieldKeyOverride)
+
+        SyncBackendType.NONE,
+        SyncBackendType.INBOX,
+        SyncBackendType.UNKNOWN,
+        -> null
+    }
+
+    private suspend fun webDavInput(root: String, secretFieldKeyOverride: String?): Data? {
         val endpoint =
             dataStore.webDavEndpointUrl.first()?.trim().orEmpty().ifBlank {
                 dataStore.webDavBaseUrl.first()?.trim().orEmpty()
@@ -64,10 +63,7 @@ internal class RustSyncCycleInputFactory(
         )
     }
 
-    private suspend fun s3Input(
-        root: String,
-        secretFieldKeyOverride: String?,
-    ): Data? {
+    private suspend fun s3Input(root: String, secretFieldKeyOverride: String?): Data? {
         val endpoint = dataStore.s3EndpointUrl.first()?.trim().orEmpty()
         val region = dataStore.s3Region.first()?.trim().orEmpty()
         val bucket = dataStore.s3Bucket.first()?.trim().orEmpty()
@@ -93,10 +89,7 @@ internal class RustSyncCycleInputFactory(
         )
     }
 
-    private suspend fun gitInput(
-        root: String,
-        secretFieldKeyOverride: String?,
-    ): Data? {
+    private suspend fun gitInput(root: String, secretFieldKeyOverride: String?): Data? {
         val remote = dataStore.gitRemoteUrl.first()?.trim().orEmpty()
         val branch = dataStore.gitBranch.first().trim()
         if (remote.isBlank() ||
@@ -137,12 +130,7 @@ internal const val GIT_AUTHOR_EMAIL_DEFAULT: String = "git@lomo.local"
 
 internal const val DATASET_ID_MAX_LEN: Int = 128
 
-internal fun datasetId(
-    backend: String,
-    endpoint: String,
-    bucket: String,
-): String {
+internal fun datasetId(backend: String, endpoint: String, bucket: String): String {
     val raw = "$backend|$endpoint|$bucket"
     return raw.take(DATASET_ID_MAX_LEN).ifBlank { backend }
 }
-

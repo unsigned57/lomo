@@ -10,9 +10,7 @@ object SimpleLineDiff {
     enum class DiffOp { EQUAL, INSERT, DELETE }
 
     sealed interface DiffResult {
-        data class Computed(
-            val hunks: List<DiffHunk>,
-        ) : DiffResult
+        data class Computed(val hunks: List<DiffHunk>) : DiffResult
 
         data class TooLarge(
             val oldLineCount: Int,
@@ -29,18 +27,13 @@ object SimpleLineDiff {
         val newLineNumber: Int? = null,
     )
 
-    data class DiffHunk(
-        val lines: List<DiffLine>,
-    )
+    data class DiffHunk(val lines: List<DiffLine>)
 
     private const val CONTEXT_LINES = 3
     private const val DEFAULT_MAX_COMPARED_CELLS = 250_000
     private const val DEFAULT_MAX_DIFF_LINE_COUNT = 2_000
 
-    fun diff(
-        oldText: String,
-        newText: String,
-    ): List<DiffHunk> =
+    fun diff(oldText: String, newText: String): List<DiffHunk> =
         when (val result = diffResult(oldText = oldText, newText = newText)) {
             is DiffResult.Computed -> result.hunks
             is DiffResult.TooLarge -> emptyList()
@@ -80,36 +73,24 @@ object SimpleLineDiff {
         newLineCount: Int,
         maxComparedCells: Int,
         maxDiffLineCount: Int,
-    ): Boolean =
-        exceedsComparedCellBudget(
-            oldLineCount = oldLineCount,
-            newLineCount = newLineCount,
-            maxComparedCells = maxComparedCells,
-        ) || exceedsDiffLineBudget(
-            oldLineCount = oldLineCount,
-            newLineCount = newLineCount,
-            maxDiffLineCount = maxDiffLineCount,
-        )
+    ): Boolean = exceedsComparedCellBudget(
+        oldLineCount = oldLineCount,
+        newLineCount = newLineCount,
+        maxComparedCells = maxComparedCells,
+    ) || exceedsDiffLineBudget(
+        oldLineCount = oldLineCount,
+        newLineCount = newLineCount,
+        maxDiffLineCount = maxDiffLineCount,
+    )
 
-    private fun exceedsComparedCellBudget(
-        oldLineCount: Int,
-        newLineCount: Int,
-        maxComparedCells: Int,
-    ): Boolean =
+    private fun exceedsComparedCellBudget(oldLineCount: Int, newLineCount: Int, maxComparedCells: Int): Boolean =
         comparedCellCount(oldLineCount = oldLineCount, newLineCount = newLineCount) >
             maxComparedCells.toLong()
 
-    private fun comparedCellCount(
-        oldLineCount: Int,
-        newLineCount: Int,
-    ): Long =
+    private fun comparedCellCount(oldLineCount: Int, newLineCount: Int): Long =
         (oldLineCount.toLong() + 1L) * (newLineCount.toLong() + 1L)
 
-    private fun exceedsDiffLineBudget(
-        oldLineCount: Int,
-        newLineCount: Int,
-        maxDiffLineCount: Int,
-    ): Boolean =
+    private fun exceedsDiffLineBudget(oldLineCount: Int, newLineCount: Int, maxDiffLineCount: Int): Boolean =
         oldLineCount.toLong() + newLineCount.toLong() > maxDiffLineCount.toLong()
 
     /**
@@ -117,10 +98,7 @@ object SimpleLineDiff {
      * document order, so leading equal runs precede each chunk and every source
      * chunk deletes before its target chunk inserts.
      */
-    private fun computeDiffLines(
-        oldLines: List<String>,
-        newLines: List<String>,
-    ): List<DiffLine> {
+    private fun computeDiffLines(oldLines: List<String>, newLines: List<String>): List<DiffLine> {
         val lines = mutableListOf<DiffLine>()
         var oldIndex = 0
         var newIndex = 0
@@ -154,10 +132,7 @@ object SimpleLineDiff {
         if (diffLines.isEmpty() || changeIndices.isEmpty()) return emptyList()
 
         // Build spans: each change expands to include context
-        class Span(
-            val start: Int,
-            val end: Int,
-        )
+        class Span(val start: Int, val end: Int)
 
         val spans = mutableListOf<Span>()
         for (idx in changeIndices) {

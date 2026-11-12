@@ -1,13 +1,13 @@
 package com.lomo.domain.usecase
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,13 +16,12 @@ package com.lomo.domain.usecase
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
 import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.repository.DailyReviewSessionRepository
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
-import java.time.LocalDate
 import kotlinx.coroutines.test.runTest
+import java.time.LocalDate
 
 /*
  * Behavior Contract:
@@ -36,67 +35,74 @@ class DailyReviewSessionUseCaseTest : DomainFunSpec() {
     init {
         test("prepareSession reuses the existing same-day session") {
             runTest {
-                        val today = LocalDate.of(2026, 4, 16)
-                        val repository =
-                            FakeDailyReviewSessionRepository(
-                                initialSession = DailyReviewSession(date = today, seed = 42L, pageIndex = 3),
-                            )
-                        val useCase =
-                            DailyReviewSessionUseCase(
-                                repository = repository,
-                                currentDateProvider = { today },
-                                seedProvider = { 99L },
-                            )
+                val today = LocalDate.of(2026, 4, 16)
+                val repository =
+                    FakeDailyReviewSessionRepository(
+                        initialSession = DailyReviewSession(date = today, seed = 42L, pageIndex = 3),
+                    )
+                val useCase =
+                    DailyReviewSessionUseCase(
+                        repository = repository,
+                        currentDateProvider = { today },
+                        seedProvider = { 99L },
+                    )
 
-                        val session = useCase.prepareSession()
+                val session = useCase.prepareSession()
 
-                        session shouldBe DailyReviewSession(date = today, seed = 42L, pageIndex = 3)
-                        repository.lastSavedSession shouldBe null
-                    }
+                session shouldBe DailyReviewSession(date = today, seed = 42L, pageIndex = 3)
+                repository.lastSavedSession shouldBe null
+            }
         }
 
         test("prepareSession resets page and seed when the saved session is from a previous day") {
             runTest {
-                        val today = LocalDate.of(2026, 4, 16)
-                        val repository =
-                            FakeDailyReviewSessionRepository(
-                                initialSession = DailyReviewSession(date = today.minusDays(1), seed = 42L, pageIndex = 7),
-                            )
-                        val useCase =
-                            DailyReviewSessionUseCase(
-                                repository = repository,
-                                currentDateProvider = { today },
-                                seedProvider = { 99L },
-                            )
+                val today = LocalDate.of(2026, 4, 16)
+                val repository =
+                    FakeDailyReviewSessionRepository(
+                        initialSession = DailyReviewSession(
+                            date = today.minusDays(1),
+                            seed = 42L,
+                            pageIndex = 7,
+                        ),
+                    )
+                val useCase =
+                    DailyReviewSessionUseCase(
+                        repository = repository,
+                        currentDateProvider = { today },
+                        seedProvider = { 99L },
+                    )
 
-                        val session = useCase.prepareSession()
+                val session = useCase.prepareSession()
 
-                        session shouldBe DailyReviewSession(date = today, seed = 99L, pageIndex = 0)
-                        repository.lastSavedSession shouldBe session
-                    }
+                session shouldBe DailyReviewSession(date = today, seed = 99L, pageIndex = 0)
+                repository.lastSavedSession shouldBe session
+            }
         }
 
         test("updateCurrentPage persists the active same-day seed with the new page index") {
             runTest {
-                        val today = LocalDate.of(2026, 4, 16)
-                        val repository = FakeDailyReviewSessionRepository()
-                        val useCase =
-                            DailyReviewSessionUseCase(
-                                repository = repository,
-                                currentDateProvider = { today },
-                                seedProvider = { 99L },
-                            )
+                val today = LocalDate.of(2026, 4, 16)
+                val repository = FakeDailyReviewSessionRepository()
+                val useCase =
+                    DailyReviewSessionUseCase(
+                        repository = repository,
+                        currentDateProvider = { today },
+                        seedProvider = { 99L },
+                    )
 
-                        useCase.updateCurrentPage(seed = 123L, pageIndex = 5)
+                useCase.updateCurrentPage(seed = 123L, pageIndex = 5)
 
-                        repository.lastSavedSession shouldBe DailyReviewSession(date = today, seed = 123L, pageIndex = 5)
-                    }
+                repository.lastSavedSession shouldBe DailyReviewSession(
+                    date = today,
+                    seed = 123L,
+                    pageIndex = 5,
+                )
+            }
         }
     }
 
-    private class FakeDailyReviewSessionRepository(
-        initialSession: DailyReviewSession? = null,
-    ) : DailyReviewSessionRepository {
+    private class FakeDailyReviewSessionRepository(initialSession: DailyReviewSession? = null) :
+        DailyReviewSessionRepository {
         private var storedSession: DailyReviewSession? = initialSession
         var lastSavedSession: DailyReviewSession? = null
             private set

@@ -14,7 +14,9 @@ import io.kotest.matchers.shouldBe
  */
 class GalleryReelActionContractTest : AppFunSpec() {
     init {
-        test("given a memo with unchecked task when todo clicked then callback receives original memo line index and target checked state") {
+        test(
+            "given a memo with unchecked task when todo clicked then callback receives original memo line index and target checked state",
+        ) {
             val memo = Memo(
                 id = "memo-1",
                 timestamp = 1L,

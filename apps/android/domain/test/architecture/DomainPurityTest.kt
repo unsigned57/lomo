@@ -18,14 +18,14 @@
 
 package com.lomo.domain.architecture
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -34,9 +34,8 @@ package com.lomo.domain.architecture
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
-import io.kotest.assertions.withClue
 import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import java.io.File
 
@@ -52,7 +51,9 @@ class DomainPurityTest : DomainFunSpec() {
                     text.contains("@Inject") || text.contains("javax.inject.Inject")
                 }
 
-            withClue("Domain layer must stay framework-agnostic. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()) shouldBe true }
+            withClue(
+                "Domain layer must stay framework-agnostic. Offenders: ${offenders.joinToString { it.path }}",
+            ) { (offenders.isEmpty()) shouldBe true }
         }
 
         test("domain source only uses model repository and usecase categories") {
@@ -66,8 +67,10 @@ class DomainPurityTest : DomainFunSpec() {
                     topLevel !in allowedTopLevel
                 }
 
-            withClue("Domain source categories must be model/repository/usecase. Offenders: " +
-                    offenders.joinToString { it.path }) { (offenders.isEmpty()) shouldBe true }
+            withClue(
+                "Domain source categories must be model/repository/usecase. Offenders: " +
+                    offenders.joinToString { it.path },
+            ) { (offenders.isEmpty()) shouldBe true }
         }
 
         test("domain repository package only declares interfaces") {
@@ -82,8 +85,10 @@ class DomainPurityTest : DomainFunSpec() {
                     declarations.any { line -> !line.contains("interface ") }
                 }
 
-            withClue("Domain repository contracts must be interfaces only. Offenders: " +
-                    offenders.joinToString { it.path }) { (offenders.isEmpty()) shouldBe true }
+            withClue(
+                "Domain repository contracts must be interfaces only. Offenders: " +
+                    offenders.joinToString { it.path },
+            ) { (offenders.isEmpty()) shouldBe true }
         }
 
         test("domain source does not keep compatibility typealias") {
@@ -96,15 +101,19 @@ class DomainPurityTest : DomainFunSpec() {
                         .any { line -> line.trimStart().startsWith("typealias ") }
                 }
 
-            withClue("Domain source must not declare typealias compatibility shims. Offenders: " +
-                    offenders.joinToString { it.path }) { (offenders.isEmpty()) shouldBe true }
+            withClue(
+                "Domain source must not declare typealias compatibility shims. Offenders: " +
+                    offenders.joinToString { it.path },
+            ) { (offenders.isEmpty()) shouldBe true }
         }
 
         test("domain module does not use Android build plugin") {
             val buildFile = moduleRoot.resolve("module.yaml")
             val text = buildFile.readText()
 
-            withClue("Domain module must not apply Android build plugins.") { (!text.contains("androidLibrary") && !text.contains("com.android.library")) shouldBe true }
+            withClue(
+                "Domain module must not apply Android build plugins.",
+            ) { (!text.contains("androidLibrary") && !text.contains("com.android.library")) shouldBe true }
         }
 
         test("domain module does not keep android manifest") {
@@ -117,7 +126,15 @@ class DomainPurityTest : DomainFunSpec() {
             val buildFile = moduleRoot.resolve("module.yaml")
             val text = buildFile.readText()
 
-            withClue("Domain module must not depend on inject libraries.") { (!text.contains("javax.inject") && !text.contains("jakarta.inject") && !text.contains("libs.javax.inject")) shouldBe true }
+            withClue(
+                "Domain module must not depend on inject libraries.",
+            ) {
+                (
+                    !text.contains(
+                        "javax.inject",
+                    ) && !text.contains("jakarta.inject") && !text.contains("libs.javax.inject")
+                    ) shouldBe true
+            }
         }
     }
 

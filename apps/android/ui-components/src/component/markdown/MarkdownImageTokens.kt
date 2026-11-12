@@ -28,21 +28,19 @@ internal object MarkdownImageTokens {
     private const val ErrorContainerAlpha = 0.3f
     private const val EmptyContainerAlpha = 0.2f
 
-    fun activeIndicatorColor(colorScheme: ColorScheme): Color =
-        colorScheme.primary.copy(alpha = IndicatorActiveAlpha)
+    fun activeIndicatorColor(colorScheme: ColorScheme): Color = colorScheme.primary.copy(alpha = IndicatorActiveAlpha)
 
     fun inactiveIndicatorColor(colorScheme: ColorScheme): Color =
         colorScheme.outlineVariant.copy(alpha = IndicatorInactiveAlpha)
 
     fun loadingContainerColor(colorScheme: ColorScheme): Color =
-        colorScheme.surfaceVariant.copy(alpha = LoadingContainerAlpha)
+        colorScheme.surfaceContainerHighest.copy(alpha = LoadingContainerAlpha)
 
-    fun loadingIndicatorColor(colorScheme: ColorScheme): Color =
-        colorScheme.primary.copy(alpha = LoadingIndicatorAlpha)
+    fun loadingIndicatorColor(colorScheme: ColorScheme): Color = colorScheme.primary.copy(alpha = LoadingIndicatorAlpha)
 
     fun errorContainerColor(colorScheme: ColorScheme): Color =
         colorScheme.errorContainer.copy(alpha = ErrorContainerAlpha)
 
     fun emptyContainerColor(colorScheme: ColorScheme): Color =
-        colorScheme.surfaceVariant.copy(alpha = EmptyContainerAlpha)
+        colorScheme.surfaceContainerHighest.copy(alpha = EmptyContainerAlpha)
 }

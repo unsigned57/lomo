@@ -16,53 +16,57 @@ import io.kotest.matchers.shouldBe
 class SidebarDrawerVisibleTagRowsTest : UiComponentsFunSpec() {
     init {
         test("expanded descendants are flattened into independent visible rows") {
-        val tagTree =
-            buildTagTree(
+            val tagTree =
+                buildTagTree(
+                    listOf(
+                        SidebarTag("work", 4),
+                        SidebarTag("work/android", 3),
+                        SidebarTag("work/android/ui", 2),
+                        SidebarTag("personal", 1),
+                    ),
+                    rootOrder = listOf("work", "personal"),
+                )
+
+            val rows =
+                visibleTagRows(
+                    tagTree = tagTree,
+                    expandedNodePaths = setOf("work", "work/android"),
+                )
+
+            (rows.map { row -> row.node.fullPath to row.level }) shouldBe (
                 listOf(
-                    SidebarTag("work", 4),
-                    SidebarTag("work/android", 3),
-                    SidebarTag("work/android/ui", 2),
-                    SidebarTag("personal", 1),
-                ),
-                rootOrder = listOf("work", "personal"),
-            )
-
-        val rows =
-            visibleTagRows(
-                tagTree = tagTree,
-                expandedNodePaths = setOf("work", "work/android"),
-            )
-
-        (rows.map { row -> row.node.fullPath to row.level }) shouldBe (listOf(
-                "work" to 0,
-                "work/android" to 1,
-                "work/android/ui" to 2,
-                "personal" to 0,
-            ))
+                    "work" to 0,
+                    "work/android" to 1,
+                    "work/android/ui" to 2,
+                    "personal" to 0,
+                )
+                )
         }
     }
 
     init {
         test("collapsed descendants stay out of the measured row list") {
-        val tagTree =
-            buildTagTree(
+            val tagTree =
+                buildTagTree(
+                    listOf(
+                        SidebarTag("work", 4),
+                        SidebarTag("work/android", 3),
+                        SidebarTag("work/android/ui", 2),
+                    ),
+                )
+
+            val rows =
+                visibleTagRows(
+                    tagTree = tagTree,
+                    expandedNodePaths = setOf("work"),
+                )
+
+            (rows.map { row -> row.node.fullPath to row.level }) shouldBe (
                 listOf(
-                    SidebarTag("work", 4),
-                    SidebarTag("work/android", 3),
-                    SidebarTag("work/android/ui", 2),
-                ),
-            )
-
-        val rows =
-            visibleTagRows(
-                tagTree = tagTree,
-                expandedNodePaths = setOf("work"),
-            )
-
-        (rows.map { row -> row.node.fullPath to row.level }) shouldBe (listOf(
-                "work" to 0,
-                "work/android" to 1,
-            ))
+                    "work" to 0,
+                    "work/android" to 1,
+                )
+                )
         }
     }
 }

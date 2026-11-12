@@ -4,19 +4,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
-import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.newMemoOperationId
 import com.lomo.app.feature.common.toUserMessage
-import com.lomo.app.util.runSuspendCatching
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.mapToUiModels
-import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.memo.MemoEditorUpdateSubmission
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.model.DailyReviewCollectionSource
+import com.lomo.domain.model.DailyReviewOptions
 import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageLocation
@@ -24,7 +23,6 @@ import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
-import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
@@ -35,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 sealed interface DailyReviewScreenState {
@@ -45,12 +44,10 @@ sealed interface DailyReviewScreenState {
         val isLoadingMore: Boolean,
         val pageIndex: Int,
         val errorMessage: String?,
+        val options: DailyReviewOptions = DailyReviewOptions(),
     ) : DailyReviewScreenState
 
-    data class Failed(
-        val message: String,
-        val throwable: Throwable? = null,
-    ) : DailyReviewScreenState
+    data class Failed(val message: String, val throwable: Throwable? = null) : DailyReviewScreenState
 }
 
 /** Collaborators of the daily-review screen. */
@@ -68,9 +65,7 @@ data class DailyReviewViewModelDependencies(
     val dailyReviewSessionUseCase: DailyReviewSessionUseCase,
 )
 
-class DailyReviewViewModel(
-    dependencies: DailyReviewViewModelDependencies,
-) : ViewModel() {
+class DailyReviewViewModel(dependencies: DailyReviewViewModelDependencies) : ViewModel() {
     private val observeActiveDayCountUseCase = dependencies.observeActiveDayCountUseCase
     private val appConfigStateProvider = dependencies.appConfigStateProvider
     private val appConfigUiCoordinator = dependencies.appConfigUiCoordinator
@@ -82,14 +77,16 @@ class DailyReviewViewModel(
     private val saveImageUseCase = dependencies.saveImageUseCase
     private val dailyReviewQueryUseCase = dependencies.dailyReviewQueryUseCase
     private val dailyReviewSessionUseCase = dependencies.dailyReviewSessionUseCase
-    private val rawMemos = MutableStateFlow<List<Memo>?>(null)
-    private val _isLoadingMore = MutableStateFlow(false)
-    private val _restoredPageIndex = MutableStateFlow(0)
-    val restoredPageIndex: StateFlow<Int> = _restoredPageIndex.asStateFlow()
+    private val reviewData = MutableStateFlow<DailyReviewData>(DailyReviewData.Loading)
+    val restoredPageIndex: StateFlow<Int> = reviewData.map { publication ->
+        when (publication) {
+            is DailyReviewData.Loaded -> publication.session.pageIndex
+            DailyReviewData.Loading, is DailyReviewData.Failed -> 0
+        }
+    }.stateIn(viewModelScope, appWhileSubscribed(), 0)
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-    private val loadFailure = MutableStateFlow<DailyReviewScreenState.Failed?>(null)
-    private val memoUpdater = DailyReviewMemoUpdater(updateMemoContentUseCase, rawMemos)
+    private val memoUpdater = DailyReviewMemoUpdater(updateMemoContentUseCase, ::updateVisibleMemoContent)
     private val draftId = com.lomo.domain.model.DraftId.mint()
     internal val editorSubmission =
         MemoEditorUpdateSubmission(
@@ -101,7 +98,6 @@ class DailyReviewViewModel(
             },
         )
     private var loadJob: Job? = null
-    private val loadCursor = MutableStateFlow(DailyReviewLoadCursor())
 
     val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
 
@@ -117,8 +113,12 @@ class DailyReviewViewModel(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val mappedMemos: StateFlow<List<MemoUiModel>> =
-        rawMemos
-            .map { memos -> memos.orEmpty() }
+        reviewData.map { publication ->
+            when (publication) {
+                is DailyReviewData.Loaded -> publication.memos
+                DailyReviewData.Loading, is DailyReviewData.Failed -> emptyList()
+            }
+        }
             .mapToUiModels(
                 rootDirectory = rootDirectory,
                 imageDirectory = imageDirectory,
@@ -127,31 +127,25 @@ class DailyReviewViewModel(
             ).stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
     val uiState: StateFlow<DailyReviewScreenState> =
-        combine(
-            rawMemos,
-            mappedMemos,
-            _isLoadingMore,
-            _restoredPageIndex,
-            _errorMessage,
-        ) { raw, mapped, loadingMore, pageIndex, snackbar ->
-            DailyReviewScreenSlice(
-                raw = raw,
-                mapped = mapped,
-                isLoadingMore = loadingMore,
-                pageIndex = pageIndex,
-                errorMessage = snackbar,
-            )
-        }.combine(loadFailure) { slice, failed ->
-            when {
-                failed != null && slice.raw == null -> failed
-                slice.raw == null -> DailyReviewScreenState.Loading
-                else ->
-                    DailyReviewScreenState.Ready(
-                        memos = slice.mapped,
-                        isLoadingMore = slice.isLoadingMore,
-                        pageIndex = slice.pageIndex,
-                        errorMessage = slice.errorMessage,
-                    )
+        combine(reviewData, mappedMemos, _errorMessage) { publication, mapped, snackbar ->
+            when (publication) {
+                DailyReviewData.Loading -> DailyReviewScreenState.Loading
+
+                is DailyReviewData.Failed -> publication.failure
+
+                is DailyReviewData.Loaded -> {
+                    if (publication.memos.map { it.id } != mapped.map { it.memo.id }) {
+                        DailyReviewScreenState.Loading
+                    } else {
+                        DailyReviewScreenState.Ready(
+                            memos = mapped,
+                            isLoadingMore = publication.isLoadingMore,
+                            pageIndex = publication.session.pageIndex,
+                            errorMessage = snackbar,
+                            options = publication.session.options,
+                        )
+                    }
+                }
             }
         }.stateIn(viewModelScope, appWhileSubscribed(), DailyReviewScreenState.Loading)
 
@@ -159,40 +153,46 @@ class DailyReviewViewModel(
         loadDailyReview()
     }
 
-    private fun loadDailyReview() {
+    val updateReviewOptions: (DailyReviewOptions) -> Unit = { options -> loadDailyReview(options) }
+    val retry: () -> Unit = { loadDailyReview() }
+
+    private fun loadDailyReview(options: DailyReviewOptions? = null) {
         loadJob?.cancel()
         loadJob =
             viewModelScope.launch {
-                rawMemos.value = null
-                loadFailure.value = null
-                loadCursor.value = DailyReviewLoadCursor()
+                reviewData.value = DailyReviewData.Loading
                 runSuspendCatching {
-                    val session = dailyReviewSessionUseCase.prepareSession()
+                    val restored = dailyReviewSessionUseCase.prepareSession()
+                    val session = if (options == null || options == restored.options) {
+                        restored
+                    } else {
+                        restored.copy(pageIndex = 0, options = options)
+                    }
+                    if (session != restored) {
+                        dailyReviewSessionUseCase.updateCurrentPage(session.seed, 0, session.options)
+                    }
                     val page =
                         dailyReviewQueryUseCase.loadPage(
                             DailyReviewCollectionSource.fromSession(session),
                         )
                     session to page
                 }.onFailure { throwable ->
-                    loadFailure.value =
-                        DailyReviewScreenState.Failed("Failed to load daily review", throwable)
+                    reviewData.value = DailyReviewData.Failed(
+                        DailyReviewScreenState.Failed("Failed to load daily review", throwable),
+                    )
                 }.onSuccess { (session, page) ->
                     val memos = page.memos
-                    loadCursor.value =
-                        DailyReviewLoadCursor(
-                            canLoadMore = memos.isNotEmpty(),
-                            session = session,
-                            collectionSource = page.nextSource,
-                        )
-                    rawMemos.value = memos
                     val clampedPageIndex = session.pageIndex.coerceIn(0, memos.lastIndex.coerceAtLeast(0))
-                    _restoredPageIndex.value = clampedPageIndex
+                    reviewData.value = DailyReviewData.Loaded(
+                        memos = memos,
+                        session = session.copy(pageIndex = clampedPageIndex),
+                        source = page.nextSource,
+                    )
                     if (clampedPageIndex != session.pageIndex) {
-                        loadCursor.value =
-                            loadCursor.value.copy(session = session.copy(pageIndex = clampedPageIndex))
                         dailyReviewSessionUseCase.updateCurrentPage(
                             seed = session.seed,
                             pageIndex = clampedPageIndex,
+                            options = session.options,
                         )
                     }
                 }
@@ -200,105 +200,69 @@ class DailyReviewViewModel(
     }
 
     fun loadMore() {
-        val currentMemos = rawMemos.value ?: return
-        val cursor = loadCursor.value
-        val session = cursor.session ?: return
-        val source = cursor.collectionSource ?: DailyReviewCollectionSource.fromSession(session)
-        if (!cursor.canLoadMore || loadJob?.isActive == true || _isLoadingMore.value) {
-            return
-        }
-
-        loadJob =
-            viewModelScope.launch {
-                _isLoadingMore.value = true
-                runSuspendCatching {
-                    dailyReviewQueryUseCase.loadPage(source)
-                }.onFailure { throwable ->
-                    _errorMessage.value = throwable.toUserMessage("Failed to load more memos")
-                }.onSuccess { page ->
-                    val newMemos = page.memos
-                    loadCursor.value =
-                        loadCursor.value.copy(
-                            collectionSource = page.nextSource,
-                            canLoadMore = newMemos.isNotEmpty() && loadCursor.value.canLoadMore,
+        val current = reviewData.value as? DailyReviewData.Loaded ?: return
+        if (current.source.exhausted || loadJob?.isActive == true || current.isLoadingMore) return
+        loadJob = viewModelScope.launch {
+            reviewData.value = current.copy(isLoadingMore = true)
+            runSuspendCatching {
+                dailyReviewQueryUseCase.loadPage(current.source)
+            }.onFailure { throwable ->
+                reviewData.update { latest ->
+                    if (latest is DailyReviewData.Loaded) latest.copy(isLoadingMore = false) else latest
+                }
+                _errorMessage.value = throwable.toUserMessage("Failed to load more memos")
+            }.onSuccess { page ->
+                reviewData.update { latest ->
+                    if (latest is DailyReviewData.Loaded) {
+                        latest.copy(
+                            memos = mergeLoadedMemos(current.memos, latest.memos, page.memos),
+                            source = page.nextSource,
+                            isLoadingMore = false,
                         )
-                    if (newMemos.isNotEmpty()) {
-                        val latestMemos = rawMemos.value.orEmpty()
-                        rawMemos.value =
-                            mergeLoadedMemos(
-                                visibleAtRequestStart = currentMemos,
-                                latestVisibleMemos = latestMemos,
-                                loadedMemos = newMemos,
-                            )
+                    } else {
+                        latest
                     }
                 }
-                _isLoadingMore.value = false
             }
-    }
-
-    private fun mergeLoadedMemos(
-        visibleAtRequestStart: List<Memo>,
-        latestVisibleMemos: List<Memo>,
-        loadedMemos: List<Memo>,
-    ): List<Memo> {
-        val latestIds = latestVisibleMemos.mapTo(linkedSetOf()) { memo -> memo.id }
-        val removedDuringRequestIds =
-            visibleAtRequestStart
-                .asSequence()
-                .map { memo -> memo.id }
-                .filterNot { id -> id in latestIds }
-                .toSet()
-        val appendableMemos =
-            loadedMemos.filterNot { memo ->
-                memo.id in latestIds || memo.id in removedDuringRequestIds
-            }
-        return latestVisibleMemos + appendableMemos
+        }
     }
 
     fun onPageChanged(pageIndex: Int) {
-        val session = loadCursor.value.session ?: return
-        val normalizedPageIndex = pageIndex.coerceAtLeast(0)
-        _restoredPageIndex.value = normalizedPageIndex
-        loadCursor.value = loadCursor.value.copy(session = session.copy(pageIndex = normalizedPageIndex))
+        val current = reviewData.value as? DailyReviewData.Loaded ?: return
+        val session = current.session.copy(pageIndex = pageIndex.coerceAtLeast(0))
+        reviewData.value = current.copy(session = session)
         viewModelScope.launch {
-            dailyReviewSessionUseCase.updateCurrentPage(
-                seed = session.seed,
-                pageIndex = normalizedPageIndex,
-            )
+            dailyReviewSessionUseCase.updateCurrentPage(session.seed, session.pageIndex, session.options)
         }
     }
 
-    fun toggleTodo(
-        memo: Memo,
-        actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan,
-    ) {
+    private fun updateVisibleMemoContent(memoId: String, content: String) {
+        reviewData.update { publication ->
+            if (publication is DailyReviewData.Loaded) {
+                publication.copy(
+                    memos = publication.memos.map { memo ->
+                        if (memo.id == memoId) memo.copy(content = content, rawContent = content) else memo
+                    },
+                )
+            } else {
+                publication
+            }
+        }
+    }
+
+    fun toggleTodo(memo: Memo, actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan) {
         viewModelScope.launch {
             runSuspendCatching {
                 toggleMemoCheckboxUseCase(memo, actionSpan)
             }.onSuccess { newContent ->
-                // The review list is a frozen random-walk snapshot, so mirror the persisted
-                // toggle into rawMemos optimistically (same pattern as updateMemo/deleteMemo).
-                rawMemos.value =
-                    rawMemos.value?.map { current ->
-                        if (current.id == memo.id) {
-                            current.copy(
-                                content = newContent,
-                                rawContent = newContent,
-                            )
-                        } else {
-                            current
-                        }
-                    }
+                updateVisibleMemoContent(memo.id, newContent)
             }.onFailure { throwable ->
                 _errorMessage.value = throwable.toUserMessage("Failed to update todo")
             }
         }
     }
 
-    fun deleteMemo(
-        memo: Memo,
-        anchoredAfterKey: String?,
-    ) {
+    fun deleteMemo(memo: Memo, anchoredAfterKey: String?) {
         anchoredAfterKey?.let {
             // behavior-contract: silent-result-ok: no-op for non-animated daily review list
         }
@@ -307,12 +271,44 @@ class DailyReviewViewModel(
             runSuspendCatching {
                 deleteMemoUseCase(memo, operationId)
             }.onSuccess {
-                rawMemos.value =
-                    rawMemos.value?.filterNot { current ->
-                        current.id == memo.id
+                reviewData.update { publication ->
+                    if (publication is DailyReviewData.Loaded) {
+                        publication.copy(memos = publication.memos.filterNot { it.id == memo.id })
+                    } else {
+                        publication
                     }
+                }
             }.onFailure { throwable ->
                 _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
+            }
+        }
+    }
+
+    fun saveImages(
+        uris: List<android.net.Uri>,
+        draftId: com.lomo.domain.model.DraftId,
+        onResult: (List<String>) -> Unit,
+        onError: (() -> Unit)? = null,
+    ) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val savedPaths = mutableListOf<String>()
+            runSuspendCatching {
+                for (uri in uris) {
+                    val path =
+                        saveImageUseCase.saveWithCacheSyncStatus(
+                            StorageLocation(uri.toString()),
+                            draftId,
+                        ).location.raw
+                    savedPaths += path
+                }
+                onResult(savedPaths)
+            }.onFailure { throwable ->
+                if (savedPaths.isNotEmpty()) {
+                    onResult(savedPaths)
+                }
+                _errorMessage.value = throwable.toUserMessage("Failed to save image")
+                onError?.invoke()
             }
         }
     }
@@ -323,19 +319,12 @@ class DailyReviewViewModel(
         onResult: (String) -> Unit,
         onError: (() -> Unit)? = null,
     ) {
-        viewModelScope.launch {
-            runSuspendCatching {
-                val path =
-                    saveImageUseCase.saveWithCacheSyncStatus(
-                        StorageLocation(uri.toString()),
-                        draftId,
-                    ).location.raw
-                onResult(path)
-            }.onFailure { throwable ->
-                _errorMessage.value = throwable.toUserMessage("Failed to save image")
-                onError?.invoke()
-            }
-        }
+        saveImages(
+            uris = listOf(uri),
+            draftId = draftId,
+            onResult = { paths -> paths.firstOrNull()?.let(onResult) },
+            onError = onError,
+        )
     }
 
     /** The draft identity this surface's media leases belong to. */
@@ -351,24 +340,6 @@ class DailyReviewViewModel(
         _errorMessage.value = null
     }
 
-    fun recordMemoActionUsage(actionId: MemoActionId) {
-        viewModelScope.launch {
-            appConfigUiCoordinator.recordMemoActionUsage(
-                scope = MemoActionOrderScopes.REVIEW,
-                actionId = actionId.storageKey,
-            )
-        }
-    }
-
-    val updateMemoActionOrder: (List<MemoActionId>) -> Unit = { actionIds ->
-        viewModelScope.launch {
-            appConfigUiCoordinator.updateMemoActionOrder(
-                scope = MemoActionOrderScopes.REVIEW,
-                order = actionIds.map(MemoActionId::storageKey),
-            )
-        }
-    }
-
     val updateInputToolbarToolOrder: (List<String>) -> Unit = { toolIds ->
         viewModelScope.launch {
             appConfigUiCoordinator.updateInputToolbarToolOrder(toolIds)
@@ -376,40 +347,42 @@ class DailyReviewViewModel(
     }
 }
 
-private data class DailyReviewScreenSlice(
-    val raw: List<Memo>?,
-    val mapped: List<MemoUiModel>,
-    val isLoadingMore: Boolean,
-    val pageIndex: Int,
-    val errorMessage: String?,
-)
-
-private data class DailyReviewLoadCursor(
-    val canLoadMore: Boolean = true,
-    val session: DailyReviewSession? = null,
-    val collectionSource: DailyReviewCollectionSource? = null,
-)
+private sealed interface DailyReviewData {
+    data object Loading : DailyReviewData
+    data class Failed(val failure: DailyReviewScreenState.Failed) : DailyReviewData
+    data class Loaded(
+        val memos: List<Memo>,
+        val session: DailyReviewSession,
+        val source: DailyReviewCollectionSource,
+        val isLoadingMore: Boolean = false,
+    ) : DailyReviewData
+}
 
 private class DailyReviewMemoUpdater(
     private val updateMemoContentUseCase: UpdateMemoContentUseCase,
-    private val rawMemos: MutableStateFlow<List<Memo>?>,
+    private val onCommitted: (String, String) -> Unit,
 ) {
-    suspend fun update(
-        attempt: com.lomo.domain.model.MemoUpdateAttempt,
-    ) {
-        val memo = attempt.snapshot.memo
-        val newContent = attempt.content
+    suspend fun update(attempt: com.lomo.domain.model.MemoUpdateAttempt) {
         updateMemoContentUseCase(attempt)
-        rawMemos.value =
-            rawMemos.value?.map { current ->
-                if (current.id == memo.id) {
-                    current.copy(
-                        content = newContent,
-                        rawContent = newContent,
-                    )
-                } else {
-                    current
-                }
-            }
+        onCommitted(attempt.snapshot.memo.id, attempt.content)
     }
+}
+
+private fun mergeLoadedMemos(
+    visibleAtRequestStart: List<Memo>,
+    latestVisibleMemos: List<Memo>,
+    loadedMemos: List<Memo>,
+): List<Memo> {
+    val latestIds = latestVisibleMemos.mapTo(linkedSetOf()) { memo -> memo.id }
+    val removedDuringRequestIds =
+        visibleAtRequestStart
+            .asSequence()
+            .map { memo -> memo.id }
+            .filterNot { id -> id in latestIds }
+            .toSet()
+    val appendableMemos =
+        loadedMemos.filterNot { memo ->
+            memo.id in latestIds || memo.id in removedDuringRequestIds
+        }
+    return latestVisibleMemos + appendableMemos
 }

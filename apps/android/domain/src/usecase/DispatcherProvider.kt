@@ -18,9 +18,7 @@ class DefaultDispatcherProvider : DispatcherProvider {
 }
 
 /** Every lane dispatches onto the same [CoroutineDispatcher]. */
-class SingleDispatcherProvider(
-    dispatcher: CoroutineDispatcher,
-) : DispatcherProvider {
+class SingleDispatcherProvider(dispatcher: CoroutineDispatcher) : DispatcherProvider {
     override val main: CoroutineDispatcher = dispatcher
     override val io: CoroutineDispatcher = dispatcher
     override val default: CoroutineDispatcher = dispatcher

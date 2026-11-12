@@ -3,10 +3,7 @@ package com.lomo.ui.text
 import kotlin.math.ceil
 import kotlin.math.min
 
-internal data class ForcedSplitResult(
-    val lines: List<NaturalLine>,
-    val remainder: LayoutToken?,
-)
+internal data class ForcedSplitResult(val lines: List<NaturalLine>, val remainder: LayoutToken?)
 
 internal data class NaturalLine(
     val tokens: List<LayoutToken>,
@@ -29,41 +26,41 @@ internal data class LayoutToken(
     val debugText: String
         get() = source.substring(start, end)
 
-    val startsWithClosingPunctuation: Boolean
-        get() = Character.codePointAt(source, start).isClosingMemoPunctuation()
+    val startsWithLineStartForbiddenPunctuation: Boolean
+        get() = Character.codePointAt(source, start).isLineStartForbiddenMemoPunctuation()
 
-    val endsWithOpeningPunctuation: Boolean
-        get() = Character.codePointBefore(source, end).isOpeningMemoPunctuation()
+    val endsWithLineEndForbiddenPunctuation: Boolean
+        get() = Character.codePointBefore(source, end).isLineEndForbiddenMemoPunctuation()
 }
 
 internal fun LayoutToken.widthWithLeadingBoundary(
     currentLineTokens: List<LayoutToken>,
     baseLetterSpacingPx: Float,
-): Float =
-    widthPx +
-        if (currentLineTokens.isEmpty()) {
-            0f
-        } else {
-            baseLetterSpacingPx
-        }
-
-internal fun List<LayoutToken>.singleOrWhole(): LayoutToken? =
-    when (size) {
-        0 -> null
-        1 -> first()
-        else -> {
-            val start = first().start
-            val end = last().end
-            LayoutToken(
-                source = first().source,
-                start = start,
-                end = end,
-                kind = first().kind,
-                widthPx = sumOf { it.widthPx.toDouble() }.toFloat(),
-                hardBreak = false,
-            )
-        }
+): Float = widthPx +
+    if (currentLineTokens.isEmpty()) {
+        0f
+    } else {
+        baseLetterSpacingPx
     }
+
+internal fun List<LayoutToken>.singleOrWhole(): LayoutToken? = when (size) {
+    0 -> null
+
+    1 -> first()
+
+    else -> {
+        val start = first().start
+        val end = last().end
+        LayoutToken(
+            source = first().source,
+            start = start,
+            end = end,
+            kind = first().kind,
+            widthPx = sumOf { it.widthPx.toDouble() }.toFloat(),
+            hardBreak = false,
+        )
+    }
+}
 
 internal fun trimTrailingWhitespace(tokens: MutableList<LayoutToken>) {
     while (tokens.lastOrNull()?.isWhitespace == true) {
@@ -71,21 +68,14 @@ internal fun trimTrailingWhitespace(tokens: MutableList<LayoutToken>) {
     }
 }
 
-internal fun ellipsisSpacingAfter(
-    tokens: List<LayoutToken>,
-    baseLetterSpacingPx: Float,
-): Float =
+internal fun ellipsisSpacingAfter(tokens: List<LayoutToken>, baseLetterSpacingPx: Float): Float =
     if (tokens.isEmpty()) {
         0f
     } else {
         baseLetterSpacingPx
     }
 
-internal fun resolveMemoTextLayoutMaxLines(
-    requestedMaxLines: Int,
-    maxHeightPx: Int,
-    lineHeightPx: Float,
-): Int {
+internal fun resolveMemoTextLayoutMaxLines(requestedMaxLines: Int, maxHeightPx: Int, lineHeightPx: Float): Int {
     if (requestedMaxLines <= 0 || maxHeightPx == Int.MAX_VALUE || lineHeightPx <= 0f) {
         return requestedMaxLines
     }
@@ -93,11 +83,7 @@ internal fun resolveMemoTextLayoutMaxLines(
     return min(requestedMaxLines, visibleLines)
 }
 
-internal fun countCodePoints(
-    text: String,
-    start: Int,
-    end: Int,
-): Int {
+internal fun countCodePoints(text: String, start: Int, end: Int): Int {
     var count = 0
     var index = start
     while (index < end) {
@@ -107,32 +93,28 @@ internal fun countCodePoints(
     return count
 }
 
-internal fun expansionKind(
-    left: LayoutToken,
-    right: LayoutToken,
-): MemoTextExpansionSlotKind? =
+internal fun expansionKind(left: LayoutToken, right: LayoutToken): MemoTextExpansionSlotKind? =
     rawExpansionKind(left, right)?.takeUnless {
         left.kind == MemoTextRunKind.Punctuation ||
             right.kind == MemoTextRunKind.Punctuation ||
-            left.endsWithOpeningPunctuation ||
-            right.startsWithClosingPunctuation
+            left.endsWithLineEndForbiddenPunctuation ||
+            right.startsWithLineStartForbiddenPunctuation
     }
 
 internal fun leftText(token: LayoutToken): String = token.debugText.takeLast(DEBUG_SIDE_TEXT_LIMIT)
 
 internal fun rightText(token: LayoutToken): String = token.debugText.take(DEBUG_SIDE_TEXT_LIMIT)
 
-private fun rawExpansionKind(
-    left: LayoutToken,
-    right: LayoutToken,
-): MemoTextExpansionSlotKind? =
-    when {
-        left.isWhitespace -> MemoTextExpansionSlotKind.Space
-        left.kind == MemoTextRunKind.Cjk && right.kind == MemoTextRunKind.Cjk ->
-            MemoTextExpansionSlotKind.CjkCharacter
-        left.isCjkLatinBoundaryWith(right) -> MemoTextExpansionSlotKind.CjkLatinBoundary
-        else -> null
-    }
+private fun rawExpansionKind(left: LayoutToken, right: LayoutToken): MemoTextExpansionSlotKind? = when {
+    left.isWhitespace -> MemoTextExpansionSlotKind.Space
+
+    left.kind == MemoTextRunKind.Cjk && right.kind == MemoTextRunKind.Cjk ->
+        MemoTextExpansionSlotKind.CjkCharacter
+
+    left.isCjkLatinBoundaryWith(right) -> MemoTextExpansionSlotKind.CjkLatinBoundary
+
+    else -> null
+}
 
 private fun LayoutToken.isCjkLatinBoundaryWith(right: LayoutToken): Boolean =
     (kind == MemoTextRunKind.Cjk && right.kind == MemoTextRunKind.Latin) ||

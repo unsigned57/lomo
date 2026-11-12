@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-
 sealed interface MainVersionHistoryState {
     data object Hidden : MainVersionHistoryState
 
@@ -33,81 +32,78 @@ class MainVersionHistoryCoordinator(
     private val loadMemoRevisionHistoryUseCase: LoadMemoRevisionHistoryUseCase,
     private val restoreMemoRevisionUseCase: RestoreMemoRevisionUseCase,
 ) {
-        private val _state = MutableStateFlow<MainVersionHistoryState>(MainVersionHistoryState.Hidden)
-        val state: StateFlow<MainVersionHistoryState> = _state.asStateFlow()
+    private val _state = MutableStateFlow<MainVersionHistoryState>(MainVersionHistoryState.Hidden)
+    val state: StateFlow<MainVersionHistoryState> = _state.asStateFlow()
 
-        fun historyEnabled() = loadMemoRevisionHistoryUseCase.historyEnabled()
+    fun historyEnabled() = loadMemoRevisionHistoryUseCase.historyEnabled()
 
-        suspend fun load(memo: Memo) {
-            _state.value = MainVersionHistoryState.Loading
-            val page = loadMemoRevisionHistoryUseCase(memo)
+    suspend fun load(memo: Memo) {
+        _state.value = MainVersionHistoryState.Loading
+        val page = loadMemoRevisionHistoryUseCase(memo)
+        _state.value =
+            MainVersionHistoryState.Loaded(
+                memo = memo,
+                versions = page.items,
+                nextCursor = page.nextCursor,
+            )
+    }
+
+    suspend fun loadMore() {
+        val current = _state.value as? MainVersionHistoryState.Loaded ?: return
+        val cursor = current.nextCursor ?: return
+        if (current.isLoadingMore || current.isRestoring) {
+            return
+        }
+        _state.value = current.copy(isLoadingMore = true)
+        var completed = false
+        try {
+            val page = loadMemoRevisionHistoryUseCase(current.memo, cursor)
             _state.value =
-                MainVersionHistoryState.Loaded(
-                    memo = memo,
-                    versions = page.items,
+                current.copy(
+                    versions = current.versions + page.items,
                     nextCursor = page.nextCursor,
+                    isLoadingMore = false,
                 )
-        }
-
-        suspend fun loadMore() {
-            val current = _state.value as? MainVersionHistoryState.Loaded ?: return
-            val cursor = current.nextCursor ?: return
-            if (current.isLoadingMore || current.isRestoring) {
-                return
+            completed = true
+        } finally {
+            if (!completed) {
+                _state.value = current.copy(isLoadingMore = false)
             }
-            _state.value = current.copy(isLoadingMore = true)
-            var completed = false
-            try {
-                val page = loadMemoRevisionHistoryUseCase(current.memo, cursor)
-                _state.value =
-                    current.copy(
-                        versions = current.versions + page.items,
-                        nextCursor = page.nextCursor,
-                        isLoadingMore = false,
-                    )
-                completed = true
-            } finally {
-                if (!completed) {
-                    _state.value = current.copy(isLoadingMore = false)
-                }
-            }
-        }
-
-        suspend fun restore(
-            memo: Memo,
-            version: MemoRevision,
-        ) {
-            if (version.isCurrent) {
-                return
-            }
-            val current = _state.value as? MainVersionHistoryState.Loaded
-            if (current?.isRestoring == true) {
-                return
-            }
-            if (current != null) {
-                _state.value =
-                    current.copy(
-                        isRestoring = true,
-                        restoringRevisionId = version.revisionId,
-                    )
-            }
-            var completed = false
-            try {
-                restoreMemoRevisionUseCase(memo, version, newMemoOperationId())
-                _state.value = MainVersionHistoryState.Hidden
-                completed = true
-            } finally {
-                if (!completed && current != null) {
-                    _state.value =
-                        current.copy(
-                            isRestoring = false,
-                            restoringRevisionId = null,
-                        )
-                }
-            }
-        }
-
-        fun hide() {
-            _state.value = MainVersionHistoryState.Hidden
         }
     }
+
+    suspend fun restore(memo: Memo, version: MemoRevision) {
+        if (version.isCurrent) {
+            return
+        }
+        val current = _state.value as? MainVersionHistoryState.Loaded
+        if (current?.isRestoring == true) {
+            return
+        }
+        if (current != null) {
+            _state.value =
+                current.copy(
+                    isRestoring = true,
+                    restoringRevisionId = version.revisionId,
+                )
+        }
+        var completed = false
+        try {
+            restoreMemoRevisionUseCase(memo, version, newMemoOperationId())
+            _state.value = MainVersionHistoryState.Hidden
+            completed = true
+        } finally {
+            if (!completed && current != null) {
+                _state.value =
+                    current.copy(
+                        isRestoring = false,
+                        restoringRevisionId = null,
+                    )
+            }
+        }
+    }
+
+    fun hide() {
+        _state.value = MainVersionHistoryState.Hidden
+    }
+}

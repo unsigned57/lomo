@@ -1,12 +1,12 @@
 package com.lomo.ui.component.input
 
-import androidx.compose.material3.MaterialTheme
-
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.AppHapticFeedback
 
 @Composable
@@ -16,58 +16,59 @@ internal fun InputSheetContent(params: InputSheetContentParams) {
         when (command) {
             InputEditorCommand.ToggleTagSelector ->
                 params.sessionState.showTagSelector = !params.sessionState.showTagSelector
+
             InputEditorCommand.InsertTodo ->
                 params.callbacks.onInputValueChange(buildTodoInsertionValue(params.inputValue))
+
             InputEditorCommand.InsertUnderline ->
                 params.callbacks.onInputValueChange(buildUnderlineInsertionValue(params.inputValue))
+
             else -> params.callbacks.commands.dispatch(command)
         }
     }
 
     InputSheetBody(
         state =
-            InputSheetBodyState(
-                isSheetVisible = params.sessionState.isSheetVisible,
-                showDiscardDialog = params.sessionState.showDiscardDialog,
-                surface = surface,
-                presentationState = params.presentationState,
-                inputValue = params.inputValue,
-                hintText = params.hintText,
-                showTagSelector = params.sessionState.showTagSelector,
-                focusRequester = params.focusRequester,
-                focusParkingRequester = params.focusParkingRequester,
-            ),
+        InputSheetBodyState(
+            isSheetVisible = params.sessionState.isSheetVisible,
+            showDiscardDialog = params.sessionState.showDiscardDialog,
+            surface = surface,
+            motion = params.motion,
+            inputValue = params.inputValue,
+            hintText = params.hintText,
+            showTagSelector = params.sessionState.showTagSelector,
+            focusRequester = params.focusRequester,
+            focusParkingRequester = params.focusParkingRequester,
+        ),
         callbacks =
-            InputSheetBodyCallbacks(
-                onRequestDismiss = params.requestDismiss,
-                onDismissDiscardDialog = { params.sessionState.showDiscardDialog = false },
-                onConfirmDiscard = {
-                    params.sessionState.showDiscardDialog = false
-                    params.dismissSheet()
-                },
-                onTextChange = params.handleTextChange,
-                onTagSelected = { tag ->
-                    params.haptic.medium()
-                    params.callbacks.onInputValueChange(buildTagInsertionValue(params.inputValue, tag))
-                    params.sessionState.showTagSelector = false
-                },
-                onToggleExpanded = params.callbacks.onToggleExpanded,
-                onDisplayModeChange = params.callbacks.onDisplayModeChange,
-                onEditorCommand = ::dispatchEditorCommand,
-                onToolbarOrderChanged = params.callbacks.onToolbarOrderChanged,
-                onSubmit = {
-                    if (params.inputValue.text.isNotBlank()) {
-                        params.submitWithLock(
-                            params.inputValue.text.trim(),
-                            params.inputValue.text,
-                            params.inputValue.text,
-                        )
-                    }
-                },
-            ),
-        benchmarkRootTag = params.benchmarkRootTag,
-        benchmarkEditorTag = params.benchmarkEditorTag,
-        benchmarkSubmitTag = params.benchmarkSubmitTag,
+        InputSheetBodyCallbacks(
+            onRequestDismiss = params.requestDismiss,
+            onDismissDiscardDialog = { params.sessionState.showDiscardDialog = false },
+            onConfirmDiscard = {
+                params.sessionState.showDiscardDialog = false
+                params.dismissSheet()
+            },
+            onTextChange = params.handleTextChange,
+            onTagSelected = { tag ->
+                params.haptic.medium()
+                params.callbacks.onInputValueChange(buildTagInsertionValue(params.inputValue, tag))
+                params.sessionState.showTagSelector = false
+            },
+            onExpandedChange = params.callbacks.onExpandedChange,
+            onDisplayModeChange = params.callbacks.onDisplayModeChange,
+            onEditorCommand = ::dispatchEditorCommand,
+            onToolbarOrderChanged = params.callbacks.onToolbarOrderChanged,
+            onSubmit = {
+                if (params.inputValue.text.isNotBlank()) {
+                    params.submitWithLock(
+                        params.inputValue.text.trim(),
+                        params.inputValue.text,
+                        params.inputValue.text,
+                    )
+                }
+            },
+        ),
+        benchmarkTags = params.benchmarkTags,
         slots = params.slots,
         haptic = params.haptic,
     )
@@ -77,13 +78,11 @@ internal fun InputSheetContent(params: InputSheetContentParams) {
 private fun InputSheetBody(
     state: InputSheetBodyState,
     callbacks: InputSheetBodyCallbacks,
-    benchmarkRootTag: String?,
-    benchmarkEditorTag: String?,
-    benchmarkSubmitTag: String?,
+    benchmarkTags: InputSheetBenchmarkTags,
     slots: InputSheetSlots,
     haptic: AppHapticFeedback,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
+    val motionScheme = LocalLomoMotion.current.layout
     if (state.showDiscardDialog) {
         InputDiscardDialog(
             onDismiss = callbacks.onDismissDiscardDialog,
@@ -93,19 +92,14 @@ private fun InputSheetBody(
 
     InputSheetScaffold(
         isSheetVisible = state.isSheetVisible,
-        presentationState = state.presentationState,
-        scrimAlpha =
-            when {
-                !state.isSheetVisible -> 0f
-                state.presentationState.surfaceMotionStage().usesExpandedSurfaceForm() -> 0.16f
-                else -> 0.32f
-            },
+        expansion = state.motion.expansion,
         onRequestDismiss = callbacks.onRequestDismiss,
-        benchmarkRootTag = benchmarkRootTag,
+        benchmarkRootTag = benchmarkTags.root,
         focusParkingRequester = state.focusParkingRequester,
-    ) { motionStage, contentModifier ->
+    ) {
+        // Size is only animated while switching panels; a panel's own morph passes straight through.
         AnimatedContent(
-            modifier = contentModifier,
+            modifier = Modifier.fillMaxWidth(),
             targetState = state.surface.recordingState.isRecording,
             transitionSpec = { fadeScaleContentTransition(motionScheme) },
             label = "RecordingStateTransition",
@@ -130,28 +124,27 @@ private fun InputSheetBody(
             } else {
                 InputEditorPanel(
                     presentation =
-                        InputEditorPanelState(
-                            presentationState = state.presentationState,
-                            inputValue = state.inputValue,
-                            hintText = state.hintText,
-                            availableTags = state.surface.availableTags,
-                            showTagSelector = state.showTagSelector,
-                            focusRequester = state.focusRequester,
-                            surface = state.surface,
-                            slots = slots,
-                        ),
+                    InputEditorPanelState(
+                        motion = state.motion,
+                        inputValue = state.inputValue,
+                        hintText = state.hintText,
+                        availableTags = state.surface.availableTags,
+                        showTagSelector = state.showTagSelector,
+                        focusRequester = state.focusRequester,
+                        surface = state.surface,
+                        slots = slots,
+                    ),
                     callbacks =
-                        InputEditorPanelCallbacks(
-                            onTextChange = callbacks.onTextChange,
-                            onTagSelected = callbacks.onTagSelected,
-                            onToggleExpanded = callbacks.onToggleExpanded,
-                            onDisplayModeChange = callbacks.onDisplayModeChange,
-                            onEditorCommand = callbacks.onEditorCommand,
-                            onToolbarOrderChanged = callbacks.onToolbarOrderChanged,
-                            onSubmit = callbacks.onSubmit,
-                        ),
-                    benchmarkEditorTag = benchmarkEditorTag,
-                    benchmarkSubmitTag = benchmarkSubmitTag,
+                    InputEditorPanelCallbacks(
+                        onTextChange = callbacks.onTextChange,
+                        onTagSelected = callbacks.onTagSelected,
+                        onExpandedChange = callbacks.onExpandedChange,
+                        onDisplayModeChange = callbacks.onDisplayModeChange,
+                        onEditorCommand = callbacks.onEditorCommand,
+                        onToolbarOrderChanged = callbacks.onToolbarOrderChanged,
+                        onSubmit = callbacks.onSubmit,
+                    ),
+                    benchmarkTags = benchmarkTags,
                     haptic = haptic,
                 )
             }
@@ -159,10 +152,7 @@ private fun InputSheetBody(
     }
 }
 
-internal fun buildTagInsertionValue(
-    inputValue: TextFieldValue,
-    tag: String,
-): TextFieldValue {
+internal fun buildTagInsertionValue(inputValue: TextFieldValue, tag: String): TextFieldValue {
     val selectionStart = minOf(inputValue.selection.start, inputValue.selection.end).coerceIn(0, inputValue.text.length)
     val selectionEnd = maxOf(inputValue.selection.start, inputValue.selection.end).coerceIn(0, inputValue.text.length)
     val prefix = inputValue.text.substring(0, selectionStart)
@@ -223,10 +213,10 @@ internal fun buildWrappedSelectionInsertionValue(
     return TextFieldValue(
         text = newText,
         selection =
-            if (selectionStart == selectionEnd) {
-                TextRange(innerSelectionStart)
-            } else {
-                TextRange(innerSelectionStart, innerSelectionEnd)
-            },
+        if (selectionStart == selectionEnd) {
+            TextRange(innerSelectionStart)
+        } else {
+            TextRange(innerSelectionStart, innerSelectionEnd)
+        },
     )
 }

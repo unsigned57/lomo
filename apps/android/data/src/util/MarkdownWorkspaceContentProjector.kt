@@ -14,9 +14,7 @@ import com.lomo.domain.repository.MarkdownWorkspaceRepository
  * call [analyze] once and reuse the result — never chain [extractTags]/[extractInlineAttachments]
  * with a second [analyze] over the same body.
  */
-class MarkdownWorkspaceContentProjector(
-    private val markdownWorkspaceRepository: MarkdownWorkspaceRepository,
-) {
+class MarkdownWorkspaceContentProjector(private val markdownWorkspaceRepository: MarkdownWorkspaceRepository) {
     fun analyze(content: String): MemoContentAnalysis =
         markdownWorkspaceRepository.renderMarkdown(content).toMemoContentAnalysis()
 
@@ -29,16 +27,14 @@ class MarkdownWorkspaceContentProjector(
     fun extractInlineAttachments(content: String): List<String> =
         extractTypedAttachments(content).map(MarkdownAttachment::destination)
 
-    fun extractLocalAttachmentPaths(content: String): List<String> =
-        extractInlineAttachments(content)
-            .filter { path ->
-                path.isNotEmpty() &&
-                    !path.startsWith("http://", ignoreCase = true) &&
-                    !path.startsWith("https://", ignoreCase = true)
-            }.distinct()
+    fun extractLocalAttachmentPaths(content: String): List<String> = extractInlineAttachments(content)
+        .filter { path ->
+            path.isNotEmpty() &&
+                !path.startsWith("http://", ignoreCase = true) &&
+                !path.startsWith("https://", ignoreCase = true)
+        }.distinct()
 
-    fun extractAudioLinks(content: String): List<String> =
-        extractTypedAttachments(content)
-            .filter { attachment -> attachment.mediaClass == MediaClass.AUDIO }
-            .map(MarkdownAttachment::destination)
+    fun extractAudioLinks(content: String): List<String> = extractTypedAttachments(content)
+        .filter { attachment -> attachment.mediaClass == MediaClass.AUDIO }
+        .map(MarkdownAttachment::destination)
 }

@@ -1,0 +1,43 @@
+# Behavior Contract:
+# Capability: one back action leaves search after the IME is hidden; owner: app; P1.
+# Given expanded search with a query and hidden IME, when system back is pressed,
+# then main is visible and the search surface is gone. Reopening and tapping the
+# toolbar back button must produce the same outcome, including with the IME open.
+# TDD proof: RED with animator_duration_scale=1: system back leaves the collapsed
+# search route visible (main-root assertion fails). GREEN: the same animated flow.
+# Evidence: target/lomo/reports/manual/search-back/{red-animated,green-animated}.
+# Excludes: physical-device frame timing and predictive gesture cancellation.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_search_button"
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_search_input"
+- inputText: "search-back-probe"
+- hideKeyboard
+- back
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_main_root"
+- assertNotVisible:
+    id: "benchmark_search_input"
+- takeScreenshot: search-system-back
+- tapOn:
+    id: "benchmark_main_search_button"
+- waitForAnimationToEnd
+- tapOn:
+    id: "benchmark_search_input"
+- inputText: "toolbar-back-probe"
+- tapOn:
+    text: "Back"
+    childOf:
+      id: "benchmark_search_input"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark_main_root"
+- assertNotVisible:
+    id: "benchmark_search_input"
+- takeScreenshot: search-toolbar-back

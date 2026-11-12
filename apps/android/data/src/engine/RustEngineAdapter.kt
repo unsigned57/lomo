@@ -9,12 +9,12 @@ import com.lomo.data.engine.lan.LanLocalIdentity
 import com.lomo.data.engine.lan.LanNetworkFacts
 import com.lomo.data.engine.lan.LanPairingChallenge
 import com.lomo.data.engine.lan.LanPeerPage
-import com.lomo.data.engine.lan.LanServiceState
+import com.lomo.data.engine.lan.LanProtocolLimits
 import com.lomo.data.engine.lan.LanSendItemPlan
+import com.lomo.data.engine.lan.LanServiceState
 import com.lomo.data.engine.lan.LanSessionChallenge
 import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
-import com.lomo.data.engine.lan.LanProtocolLimits
 import com.lomo.data.repository.StoreInvalidationBus
 import com.lomo.data.repository.StoreProjectionObserver
 import com.lomo.domain.model.EngineFailureCategory
@@ -47,13 +47,9 @@ internal class RustEngineAdapter private constructor(
     private val jobDriveMonitors = mutableMapOf<String, JobDriveMonitor>()
     private val projectionObserver = StoreProjectionObserver(invalidation)
 
-    /**
-     * The projection revision committed by the session-open rebuild, delivered in-band by the
-     * FFI receipt. Null for bootstrap adapters that never opened a workspace session. This is
-     * the only projection authority a session mount may publish — querying the store again
-     * after open would race commits that already landed.
-     */
+    /** The in-band readable revision and whether this open has already revalidated it. */
     val sessionProjectionRevision: ULong? = sessionOpenResult?.projectionRevision
+    val sessionProjectionVerified: Boolean = sessionOpenResult?.projectionVerified == true
 
     val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
 
@@ -71,11 +67,9 @@ internal class RustEngineAdapter private constructor(
         publishBoundarySnapshot()
     }
 
-    override fun lanTransferShape(): LanTransferShape =
-        withEngineFailureConversion { native.lanTransferShape() }
+    override fun lanTransferShape(): LanTransferShape = withEngineFailureConversion { native.lanTransferShape() }
 
-    override fun lanProtocolLimits(): LanProtocolLimits =
-        withEngineFailureConversion { native.lanProtocolLimits() }
+    override fun lanProtocolLimits(): LanProtocolLimits = withEngineFailureConversion { native.lanProtocolLimits() }
 
     override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) {
         withEngineFailureConversion { native.updateLanNetworkSnapshot(snapshot) }
@@ -85,11 +79,9 @@ internal class RustEngineAdapter private constructor(
         withEngineFailureConversion { native.updateLanDiscoverySnapshot(snapshot) }
     }
 
-    override fun startLanService(): LanServiceState =
-        withEngineFailureConversion { native.startLanService() }
+    override fun startLanService(): LanServiceState = withEngineFailureConversion { native.startLanService() }
 
-    override fun stopLanService(): LanServiceState =
-        withEngineFailureConversion { native.stopLanService() }
+    override fun stopLanService(): LanServiceState = withEngineFailureConversion { native.stopLanService() }
 
     override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> =
         withEngineFailureConversion { native.listLanDiscoveredPeers() }
@@ -97,11 +89,7 @@ internal class RustEngineAdapter private constructor(
     override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity =
         withEngineFailureConversion { native.configureLanIdentity(identity) }
 
-    override fun beginLanPairing(
-        peerDeviceId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ): LanPairingChallenge =
+    override fun beginLanPairing(peerDeviceId: String, nowMs: Long, ttlMs: Long): LanPairingChallenge =
         withEngineFailureConversion { native.beginLanPairing(peerDeviceId, nowMs, ttlMs) }
 
     override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
@@ -110,11 +98,7 @@ internal class RustEngineAdapter private constructor(
     override fun lanPairingChallenge(pairingId: String): LanPairingChallenge =
         withEngineFailureConversion { native.lanPairingChallenge(pairingId) }
 
-    override fun confirmLanPairing(
-        pairingId: String,
-        signature: ByteArray,
-        nowMs: Long,
-    ) {
+    override fun confirmLanPairing(pairingId: String, signature: ByteArray, nowMs: Long) {
         withEngineFailureConversion { native.confirmLanPairing(pairingId, signature, nowMs) }
     }
 
@@ -122,46 +106,25 @@ internal class RustEngineAdapter private constructor(
         withEngineFailureConversion { native.declineLanPairing(pairingId) }
     }
 
-    override fun beginLanSession(
-        peerDeviceId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ): LanSessionChallenge =
+    override fun beginLanSession(peerDeviceId: String, nowMs: Long, ttlMs: Long): LanSessionChallenge =
         withEngineFailureConversion { native.beginLanSession(peerDeviceId, nowMs, ttlMs) }
 
-    override fun confirmLanSession(
-        sessionId: String,
-        signature: ByteArray,
-        nowMs: Long,
-    ) {
+    override fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long) {
         withEngineFailureConversion { native.confirmLanSession(sessionId, signature, nowMs) }
     }
 
     override fun lanSessionState(sessionId: String): LanSessionState =
         withEngineFailureConversion { native.lanSessionState(sessionId) }
 
-    override fun prepareLanBatch(
-        sessionId: String,
-        batchId: String,
-        items: List<LanSendItemPlan>,
-    ) {
+    override fun prepareLanBatch(sessionId: String, batchId: String, items: List<LanSendItemPlan>) {
         withEngineFailureConversion { native.prepareLanBatch(sessionId, batchId, items) }
     }
 
-    override fun approveLanBatch(
-        sessionId: String,
-        batchId: String,
-        nowMs: Long,
-        ttlMs: Long,
-    ) {
+    override fun approveLanBatch(sessionId: String, batchId: String, nowMs: Long, ttlMs: Long) {
         withEngineFailureConversion { native.approveLanBatch(sessionId, batchId, nowMs, ttlMs) }
     }
 
-    override fun rejectLanBatch(
-        sessionId: String,
-        batchId: String,
-        rejectedAtMs: Long,
-    ) {
+    override fun rejectLanBatch(sessionId: String, batchId: String, rejectedAtMs: Long) {
         withEngineFailureConversion { native.rejectLanBatch(sessionId, batchId, rejectedAtMs) }
     }
 
@@ -169,11 +132,7 @@ internal class RustEngineAdapter private constructor(
         withEngineFailureConversion { native.sendLanBatchChunks(chunks) }
     }
 
-    override fun lanUnconfirmedBatchChunks(
-        batchId: String,
-        itemIndex: UInt,
-        attachmentSlot: UInt,
-    ): List<UInt> =
+    override fun lanUnconfirmedBatchChunks(batchId: String, itemIndex: UInt, attachmentSlot: UInt): List<UInt> =
         withEngineFailureConversion {
             native.lanUnconfirmedBatchChunks(batchId, itemIndex, attachmentSlot)
         }
@@ -191,25 +150,15 @@ internal class RustEngineAdapter private constructor(
         return commit
     }
 
-    override fun failReceivedLanItem(
-        batchId: String,
-        itemIndex: UInt,
-        code: String,
-    ) = withEngineFailureConversion { native.failReceivedLanItem(batchId, itemIndex, code) }
+    override fun failReceivedLanItem(batchId: String, itemIndex: UInt, code: String) =
+        withEngineFailureConversion { native.failReceivedLanItem(batchId, itemIndex, code) }
 
-    override fun listLanPeers(): LanPeerPage =
-        withEngineFailureConversion { native.listLanPeers() }
+    override fun listLanPeers(): LanPeerPage = withEngineFailureConversion { native.listLanPeers() }
 
-    override fun revokeLanPeer(
-        deviceId: String,
-        revokedAtMs: Long,
-    ): LanPeerPage =
+    override fun revokeLanPeer(deviceId: String, revokedAtMs: Long): LanPeerPage =
         withEngineFailureConversion { native.revokeLanPeer(deviceId, revokedAtMs) }
 
-    override fun renderMarkdown(
-        content: String,
-        schemaVersion: UInt,
-    ) = native.renderMarkdown(content, schemaVersion)
+    override fun renderMarkdown(content: String, schemaVersion: UInt) = native.renderMarkdown(content, schemaVersion)
 
     override fun driveJob(jobId: String): NativeJobStep {
         val holder =
@@ -235,13 +184,12 @@ internal class RustEngineAdapter private constructor(
         expectedState: WorkspaceNativeExpectedState,
         command: WorkspaceNativeCommandSpec,
         deadlineMillis: ULong,
-    ): String =
-        native.startWorkspaceDocumentCommand(
-            path = path,
-            expectedState = expectedState,
-            command = command,
-            deadlineMillis = deadlineMillis,
-        )
+    ): String = native.startWorkspaceDocumentCommand(
+        path = path,
+        expectedState = expectedState,
+        command = command,
+        deadlineMillis = deadlineMillis,
+    )
 
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         native.readWorkspaceDocumentCommandResult(jobId)
@@ -252,27 +200,25 @@ internal class RustEngineAdapter private constructor(
         pageSize: UInt,
         startMemoId: String?,
         backward: Boolean,
-    ): com.lomo.nativebridge.StoreMemoPage =
-        native.queryMemos(query, cursor, pageSize, startMemoId, backward)
+    ): com.lomo.nativebridge.StoreMemoPage = native.queryMemos(query, cursor, pageSize, startMemoId, backward)
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? = native.getMemo(memoId)
 
     override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong = native.queryCount(query)
 
-    override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
-        native.sidebarProjection()
+    override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection = native.sidebarProjection()
 
     override fun openWorkspaceSession(
         host: com.lomo.nativebridge.PlatformBatchHost,
         timeZone: String,
         dateFormat: String,
         mediaStageRoot: String,
-    ): com.lomo.nativebridge.SessionOpenResult =
-        native.openWorkspaceSession(host, timeZone, dateFormat, mediaStageRoot)
+    ): com.lomo.nativebridge.SessionOpenResult = native.openWorkspaceSession(host, timeZone, dateFormat, mediaStageRoot)
 
     override fun sessionCreateMemo(
         request: com.lomo.nativebridge.SessionCreateMemoRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit = native.sessionCreateMemo(request)
+        observer: com.lomo.nativebridge.MemoCreateObserver,
+    ): com.lomo.nativebridge.StoreMemoCommit = native.sessionCreateMemo(request, observer)
 
     override fun sessionUpdateMemo(
         request: com.lomo.nativebridge.SessionUpdateMemoRequest,
@@ -290,13 +236,23 @@ internal class RustEngineAdapter private constructor(
         request: com.lomo.nativebridge.SessionSearchRequest,
     ): com.lomo.nativebridge.SessionSearchOutcome = native.sessionSearch(request)
 
-    override fun sessionListTasks(): List<com.lomo.nativebridge.SessionTaskItem> =
-        native.sessionListTasks()
+    override fun sessionListTasks(): List<com.lomo.nativebridge.SessionTaskItem> = native.sessionListTasks()
 
     override fun sessionToggleTask(
         request: com.lomo.nativebridge.SessionToggleTaskRequest,
     ): com.lomo.nativebridge.StoreMemoCommit {
         val commit = native.sessionToggleTask(request)
+        projectionObserver.observeNativeCommit(commit)
+        return commit
+    }
+
+    override fun sessionToggleTaskMarker(
+        operationId: String,
+        memoId: String,
+        start: ULong,
+        end: ULong,
+    ): com.lomo.nativebridge.StoreMemoCommit {
+        val commit = native.sessionToggleTaskMarker(operationId, memoId, start, end)
         projectionObserver.observeNativeCommit(commit)
         return commit
     }
@@ -327,34 +283,36 @@ internal class RustEngineAdapter private constructor(
         request: com.lomo.nativebridge.StoreMemoBatchDelete,
     ): com.lomo.nativebridge.StoreMemoBatchCommit = native.sessionPermanentlyDeleteMany(request)
 
+    override fun sessionPlanReminderRewrite(
+        request: com.lomo.nativebridge.SessionReminderRewriteRequest,
+    ): com.lomo.nativebridge.SessionReminderRewritePlan = native.sessionPlanReminderRewrite(request)
+
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =
         native.sessionReminderPlan(nowUtcMs)
 
-    override fun sessionSnoozeReminder(
-        opaqueId: String,
-        interval: com.lomo.nativebridge.ReminderSnoozeInterval,
-    ) = native.sessionSnoozeReminder(opaqueId, interval)
+    override fun sessionSnoozeReminder(opaqueId: String, interval: com.lomo.nativebridge.ReminderSnoozeInterval) =
+        native.sessionSnoozeReminder(opaqueId, interval)
 
     override fun sessionRecoverReminderSnooze() = native.sessionRecoverReminderSnooze()
+
+    override fun syncPrivateStateRoot(workspaceRoot: String): String = native.syncPrivateStateRoot(workspaceRoot)
 
     override fun syncRunCycle(
         workspaceRoot: String,
         config: com.lomo.nativebridge.SyncBackendConfigDto,
         secretLeaseId: String,
         applyRemote: Boolean,
-    ): com.lomo.nativebridge.SyncCyclePlanSummaryDto =
-        native.syncRunCycle(
-            workspaceRoot,
-            config,
-            secretLeaseId,
-            applyRemote,
-        )
+    ): com.lomo.nativebridge.SyncCyclePlanSummaryDto = native.syncRunCycle(
+        workspaceRoot,
+        config,
+        secretLeaseId,
+        applyRemote,
+    )
 
     override fun commitWorkspaceDocumentFacts(
         command: com.lomo.nativebridge.StoreMemoCommand,
         projection: com.lomo.nativebridge.StoreSafMemoProjection,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        native.commitWorkspaceDocumentFacts(command, projection)
+    ): com.lomo.nativebridge.StoreMemoCommit = native.commitWorkspaceDocumentFacts(command, projection)
 
     override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
         native.startRebuild(batchSize)
@@ -364,23 +322,19 @@ internal class RustEngineAdapter private constructor(
         sourceKind: com.lomo.nativebridge.MediaSourceKind,
         sourcePath: String,
         humanNameHint: String,
-    ): com.lomo.nativebridge.MediaStagedDto =
-        native.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint)
+    ): com.lomo.nativebridge.MediaStagedDto = native.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint)
 
     override fun recordStageLease(
-        workspaceRoot: String?,
         staged: com.lomo.nativebridge.MediaStagedDto,
         ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
         ownerId: String,
-    ): com.lomo.nativebridge.MediaStageRecordDto =
-        native.recordStageLease(workspaceRoot, staged, ownerKind, ownerId)
+    ): com.lomo.nativebridge.MediaStageRecordDto = native.recordStageLease(staged, ownerKind, ownerId)
 
     override fun stageRecordsForOwner(
         mediaRoot: String,
         ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
         ownerId: String,
-    ): List<com.lomo.nativebridge.MediaStageRecordDto> =
-        native.stageRecordsForOwner(mediaRoot, ownerKind, ownerId)
+    ): List<com.lomo.nativebridge.MediaStageRecordDto> = native.stageRecordsForOwner(mediaRoot, ownerKind, ownerId)
 
     override fun transferStageLease(
         mediaRoot: String,
@@ -393,17 +347,14 @@ internal class RustEngineAdapter private constructor(
         lease: com.lomo.nativebridge.MediaStageLeaseDto,
     ): com.lomo.nativebridge.MediaStageReleaseDto = native.releaseStageLease(mediaRoot, lease)
 
-    override fun allocateRecordingTarget(
-        mediaRoot: String,
-        extension: String,
-    ): String = native.allocateRecordingTarget(mediaRoot, extension)
+    override fun allocateRecordingTarget(mediaRoot: String, extension: String): String =
+        native.allocateRecordingTarget(mediaRoot, extension)
 
     override fun finalizeRecording(
         mediaRoot: String,
         recordingPath: String,
         humanNameHint: String,
-    ): com.lomo.nativebridge.MediaStagedDto =
-        native.finalizeRecording(mediaRoot, recordingPath, humanNameHint)
+    ): com.lomo.nativebridge.MediaStagedDto = native.finalizeRecording(mediaRoot, recordingPath, humanNameHint)
 
     override fun queryMediaManifest(
         workspaceRoot: String,
@@ -414,25 +365,24 @@ internal class RustEngineAdapter private constructor(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
         externalDrafts: List<com.lomo.nativebridge.SessionDraftGuardDto>,
-    ): com.lomo.nativebridge.SessionMediaSweepReportDto =
+    ): com.lomo.nativebridge.SessionMediaSweepReportDto = withEngineFailureConversion {
         native.sessionMediaOrphanSweep(nowMs, recoveryWindowMs, externalDrafts)
+    }
 
     override fun sessionExportArchive(
-        workspaceRoot: String,
         fileNameHint: String?,
-    ): com.lomo.nativebridge.ArchiveExportResultDto =
-        native.sessionExportArchive(workspaceRoot, fileNameHint)
+        mediaCapabilities: List<String>,
+    ): com.lomo.nativebridge.ArchiveExportResultDto = native.sessionExportArchive(fileNameHint, mediaCapabilities)
 
     override fun sessionImportArchive(
         workspaceRoot: String,
         archivePath: String,
         stagingRoot: String,
-    ): com.lomo.nativebridge.StoreRebuildResult =
-        native.sessionImportArchive(
-            workspaceRoot,
-            archivePath,
-            stagingRoot,
-        )
+    ): com.lomo.nativebridge.StoreRebuildResult = native.sessionImportArchive(
+        workspaceRoot,
+        archivePath,
+        stagingRoot,
+    )
 
     /**
      * Reads, decodes and publishes the authoritative snapshot, converting any boundary failure into
@@ -456,23 +406,24 @@ internal class RustEngineAdapter private constructor(
         _readiness.value = readiness
     }
 
-    private fun boundaryRecovery(error: Throwable): EngineReadiness.ReadOnlyRecovery =
-        EngineReadiness.ReadOnlyRecovery(
-            category = EngineFailureCategory.INTERNAL,
-            code = "engine_state_unavailable",
-            retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-            diagnostic =
-                "Rust engine state could not be read at the adapter boundary: " +
-                    (error.message ?: error::class.qualifiedName ?: "unknown failure"),
-        )
+    private fun boundaryRecovery(error: Throwable): EngineReadiness.ReadOnlyRecovery = EngineReadiness.ReadOnlyRecovery(
+        category = EngineFailureCategory.INTERNAL,
+        code = "engine_state_unavailable",
+        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+        diagnostic =
+        "Rust engine state could not be read at the adapter boundary: " +
+            (error.message ?: error::class.qualifiedName ?: "unknown failure"),
+    )
 
     private fun driveIfOpening(snapshot: NativeEngineSnapshot): NativeEngineSnapshot {
         val opening = snapshot as? NativeEngineSnapshot.Opening ?: return snapshot
         when (val terminal = driveJob(opening.jobId)) {
             is NativeJobStep.Failed ->
                 return NativeEngineSnapshot.ReadOnlyRecovery(terminal.failure)
+
             is NativeJobStep.BlockedByConflict ->
                 return NativeEngineSnapshot.ReadOnlyRecovery(terminal.failure)
+
             else -> Unit
         }
         return native.state()
@@ -540,32 +491,28 @@ internal class RustEngineAdapter private constructor(
     }
 }
 
-private class JobDriveMonitor(
-    val monitor: Any = Any(),
-    var waiters: Int = 0,
-    var result: NativeJobStep? = null,
-)
+private class JobDriveMonitor(val monitor: Any = Any(), var waiters: Int = 0, var result: NativeJobStep? = null)
 
-private fun NativeEngineSnapshot.toDomain(): EngineReadiness =
-    when (this) {
-        NativeEngineSnapshot.AwaitingWorkspaceSelection -> EngineReadiness.AwaitingWorkspaceSelection
-        is NativeEngineSnapshot.Opening -> EngineReadiness.Opening
-        is NativeEngineSnapshot.Ready -> EngineReadiness.Ready
-        is NativeEngineSnapshot.ReadOnlyRecovery ->
-            EngineReadiness.ReadOnlyRecovery(
-                category = failure.category.toFailureCategory(),
-                code = failure.code,
-                retryDisposition = failure.retryDisposition.toRetryDisposition(),
-                diagnostic = failure.diagnostic,
-            )
-        NativeEngineSnapshot.ShuttingDown -> EngineReadiness.ShuttingDown
-    }
+private fun NativeEngineSnapshot.toDomain(): EngineReadiness = when (this) {
+    NativeEngineSnapshot.AwaitingWorkspaceSelection -> EngineReadiness.AwaitingWorkspaceSelection
 
-internal fun String.toFailureCategory(): EngineFailureCategory =
-    EngineFailureCategory.fromWireOrNull(this)
-        ?: error("Unknown Rust engine failure category: $this")
+    is NativeEngineSnapshot.Opening -> EngineReadiness.Opening
 
-private fun String.toRetryDisposition(): EngineRetryDisposition =
-    EngineRetryDisposition.fromWireOrNull(this)
-        ?: error("Unknown Rust engine retry disposition: $this")
+    is NativeEngineSnapshot.Ready -> EngineReadiness.Ready
 
+    is NativeEngineSnapshot.ReadOnlyRecovery ->
+        EngineReadiness.ReadOnlyRecovery(
+            category = failure.category.toFailureCategory(),
+            code = failure.code,
+            retryDisposition = failure.retryDisposition.toRetryDisposition(),
+            diagnostic = failure.diagnostic,
+        )
+
+    NativeEngineSnapshot.ShuttingDown -> EngineReadiness.ShuttingDown
+}
+
+internal fun String.toFailureCategory(): EngineFailureCategory = EngineFailureCategory.fromWireOrNull(this)
+    ?: error("Unknown Rust engine failure category: $this")
+
+private fun String.toRetryDisposition(): EngineRetryDisposition = EngineRetryDisposition.fromWireOrNull(this)
+    ?: error("Unknown Rust engine retry disposition: $this")

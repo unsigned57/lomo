@@ -14,27 +14,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.input_select_tag
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
-data class TagSelectorBarState(
-    val availableTags: ImmutableList<String> = persistentListOf(),
-)
+data class TagSelectorBarState(val availableTags: ImmutableList<String> = persistentListOf())
 
-data class TagSelectorBarCallbacks(
-    val onTagSelected: (String) -> Unit,
-)
+data class TagSelectorBarCallbacks(val onTagSelected: (String) -> Unit)
 
 @Composable
-fun TagSelectorBar(
-    state: TagSelectorBarState,
-    callbacks: TagSelectorBarCallbacks,
-    modifier: Modifier = Modifier,
-) {
+fun TagSelectorBar(state: TagSelectorBarState, callbacks: TagSelectorBarCallbacks, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
         Text(
             org.jetbrains.compose.resources.stringResource(
@@ -47,9 +38,9 @@ fun TagSelectorBar(
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(InputSheetTokens.TagSelectorHeight),
+            Modifier
+                .fillMaxWidth()
+                .height(InputSheetTokens.TagSelectorHeight),
         ) {
             items(state.availableTags) { tag ->
                 FilterChip(
@@ -57,9 +48,9 @@ fun TagSelectorBar(
                     onClick = { callbacks.onTagSelected(tag) },
                     label = { Text("#$tag") },
                     colors =
-                        FilterChipDefaults.filterChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        ),
+                    FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ),
                     border = null,
                 )
             }

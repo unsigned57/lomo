@@ -155,7 +155,7 @@ pub(super) fn remove_exchange_artifact(
 }
 
 pub(super) fn hex_sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    lomo_core::hex_encode(&Sha256::digest(bytes))
 }
 
 pub(super) fn source_fingerprint_of(bytes: &[u8]) -> SourceFingerprint {

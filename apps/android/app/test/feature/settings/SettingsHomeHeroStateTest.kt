@@ -67,11 +67,11 @@ class SettingsHomeHeroStateTest : AppFunSpec() {
             val state =
                 computeSettingsHomeHeroState(
                     git =
-                        HomeHeroProviderFacts(
-                            true,
-                            1_700_000_000_000L,
-                            UnifiedSyncState.Running(SyncBackendType.GIT, UnifiedSyncPhase.PULLING),
-                        ),
+                    HomeHeroProviderFacts(
+                        true,
+                        1_700_000_000_000L,
+                        UnifiedSyncState.Running(SyncBackendType.GIT, UnifiedSyncPhase.PULLING),
+                    ),
                     webDav = HomeHeroProviderFacts(false, 0L, UnifiedSyncState.Idle),
                     s3 = HomeHeroProviderFacts(false, 0L, UnifiedSyncState.Idle),
                 ) as SettingsHomeHeroState.Active

@@ -34,10 +34,7 @@ sealed interface EngineDiagnosticEvent {
      * This is the only observable trace of a chain that produced no terminal state at all, which is
      * exactly how an editor can stay open forever without any exception being thrown.
      */
-    data class Stalled(
-        override val label: String,
-        override val durationMillis: Long,
-    ) : EngineDiagnosticEvent
+    data class Stalled(override val label: String, override val durationMillis: Long) : EngineDiagnosticEvent
 }
 
 /**
@@ -58,20 +55,21 @@ interface EngineDiagnosticsRecorder {
  * A second rendering would let the on-device window and the external log disagree about the same
  * recorded fact, which is precisely the ambiguity a diagnostics channel exists to remove.
  */
-fun EngineDiagnosticEvent.detail(): String =
-    when (this) {
-        is EngineDiagnosticEvent.Committed ->
-            "committed · revision=$coreRevision · scopes=${scopes.joinToString(",").ifEmpty { "-" }}"
-        is EngineDiagnosticEvent.Rejected ->
-            buildString {
-                append("rejected · ${failure.code} · ${failure.category.wireValue}")
-                append(" · retry=${failure.retryDisposition.wireValue}")
-                failure.operationId?.let { append(" · op=$it") }
-                failure.jobId?.let { append(" · job=$it") }
-                if (failure.diagnostic.isNotBlank()) {
-                    append("\n${failure.diagnostic}")
-                }
+fun EngineDiagnosticEvent.detail(): String = when (this) {
+    is EngineDiagnosticEvent.Committed ->
+        "committed · revision=$coreRevision · scopes=${scopes.joinToString(",").ifEmpty { "-" }}"
+
+    is EngineDiagnosticEvent.Rejected ->
+        buildString {
+            append("rejected · ${failure.code} · ${failure.category.wireValue}")
+            append(" · retry=${failure.retryDisposition.wireValue}")
+            failure.operationId?.let { append(" · op=$it") }
+            failure.jobId?.let { append(" · job=$it") }
+            if (failure.diagnostic.isNotBlank()) {
+                append("\n${failure.diagnostic}")
             }
-        is EngineDiagnosticEvent.Stalled ->
-            "stalled · no terminal acknowledgement within the submission budget"
-    }
+        }
+
+    is EngineDiagnosticEvent.Stalled ->
+        "stalled · no terminal acknowledgement within the submission budget"
+}

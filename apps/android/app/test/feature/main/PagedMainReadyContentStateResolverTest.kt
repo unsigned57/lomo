@@ -24,14 +24,14 @@
 
 package com.lomo.app.feature.main
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -40,7 +40,6 @@ package com.lomo.app.feature.main
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
 import androidx.paging.LoadState
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
@@ -48,35 +47,43 @@ import io.kotest.matchers.shouldBe
 class PagedMainReadyContentStateResolverTest : AppFunSpec() {
     init {
         test("resolves list shell while initial paging refresh is in progress") {
-            (resolvePagedMainReadyContentState(
-                itemCount = 0,
-                refreshState = LoadState.Loading,
-                hasActiveExits = false,
-            )) shouldBe (MainReadyContentState.List)
+            (
+                resolvePagedMainReadyContentState(
+                    itemCount = 0,
+                    refreshState = LoadState.Loading,
+                    hasActiveExits = false,
+                )
+                ) shouldBe (MainReadyContentState.List)
         }
 
         test("resolves empty when refresh completed without any items") {
-            (resolvePagedMainReadyContentState(
-                itemCount = 0,
-                refreshState = LoadState.NotLoading(endOfPaginationReached = true),
-                hasActiveExits = false,
-            )) shouldBe (MainReadyContentState.Empty)
+            (
+                resolvePagedMainReadyContentState(
+                    itemCount = 0,
+                    refreshState = LoadState.NotLoading(endOfPaginationReached = true),
+                    hasActiveExits = false,
+                )
+                ) shouldBe (MainReadyContentState.Empty)
         }
 
         test("resolves list shell for unloaded not-loading refresh that has not reached pagination end") {
-            (resolvePagedMainReadyContentState(
-                itemCount = 0,
-                refreshState = LoadState.NotLoading(endOfPaginationReached = false),
-                hasActiveExits = false,
-            )) shouldBe (MainReadyContentState.List)
+            (
+                resolvePagedMainReadyContentState(
+                    itemCount = 0,
+                    refreshState = LoadState.NotLoading(endOfPaginationReached = false),
+                    hasActiveExits = false,
+                )
+                ) shouldBe (MainReadyContentState.List)
         }
 
         test("resolves list when at least one item is loaded") {
-            (resolvePagedMainReadyContentState(
-                itemCount = 1,
-                refreshState = LoadState.NotLoading(endOfPaginationReached = false),
-                hasActiveExits = false,
-            )) shouldBe (MainReadyContentState.List)
+            (
+                resolvePagedMainReadyContentState(
+                    itemCount = 1,
+                    refreshState = LoadState.NotLoading(endOfPaginationReached = false),
+                    hasActiveExits = false,
+                )
+                ) shouldBe (MainReadyContentState.List)
         }
 
         test("resolves error when initial refresh fails without items") {
@@ -88,11 +95,13 @@ class PagedMainReadyContentStateResolverTest : AppFunSpec() {
         }
 
         test("resolves list when itemCount is 0 and refresh is completed, but active exits are running") {
-            (resolvePagedMainReadyContentState(
-                itemCount = 0,
-                refreshState = LoadState.NotLoading(endOfPaginationReached = true),
-                hasActiveExits = true,
-            )) shouldBe (MainReadyContentState.List)
+            (
+                resolvePagedMainReadyContentState(
+                    itemCount = 0,
+                    refreshState = LoadState.NotLoading(endOfPaginationReached = true),
+                    hasActiveExits = true,
+                )
+                ) shouldBe (MainReadyContentState.List)
         }
 
         test("resolves state correctly across a 4-phase slow refresh deletion sequence") {

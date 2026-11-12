@@ -90,21 +90,19 @@ class TrustedLaunchSignaturePolicyTest : AppFunSpec() {
     }
 }
 
-private fun policy(): TrustedLaunchSignaturePolicy =
-    TrustedLaunchSignaturePolicy(
-        hmacSha256 = { payload ->
-            val mac = Mac.getInstance(HMAC_SHA_256)
-            mac.init(SecretKeySpec("install-secret".encodeToByteArray(), HMAC_SHA_256))
-            mac.doFinal(payload)
-        },
-        nonceProvider = { "nonce-1" },
-    )
+private fun policy(): TrustedLaunchSignaturePolicy = TrustedLaunchSignaturePolicy(
+    hmacSha256 = { payload ->
+        val mac = Mac.getInstance(HMAC_SHA_256)
+        mac.init(SecretKeySpec("install-secret".encodeToByteArray(), HMAC_SHA_256))
+        mac.doFinal(payload)
+    },
+    nonceProvider = { "nonce-1" },
+)
 
-private fun payload(): TrustedLaunchSignaturePayload =
-    TrustedLaunchSignaturePayload(
-        commandId = "command-1",
-        action = ExternalAppCommandAction.StartRecording,
-        source = ExternalAppCommandSource.DynamicShortcut,
-        createdAtMillis = 1_000L,
-        expiresAtMillis = 601_000L,
-    )
+private fun payload(): TrustedLaunchSignaturePayload = TrustedLaunchSignaturePayload(
+    commandId = "command-1",
+    action = ExternalAppCommandAction.StartRecording,
+    source = ExternalAppCommandSource.DynamicShortcut,
+    createdAtMillis = 1_000L,
+    expiresAtMillis = 601_000L,
+)

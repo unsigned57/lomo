@@ -61,7 +61,9 @@ class DraggableScrollbarLazyListEstimatorTest : UiComponentsFunSpec() {
                 val currentFraction = checkNotNull(metrics).scrollFraction
 
                 if (previousFraction >= 0f) {
-                    withClue("Expected fraction at scrollPx=$scrollPx ($currentFraction) to be >= previous ($previousFraction)") {
+                    withClue(
+                        "Expected fraction at scrollPx=$scrollPx ($currentFraction) to be >= previous ($previousFraction)",
+                    ) {
                         (currentFraction >= previousFraction) shouldBe true
                     }
                 }
@@ -93,8 +95,10 @@ class DraggableScrollbarLazyListEstimatorTest : UiComponentsFunSpec() {
             afterTallMemo shouldNotBe null
             val after = checkNotNull(afterTallMemo)
 
-            withClue("Expected forward scrolling to keep the scrollbar fraction monotonic, " +
-                    "but before=${before.scrollFraction} and after=${after.scrollFraction}.") {
+            withClue(
+                "Expected forward scrolling to keep the scrollbar fraction monotonic, " +
+                    "but before=${before.scrollFraction} and after=${after.scrollFraction}.",
+            ) {
                 (after.scrollFraction >= before.scrollFraction) shouldBe true
             }
         }
@@ -125,8 +129,10 @@ class DraggableScrollbarLazyListEstimatorTest : UiComponentsFunSpec() {
             scrollUpInTallMemo shouldNotBe null
             val after = checkNotNull(scrollUpInTallMemo)
 
-            withClue("Expected scrolling up within tall memo to decrease fraction, " +
-                    "but before=${before.scrollFraction} and after=${after.scrollFraction}.") {
+            withClue(
+                "Expected scrolling up within tall memo to decrease fraction, " +
+                    "but before=${before.scrollFraction} and after=${after.scrollFraction}.",
+            ) {
                 (after.scrollFraction < before.scrollFraction) shouldBe true
             }
         }

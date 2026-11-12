@@ -7,13 +7,13 @@ import com.lomo.data.engine.store.PublishingStorePort
 import com.lomo.data.engine.store.StorePort
 import com.lomo.data.repository.MemoMediaCommitPipeline
 import com.lomo.data.repository.StoreMemoMutationRepository
-import com.lomo.data.repository.StoreProjectionObserver
 import com.lomo.data.repository.StoreMemoQueryRepository
 import com.lomo.data.repository.StoreMemoSearchRepository
 import com.lomo.data.repository.StoreMemoStatisticsRepository
 import com.lomo.data.repository.StoreMemoTaskRepository
 import com.lomo.data.repository.StoreMemoTrashRepository
 import com.lomo.data.repository.StoreMemoVersionRepository
+import com.lomo.data.repository.StoreProjectionObserver
 import com.lomo.data.repository.StoreWorkspaceStateResolver
 import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.model.EngineDiagnosticsRecorder
@@ -70,10 +70,10 @@ val memoRepositoryModule =
                 invalidation = get(),
                 diagnostics = get(),
                 mediaCommit =
-                    MemoMediaCommitPipeline(
-                        pendingStages = get(),
-                        committedMediaSink = get(),
-                    ),
+                MemoMediaCommitPipeline(
+                    pendingStages = get(),
+                    committedMediaSink = get(),
+                ),
                 dispatcherProvider = get(),
             )
         } bind MemoMutationRepository::class

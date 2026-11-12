@@ -9,12 +9,11 @@ import org.jetbrains.kotlin.psi.KtStringTemplateEntryWithExpression
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.kotlin.psi.KtValueArgument
 
-internal class NoHardcodedVisibleTextRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "User-visible Kotlin text must come from Android string resources so shipped locales stay complete.",
-) {
+internal class NoHardcodedVisibleTextRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "User-visible Kotlin text must come from Android string resources so shipped locales stay complete.",
+    ) {
     private val sourcePathFragments =
         config.valueOrDefault(
             "sourcePathFragments",
@@ -51,7 +50,8 @@ internal class NoHardcodedVisibleTextRule(
         val sink = expression.visibleTextSink() ?: return
         reportElement(
             expression,
-            "Visible text literal \"${literalText.preview()}\" passed to ${sink.name} must come from a string resource. " +
+            "Visible text literal \"${literalText.preview()}\" passed to ${sink.name} must come from a string " +
+                "resource. " +
                 "Define it in values/strings.xml and values-zh-rCN/strings.xml, then use stringResource/getString.",
         )
     }
@@ -72,7 +72,9 @@ internal class NoHardcodedVisibleTextRule(
         if (argumentName in contentDescriptionArgumentNames) {
             return VisibleTextSink("$calleeName.$argumentName")
         }
-        if (calleeName == "makeText" && call.receiverSimpleName() == "Toast" && argumentIndex == TOAST_TEXT_ARGUMENT_INDEX) {
+        if (calleeName == "makeText" && call.receiverSimpleName() == "Toast" &&
+            argumentIndex == TOAST_TEXT_ARGUMENT_INDEX
+        ) {
             return VisibleTextSink("Toast.makeText")
         }
         if (calleeName == "showSnackbar" && (argumentName == null || argumentName == "message") && argumentIndex == 0) {
@@ -110,30 +112,26 @@ internal class NoHardcodedVisibleTextRule(
         ((parent as? KtDotQualifiedExpression)?.receiverExpression?.text)
             ?.substringAfterLast('.')
 
-    private fun KtStringTemplateExpression.localizableLiteralText(): String =
-        entries
-            .filterNot { entry -> entry is KtStringTemplateEntryWithExpression }
-            .joinToString(separator = "") { entry -> entry.text }
-            .replace(escapedUnicodePattern, "")
-            .replace(escapedWhitespacePattern, " ")
-            .replace(formatSpecifierPattern, "")
+    private fun KtStringTemplateExpression.localizableLiteralText(): String = entries
+        .filterNot { entry -> entry is KtStringTemplateEntryWithExpression }
+        .joinToString(separator = "") { entry -> entry.text }
+        .replace(escapedUnicodePattern, "")
+        .replace(escapedWhitespacePattern, " ")
+        .replace(formatSpecifierPattern, "")
 
     private fun String.hasLocalizableText(): Boolean = localizableLetterPattern.containsMatchIn(this)
 
-    private fun String.preview(): String =
-        trim()
-            .replace(Regex("""\s+"""), " ")
-            .let { value ->
-                if (value.length <= MAX_PREVIEW_LENGTH) {
-                    value
-                } else {
-                    value.take(MAX_PREVIEW_LENGTH) + "..."
-                }
+    private fun String.preview(): String = trim()
+        .replace(Regex("""\s+"""), " ")
+        .let { value ->
+            if (value.length <= MAX_PREVIEW_LENGTH) {
+                value
+            } else {
+                value.take(MAX_PREVIEW_LENGTH) + "..."
             }
+        }
 
-    private data class VisibleTextSink(
-        val name: String,
-    )
+    private data class VisibleTextSink(val name: String)
 
     private companion object {
         const val TOAST_TEXT_ARGUMENT_INDEX = 1

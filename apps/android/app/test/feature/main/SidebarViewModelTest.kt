@@ -1,13 +1,13 @@
 package com.lomo.app.feature.main
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.app.feature.main
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.testing.AppFunSpec
@@ -25,13 +24,11 @@ import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.ObserveSidebarStatisticsUseCase
 import io.kotest.matchers.shouldBe
-import java.time.LocalDate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
-import io.mockk.every
-import io.mockk.mockk
+import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SidebarViewModelTest : AppFunSpec() {
@@ -40,7 +37,6 @@ class SidebarViewModelTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
     private val stateHolder = MainSidebarStateHolder()
     private val appConfigCoordinator = AppConfigUiCoordinator(appConfigRepository)
-
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
@@ -73,7 +69,7 @@ class SidebarViewModelTest : AppFunSpec() {
                             4, 5 -> LocalDate.of(2026, 3, 23)
                             else -> null
                         },
-                        tags = tags
+                        tags = tags,
                     )
                 }
                 memoRepository.setActiveMemos(memos)
@@ -132,8 +128,7 @@ class SidebarViewModelTest : AppFunSpec() {
         }
     }
 
-    private fun observeSidebarStatisticsUseCase(): ObserveSidebarStatisticsUseCase =
-        ObserveSidebarStatisticsUseCase(
-            com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
-        )
+    private fun observeSidebarStatisticsUseCase(): ObserveSidebarStatisticsUseCase = ObserveSidebarStatisticsUseCase(
+        com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
+    )
 }

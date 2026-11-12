@@ -85,13 +85,9 @@ internal class AndroidLanRuntimeNetworkMonitor(
 
         override fun onLost(network: Network) = forget(network)
 
-        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) =
-            emit()
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = emit()
 
-        override fun onLinkPropertiesChanged(
-            network: Network,
-            linkProperties: android.net.LinkProperties,
-        ) = emit()
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) = emit()
     }
 
     private val localCallback = object : ConnectivityManager.NetworkCallback() {
@@ -99,12 +95,8 @@ internal class AndroidLanRuntimeNetworkMonitor(
 
         override fun onLost(network: Network) = forget(network)
 
-        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) =
-            emit()
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = emit()
 
-        override fun onLinkPropertiesChanged(
-            network: Network,
-            linkProperties: android.net.LinkProperties,
-        ) = emit()
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) = emit()
     }
 }

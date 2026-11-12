@@ -11,7 +11,6 @@ import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncErrorCode
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
-import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.model.isConfigured
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
 import com.lomo.domain.usecase.toUnifiedState
@@ -215,30 +214,35 @@ class SettingsWebDavCoordinator(
     private suspend fun testWebDavConnectionState(): RemoteProviderConnectionTestState =
         when (val result = webDavSyncSettingsUseCase.testConnection()) {
             is WebDavSyncResult.Success -> RemoteProviderConnectionTestState.Success(result.message)
+
             is WebDavSyncResult.Accepted ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.WEBDAV,
                     providerCode = WebDavSyncErrorCode.UNKNOWN.name,
                     detail = result.message,
                 )
+
             is WebDavSyncResult.Error ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.WEBDAV,
                     providerCode = result.code.name,
                     detail = result.message,
                 )
+
             is WebDavSyncResult.Conflict ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.WEBDAV,
                     providerCode = WebDavSyncErrorCode.UNKNOWN.name,
                     detail = "WebDAV sync conflict detected",
                 )
+
             is WebDavSyncResult.Review ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.WEBDAV,
                     providerCode = WebDavSyncErrorCode.UNKNOWN.name,
                     detail = result.message.ifBlank { "WebDAV sync review required" },
                 )
+
             WebDavSyncResult.NotConfigured ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.WEBDAV,
@@ -258,12 +262,14 @@ class SettingsWebDavCoordinator(
                     providerCode = operationError.code.name,
                     detail = operationError.detail,
                 )
+
             is SettingsOperationError.Message ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.WEBDAV,
                     providerCode = WebDavSyncErrorCode.UNKNOWN.name,
                     detail = operationError.text,
                 )
+
             is SettingsOperationError.GitSync ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.WEBDAV,
@@ -279,21 +285,17 @@ class SettingsWebDavCoordinator(
         return trimmed.startsWith("https://") || trimmed.startsWith("http://") || !trimmed.contains("://")
     }
 
-    private suspend fun runWithError(
-        fallbackMessage: String,
-        action: suspend () -> Unit,
-    ): SettingsOperationError? =
+    private suspend fun runWithError(fallbackMessage: String, action: suspend () -> Unit): SettingsOperationError? =
         runSettingsOperation(
             fallbackMessage = fallbackMessage,
             specificError = { throwable -> throwable.toWebDavOperationErrorOrNull() },
             action = action,
         )
-
 }
 
-private fun Throwable.toWebDavOperationErrorOrNull(): SettingsOperationError.WebDavSync? =
-    when (this) {
-        is WebDavSyncFailureException ->
-            SettingsOperationError.WebDavSync(code = code, detail = message)
-        else -> null
-    }
+private fun Throwable.toWebDavOperationErrorOrNull(): SettingsOperationError.WebDavSync? = when (this) {
+    is WebDavSyncFailureException ->
+        SettingsOperationError.WebDavSync(code = code, detail = message)
+
+    else -> null
+}

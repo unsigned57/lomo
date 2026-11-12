@@ -25,6 +25,7 @@ internal class AppUpdateTransportOwner private constructor(
     )
 
     private val lock = Any()
+
     // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
     private var currentClient: ClientSlot? = initialSlot
 
@@ -54,16 +55,15 @@ internal class AppUpdateTransportOwner private constructor(
 
     override fun close() = closeUpdateTransport()
 
-    private fun acquireClient(): ClientSlot =
-        synchronized(lock) {
-            val slot =
-                currentClient
-                    ?.takeUnless { it.closeRequested }
-                    ?.takeIf { it.httpClient.coroutineContext.isActive }
-                    ?: ClientSlot(httpClientFactory()).also { currentClient = it }
-            slot.activeUses += 1
-            slot
-        }
+    private fun acquireClient(): ClientSlot = synchronized(lock) {
+        val slot =
+            currentClient
+                ?.takeUnless { it.closeRequested }
+                ?.takeIf { it.httpClient.coroutineContext.isActive }
+                ?: ClientSlot(httpClientFactory()).also { currentClient = it }
+        slot.activeUses += 1
+        slot
+    }
 
     private fun releaseClient(slot: ClientSlot) {
         var clientToClose: HttpClient? = null
@@ -79,27 +79,23 @@ internal class AppUpdateTransportOwner private constructor(
         clientToClose?.close()
     }
 
-    private class ClientSlot(
-        val httpClient: HttpClient,
-    ) {
+    private class ClientSlot(val httpClient: HttpClient) {
         var activeUses: Int = 0
         var closeRequested: Boolean = false
     }
 
     internal companion object {
-        fun createDefault(): AppUpdateTransportOwner =
-            AppUpdateTransportOwner(
-                httpClientFactory = ::createHttpClient,
-            )
+        fun createDefault(): AppUpdateTransportOwner = AppUpdateTransportOwner(
+            httpClientFactory = ::createHttpClient,
+        )
 
-        private fun createHttpClient(): HttpClient =
-            HttpClient(OkHttp) {
-                followRedirects = true
-                install(HttpTimeout) {
-                    connectTimeoutMillis = AppUpdateHttpDownloader.CONNECT_TIMEOUT_MS
-                    requestTimeoutMillis = AppUpdateHttpDownloader.READ_TIMEOUT_MS
-                    socketTimeoutMillis = AppUpdateHttpDownloader.READ_TIMEOUT_MS
-                }
+        private fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
+            followRedirects = true
+            install(HttpTimeout) {
+                connectTimeoutMillis = AppUpdateHttpDownloader.CONNECT_TIMEOUT_MS
+                requestTimeoutMillis = AppUpdateHttpDownloader.READ_TIMEOUT_MS
+                socketTimeoutMillis = AppUpdateHttpDownloader.READ_TIMEOUT_MS
             }
+        }
     }
 }

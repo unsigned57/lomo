@@ -17,9 +17,9 @@ import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtLambdaExpression
+import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtNamedFunction
-import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtQualifiedExpression
@@ -89,19 +89,17 @@ private fun KtClass.mutableMemberProblems(seen: Set<String> = emptySet()): List<
     return problems
 }
 
-private fun KtClassOrObject.isViewModelLike(): Boolean =
-    name?.endsWith("ViewModel") == true ||
-        (this as? KtClass)?.superTypeListEntries?.any { it.text.contains("ViewModel") } == true
+private fun KtClassOrObject.isViewModelLike(): Boolean = name?.endsWith("ViewModel") == true ||
+    (this as? KtClass)?.superTypeListEntries?.any { it.text.contains("ViewModel") } == true
 
-internal class NoMutableStatePayloadRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "State payloads and holder types reaching the UI must be immutable snapshots: a data or sealed " +
-        "*State class, a *State class used as a flow payload, and any type a screen ViewModel holds " +
-        "cannot carry var members, mutable containers or Compose mutable state. " +
-        "See quality/udf-contract.md.",
-) {
+internal class NoMutableStatePayloadRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "State payloads and holder types reaching the UI must be immutable snapshots: a data or sealed " +
+            "*State class, a *State class used as a flow payload, and any type a screen ViewModel holds " +
+            "cannot carry var members, mutable containers or Compose mutable state. " +
+            "See quality/udf-contract.md.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*mutable-payload-ok""")
 
     override fun visitClass(klass: KtClass) {
@@ -206,15 +204,14 @@ internal class NoMutableStatePayloadRule(
     }
 }
 
-internal class NoWriteInFlowDerivationRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "A flow-producing derivation must be a pure projection: a write to a Mutable*Flow/Channel " +
-        "backing inside an operator lambda whose chain is not consumed by a sink (collect/launchIn/" +
-        "first/...) turns downstream observation into a hidden state mutation. See " +
-        "quality/udf-contract.md.",
-) {
+internal class NoWriteInFlowDerivationRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "A flow-producing derivation must be a pure projection: a write to a Mutable*Flow/Channel " +
+            "backing inside an operator lambda whose chain is not consumed by a sink (collect/launchIn/" +
+            "first/...) turns downstream observation into a hidden state mutation. See " +
+            "quality/udf-contract.md.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*derivation-write-ok""")
     private val backingToken = Regex("""MutableStateFlow|MutableSharedFlow|\bChannel\s*\(""")
 
@@ -324,20 +321,25 @@ internal class NoWriteInFlowDerivationRule(
     }
 }
 
-internal class NoInferredMutableStatePayloadRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Public signatures must not hand a mutable payload to the UI through a flow; resolves the " +
-        "payload type across files and applies the immutable-snapshot member check. " +
-        "See quality/udf-contract.md.",
-), RequiresAnalysisApi {
+internal class NoInferredMutableStatePayloadRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Public signatures must not hand a mutable payload to the UI through a flow; resolves the " +
+            "payload type across files and applies the immutable-snapshot member check. " +
+            "See quality/udf-contract.md.",
+    ),
+    RequiresAnalysisApi {
     private val optOutMarker = Regex("""behavior-contract:\s*mutable-payload-ok""")
 
     override fun visitProperty(property: KtProperty) {
         super.visitProperty(property)
         val file = property.containingKtFile
-        if (!file.isProductionSource() || !file.path().contains("/app/src/") || property.isLocal || property.hasModifier(KtTokens.PRIVATE_KEYWORD)) return
+        if (!file.isProductionSource() || !file.path().contains(
+                "/app/src/",
+            ) || property.isLocal || property.hasModifier(KtTokens.PRIVATE_KEYWORD)
+        ) {
+            return
+        }
         if (property.hasOptOutComment(optOutMarker)) return
         val leaks = analyze(property) {
             payloadClasses(property.symbol.returnType).any { it.mutableMemberProblems().isNotEmpty() }
@@ -378,7 +380,12 @@ internal class NoInferredMutableStatePayloadRule(
     override fun visitParameter(parameter: KtParameter) {
         super.visitParameter(parameter)
         val file = parameter.containingKtFile
-        if (!file.isProductionSource() || !file.path().contains("/app/src/") || !parameter.hasValOrVar() || parameter.hasModifier(KtTokens.PRIVATE_KEYWORD)) return
+        if (!file.isProductionSource() || !file.path().contains(
+                "/app/src/",
+            ) || !parameter.hasValOrVar() || parameter.hasModifier(KtTokens.PRIVATE_KEYWORD)
+        ) {
+            return
+        }
         if (parameter.hasOptOutComment(optOutMarker)) return
         val leaks = analyze(parameter) {
             payloadClasses(parameter.symbol.returnType).any { it.mutableMemberProblems().isNotEmpty() }

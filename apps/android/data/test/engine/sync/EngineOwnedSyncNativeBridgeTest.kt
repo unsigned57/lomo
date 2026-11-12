@@ -28,10 +28,10 @@ package com.lomo.data.engine.sync
 
 import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.data.testing.DataFunSpec
-import com.lomo.nativebridge.SyncBackendConfigDto as BridgeBackendConfig
-import com.lomo.nativebridge.SyncCyclePlanSummaryDto as BridgeCyclePlan
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import com.lomo.nativebridge.SyncBackendConfigDto as BridgeBackendConfig
+import com.lomo.nativebridge.SyncCyclePlanSummaryDto as BridgeCyclePlan
 
 class EngineOwnedSyncNativeBridgeTest : DataFunSpec() {
     init {
@@ -44,18 +44,18 @@ class EngineOwnedSyncNativeBridgeTest : DataFunSpec() {
                 bridge.runCycle(
                     workspaceRoot = "/ws",
                     config =
-                        BridgeBackendConfig(
-                            backendKind = "hermetic_fake",
-                            endpointUrl = "",
-                            identity = "",
-                            s3Bucket = "",
-                            s3Prefix = "",
-                            s3Region = "",
-                            gitBranch = "",
-                            gitAuthorName = "",
-                            gitAuthorEmail = "",
-                            remoteDatasetId = "ds",
-                        ),
+                    BridgeBackendConfig(
+                        backendKind = "hermetic_fake",
+                        endpointUrl = "",
+                        identity = "",
+                        s3Bucket = "",
+                        s3Prefix = "",
+                        s3Region = "",
+                        gitBranch = "",
+                        gitAuthorName = "",
+                        gitAuthorEmail = "",
+                        remoteDatasetId = "ds",
+                    ),
                     secretLeaseId = "",
                     applyRemote = true,
                 )
@@ -66,7 +66,6 @@ class EngineOwnedSyncNativeBridgeTest : DataFunSpec() {
             summary.sessionId shouldBe "session-engine"
             summary.ensurePresentCount shouldBe 2u
         }
-
     }
 }
 
@@ -119,20 +118,14 @@ private class RecordingFreeFunctionCycleBridge : SyncNativeBridge {
         resolutions: List<com.lomo.nativebridge.SyncConflictResolutionDto>,
     ): com.lomo.nativebridge.SyncConflictResolveResultDto = error("unused")
 
-    override fun issueSecretLease(
-        secretBytes: ByteArray,
-        ttlMillis: ULong,
-    ): com.lomo.nativebridge.SyncSecretLeaseDto = error("unused")
+    override fun issueSecretLease(secretBytes: ByteArray, ttlMillis: ULong): com.lomo.nativebridge.SyncSecretLeaseDto =
+        error("unused")
 
     override fun probeSecretLease(leaseId: String): UInt = error("unused")
 
     override fun revokeSecretLease(leaseId: String) = error("unused")
 
-    override fun readConflictArtifact(
-        workspaceRoot: String,
-        artifactRef: String,
-    ): ByteArray = error("unused")
-
+    override fun readConflictArtifact(workspaceRoot: String, artifactRef: String): ByteArray = error("unused")
 
     override fun runCycle(
         workspaceRoot: String,
@@ -148,11 +141,9 @@ private class RecordingFreeFunctionCycleBridge : SyncNativeBridge {
 
     override fun resetControlTree(workspaceRoot: String) = error("unused")
 
-    override fun cycleStatus(workspaceRoot: String): com.lomo.nativebridge.SyncCycleStatusDto =
-        error("unused")
+    override fun cycleStatus(workspaceRoot: String): com.lomo.nativebridge.SyncCycleStatusDto = error("unused")
 
-    override fun requestCancel(workspaceRoot: String): com.lomo.nativebridge.SyncCycleStatusDto =
-        error("unused")
+    override fun requestCancel(workspaceRoot: String): com.lomo.nativebridge.SyncCycleStatusDto = error("unused")
 
     override fun probeBackend(
         workspaceRoot: String,

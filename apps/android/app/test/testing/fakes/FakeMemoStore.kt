@@ -4,25 +4,22 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingSource.LoadParams
 import androidx.paging.PagingSource.LoadResult
 import androidx.paging.PagingState
-import com.lomo.domain.model.DailyReviewCandidateBoundary
-import com.lomo.domain.model.DailyReviewCandidateCursor
-import com.lomo.domain.model.DailyReviewCandidatePage
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoContentAnalysis
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoQuerySpec
+import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.model.MemoTagCount
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * Hand-written in-memory fake for memo repository ports used by app/test ViewModel specs.
@@ -44,7 +41,6 @@ class FakeMemoStore(
     private val activeMemos = MutableStateFlow(initialActive)
     private val deletedMemos = MutableStateFlow(initialDeleted)
     private val syncing = MutableStateFlow(false)
-    private val dailyReviewCandidateSnapshots = mutableMapOf<String, List<DailyReviewCandidateSnapshotRow>>()
 
     var saveMemoCallCount: Int = 0
         private set
@@ -90,10 +86,7 @@ class FakeMemoStore(
 
     fun currentDeletedMemos(): List<Memo> = deletedMemos.value
 
-    internal fun observeActiveMemosInDateRange(
-        startDate: LocalDate?,
-        endDate: LocalDate?,
-    ): Flow<List<Memo>> =
+    internal fun observeActiveMemosInDateRange(startDate: LocalDate?, endDate: LocalDate?): Flow<List<Memo>> =
         activeMemos.map { memos ->
             memos.filter { memo ->
                 val date = memo.localDate ?: return@filter startDate == null && endDate == null
@@ -110,92 +103,6 @@ class FakeMemoStore(
     internal suspend fun activeMemoCount(): Int {
         getMemoCountFailure?.let { throw it }
         return activeMemos.value.size
-    }
-
-    internal suspend fun captureDailyReviewCandidateBoundary(): DailyReviewCandidateBoundary? {
-        val snapshot = activeMemos.value
-        val anchor = snapshot.firstOrNull() ?: return null
-        val rows =
-            snapshot.map { memo ->
-                DailyReviewCandidateSnapshotRow(
-                    id = memo.id,
-                    isPinned = memo.isPinned,
-                    timestamp = memo.timestamp,
-                )
-            }
-        val token = rows.stableDailyReviewCandidateToken()
-        dailyReviewCandidateSnapshots[token] = rows
-        return DailyReviewCandidateBoundary(
-            isPinned = anchor.isPinned,
-            timestamp = anchor.timestamp,
-            id = anchor.id,
-            token = token,
-            observedCount = snapshot.size,
-        )
-    }
-
-    internal suspend fun dailyReviewCandidatePage(
-        boundary: DailyReviewCandidateBoundary,
-        cursor: DailyReviewCandidateCursor?,
-        limit: Int,
-    ): DailyReviewCandidatePage {
-        if (limit <= 0) {
-            return DailyReviewCandidatePage(ids = emptyList(), nextCursor = cursor)
-        }
-        val snapshot = dailyReviewCandidateSnapshots[boundary.token] ?: emptyList()
-        val offset = cursor?.position ?: 0
-        val rows = snapshot.drop(offset).take(limit)
-        val nextPosition = offset + rows.size
-        val lastRow = rows.lastOrNull()
-        return DailyReviewCandidatePage(
-            ids = rows.map { row -> row.id },
-            nextCursor =
-                if (rows.isEmpty() || lastRow == null) {
-                    cursor
-                } else {
-                    DailyReviewCandidateCursor(
-                        isPinned = lastRow.isPinned,
-                        timestamp = lastRow.timestamp,
-                        id = lastRow.id,
-                        token = boundary.token,
-                        position = nextPosition,
-                    )
-                },
-        )
-    }
-
-    internal suspend fun dailyReviewVisibleUnseenPage(
-        cursor: DailyReviewCandidateCursor?,
-        limit: Int,
-    ): DailyReviewCandidatePage {
-        if (limit <= 0) return DailyReviewCandidatePage(ids = emptyList(), nextCursor = cursor)
-        val rows =
-            activeMemos.value
-                .map { memo ->
-                    DailyReviewCandidateSnapshotRow(
-                        id = memo.id,
-                        isPinned = memo.isPinned,
-                        timestamp = memo.timestamp,
-                    )
-                }
-        val position = cursor?.position ?: 0
-        val pageRows = rows.drop(position).take(limit)
-        val last = pageRows.lastOrNull()
-        return DailyReviewCandidatePage(
-            ids = pageRows.map(DailyReviewCandidateSnapshotRow::id),
-            nextCursor =
-                if (last == null) {
-                    cursor
-                } else {
-                    DailyReviewCandidateCursor(
-                        isPinned = last.isPinned,
-                        timestamp = last.timestamp,
-                        id = last.id,
-                        token = "visible",
-                        position = position + pageRows.size,
-                    )
-                },
-        )
     }
 
     var recordedQuery: String? = null
@@ -215,10 +122,8 @@ class FakeMemoStore(
     internal suspend fun rankInDefaultMainList(id: String): Int? =
         activeMemos.value.indexOfFirst { memo -> memo.id == id }.takeIf { value -> value >= 0 }
 
-    internal suspend fun rankInMainListQuery(
-        spec: MemoQuerySpec,
-        id: String,
-    ): Int? = activeMemos.value.matching(spec).indexOfFirst { memo -> memo.id == id }.takeIf { it >= 0 }
+    internal suspend fun rankInMainListQuery(spec: MemoQuerySpec, id: String): Int? =
+        activeMemos.value.matching(spec).indexOfFirst { memo -> memo.id == id }.takeIf { it >= 0 }
 
     internal fun reanchorMainListToIdentity(id: String) {
         lastReanchoredMainListIdentity = id
@@ -267,10 +172,7 @@ class FakeMemoStore(
         refreshMemosGate?.await()
     }
 
-    internal suspend fun addSavedMemo(
-        content: String,
-        timestamp: Long,
-    ): Memo {
+    internal suspend fun addSavedMemo(content: String, timestamp: Long): Memo {
         saveMemoCallCount += 1
         val memo =
             Memo(
@@ -289,10 +191,7 @@ class FakeMemoStore(
     var updateMemoFailure: Throwable? = null
     val restoredRevisionRequests = mutableListOf<RestoredRevisionRequest>()
 
-    internal suspend fun replaceMemoContent(
-        memo: Memo,
-        newContent: String,
-    ) {
+    internal suspend fun replaceMemoContent(memo: Memo, newContent: String) {
         updateMemoFailure?.let { throw it }
         updateMemoCallCount += 1
         activeMemos.value =
@@ -308,19 +207,13 @@ class FakeMemoStore(
         deletedMemos.value = deletedMemos.value + memo.copy(isDeleted = true)
     }
 
-    internal suspend fun restoreMemoRevision(
-        currentMemo: Memo,
-        revision: MemoRevision,
-    ) {
+    internal suspend fun restoreMemoRevision(currentMemo: Memo, revision: MemoRevision) {
         restoredRevisionRequests += RestoredRevisionRequest(currentMemo = currentMemo, revision = revision)
     }
 
     var setMemoPinnedFailure: Throwable? = null
 
-    internal suspend fun updateMemoPinned(
-        memoId: String,
-        pinned: Boolean,
-    ) {
+    internal suspend fun updateMemoPinned(memoId: String, pinned: Boolean) {
         setMemoPinnedFailure?.let { throw it }
         activeMemos.value =
             activeMemos.value.map { memo -> if (memo.id == memoId) memo.copy(isPinned = pinned) else memo }
@@ -329,28 +222,23 @@ class FakeMemoStore(
     val tagPageCalls = mutableListOf<TagPageCall>()
     val trashPageCalls = mutableListOf<TrashPageCall>()
 
-    internal suspend fun taggedMemoPage(
-        tag: String,
-        subtree: Boolean,
-        limit: Int,
-        offset: Int,
-    ): List<Memo> {
+    internal suspend fun taggedMemoPage(tag: String, subtree: Boolean, limit: Int, offset: Int): List<Memo> {
         tagPageCalls += TagPageCall(tag = tag, limit = limit, offset = offset)
         return if (limit <= 0 || offset < 0) {
             emptyList()
         } else {
             activeMemos.value
-                .filter { memo -> memo.tags.any { candidate -> candidate == tag || subtree && candidate.startsWith("$tag/") } }
+                .filter { memo ->
+                    memo.tags.any { candidate ->
+                        candidate == tag || (subtree && candidate.startsWith("$tag/"))
+                    }
+                }
                 .drop(offset)
                 .take(limit)
         }
     }
 
-    internal fun observeTaggedMemoPage(
-        tag: String,
-        limit: Int,
-        offset: Int,
-    ): Flow<List<Memo>> {
+    internal fun observeTaggedMemoPage(tag: String, limit: Int, offset: Int): Flow<List<Memo>> {
         tagPageCalls += TagPageCall(tag = tag, limit = limit, offset = offset)
         return activeMemos.map { memos ->
             if (limit <= 0 || offset < 0) {
@@ -371,50 +259,36 @@ class FakeMemoStore(
     internal fun observeMemoCountByDate(): Flow<Map<String, Int>> =
         activeMemos.map { memos -> memos.groupingBy(Memo::dateKey).eachCount() }
 
-    internal fun observeTagCounts(): Flow<List<MemoTagCount>> =
-        activeMemos.map { memos ->
-            memos
-                .flatMap(Memo::tags)
-                .groupingBy { it }
-                .eachCount()
-                .map { (tag, count) -> MemoTagCount(tag, count) }
-        }
+    internal fun observeTagCounts(): Flow<List<MemoTagCount>> = activeMemos.map { memos ->
+        memos
+            .flatMap(Memo::tags)
+            .groupingBy { it }
+            .eachCount()
+            .map { (tag, count) -> MemoTagCount(tag, count) }
+    }
 
     internal fun observeActiveDayCount(): Flow<Int> =
         activeMemos.map { memos -> memos.mapNotNull(Memo::localDate).toSet().size }
 
-    internal fun computeMemoStatistics(
-        zone: ZoneId,
-        today: LocalDate,
-    ): MemoStatistics =
+    internal fun computeMemoStatistics(zone: ZoneId, today: LocalDate): MemoStatistics =
         MemoStatistics.empty(today).copy(
             totalMemos = activeMemos.value.size,
             tagCounts = currentTagCounts(),
         )
 
-    internal fun observeDeletedMemoPage(
-        limit: Int,
-        offset: Int,
-    ): Flow<List<Memo>> {
+    internal fun observeDeletedMemoPage(limit: Int, offset: Int): Flow<List<Memo>> {
         trashPageCalls += TrashPageCall(limit = limit, offset = offset)
         return deletedMemos.map { memos ->
             deletedMemoPage(limit = limit, offset = offset, memos = memos)
         }
     }
 
-    internal fun deletedMemoPage(
-        limit: Int,
-        offset: Int,
-    ): List<Memo> {
+    internal fun deletedMemoPage(limit: Int, offset: Int): List<Memo> {
         trashPageCalls += TrashPageCall(limit = limit, offset = offset)
         return deletedMemoPage(limit = limit, offset = offset, memos = deletedMemos.value)
     }
 
-    private fun deletedMemoPage(
-        limit: Int,
-        offset: Int,
-        memos: List<Memo>,
-    ): List<Memo> =
+    private fun deletedMemoPage(limit: Int, offset: Int, memos: List<Memo>): List<Memo> =
         if (limit <= 0 || offset < 0) {
             emptyList()
         } else {
@@ -436,8 +310,6 @@ class FakeMemoStore(
             deletedMemos.value = deletedMemos.value.filterNot { it.id == memo.id }
         }
     }
-
-
 
     fun verifyRefreshMemosCalled(exactly: Int = 1) {
         if (refreshMemosCallCount != exactly) {
@@ -502,55 +374,38 @@ class FakeMemoStore(
 
     var deleteResult: String? = null
 
-    data class TagPageCall(
-        val tag: String,
-        val limit: Int,
-        val offset: Int,
-    )
+    data class TagPageCall(val tag: String, val limit: Int, val offset: Int)
 
-    data class TrashPageCall(
-        val limit: Int,
-        val offset: Int,
-    )
+    data class TrashPageCall(val limit: Int, val offset: Int)
 
-data class MainListCall(
-    val spec: MemoQuerySpec,
-) {
-    constructor(query: String, filter: MemoListFilter) : this(
-        spec = MemoQuerySpec.fromFilter(queryText = query, filter = filter),
-    )
+    data class MainListCall(val spec: MemoQuerySpec) {
+        constructor(query: String, filter: MemoListFilter) : this(
+            spec = MemoQuerySpec.fromFilter(queryText = query, filter = filter),
+        )
 
-    val query: String
-        get() = spec.normalizedQueryText
+        val query: String
+            get() = spec.normalizedQueryText
 
-    val filter: MemoListFilter
-        get() =
-            MemoListFilter(
-                sortOption = spec.sort.option,
-                sortAscending = spec.sort.ascending,
-                startDate = spec.dateRange.startDate,
-                endDate = spec.dateRange.endDate,
-            )
-}
+        val filter: MemoListFilter
+            get() =
+                MemoListFilter(
+                    sortOption = spec.sort.option,
+                    sortAscending = spec.sort.ascending,
+                    startDate = spec.dateRange.startDate,
+                    endDate = spec.dateRange.endDate,
+                )
+    }
 
-data class RestoredRevisionRequest(
-    val currentMemo: Memo,
-    val revision: MemoRevision,
-)
+    data class RestoredRevisionRequest(val currentMemo: Memo, val revision: MemoRevision)
 
-    data class MainListPageLoad(
-        val key: String?,
-        val loadSize: Int,
-    )
+    data class MainListPageLoad(val key: String?, val loadSize: Int)
 
     internal suspend fun removeAllDeletedMemos() {
         clearTrashCallCount += 1
         deletedMemos.value = emptyList()
     }
 
-    private fun List<Memo>.matching(
-        spec: MemoQuerySpec,
-    ): List<Memo> {
+    private fun List<Memo>.matching(spec: MemoQuerySpec): List<Memo> {
         val filtered =
             asSequence()
                 .filter { memo ->
@@ -561,8 +416,10 @@ data class RestoredRevisionRequest(
                     when {
                         spec.dateRange.startDate != null &&
                             (date == null || date.isBefore(spec.dateRange.startDate)) -> false
+
                         spec.dateRange.endDate != null &&
                             (date == null || date.isAfter(spec.dateRange.endDate)) -> false
+
                         else -> true
                     }
                 }.filter { memo -> spec.matches(memo.queryAnalysis()) }
@@ -576,49 +433,28 @@ data class RestoredRevisionRequest(
             if (spec.sort.ascending) {
                 compareByDescending<Memo> { memo -> memo.isPinned }.thenBy(selector).thenBy { memo -> memo.id }
             } else {
-                compareByDescending<Memo> { memo -> memo.isPinned }.thenByDescending(selector).thenByDescending { memo -> memo.id }
+                compareByDescending<Memo> { memo -> memo.isPinned }.thenByDescending(
+                    selector,
+                ).thenByDescending { memo -> memo.id }
             }
         return filtered.sortedWith(comparator)
     }
 
-    private fun Memo.queryAnalysis(): MemoContentAnalysis =
-        MemoContentAnalysis(
-            hasTodo = content.contains("[ ]") || content.contains("[x]", ignoreCase = true),
-            hasAttachment = imageUrls.isNotEmpty(),
-            hasUrl =
-                content.contains("http://", ignoreCase = true) ||
-                    content.contains("https://", ignoreCase = true),
-            tags = tags,
-            imageUrls = imageUrls,
-        )
-
-    private fun currentTagCounts(): List<MemoTagCount> =
-        activeMemos.value
-            .flatMap(Memo::tags)
-            .groupingBy { tag -> tag }
-            .eachCount()
-            .map { (tag, count) -> MemoTagCount(name = tag, count = count) }
-
-    private data class DailyReviewCandidateSnapshotRow(
-        val id: String,
-        val isPinned: Boolean,
-        val timestamp: Long,
+    private fun Memo.queryAnalysis(): MemoContentAnalysis = MemoContentAnalysis(
+        hasTodo = content.contains("[ ]") || content.contains("[x]", ignoreCase = true),
+        hasAttachment = imageUrls.isNotEmpty(),
+        hasUrl =
+        content.contains("http://", ignoreCase = true) ||
+            content.contains("https://", ignoreCase = true),
+        tags = tags,
+        imageUrls = imageUrls,
     )
 
-    private fun List<DailyReviewCandidateSnapshotRow>.stableDailyReviewCandidateToken(): String {
-        val hash =
-            fold(1125899906842597L) { accumulator, row ->
-                val pinnedValue = if (row.isPinned) 1L else 0L
-                accumulator
-                    .times(31)
-                    .plus(row.id.hashCode().toLong())
-                    .times(31)
-                    .plus(row.timestamp)
-                    .times(31)
-                    .plus(pinnedValue)
-            }
-        return "fake-daily-review-$size-$hash"
-    }
+    private fun currentTagCounts(): List<MemoTagCount> = activeMemos.value
+        .flatMap(Memo::tags)
+        .groupingBy { tag -> tag }
+        .eachCount()
+        .map { (tag, count) -> MemoTagCount(name = tag, count = count) }
 }
 
 private class InMemoryMemoPagingSource(
@@ -642,7 +478,13 @@ private class InMemoryMemoPagingSource(
         val slice = if (start >= snapshot.size) emptyList() else snapshot.subList(start, end)
         val prevKey = null
         val nextKey = if (end >= snapshot.size) null else encodeMainCursor(end)
-        return LoadResult.Page(slice, prevKey, nextKey)
+        return LoadResult.Page(
+            data = slice,
+            prevKey = prevKey,
+            nextKey = nextKey,
+            itemsBefore = start,
+            itemsAfter = snapshot.size - end,
+        )
     }
 }
 
@@ -652,9 +494,7 @@ private fun decodeMainCursor(cursor: String?): Int =
     cursor?.removePrefix("fake-main-cursor:")?.toIntOrNull()?.coerceAtLeast(0)
         ?: 0
 
-private class InMemoryCursorMemoPagingSource(
-    private val snapshot: List<Memo>,
-) : PagingSource<String, Memo>() {
+private class InMemoryCursorMemoPagingSource(private val snapshot: List<Memo>) : PagingSource<String, Memo>() {
     override fun getRefreshKey(state: PagingState<String, Memo>): String? = null
 
     override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> {

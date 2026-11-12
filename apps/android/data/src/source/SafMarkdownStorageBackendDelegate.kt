@@ -9,12 +9,11 @@ internal class SafMarkdownStorageBackendDelegate(
     private val rootUri: Uri,
     private val documentAccess: SafDocumentAccess,
 ) : MarkdownStorageBackend {
-    override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
-        routeMarkdownDirectory(
-            directory = directory,
-            onMain = { safListMetadata(context, rootUri, documentAccess) },
-            onTrash = { safListTrashMetadata(documentAccess) },
-        )
+    override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> = routeMarkdownDirectory(
+        directory = directory,
+        onMain = { safListMetadata(context, rootUri, documentAccess) },
+        onTrash = { safListTrashMetadata(documentAccess) },
+    )
 
     override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
         routeMarkdownDirectory(
@@ -30,50 +29,34 @@ internal class SafMarkdownStorageBackendDelegate(
             onTrash = { safStreamTrashMetadataWithIds(rootUri, documentAccess) },
         )
 
-    override suspend fun getFileMetadataIn(
-        directory: MemoDirectoryType,
-        filename: String,
-    ): FileMetadata? =
+    override suspend fun getFileMetadataIn(directory: MemoDirectoryType, filename: String): FileMetadata? =
         routeMarkdownDirectory(
             directory = directory,
             onMain = { safGetFileMetadata(documentAccess, filename) },
             onTrash = { safGetTrashFileMetadata(documentAccess, filename) },
         )
 
-    override suspend fun readFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-    ): String? =
-        routeMarkdownDirectory(
-            directory = directory,
-            onMain = { safReadFile(documentAccess, filename) },
-            onTrash = { safReadTrashFile(documentAccess, filename) },
-        )
+    override suspend fun readFileIn(directory: MemoDirectoryType, filename: String): String? = routeMarkdownDirectory(
+        directory = directory,
+        onMain = { safReadFile(documentAccess, filename) },
+        onTrash = { safReadTrashFile(documentAccess, filename) },
+    )
 
-    override suspend fun fingerprintFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-    ): String? =
+    override suspend fun fingerprintFileIn(directory: MemoDirectoryType, filename: String): String? =
         routeMarkdownDirectory(
             directory = directory,
             onMain = { safFingerprintFile(documentAccess, filename) },
             onTrash = { safFingerprintTrashFile(documentAccess, filename) },
         )
 
-    override suspend fun readFileByDocumentIdIn(
-        directory: MemoDirectoryType,
-        documentId: String,
-    ): String? =
+    override suspend fun readFileByDocumentIdIn(directory: MemoDirectoryType, documentId: String): String? =
         routeMarkdownDirectory(
             directory = directory,
             onMain = { safReadFileByDocumentId(rootUri, documentAccess, documentId) },
             onTrash = { safReadTrashFileByDocumentId(rootUri, documentAccess, documentId) },
         )
 
-    override fun streamFileByDocumentIdIn(
-        directory: MemoDirectoryType,
-        documentId: String,
-    ): Flow<String> =
+    override fun streamFileByDocumentIdIn(directory: MemoDirectoryType, documentId: String): Flow<String> =
         routeMarkdownDirectory(
             directory = directory,
             onMain = { safStreamFileByDocumentId(rootUri, documentAccess, documentId) },
@@ -88,21 +71,16 @@ internal class SafMarkdownStorageBackendDelegate(
         content: String,
         append: Boolean,
         uri: Uri?,
-    ): String? =
-        routeMarkdownDirectory(
-            directory = directory,
-            onMain = { safSaveFile(rootUri, documentAccess, filename, content, append, uri) },
-            onTrash = {
-                safSaveTrashFile(documentAccess, filename, content, append)
-                null
-            },
-        )
+    ): String? = routeMarkdownDirectory(
+        directory = directory,
+        onMain = { safSaveFile(rootUri, documentAccess, filename, content, append, uri) },
+        onTrash = {
+            safSaveTrashFile(documentAccess, filename, content, append)
+            null
+        },
+    )
 
-    override suspend fun deleteFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-        uri: Uri?,
-    ) {
+    override suspend fun deleteFileIn(directory: MemoDirectoryType, filename: String, uri: Uri?) {
         routeMarkdownDirectory(
             directory = directory,
             onMain = { safDeleteFile(context, documentAccess, filename, uri) },

@@ -6,10 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -18,7 +16,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,12 +35,10 @@ import com.lomo.ui.generated.resources.sync_conflict_merge_preview
 import com.lomo.ui.generated.resources.sync_conflict_review_message
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
-internal fun ConflictSectionHeader(
-    text: String,
-    count: Int,
-) {
+internal fun ConflictSectionHeader(text: String, count: Int) {
     Row(
         modifier = Modifier.padding(top = AppSpacing.Small, bottom = AppSpacing.ExtraSmall),
         verticalAlignment = Alignment.CenterVertically,
@@ -69,9 +64,7 @@ internal fun ConflictSectionHeader(
 }
 
 @Composable
-internal fun MergePreview(
-    mergedText: String,
-) {
+internal fun MergePreview(mergedText: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -142,48 +135,42 @@ internal fun ReviewMessage(message: String) {
 internal fun choiceLabel(
     choice: SyncConflictResolutionChoice,
     source: SyncBackendType = SyncBackendType.NONE,
-): String =
-    when (choice) {
-        SyncConflictResolutionChoice.KEEP_LOCAL -> localChoiceLabel(source)
-        SyncConflictResolutionChoice.KEEP_REMOTE -> remoteChoiceLabel(source)
-        SyncConflictResolutionChoice.MERGE_TEXT -> stringResource(Res.string.sync_conflict_choice_merge)
-        SyncConflictResolutionChoice.SKIP_FOR_NOW -> stringResource(Res.string.sync_conflict_choice_skip)
-    }
+): String = when (choice) {
+    SyncConflictResolutionChoice.KEEP_LOCAL -> localChoiceLabel(source)
+    SyncConflictResolutionChoice.KEEP_REMOTE -> remoteChoiceLabel(source)
+    SyncConflictResolutionChoice.MERGE_TEXT -> stringResource(Res.string.sync_conflict_choice_merge)
+    SyncConflictResolutionChoice.SKIP_FOR_NOW -> stringResource(Res.string.sync_conflict_choice_skip)
+}
 
 @Composable
 internal fun reviewChoiceLabel(
     choice: SyncReviewResolutionChoice,
     source: SyncBackendType = SyncBackendType.NONE,
-): String =
-    when (choice) {
-        SyncReviewResolutionChoice.KEEP_LOCAL -> localChoiceLabel(source)
-        SyncReviewResolutionChoice.KEEP_INCOMING -> remoteChoiceLabel(source)
-        SyncReviewResolutionChoice.MERGE_TEXT -> stringResource(Res.string.sync_conflict_choice_merge)
-        SyncReviewResolutionChoice.SKIP_FOR_NOW -> stringResource(Res.string.sync_conflict_choice_skip)
-    }
+): String = when (choice) {
+    SyncReviewResolutionChoice.KEEP_LOCAL -> localChoiceLabel(source)
+    SyncReviewResolutionChoice.KEEP_INCOMING -> remoteChoiceLabel(source)
+    SyncReviewResolutionChoice.MERGE_TEXT -> stringResource(Res.string.sync_conflict_choice_merge)
+    SyncReviewResolutionChoice.SKIP_FOR_NOW -> stringResource(Res.string.sync_conflict_choice_skip)
+}
 
 @Composable
-internal fun localChoiceLabel(source: SyncBackendType): String =
-    stringResource(
-        if (source == SyncBackendType.INBOX) {
-            Res.string.sync_conflict_choice_current_short
-        } else {
-            Res.string.sync_conflict_choice_local_short
-        },
-    )
+internal fun localChoiceLabel(source: SyncBackendType): String = stringResource(
+    if (source == SyncBackendType.INBOX) {
+        Res.string.sync_conflict_choice_current_short
+    } else {
+        Res.string.sync_conflict_choice_local_short
+    },
+)
 
 @Composable
-internal fun remoteChoiceLabel(source: SyncBackendType): String =
-    stringResource(
-        if (source == SyncBackendType.INBOX) {
-            Res.string.sync_conflict_choice_inbox_short
-        } else {
-            Res.string.sync_conflict_choice_remote_short
-        },
-    )
+internal fun remoteChoiceLabel(source: SyncBackendType): String = stringResource(
+    if (source == SyncBackendType.INBOX) {
+        Res.string.sync_conflict_choice_inbox_short
+    } else {
+        Res.string.sync_conflict_choice_remote_short
+    },
+)
 
-internal fun SyncBackendType.supportsDeferredConflictResolutionUi(): Boolean =
-    supportsDeferredConflictResolution()
+internal fun SyncBackendType.supportsDeferredConflictResolutionUi(): Boolean = supportsDeferredConflictResolution()
 
-internal fun SyncBackendType.supportsDeferredReviewResolutionUi(): Boolean =
-    supportsDeferredReviewResolution()
+internal fun SyncBackendType.supportsDeferredReviewResolutionUi(): Boolean = supportsDeferredReviewResolution()

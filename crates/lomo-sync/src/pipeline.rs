@@ -43,7 +43,7 @@ impl ContentDigest {
     /// Content-addressed digest of arbitrary body bytes (SHA-256 lowercase hex).
     #[must_use]
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        Self(format!("{:x}", Sha256::digest(bytes)))
+        Self(lomo_core::hex_encode(&Sha256::digest(bytes)))
     }
 
     #[must_use]

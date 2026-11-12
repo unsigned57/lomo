@@ -19,10 +19,7 @@ class NewMemoTileService : TileService() {
         )
     }
 
-    private fun startMainActivityAndCollapse(
-        requestCode: Int,
-        intent: Intent,
-    ) {
+    private fun startMainActivityAndCollapse(requestCode: Int, intent: Intent) {
         val wrapper =
             PendingIntentActivityWrapper(
                 this,

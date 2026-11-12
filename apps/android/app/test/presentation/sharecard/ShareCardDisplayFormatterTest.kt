@@ -77,11 +77,11 @@ class ShareCardDisplayFormatterTest : AppFunSpec() {
             val result =
                 formatter.formatBodyText(
                     plainBodyText =
-                        """
+                    """
                         Title line
                         voice_01.m4a
                         cover.png
-                        """.trimIndent(),
+                    """.trimIndent(),
                     audioPlaceholder = "[Audio]",
                     imagePlaceholder = "[Photo]",
                     imageNamedPlaceholderPattern = "[Photo: %s]",

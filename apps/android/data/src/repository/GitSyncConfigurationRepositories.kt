@@ -80,17 +80,13 @@ class GitSyncConfigurationMutationRepositoryImpl(
         credentialRepository.writeSecret(CredentialField.GIT_TOKEN, token)
     }
 
-    override suspend fun getTokenStatus(): StoredCredentialStatus =
-        credentialRepository
-            .credentialState(CredentialProvider.GIT)
-            .statusFor(CredentialField.GIT_TOKEN)
+    override suspend fun getTokenStatus(): StoredCredentialStatus = credentialRepository
+        .credentialState(CredentialProvider.GIT)
+        .statusFor(CredentialField.GIT_TOKEN)
 
     override suspend fun isTokenConfigured(): Boolean = getTokenStatus().isConfigured
 
-    override suspend fun setAuthorInfo(
-        name: String,
-        email: String,
-    ) {
+    override suspend fun setAuthorInfo(name: String, email: String) {
         // Canonical identity carries the *effective* author: the input factory substitutes
         // defaults for blanks, so compare effective values on both sides.
         if (dataStore.gitAuthorName.first().trim().ifBlank { GIT_AUTHOR_NAME_DEFAULT } !=
@@ -126,9 +122,7 @@ class GitSyncConfigurationMutationRepositoryImpl(
  * in-memory `Idle` seed. `null` records map to [UnifiedSyncState.Idle] (never synced / no
  * Direct workspace root).
  */
-class GitSyncStateRepositoryImpl(
-    private val cycleStatus: RustSyncCycleStatusStore,
-) : GitSyncStateRepository {
+class GitSyncStateRepositoryImpl(private val cycleStatus: RustSyncCycleStatusStore) : GitSyncStateRepository {
     override fun syncState(): Flow<UnifiedSyncState> =
         cycleStatus.observe().map { status -> status.toUnifiedSyncState(SyncBackendType.GIT) }
 }

@@ -13,7 +13,7 @@ use std::path::Path;
 use crate::{
     error::corruption,
     transaction::PlannedFile,
-    workspace_io::{FileSnapshot, WorkspaceIo},
+    workspace_io::{FileSnapshot, MAX_WORKSPACE_READ_BATCH, WorkspaceIo},
 };
 
 #[derive(Deserialize)]
@@ -89,43 +89,108 @@ pub fn decode_typed<T: DeserializeOwned>(
         .map_err(|error| corruption("invalid_record_body", error.to_string()))
 }
 
+pub fn history_head_relative_path(id: &MemoId) -> Result<RelativeWorkspacePath, LomoError> {
+    relative(&history_head_path(&paths(), id.as_str()))
+}
+
 pub fn history_tip(
     io: &WorkspaceIo<'_>,
     id: &MemoId,
 ) -> Result<Option<RevisionTip<HistoryRevisionV2>>, LomoError> {
-    let head_path = relative(&history_head_path(&paths(), id.as_str()))?;
-    let Some(head_file) = io.read(&head_path)? else {
+    let path = history_head_relative_path(id)?;
+    let Some(head_file) = io.read(&path)? else {
         return Ok(None);
     };
-    let head: HistoryHead = decode_typed(
-        &head_file,
-        LomoRecordKind::History,
-        &format!("head:{}", id.as_str()),
-    )?;
-    RevisionId::parse(head.head_revision_id.as_str())?;
+    let head = decode_canonical_history_head(&head_file, id)?;
     let object = io.require(&relative(&history_revision_path(
         &paths(),
         &head.head_revision_id,
     ))?)?;
+    Ok(Some(admit_history_tip(id, head_file, &head, &object)?))
+}
+
+/// Loads listed canonical heads and their tips in bounded dependency-ordered batches.
+/// A listed head disappearing is corruption, not permission to create replacement history.
+pub fn history_tips(
+    io: &WorkspaceIo<'_>,
+    ids: &[&MemoId],
+) -> Result<Vec<RevisionTip<HistoryRevisionV2>>, LomoError> {
+    let mut tips = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(MAX_WORKSPACE_READ_BATCH) {
+        let head_paths = chunk
+            .iter()
+            .map(|id| history_head_relative_path(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let head_files = io.require_batch(&head_paths).map_err(|error| {
+            if error.code() == "document_not_found" {
+                corruption(
+                    "history_head_missing",
+                    "listed history head disappeared during scan",
+                )
+            } else {
+                error
+            }
+        })?;
+        let heads = chunk
+            .iter()
+            .zip(&head_files)
+            .map(|(id, file)| decode_canonical_history_head(file, id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let object_paths = heads
+            .iter()
+            .map(|head| relative(&history_revision_path(&paths(), &head.head_revision_id)))
+            .collect::<Result<Vec<_>, _>>()?;
+        let objects = io.require_batch(&object_paths)?;
+        for (((id, head_file), head), object) in
+            chunk.iter().zip(head_files).zip(heads).zip(objects)
+        {
+            tips.push(admit_history_tip(id, head_file, &head, &object)?);
+        }
+    }
+    Ok(tips)
+}
+
+fn admit_history_tip(
+    id: &MemoId,
+    head_file: FileSnapshot,
+    head: &HistoryHead,
+    object: &FileSnapshot,
+) -> Result<RevisionTip<HistoryRevisionV2>, LomoError> {
     let revision: HistoryRevisionV2 = decode_typed(
-        &object,
+        object,
         LomoRecordKind::History,
         head.head_revision_id.as_str(),
     )?;
     validate_history_revision(&revision)?;
-    if head.memo_id != id.as_str()
-        || revision.memo_id != id.as_str()
-        || revision.revision_id != head.head_revision_id
-    {
+    if revision.memo_id != id.as_str() || revision.revision_id != head.head_revision_id {
         return Err(corruption(
             "history_head_mismatch",
             "history head points outside its memo identity",
         ));
     }
-    Ok(Some(RevisionTip {
+    Ok(RevisionTip {
         head_file,
         revision,
-    }))
+    })
+}
+
+pub fn decode_canonical_history_head(
+    file: &FileSnapshot,
+    id: &MemoId,
+) -> Result<HistoryHead, LomoError> {
+    let head: HistoryHead = decode_typed(
+        file,
+        LomoRecordKind::History,
+        &format!("head:{}", id.as_str()),
+    )?;
+    RevisionId::parse(head.head_revision_id.as_str())?;
+    if head.memo_id != id.as_str() {
+        return Err(corruption(
+            "history_head_mismatch",
+            "history head points outside its memo identity",
+        ));
+    }
+    Ok(head)
 }
 
 pub fn validate_history_revision(revision: &HistoryRevisionV2) -> Result<(), LomoError> {
@@ -206,7 +271,6 @@ pub fn state_tip_at(
 }
 
 fn immutable_file(
-    io: &WorkspaceIo<'_>,
     path: &Path,
     kind: LomoRecordKind,
     id: &str,
@@ -214,22 +278,16 @@ fn immutable_file(
 ) -> Result<PlannedFile, LomoError> {
     let path = relative(path)?;
     let bytes = record_bytes(kind, id, body)?;
-    let before = io.read(&path)?;
-    if before
-        .as_ref()
-        .is_some_and(|snapshot| snapshot.bytes != bytes)
-    {
-        return Err(corruption(
-            "immutable_revision_conflict",
-            "immutable revision already exists with other physical bytes",
-        ));
-    }
-    Ok(PlannedFile::new(path, before.as_ref(), bytes))
+    // Content-addressed objects are create-only. The platform's fused write observation
+    // accepts identical bytes and rejects a foreign occupant before mutation. A planning
+    // read would repeat that arbitration and cannot protect against a later race.
+    Ok(PlannedFile::new(path, None, bytes))
 }
 
 pub struct PreparedHistory {
     pub files: Vec<PlannedFile>,
     pub projection: lomo_store::ScannedHistoryProjection,
+    pub revision: HistoryRevisionV2,
 }
 
 pub fn history_files(
@@ -238,6 +296,14 @@ pub fn history_files(
 ) -> Result<PreparedHistory, LomoError> {
     let id = MemoId::parse(&history.memo_id)?;
     let previous = history_tip(io, &id)?;
+    history_files_after_tip(history, previous.as_ref())
+}
+
+/// Prepares the next revision from the tip already observed by this operation.
+pub fn history_files_after_tip(
+    history: &HistorySnapshotV1,
+    previous: Option<&RevisionTip<HistoryRevisionV2>>,
+) -> Result<PreparedHistory, LomoError> {
     let parents = previous
         .as_ref()
         .map_or(&[][..], |tip| std::slice::from_ref(&tip.revision));
@@ -262,7 +328,6 @@ pub fn history_files(
     };
     let files = vec![
         immutable_file(
-            io,
             &history_revision_path(&paths(), &revision.revision_id),
             LomoRecordKind::History,
             revision.revision_id.as_str(),
@@ -280,6 +345,7 @@ pub fn history_files(
     ];
     Ok(PreparedHistory {
         files,
+        revision: revision.clone(),
         projection: lomo_store::ScannedHistoryProjection {
             memo_id: history.memo_id.clone(),
             record_id: revision.revision_id.as_str().to_owned(),
@@ -345,7 +411,6 @@ pub fn state_files(
     };
     Ok(vec![
         immutable_file(
-            io,
             &state_revision_path(&paths(), &state.revision_id),
             LomoRecordKind::State,
             state.revision_id.as_str(),
@@ -361,4 +426,26 @@ pub fn state_files(
             )?,
         ),
     ])
+}
+
+/// Freezes a trash snapshot from the canonical memo projection used by the same publication.
+pub fn trash_snapshot(
+    projection: &lomo_store::ScannedMemoProjection,
+    time_part: &str,
+    trashed_at_ms: i64,
+) -> Result<lomo_workspace::TrashRecordV1, LomoError> {
+    lomo_workspace::TrashRecordV1::try_new(lomo_workspace::TrashRecordCreate {
+        memo_id: projection.memo_id.clone(),
+        source_path: projection.source_path.clone(),
+        time_part: time_part.to_owned(),
+        source_fingerprint: projection.file_fingerprint.clone(),
+        chronology_epoch_ms: projection.chronology_epoch_ms,
+        trashed_at_ms,
+        body: projection.body.clone(),
+        tags: projection.tags.clone(),
+        attachments: projection.attachment_paths.clone(),
+        reminders: projection.reminders.clone(),
+        has_todo: projection.has_todo,
+        has_url: projection.has_url,
+    })
 }

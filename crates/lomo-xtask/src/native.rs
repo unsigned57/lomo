@@ -1,11 +1,13 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     process::Command,
     time::Instant,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     tools,
@@ -18,7 +20,7 @@ pub const NATIVE_LIBRARY: &str = "liblomo_native_jni.so";
 const GENERATED_OWNER: &str = "LomoNativeBridge.kt";
 const GENERATED_PACKAGE_DIR: &str = "com/lomo/nativebridge";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum NativeProfile {
     Dev,
     /// Fat-LTO shipping profile used by local `just ci` and release builds.
@@ -38,6 +40,10 @@ pub enum Abi {
 impl Abi {
     pub const ALL: [Self; 4] = [Self::Arm64, Self::Arm, Self::X86_64, Self::X86];
 
+    /// Parses one supported Android ABI name.
+    ///
+    /// # Errors
+    /// Rejects unknown ABI names.
     pub fn parse(value: &str) -> Result<Self> {
         match value {
             "arm64-v8a" | "arm64" => Ok(Self::Arm64),
@@ -48,6 +54,10 @@ impl Abi {
         }
     }
 
+    /// Resolves a supported single-ABI or universal selector.
+    ///
+    /// # Errors
+    /// Rejects unknown selectors.
     pub fn parse_selector(value: &str) -> Result<Vec<Self>> {
         match value {
             "all" | "universal" => Ok(Self::ALL.to_vec()),
@@ -59,6 +69,7 @@ impl Abi {
         }
     }
 
+    #[must_use]
     pub const fn android_name(self) -> &'static str {
         match self {
             Self::Arm64 => "arm64-v8a",
@@ -113,7 +124,7 @@ pub fn generate_bindings(workspace: &Workspace) -> Result<()> {
     ensure_generated_not_tracked(workspace)?;
     let input_digest = binding_inputs_digest(workspace)?;
     let target = workspace.generated_bindings().join(GENERATED_OWNER);
-    let stamp_path = workspace.lomo_output_dir().join("bindings.json");
+    let stamp_path = workspace.build_state_dir().join("bindings.json");
     if stamp_path.is_file() && target.is_file() {
         let stamp: serde_json::Value = serde_json::from_slice(&fs::read(&stamp_path)?)?;
         let previous_input = stamp
@@ -147,7 +158,7 @@ pub fn generate_bindings(workspace: &Workspace) -> Result<()> {
         fs::write(&target, &canonical)
             .with_context(|| format!("failed to write {}", target.display()))?;
     }
-    fs::create_dir_all(workspace.lomo_output_dir())?;
+    fs::create_dir_all(workspace.build_state_dir())?;
     let temporary_stamp = stamp_path.with_extension("partial");
     fs::write(
         &temporary_stamp,
@@ -168,7 +179,7 @@ pub fn generate_bindings(workspace: &Workspace) -> Result<()> {
 
 fn binding_digest(bytes: &[u8]) -> String {
     use sha2::Digest as _;
-    format!("{:x}", sha2::Sha256::digest(bytes))
+    lomo_core::hex_encode(&sha2::Sha256::digest(bytes))
 }
 
 fn binding_inputs_digest(workspace: &Workspace) -> Result<String> {
@@ -183,7 +194,7 @@ fn binding_inputs_digest(workspace: &Workspace) -> Result<String> {
         [
             "Cargo.toml",
             "Cargo.lock",
-            "tools.toml",
+            "quality/tools.toml",
             "rust-toolchain.toml",
             "crates/lomo-native/Cargo.toml",
             "crates/lomo-native/boltffi.toml",
@@ -198,7 +209,7 @@ fn binding_inputs_digest(workspace: &Workspace) -> Result<String> {
         digest
             .update(fs::read(&path).with_context(|| format!("binding input {}", path.display()))?);
     }
-    Ok(format!("{:x}", digest.finalize()))
+    Ok(lomo_core::hex_encode(&digest.finalize()))
 }
 
 pub fn ensure_android_libraries(
@@ -211,50 +222,193 @@ pub fn ensure_android_libraries(
     ensure_generated_not_tracked(workspace)?;
     generate_bindings(workspace)?;
 
-    let jni_libs = workspace.jni_libs();
-    let stash_dir = workspace.root.join(".cache/stashed-jniLibs");
-
-    let all_exist = abis.iter().all(|abi| {
-        let name = abi.android_name();
-        let in_jni = jni_libs.join(name).join(NATIVE_LIBRARY).is_file();
-        let in_stash = stash_dir.join(name).join(NATIVE_LIBRARY).is_file();
-        in_jni || in_stash
-    });
-
-    if all_exist {
-        let shipping = matches!(profile, NativeProfile::Release | NativeProfile::ReleaseCi);
-        let matches_profile = !shipping || all_shipping_libraries_stripped(workspace, abis)?;
-        if matches_profile {
-            crate::util::emit_stderr(format_args!(
-                "xtask: native libraries for {} ABI(s) already exist for {profile:?}; reusing cached .so files",
-                abis.len()
-            ));
-            return Ok(());
-        }
+    if android_libraries_reusable(workspace, profile, abis)? {
         crate::util::emit_stderr(format_args!(
-            "xtask: existing native libraries are Dev/unstripped; regenerating {profile:?} libraries for {} ABI(s)",
+            "xtask: native libraries for {} ABI(s) have matching source/profile/output digests; reusing {profile:?}",
             abis.len()
         ));
+        return Ok(());
     }
-
     generate_android(workspace, profile, abis)
 }
 
-/// A shipping-class (Release/ReleaseCi) native library must not carry debug sections; that is
-/// the profile-identity contract that makes reuse of an existing `.so` file safe. Returns
-/// `Ok(false)` when any selected ABI is missing or still carries Dev debug sections.
-fn all_shipping_libraries_stripped(workspace: &Workspace, abis: &[Abi]) -> Result<bool> {
-    let readelf = ndk_tool(workspace, "llvm-readelf")?;
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AndroidLibrariesStamp {
+    schema_version: u32,
+    libraries: BTreeMap<String, AndroidLibraryStamp>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AndroidLibraryStamp {
+    profile: NativeProfile,
+    inputs: String,
+    output: String,
+}
+
+fn read_android_libraries_stamp(workspace: &Workspace) -> Result<Option<AndroidLibrariesStamp>> {
+    let path = workspace.build_state_dir().join("android-libraries.json");
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+    };
+    match serde_json::from_slice::<AndroidLibrariesStamp>(&bytes) {
+        Ok(stamp) if stamp.schema_version == 1 => Ok(Some(stamp)),
+        // A cache stamp is rebuildable provenance, never domain data. Unverifiable
+        // provenance explicitly invalidates reuse; no library is trusted on this path.
+        result => {
+            crate::util::emit_stderr(format_args!(
+                "xtask: invalid native library stamp {}; rebuilding ({})",
+                path.display(),
+                match result {
+                    Ok(stamp) => format!("unsupported schema {}", stamp.schema_version),
+                    Err(error) => error.to_string(),
+                }
+            ));
+            Ok(None)
+        }
+    }
+}
+
+/// Content inputs conservatively cover every first-party crate's production Rust sources
+/// and manifests, including untracked/new/deleted files, plus canonical tool/pack config.
+/// Tests and audit files cannot invalidate a native pack. Hashing this superset avoids a
+/// second Cargo dependency resolver and includes workspace/target/optional dependency edits.
+fn android_library_inputs_digest(workspace: &Workspace) -> Result<String> {
+    use sha2::Digest as _;
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(workspace.root.join("crates"))? {
+        let directory = entry?.path();
+        if !directory.is_dir() {
+            continue;
+        }
+        paths.extend(crate::util::find_files(&directory.join("src"), "rs")?);
+        for file in ["Cargo.toml", "build.rs"] {
+            let path = directory.join(file);
+            if path.is_file() {
+                paths.push(path);
+            }
+        }
+    }
+    paths.extend(
+        [
+            "Cargo.toml",
+            "Cargo.lock",
+            "quality/tools.toml",
+            "rust-toolchain.toml",
+            "crates/lomo-native/boltffi.toml",
+        ]
+        .map(|path| workspace.root.join(path)),
+    );
+    for relative in [".cargo/config.toml", ".cargo/local.toml"] {
+        let config = workspace.root.join(relative);
+        if config.is_file() {
+            paths.push(config);
+        }
+    }
+    paths.sort();
+    let mut digest = sha2::Sha256::new();
+    for path in paths {
+        let relative = path
+            .strip_prefix(&workspace.root)?
+            .as_os_str()
+            .as_encoded_bytes();
+        let bytes = fs::read(&path).with_context(|| format!("native input {}", path.display()))?;
+        digest.update(relative.len().to_le_bytes());
+        digest.update(relative);
+        digest.update(bytes.len().to_le_bytes());
+        digest.update(bytes);
+    }
+    Ok(lomo_core::hex_encode(&digest.finalize()))
+}
+
+fn android_library_path(workspace: &Workspace, abi: Abi) -> Option<PathBuf> {
+    [
+        workspace.jni_libs(),
+        workspace.build_state_dir().join("jni-stash"),
+    ]
+    .into_iter()
+    .map(|root| root.join(abi.android_name()).join(NATIVE_LIBRARY))
+    .find(|path| path.is_file())
+}
+
+/// Checks source, exact profile and artifact digests before reusing any selected ABI.
+/// Missing/corrupt provenance denies reuse, including stash-resident artifacts.
+///
+/// # Errors
+/// Returns source/artifact/stamp I/O errors; unverifiable provenance is never a reuse grant.
+pub fn android_libraries_reusable(
+    workspace: &Workspace,
+    profile: NativeProfile,
+    abis: &[Abi],
+) -> Result<bool> {
+    ensure!(!abis.is_empty(), "native reuse requires at least one ABI");
+    let Some(stamp) = read_android_libraries_stamp(workspace)? else {
+        return Ok(false);
+    };
+    let inputs = android_library_inputs_digest(workspace)?;
     for &abi in abis {
-        let path = workspace
-            .jni_libs()
-            .join(abi.android_name())
-            .join(NATIVE_LIBRARY);
-        if !path.is_file() || has_debug_sections(&readelf, &path)? {
+        let Some(previous) = stamp.libraries.get(abi.android_name()) else {
+            return Ok(false);
+        };
+        if previous.profile != profile || previous.inputs != inputs {
+            return Ok(false);
+        }
+        let Some(path) = android_library_path(workspace, abi) else {
+            return Ok(false);
+        };
+        if previous.output != binding_digest(&fs::read(&path)?) {
             return Ok(false);
         }
     }
     Ok(true)
+}
+
+/// Publishes source/profile/output provenance for successfully verified native libraries.
+/// Unselected ABI stamps retain their original inputs; only selected artifacts are certified.
+///
+/// # Errors
+/// Returns missing artifact, input or atomic stamp publication errors.
+pub fn write_android_libraries_stamp(
+    workspace: &Workspace,
+    profile: NativeProfile,
+    abis: &[Abi],
+) -> Result<()> {
+    ensure!(!abis.is_empty(), "native stamp requires at least one ABI");
+    let inputs = android_library_inputs_digest(workspace)?;
+    publish_android_libraries_stamp(workspace, profile, abis, &inputs)
+}
+
+fn publish_android_libraries_stamp(
+    workspace: &Workspace,
+    profile: NativeProfile,
+    abis: &[Abi],
+    inputs: &str,
+) -> Result<()> {
+    let mut stamp =
+        read_android_libraries_stamp(workspace)?.unwrap_or_else(|| AndroidLibrariesStamp {
+            schema_version: 1,
+            libraries: BTreeMap::new(),
+        });
+    for &abi in abis {
+        let path = android_library_path(workspace, abi)
+            .with_context(|| format!("missing native library for {}", abi.android_name()))?;
+        stamp.libraries.insert(
+            abi.android_name().to_owned(),
+            AndroidLibraryStamp {
+                profile,
+                inputs: inputs.to_owned(),
+                output: binding_digest(&fs::read(path)?),
+            },
+        );
+    }
+    let path = workspace.build_state_dir().join("android-libraries.json");
+    let temporary = path.with_extension("partial");
+    fs::create_dir_all(workspace.build_state_dir())?;
+    fs::write(&temporary, serde_json::to_vec_pretty(&stamp)?)?;
+    fs::rename(&temporary, &path).with_context(|| format!("publish {}", path.display()))
 }
 
 fn has_debug_sections(readelf: &Path, path: &Path) -> Result<bool> {
@@ -267,6 +421,7 @@ fn has_debug_sections(readelf: &Path, path: &Path) -> Result<bool> {
 pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[Abi]) -> Result<()> {
     ensure_ndk(workspace)?;
     tools::ensure_boltffi(workspace)?;
+    let inputs = android_library_inputs_digest(workspace)?;
     remove_selected_abis(workspace, abis)?;
 
     let temporary = workspace.temp_dir("boltffi-android")?;
@@ -279,6 +434,11 @@ pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[A
     let production_jni = workspace.jni_libs();
     publish_selected_abis(&jni_source, &production_jni, abis)?;
     verify_native_tree(workspace, abis, profile)?;
+    ensure!(
+        inputs == android_library_inputs_digest(workspace)?,
+        "native inputs changed during pack; refusing to certify artifact"
+    );
+    publish_android_libraries_stamp(workspace, profile, abis, &inputs)?;
     crate::util::emit_stderr(format_args!(
         "xtask: packaged {NATIVE_LIBRARY} for {} ABI(s) in {elapsed_ms} ms",
         abis.len()
@@ -700,6 +860,12 @@ fn verify_one_library(readelf: &Path, abi: Abi, path: &Path, shipping: bool) -> 
             abi.android_name()
         );
     }
+    if !shipping && !has_debug_sections(readelf, path)? {
+        bail!(
+            "{} lacks debug sections; a stripped library must not ship as a diagnosable Dev build",
+            path.display()
+        );
+    }
     Ok(())
 }
 
@@ -928,7 +1094,7 @@ pub struct AbiStashGuard {
 impl AbiStashGuard {
     pub fn stash_unselected(workspace: &Workspace, selected_abis: &[Abi]) -> Result<Self> {
         let jni_libs = workspace.jni_libs();
-        let stash_dir = workspace.root.join(".cache/stashed-jniLibs");
+        let stash_dir = workspace.build_state_dir().join("jni-stash");
         fs::create_dir_all(&stash_dir)?;
         let stashed = stash_unselected_in_dir(&jni_libs, &stash_dir, selected_abis)?;
 

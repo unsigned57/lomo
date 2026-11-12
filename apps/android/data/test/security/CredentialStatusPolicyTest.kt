@@ -46,7 +46,9 @@ import io.kotest.matchers.types.shouldBeInstanceOf
  */
 class CredentialStatusPolicyTest : DataFunSpec() {
     init {
-        test("given secure read outcomes when status is requested then missing present unreadable and invalid are explicit") {
+        test(
+            "given secure read outcomes when status is requested then missing present unreadable and invalid are explicit",
+        ) {
             val store =
                 FakeSecureStringStore(
                     mapOf(
@@ -76,7 +78,9 @@ class CredentialStatusPolicyTest : DataFunSpec() {
             failure.key shouldBe "token"
         }
 
-        test("given provider credentials when status is requested then provider fields expose unreadable and invalid separately") {
+        test(
+            "given provider credentials when status is requested then provider fields expose unreadable and invalid separately",
+        ) {
             val gitStore =
                 GitCredentialStore(
                     FakeSecureStringStore(
@@ -97,7 +101,9 @@ class CredentialStatusPolicyTest : DataFunSpec() {
                     FakeSecureStringStore(
                         mapOf(
                             "s3_access_key_id" to SecureStringReadResult.Present("access"),
-                            "s3_secret_access_key" to SecureStringReadResult.Unreadable(IllegalStateException("locked")),
+                            "s3_secret_access_key" to SecureStringReadResult.Unreadable(
+                                IllegalStateException("locked"),
+                            ),
                             "s3_session_token" to SecureStringReadResult.Missing,
                             "s3_encryption_password" to SecureStringReadResult.Present("crypt"),
                             "s3_encryption_password2" to SecureStringReadResult.Present("crypt2"),
@@ -112,32 +118,29 @@ class CredentialStatusPolicyTest : DataFunSpec() {
             s3Store.credentialState.fields.shouldContainExactly(
                 listOf(
                     CredentialFieldStateForTest(CredentialField.S3_ACCESS_KEY_ID, StoredCredentialStatus.Present),
-                    CredentialFieldStateForTest(CredentialField.S3_SECRET_ACCESS_KEY, StoredCredentialStatus.Unreadable),
+                    CredentialFieldStateForTest(
+                        CredentialField.S3_SECRET_ACCESS_KEY,
+                        StoredCredentialStatus.Unreadable,
+                    ),
                     CredentialFieldStateForTest(CredentialField.S3_SESSION_TOKEN, StoredCredentialStatus.Missing),
                     CredentialFieldStateForTest(CredentialField.S3_ENCRYPTION_PASSWORD, StoredCredentialStatus.Present),
-                    CredentialFieldStateForTest(CredentialField.S3_ENCRYPTION_PASSWORD2, StoredCredentialStatus.Present),
+                    CredentialFieldStateForTest(
+                        CredentialField.S3_ENCRYPTION_PASSWORD2,
+                        StoredCredentialStatus.Present,
+                    ),
                 ).map { it.toDomain() },
             )
         }
-
     }
 }
 
-private class FakeSecureStringStore(
-    private val reads: Map<String, SecureStringReadResult>,
-) : SecureStringStore {
+private class FakeSecureStringStore(private val reads: Map<String, SecureStringReadResult>) : SecureStringStore {
     override fun readString(key: String): SecureStringReadResult = reads[key] ?: SecureStringReadResult.Missing
 
-    override fun putString(
-        key: String,
-        value: String?,
-    ) = Unit
+    override fun putString(key: String, value: String?) = Unit
 }
 
-private data class CredentialFieldStateForTest(
-    val field: CredentialField,
-    val status: StoredCredentialStatus,
-) {
+private data class CredentialFieldStateForTest(val field: CredentialField, val status: StoredCredentialStatus) {
     fun toDomain(): com.lomo.domain.model.CredentialFieldState =
         com.lomo.domain.model.CredentialFieldState(field, status)
 }

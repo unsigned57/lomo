@@ -20,7 +20,8 @@ interface MarkdownWorkspaceRepository {
      * boundary, and fail closed if the revision or bytes changed.
      */
     suspend fun toggleTask(
+        operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,
         actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan,
-    ): com.lomo.domain.model.MemoDocumentMutation
+    ): String
 }

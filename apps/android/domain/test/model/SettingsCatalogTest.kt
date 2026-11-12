@@ -1,7 +1,7 @@
 package com.lomo.domain.model
 
-import io.kotest.core.spec.style.FunSpec
 import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
@@ -44,67 +44,70 @@ import io.kotest.matchers.shouldBe
  * - Why this is not fitting the test to the implementation: the checks assert the public catalog
  *   contract that import/export and repositories consume.
  */
-class SettingsCatalogTest : FunSpec({
-    test("given app preference snapshot when catalog is queried then every field has one descriptor") {
-        val descriptors = SettingsCatalog.descriptorsFor(SettingsReadModel.APP_PREFERENCES)
+class SettingsCatalogTest :
+    FunSpec({
+        test("given app preference snapshot when catalog is queried then every field has one descriptor") {
+            val descriptors = SettingsCatalog.descriptorsFor(SettingsReadModel.APP_PREFERENCES)
 
-        descriptors.map { it.snapshotField } shouldContainExactly AppPreferenceSnapshotField.entries.toList()
-        descriptors.map { it.id }.distinct().size shouldBe descriptors.size
-        descriptors.map { it.storageKey }.distinct().size shouldBe descriptors.size
-        descriptors.map { it.sensitivity }.distinct() shouldContainExactly listOf(SettingsSensitivity.NON_SENSITIVE)
-    }
+            descriptors.map { it.snapshotField } shouldContainExactly AppPreferenceSnapshotField.entries.toList()
+            descriptors.map { it.id }.distinct().size shouldBe descriptors.size
+            descriptors.map { it.storageKey }.distinct().size shouldBe descriptors.size
+            descriptors.map { it.sensitivity }.distinct() shouldContainExactly listOf(SettingsSensitivity.NON_SENSITIVE)
+        }
 
-    test("given app preference descriptors when metadata is inspected then defaults and policies are centralized") {
-        val descriptorsByField =
-            SettingsCatalog
-                .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
-                .associateBy { it.snapshotField }
-
-        descriptorsByField.getValue(AppPreferenceSnapshotField.DATE_FORMAT).defaultValue shouldBe
-            SettingValue.Text(PreferenceDefaults.DATE_FORMAT)
-        descriptorsByField.getValue(AppPreferenceSnapshotField.THEME_MODE).defaultValue shouldBe
-            SettingValue.Text(PreferenceDefaults.THEME_MODE)
-        descriptorsByField.getValue(AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS).defaultValue shouldBe
-            SettingValue.Text(PreferenceDefaults.CALENDAR_HEATMAP_THRESHOLDS)
-        descriptorsByField.getValue(AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED).defaultValue shouldBe
-            SettingValue.Bool(PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED)
-        descriptorsByField.getValue(AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND).defaultValue shouldBe
-            SettingValue.Bool(PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND)
-        descriptorsByField.getValue(AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE).defaultValue shouldBe
-            SettingValue.Decimal(PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
-
-        descriptorsByField.values.map { it.facet }.distinct() shouldContainExactlyInAnyOrder
-            listOf(
-                SettingsFacet.DISPLAY,
-                SettingsFacet.EDITOR,
-                SettingsFacet.SHARE,
-                SettingsFacet.TYPOGRAPHY,
-            )
-        descriptorsByField.values.map { it.exportPolicy }.distinct() shouldContainExactly
-            listOf(SettingsExportPolicy.PLAIN_TEXT)
-    }
-
-    test("given catalog defaults when app preference snapshot defaults are requested then typed defaults are catalog built") {
-        val expectedDefaults =
-            SettingsCatalog.appPreferenceSnapshotFrom(
+        test("given app preference descriptors when metadata is inspected then defaults and policies are centralized") {
+            val descriptorsByField =
                 SettingsCatalog
                     .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
-                    .associate { descriptor -> descriptor.snapshotField to descriptor.defaultValue },
-            )
+                    .associateBy { it.snapshotField }
 
-        AppPreferenceSnapshot.defaults() shouldBe expectedDefaults
-    }
+            descriptorsByField.getValue(AppPreferenceSnapshotField.DATE_FORMAT).defaultValue shouldBe
+                SettingValue.Text(PreferenceDefaults.DATE_FORMAT)
+            descriptorsByField.getValue(AppPreferenceSnapshotField.THEME_MODE).defaultValue shouldBe
+                SettingValue.Text(PreferenceDefaults.THEME_MODE)
+            descriptorsByField.getValue(AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS).defaultValue shouldBe
+                SettingValue.Text(PreferenceDefaults.CALENDAR_HEATMAP_THRESHOLDS)
+            descriptorsByField.getValue(AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED).defaultValue shouldBe
+                SettingValue.Bool(PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED)
+            descriptorsByField.getValue(AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND).defaultValue shouldBe
+                SettingValue.Bool(PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND)
+            descriptorsByField.getValue(AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE).defaultValue shouldBe
+                SettingValue.Decimal(PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
 
-    test("given invalid heatmap thresholds when catalog descriptor parses storage then the setting is rejected") {
-        val descriptor =
-            SettingsCatalog
-                .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
-                .single { descriptor ->
-                    descriptor.snapshotField == AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS
-                }
-
-        shouldThrow<IllegalArgumentException> {
-            descriptor.parseStorageValue("1,1,6")
+            descriptorsByField.values.map { it.facet }.distinct() shouldContainExactlyInAnyOrder
+                listOf(
+                    SettingsFacet.DISPLAY,
+                    SettingsFacet.EDITOR,
+                    SettingsFacet.SHARE,
+                    SettingsFacet.TYPOGRAPHY,
+                )
+            descriptorsByField.values.map { it.exportPolicy }.distinct() shouldContainExactly
+                listOf(SettingsExportPolicy.PLAIN_TEXT)
         }
-    }
-})
+
+        test(
+            "given catalog defaults when app preference snapshot defaults are requested then typed defaults are catalog built",
+        ) {
+            val expectedDefaults =
+                SettingsCatalog.appPreferenceSnapshotFrom(
+                    SettingsCatalog
+                        .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
+                        .associate { descriptor -> descriptor.snapshotField to descriptor.defaultValue },
+                )
+
+            AppPreferenceSnapshot.defaults() shouldBe expectedDefaults
+        }
+
+        test("given invalid heatmap thresholds when catalog descriptor parses storage then the setting is rejected") {
+            val descriptor =
+                SettingsCatalog
+                    .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
+                    .single { descriptor ->
+                        descriptor.snapshotField == AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS
+                    }
+
+            shouldThrow<IllegalArgumentException> {
+                descriptor.parseStorageValue("1,1,6")
+            }
+        }
+    })

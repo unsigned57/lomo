@@ -1,0 +1,8 @@
+# Part of the opt-in two-device LAN journey; run via just uitest lan_share.
+appId: com.lomo.app
+---
+- stopApp
+- launchApp
+- assertVisible:
+    id: "benchmark_main_root"
+- runFlow: verify-incoming.yaml

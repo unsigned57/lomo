@@ -1,4 +1,19 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract — P4-09 media/archive `BoltFFI` dark-build surface
+//! Test Change Justification:
+//! Reason category: user-requested private lifecycle storage.
+//! Old behavior/assertion being replaced: orphan recovery bytes were asserted under the public workspace.
+//! Why old assertion is no longer correct: only committed attachments and memo trash belong there.
+//! Coverage preserved by: the same durable recovery count, protection and source-removal assertions.
+//! Why this is not fitting the test to the implementation: independent user/private root fixtures lock the requested isolation.
 //!
 //! - Unit under test: `LomoEngine::{stage_media,finalize_recording,
 //!   query_media_manifest,media_orphan_sweep,session_export_archive,
@@ -23,6 +38,8 @@
 //! Observable outcomes: DTO path/digest fields, structured `EngineError` codes, store projection.
 //! Excludes: production DI cutover (P4-10), Kotlin adapters registered in production graph.
 
+#[cfg(test)]
+mod create_observer;
 #[cfg(test)]
 mod support;
 
@@ -122,25 +139,28 @@ mod tests {
             )
             .test_ok("stage");
         assert_eq!(staged.mime, "image/png");
-        assert!(!staged.digest.is_empty());
+        assert_ne!(staged.digest, "");
         assert!(Path::new(&staged.staging_path).is_file());
 
         let final_rel = format!("media/{}.png", staged.digest.get(..16).expect("digest"));
         engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "op-promote-ffi".to_owned(),
-                relative_path: None,
-                time_token: Some("10:15:00".to_owned()),
-                content: format!("see ![]({final_rel})"),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: vec![MediaPromotePlanDto {
+            .session_create_memo(
+                SessionCreateMemoRequest {
                     operation_id: "op-promote-ffi".to_owned(),
-                    staged: staged.clone(),
-                    final_relative_path: final_rel.clone(),
-                }],
-                chronology_epoch_ms: None,
-            })
+                    relative_path: None,
+                    time_token: Some("10:15:00".to_owned()),
+                    content: format!("see ![]({final_rel})"),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: vec![MediaPromotePlanDto {
+                        operation_id: "op-promote-ffi".to_owned(),
+                        staged: staged.clone(),
+                        final_relative_path: final_rel.clone(),
+                    }],
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_ok("session promote");
         assert!(ws.join(&final_rel).is_file());
         assert!(
@@ -263,20 +283,23 @@ mod tests {
         );
         let body = format!("see ![]({final_rel})");
         let commit = engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "op-ffi-promote-memo".to_owned(),
-                relative_path: None,
-                time_token: Some("10:15:00".to_owned()),
-                content: body,
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: vec![MediaPromotePlanDto {
+            .session_create_memo(
+                SessionCreateMemoRequest {
                     operation_id: "op-ffi-promote-memo".to_owned(),
-                    staged,
-                    final_relative_path: final_rel.clone(),
-                }],
-                chronology_epoch_ms: None,
-            })
+                    relative_path: None,
+                    time_token: Some("10:15:00".to_owned()),
+                    content: body,
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: vec![MediaPromotePlanDto {
+                        operation_id: "op-ffi-promote-memo".to_owned(),
+                        staged,
+                        final_relative_path: final_rel.clone(),
+                    }],
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_ok("session create with pending_promotes");
         assert!(
             commit.memo_id.starts_with("m_") && commit.memo_id.len() == 34,
@@ -312,10 +335,7 @@ mod tests {
         // environment (`<exchange>/exports/<name>.zip`), never nominated by the caller.
         attach_posix_session(&engine, &source, &control.join("exchange"));
         let exported = engine
-            .session_export_archive(
-                source.to_string_lossy().into_owned(),
-                Some("round-trip".to_owned()),
-            )
+            .session_export_archive(Some("round-trip".to_owned()), Vec::new())
             .test_ok("export");
         assert_eq!(exported.schema_version, 2);
         assert!(exported.entry_count >= 1);
@@ -342,7 +362,7 @@ mod tests {
             rebuild.memos_indexed >= 1,
             "rebuild must project imported memos"
         );
-        assert!(!rebuild.store_digest.is_empty());
+        assert_ne!(rebuild.store_digest, "");
         let previous = tmp.path().join("staging2.previous");
         assert!(
             previous.join("memos/1999_01_01.md").is_file(),
@@ -363,7 +383,7 @@ mod tests {
 
         // The export edge is session-gated: no unlocked path survives.
         let error = engine
-            .session_export_archive(source.to_string_lossy().into_owned(), None)
+            .session_export_archive(None, Vec::new())
             .test_err("export without session");
         assert_eq!(error.code(), "workspace_session_unavailable");
 
@@ -371,7 +391,7 @@ mod tests {
 
         // No hint: the session mints the artifact name itself.
         let generated = engine
-            .session_export_archive(source.to_string_lossy().into_owned(), None)
+            .session_export_archive(None, Vec::new())
             .test_ok("default-name export");
         let generated_path = std::path::PathBuf::from(&generated.archive_path);
         let generated_name = generated_path
@@ -399,10 +419,7 @@ mod tests {
             "bad name.zip",
         ] {
             let error = engine
-                .session_export_archive(
-                    source.to_string_lossy().into_owned(),
-                    Some(hint.to_owned()),
-                )
+                .session_export_archive(Some(hint.to_owned()), Vec::new())
                 .test_err("foreign file name must be rejected");
             assert_eq!(error.code(), "archive_export_name_invalid", "hint={hint:?}");
         }
@@ -463,10 +480,15 @@ mod tests {
         assert!(sweep.failures.is_empty());
         assert!(!ws.join("media/orphan.png").exists());
         assert!(
-            ws.join(".lomo-media-trash")
-                .read_dir()
-                .expect("trash dir")
-                .count()
+            Path::new(
+                &engine
+                    .sync_private_state_root(ws.display().to_string())
+                    .test_ok("private state root")
+            )
+            .join(".lomo-media-trash")
+            .read_dir()
+            .expect("trash dir")
+            .count()
                 == 1,
             "orphan must land in durable media-trash"
         );
@@ -476,7 +498,7 @@ mod tests {
             .session_media_orphan_sweep_guarding(Some(20_500), 1_000, Vec::new())
             .test_ok("second sweep");
         assert!(again.moved_to_trash.is_empty());
-        assert!(again.permanently_deleted_digests.is_empty());
+        assert_eq!(again.permanently_deleted_digests, Vec::<String>::new());
     }
 
     #[test]
@@ -489,16 +511,19 @@ mod tests {
         fs::create_dir_all(ws.join("media")).expect("media");
         write_bytes_for_tests(&ws.join("media/keep.png"), PNG_1X1).expect("png");
         engine
-            .session_create_memo(SessionCreateMemoRequest {
-                operation_id: "sweep-protect".to_owned(),
-                relative_path: None,
-                time_token: None,
-                content: "see ![[media/keep.png]]".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "sweep-protect".to_owned(),
+                    relative_path: None,
+                    time_token: None,
+                    content: "see ![[media/keep.png]]".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
             .test_ok("create memo");
 
         let sweep = engine

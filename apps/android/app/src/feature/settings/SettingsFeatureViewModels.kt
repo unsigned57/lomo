@@ -1,43 +1,46 @@
 package com.lomo.app.feature.settings
 
+import androidx.compose.ui.text.font.FontFamily
 import com.lomo.app.feature.common.appWhileSubscribed
-
+import com.lomo.app.feature.preferences.CustomFontHost
+import com.lomo.app.feature.preferences.CustomFontStatus
 import com.lomo.app.feature.update.AppUpdateChecker
-import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.feature.update.toDialogState
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.model.AppUpdateCheckOutcome
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
-import androidx.compose.ui.text.font.FontFamily
-import com.lomo.app.feature.preferences.CustomFontHost
-import com.lomo.app.feature.preferences.CustomFontStatus
+import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.CustomFontImportResult
-import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.CustomFontSource
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.FontPreference
-import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.ProjectionFreshness
+import com.lomo.domain.model.QuickBallAction
+import com.lomo.domain.model.QuickBallGesture
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WorkspaceMount
-import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 interface SettingsLanShareFeatureActions {
@@ -115,48 +118,58 @@ sealed interface WorkspaceRootOperationState {
 
     data object Indexing : WorkspaceRootOperationState
 
-    data class Failed(
-        val reasonCode: String,
-    ) : WorkspaceRootOperationState
+    data class Failed(val reasonCode: String) : WorkspaceRootOperationState
 }
 
 class SettingsStorageFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
     mount: StateFlow<WorkspaceMount>,
-    private val onError: (Throwable) -> Unit,
+    onError: (Throwable) -> Unit,
 ) {
-    private val rootCommandInFlight = MutableStateFlow(false)
+    /**
+     * Admitted directory commands by area, one entry per command. Every directory command is
+     * serialized behind the same workspace transition, so a later pick can wait for an earlier
+     * one; each area stays pending until its own command finishes.
+     */
+    private val directoryCommandsInFlight = MutableStateFlow<List<StorageArea>>(emptyList())
     val rootOperationState: StateFlow<WorkspaceRootOperationState> =
-        combine(rootCommandInFlight, mount, ::workspaceRootOperationState)
-            .stateIn(
-                scope = scope,
-                started = appWhileSubscribed(),
-                initialValue = workspaceRootOperationState(false, mount.value),
-            )
+        combine(directoryCommandsInFlight, mount) { commands, current ->
+            workspaceRootOperationState(commands.isNotEmpty(), current)
+        }.stateIn(
+            scope = scope,
+            started = appWhileSubscribed(),
+            initialValue = workspaceRootOperationState(false, mount.value),
+        )
+
+    /** Image/voice areas whose picked directory is admitted but not yet committed or failed. */
+    val pendingMediaAreas: StateFlow<Set<StorageArea>> =
+        directoryCommandsInFlight
+            .map { commands -> commands.toSet() - StorageArea.ROOT }
+            .stateIn(scope = scope, started = appWhileSubscribed(), initialValue = emptySet())
 
     fun updateRootDirectory(path: String) {
-        launchRootUpdate { appConfigCoordinator.updateRootDirectory(path) }
+        launchDirectoryUpdate(StorageArea.ROOT) { appConfigCoordinator.updateRootDirectory(path) }
     }
 
     fun updateRootUri(uriString: String) {
-        launchRootUpdate { appConfigCoordinator.updateRootUri(uriString) }
+        launchDirectoryUpdate(StorageArea.ROOT) { appConfigCoordinator.updateRootUri(uriString) }
     }
 
     fun updateImageDirectory(path: String) {
-        launchUpdate { appConfigCoordinator.updateImageDirectory(path) }
+        launchDirectoryUpdate(StorageArea.IMAGE) { appConfigCoordinator.updateImageDirectory(path) }
     }
 
     fun updateImageUri(uriString: String) {
-        launchUpdate { appConfigCoordinator.updateImageUri(uriString) }
+        launchDirectoryUpdate(StorageArea.IMAGE) { appConfigCoordinator.updateImageUri(uriString) }
     }
 
     fun updateVoiceDirectory(path: String) {
-        launchUpdate { appConfigCoordinator.updateVoiceDirectory(path) }
+        launchDirectoryUpdate(StorageArea.VOICE) { appConfigCoordinator.updateVoiceDirectory(path) }
     }
 
     fun updateVoiceUri(uriString: String) {
-        launchUpdate { appConfigCoordinator.updateVoiceUri(uriString) }
+        launchDirectoryUpdate(StorageArea.VOICE) { appConfigCoordinator.updateVoiceUri(uriString) }
     }
 
     fun updateSyncInboxDirectory(path: String) {
@@ -180,47 +193,44 @@ class SettingsStorageFeatureViewModel(
     }
 
     private val launchUpdate: (suspend () -> Unit) -> Unit = { operation ->
-        scope.launchStorageUpdate(onError, operation)
+        scope.launch { performStorageUpdate(onError, operation) }
     }
 
-    private val launchRootUpdate: (suspend () -> Unit) -> Unit = { operation ->
-        rootCommandInFlight.value = true
-        launchUpdate {
+    private val launchDirectoryUpdate: (StorageArea, suspend () -> Unit) -> Unit = { area, operation ->
+        directoryCommandsInFlight.update { commands -> commands + area }
+        // Enter the journaled switch before returning to the picker callback. Otherwise
+        // an immediate pop can cancel a queued launch before its NonCancellable owner runs.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                operation()
+                performStorageUpdate(onError, operation)
             } finally {
-                rootCommandInFlight.value = false
+                directoryCommandsInFlight.update { commands -> commands - area }
             }
         }
     }
 }
 
-private fun workspaceRootOperationState(
-    commandInFlight: Boolean,
-    mount: WorkspaceMount,
-): WorkspaceRootOperationState {
+private fun workspaceRootOperationState(commandInFlight: Boolean, mount: WorkspaceMount): WorkspaceRootOperationState {
     val readiness = mount.readiness
     return when {
         commandInFlight -> WorkspaceRootOperationState.Switching
+
         readiness is EngineReadiness.ReadOnlyRecovery ->
             WorkspaceRootOperationState.Failed(readiness.code)
+
         mount.freshness is ProjectionFreshness.Revalidating -> WorkspaceRootOperationState.Indexing
+
         else -> WorkspaceRootOperationState.Idle
     }
 }
 
-private fun CoroutineScope.launchStorageUpdate(
-    onError: (Throwable) -> Unit,
-    operation: suspend () -> Unit,
-) {
-    launch {
-        try {
-            operation()
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (error: Exception) {
-            onError(error)
-        }
+private suspend fun performStorageUpdate(onError: (Throwable) -> Unit, operation: suspend () -> Unit) {
+    try {
+        operation()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (error: Exception) {
+        onError(error)
     }
 }
 
@@ -248,6 +258,14 @@ class SettingsDisplayFeatureViewModel(
 
     fun updateColorSource(source: ColorSource) {
         scope.launch { appConfigCoordinator.updateColorSource(source) }
+    }
+
+    val updatePureBlackDark: (Boolean) -> Unit = { enabled ->
+        scope.launch { appConfigCoordinator.updatePureBlackDark(enabled) }
+    }
+
+    val updateContrastLevel: (ContrastLevel) -> Unit = { level ->
+        scope.launch { appConfigCoordinator.updateContrastLevel(level) }
     }
 
     fun updateFontPreference(preference: FontPreference) {
@@ -286,10 +304,7 @@ class SettingsDisplayFeatureViewModel(
             }
         }.stateIn(scope, appWhileSubscribed(), CustomFontStatus.NONE_SELECTED)
 
-    fun deleteCustomFont(
-        id: String,
-        onResult: (CustomFontDeletion) -> Unit = {},
-    ) {
+    fun deleteCustomFont(id: String, onResult: (CustomFontDeletion) -> Unit = {}) {
         scope.launch { onResult(appConfigCoordinator.deleteCustomFont(id)) }
     }
 
@@ -351,6 +366,10 @@ class SettingsInteractionFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
 ) {
+    val updateQuickBallAction: suspend (QuickBallGesture, QuickBallAction) -> Unit =
+        appConfigCoordinator.updateQuickBallAction
+    val resetQuickBallConfig: suspend () -> Unit = appConfigCoordinator.resetQuickBallConfig
+
     fun updateHapticFeedback(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateHapticFeedback(enabled) }
     }
@@ -365,10 +384,6 @@ class SettingsInteractionFeatureViewModel(
 
     fun updateFreeTextCopyEnabled(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateFreeTextCopyEnabled(enabled) }
-    }
-
-    fun updateMemoActionAutoReorderEnabled(enabled: Boolean) {
-        scope.launch { appConfigCoordinator.updateMemoActionAutoReorderEnabled(enabled) }
     }
 
     fun updateQuickSaveOnBackEnabled(enabled: Boolean) {
@@ -430,7 +445,9 @@ class SettingsSystemFeatureViewModel(
                                     SettingsManualUpdateState.UpdateAvailable(
                                         dialogState = outcome.update.toDialogState(),
                                     )
+
                                 AppUpdateCheckOutcome.UpToDate -> SettingsManualUpdateState.UpToDate
+
                                 is AppUpdateCheckOutcome.Failed ->
                                     SettingsManualUpdateState.Error(outcome.failure.diagnostic)
                             }
@@ -458,8 +475,10 @@ class SettingsSystemFeatureViewModel(
                             when (outcome) {
                                 is AppUpdateCheckOutcome.Available ->
                                     _debugPreviewDialogState.value = outcome.update.toDialogState()
+
                                 AppUpdateCheckOutcome.UpToDate ->
                                     _manualUpdateState.value = SettingsManualUpdateState.UpToDate
+
                                 is AppUpdateCheckOutcome.Failed ->
                                     _manualUpdateState.value =
                                         SettingsManualUpdateState.Error(outcome.failure.diagnostic)
@@ -486,21 +505,15 @@ sealed interface SettingsManualUpdateState {
 
     data object Checking : SettingsManualUpdateState
 
-    data class UpdateAvailable(
-        val dialogState: AppUpdateDialogState,
-    ) : SettingsManualUpdateState
+    data class UpdateAvailable(val dialogState: AppUpdateDialogState) : SettingsManualUpdateState
 
     data object UpToDate : SettingsManualUpdateState
 
-    data class Error(
-        val message: String?,
-    ) : SettingsManualUpdateState
+    data class Error(val message: String?) : SettingsManualUpdateState
 }
 
 // behavior-contract: session-facade-ok: LAN share preference actions; SettingsViewModel owns the settings screen
-class SettingsLanShareFeatureViewModel(
-    private val actionCoordinator: SettingsLanShareFeatureActions,
-) {
+class SettingsLanShareFeatureViewModel(private val actionCoordinator: SettingsLanShareFeatureActions) {
     fun updateLanShareEnabled(enabled: Boolean) {
         actionCoordinator.updateLanShareEnabled(enabled)
     }

@@ -1,6 +1,6 @@
 package com.lomo.domain.model
 
-/**
+/*
  * Stage-5 dark Sync Center presentation models (P5-10).
  *
  * Host UI / ViewModel state only. Not production DI. Maps from dark remote-sync repository
@@ -61,11 +61,7 @@ data class RemoteSyncConflictPage(
  * [kind] is a named wire string: `keep_local` | `keep_remote` | `merged_body` | `skip_for_now`.
  * [mergedBody] is required only for `merged_body`.
  */
-data class RemoteSyncConflictResolution(
-    val path: String,
-    val kind: String,
-    val mergedBody: String? = null,
-) {
+data class RemoteSyncConflictResolution(val path: String, val kind: String, val mergedBody: String? = null) {
     companion object {
         const val KIND_KEEP_LOCAL: String = "keep_local"
         const val KIND_KEEP_REMOTE: String = "keep_remote"

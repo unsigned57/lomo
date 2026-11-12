@@ -38,7 +38,9 @@ import io.kotest.matchers.shouldBe
  */
 class SensitiveCredentialPreferenceMigrationAlignmentTest : DataFunSpec() {
     init {
-        test("given credential repository keys when migration sensitive keys are classified then credentials are sensitive only") {
+        test(
+            "given credential repository keys when migration sensitive keys are classified then credentials are sensitive only",
+        ) {
             DataStoreMigrationSettingsStore.credentialSensitiveKeys shouldBe emptySet()
 
             DataStoreMigrationSettingsStore.supportedSensitiveKeys shouldContainAll

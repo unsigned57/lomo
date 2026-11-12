@@ -1,13 +1,13 @@
 package com.lomo.data.repository
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,17 +16,15 @@ package com.lomo.data.repository
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.lomo.data.local.datastore.LomoDataStore
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.core.Preferences
-import java.io.File
-import java.nio.file.Files
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 
 /*
  * Behavior Contract:
@@ -71,7 +69,7 @@ class InteractionPreferencesRepositoryImplTest : DataFunSpec() {
         }
     }
 
-    private fun kotlinx.coroutines.test.TestScope.setUpTest(): Pair<LomoDataStore, InteractionPreferencesRepositoryImpl> {
+    private fun TestScope.setUpTest(): Pair<LomoDataStore, InteractionPreferencesRepositoryImpl> {
         val dataStore = createLomoDataStore(backgroundScope)
         val repository = InteractionPreferencesRepositoryImpl(dataStore)
         return Pair(dataStore, repository)
@@ -85,9 +83,10 @@ class InteractionPreferencesRepositoryImplTest : DataFunSpec() {
             scope = scope,
             produceFile = { backingFile },
         )
-        val constructor = LomoDataStore::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+        val constructor = LomoDataStore::class.java.getDeclaredConstructor(
+            androidx.datastore.core.DataStore::class.java,
+        )
         constructor.isAccessible = true
         return constructor.newInstance(realDataStore)
     }
 }
-

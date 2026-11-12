@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 // adversarial-audit: 假设「三包 CLOSED 声明在当前代码上仍然成立」；
 // 本文件只做探测与取证，任何 RED 都是现存代码的真实残余缺陷，禁止通过修改生产代码转绿。
 //
@@ -260,7 +268,7 @@ mod tests {
                     &batch,
                     0,
                     1_700_000_000_000,
-                    &format!("{:x}", Sha256::digest(body)),
+                    &lomo_core::hex_encode(&Sha256::digest(body)),
                     body.len() as u64,
                     "adversarial item",
                     Vec::new(),

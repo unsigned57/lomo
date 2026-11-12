@@ -6,10 +6,10 @@ import com.lomo.nativebridge.StoreMemoCommit as BridgeMemoCommit
 import com.lomo.nativebridge.StoreMemoPage as BridgeMemoPage
 import com.lomo.nativebridge.StoreMemoQuery as BridgeMemoQuery
 import com.lomo.nativebridge.StoreMemoSnapshot as BridgeMemoSnapshot
-import com.lomo.nativebridge.StoreSidebarProjection as BridgeSidebarProjection
 import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 import com.lomo.nativebridge.StoreRebuildResult as BridgeRebuildResult
 import com.lomo.nativebridge.StoreSafMemoProjection as BridgeSafMemoProjection
+import com.lomo.nativebridge.StoreSidebarProjection as BridgeSidebarProjection
 
 /**
  * Converts every store FFI rejection into the typed domain failure.
@@ -18,24 +18,20 @@ import com.lomo.nativebridge.StoreSafMemoProjection as BridgeSafMemoProjection
  * the UI as a blank failure. Implementing the whole bridge interface here makes the conversion
  * compiler-enforced: a new bridge method cannot be added without deciding it crosses this edge.
  */
-internal class EngineFailureConvertingStoreBridge(
-    private val delegate: StoreNativeBridge,
-) : StoreNativeBridge {
+internal class EngineFailureConvertingStoreBridge(private val delegate: StoreNativeBridge) : StoreNativeBridge {
     override fun queryMemos(
         query: BridgeMemoQuery,
         cursor: BridgePageCursor?,
         pageSize: UInt,
         startMemoId: String?,
         backward: Boolean,
-    ): BridgeMemoPage =
-        withEngineFailureConversion {
-            delegate.queryMemos(query, cursor, pageSize, startMemoId, backward)
-        }
+    ): BridgeMemoPage = withEngineFailureConversion {
+        delegate.queryMemos(query, cursor, pageSize, startMemoId, backward)
+    }
 
     override fun getMemo(memoId: String): BridgeMemoSnapshot? = withEngineFailureConversion { delegate.getMemo(memoId) }
 
-    override fun queryCount(query: BridgeMemoQuery): ULong =
-        withEngineFailureConversion { delegate.queryCount(query) }
+    override fun queryCount(query: BridgeMemoQuery): ULong = withEngineFailureConversion { delegate.queryCount(query) }
 
     override fun sidebarProjection(): BridgeSidebarProjection =
         withEngineFailureConversion { delegate.sidebarProjection() }
@@ -43,8 +39,7 @@ internal class EngineFailureConvertingStoreBridge(
     override fun commitWorkspaceDocumentFacts(
         command: BridgeMemoCommand,
         projection: BridgeSafMemoProjection,
-    ): BridgeMemoCommit =
-        withEngineFailureConversion { delegate.commitWorkspaceDocumentFacts(command, projection) }
+    ): BridgeMemoCommit = withEngineFailureConversion { delegate.commitWorkspaceDocumentFacts(command, projection) }
 
     override fun startRebuild(batchSize: UInt): BridgeRebuildResult =
         withEngineFailureConversion { delegate.startRebuild(batchSize) }

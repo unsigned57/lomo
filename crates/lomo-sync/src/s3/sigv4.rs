@@ -49,7 +49,7 @@ pub fn sign_request(
     let canonical_request = format!(
         "{method}\n{path}\n{query}\n{canonical_headers}\n{signed_headers}\n{payload_sha256_hex}"
     );
-    let canonical_hash = format!("{:x}", Sha256::digest(canonical_request.as_bytes()));
+    let canonical_hash = hex_encode(&Sha256::digest(canonical_request.as_bytes()));
     let string_to_sign =
         format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_hash}");
     let signing_key = signing_key_for(credentials.secret_access_key(), date_stamp, region, "s3");
@@ -87,7 +87,7 @@ pub fn aws_published_sigv4_example_matches() -> bool {
     let signed_headers = "host;range;x-amz-content-sha256;x-amz-date";
     let canonical_request =
         format!("GET\n/test.txt\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
-    let canonical_hash = format!("{:x}", Sha256::digest(canonical_request.as_bytes()));
+    let canonical_hash = hex_encode(&Sha256::digest(canonical_request.as_bytes()));
     let credential_scope = format!("{date_stamp}/{region}/s3/aws4_request");
     let string_to_sign =
         format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_hash}");
@@ -170,5 +170,5 @@ fn signing_key_for(secret_key: &str, date_stamp: &str, region: &str, service: &s
 
 #[must_use]
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex_encode(&Sha256::digest(bytes))
 }

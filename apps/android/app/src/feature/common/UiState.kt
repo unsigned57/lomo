@@ -5,14 +5,9 @@ sealed class UiState<out T> {
 
     data object Loading : UiState<Nothing>()
 
-    data class Success<T>(
-        val data: T,
-    ) : UiState<T>()
+    data class Success<T>(val data: T) : UiState<T>()
 
-    data class Error(
-        val message: String,
-        val throwable: Throwable? = null,
-    ) : UiState<Nothing>()
+    data class Error(val message: String, val throwable: Throwable? = null) : UiState<Nothing>()
 
     val isLoading: Boolean get() = this is Loading
 
@@ -24,11 +19,10 @@ sealed class UiState<out T> {
 
     fun errorOrNull(): String? = (this as? Error)?.message
 
-    fun <R> map(transform: (T) -> R): UiState<R> =
-        when (this) {
-            is Idle -> Idle
-            is Loading -> Loading
-            is Success -> Success(transform(data))
-            is Error -> Error(message, throwable)
-        }
+    fun <R> map(transform: (T) -> R): UiState<R> = when (this) {
+        is Idle -> Idle
+        is Loading -> Loading
+        is Success -> Success(transform(data))
+        is Error -> Error(message, throwable)
+    }
 }

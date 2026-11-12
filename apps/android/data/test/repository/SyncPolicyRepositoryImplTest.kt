@@ -38,7 +38,6 @@ import androidx.work.Data
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.GitEndpointSecurityMigration
 import com.lomo.data.sync.SyncIdentityResetPolicy
-import com.lomo.data.worker.CoreSyncScheduler
 import com.lomo.data.worker.DeferredLockWorkStore
 import com.lomo.data.worker.RustSyncScheduler
 import com.lomo.domain.model.SyncBackendType
@@ -53,96 +52,96 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 
-private fun recordingIdentityReset(events: MutableList<String>): SyncIdentityResetPolicy =
-    SyncIdentityResetPolicy(
-        scheduler =
-            mockk<RustSyncScheduler>().also {
-                every { it.cancel() } answers { events += "cancel" }
-            },
-        deferredLockStore =
-            object : DeferredLockWorkStore {
-                override fun save(input: Data) = error("not used")
+private fun recordingIdentityReset(events: MutableList<String>): SyncIdentityResetPolicy = SyncIdentityResetPolicy(
+    scheduler =
+    mockk<RustSyncScheduler>().also {
+        every { it.cancel() } answers { events += "cancel" }
+    },
+    deferredLockStore =
+    object : DeferredLockWorkStore {
+        override fun save(input: Data) = error("not used")
 
-                override fun take(): Data? = null
+        override fun take(): Data? = null
 
-                override fun clear() {
-                    events += "deferred-clear"
-                }
-            },
-        syncStateReset =
-            object : SyncStateResetRepository {
-                override suspend fun resetWorkspaceScopedSyncState() {
-                    events += "reset"
-                }
-            },
-    )
-
-class SyncPolicyRepositoryImplTest : FunSpec({
-    test("changing backend cancels rust work then resets the workspace control tree") {
-        runTest {
-            val events = mutableListOf<String>()
-            val dataStore = createLomoDataStore(backgroundScope)
-            val repository =
-                SyncPolicyRepositoryImpl(
-                    dataStore = dataStore,
-                    coreSyncScheduler = mockk(),
-                    rustSyncScheduler = mockk(),
-                    identityReset = recordingIdentityReset(events),
-                    gitEndpointSecurityMigration = mockk(),
-                )
-
-            repository.setRemoteSyncBackend(SyncBackendType.GIT)
-
-            events shouldBe listOf("cancel", "deferred-clear", "reset")
-            dataStore.syncBackendType.first() shouldBe "git"
+        override fun clear() {
+            events += "deferred-clear"
         }
-    }
-
-    test("same backend write does not cancel or reset") {
-        runTest {
-            val events = mutableListOf<String>()
-            val dataStore = createLomoDataStore(backgroundScope)
-            dataStore.setRemoteSyncBackendType("git")
-            val repository =
-                SyncPolicyRepositoryImpl(
-                    dataStore = dataStore,
-                    coreSyncScheduler = mockk(),
-                    rustSyncScheduler = mockk(),
-                    identityReset = recordingIdentityReset(events),
-                    gitEndpointSecurityMigration = mockk(),
-                )
-
-            repository.setRemoteSyncBackend(SyncBackendType.GIT)
-
-            events shouldBe emptyList()
-            dataStore.syncBackendType.first() shouldBe "git"
+    },
+    syncStateReset =
+    object : SyncStateResetRepository {
+        override suspend fun resetWorkspaceScopedSyncState() {
+            events += "reset"
         }
-    }
+    },
+)
 
-    test("applyRemoteSyncPolicy sanitizes legacy git endpoints before reading the backend") {
-        runTest {
-            val events = mutableListOf<String>()
-            val dataStore = createLomoDataStore(backgroundScope)
-            dataStore.setRemoteSyncBackendType("git")
-            val scheduler = mockk<RustSyncScheduler>()
-            val migration = mockk<GitEndpointSecurityMigration>()
-            coEvery { migration.migrateIfNeeded() } answers { events += "migrate" }
-            coEvery { scheduler.reschedule() } answers { events += "reschedule" }
-            val repository =
-                SyncPolicyRepositoryImpl(
-                    dataStore = dataStore,
-                    coreSyncScheduler = mockk(),
-                    rustSyncScheduler = scheduler,
-                    identityReset = mockk(),
-                    gitEndpointSecurityMigration = migration,
-                )
+class SyncPolicyRepositoryImplTest :
+    FunSpec({
+        test("changing backend cancels rust work then resets the workspace control tree") {
+            runTest {
+                val events = mutableListOf<String>()
+                val dataStore = createLomoDataStore(backgroundScope)
+                val repository =
+                    SyncPolicyRepositoryImpl(
+                        dataStore = dataStore,
+                        coreSyncScheduler = mockk(),
+                        rustSyncScheduler = mockk(),
+                        identityReset = recordingIdentityReset(events),
+                        gitEndpointSecurityMigration = mockk(),
+                    )
 
-            repository.applyRemoteSyncPolicy()
+                repository.setRemoteSyncBackend(SyncBackendType.GIT)
 
-            events shouldBe listOf("migrate", "reschedule")
+                events shouldBe listOf("cancel", "deferred-clear", "reset")
+                dataStore.syncBackendType.first() shouldBe "git"
+            }
         }
-    }
-})
+
+        test("same backend write does not cancel or reset") {
+            runTest {
+                val events = mutableListOf<String>()
+                val dataStore = createLomoDataStore(backgroundScope)
+                dataStore.setRemoteSyncBackendType("git")
+                val repository =
+                    SyncPolicyRepositoryImpl(
+                        dataStore = dataStore,
+                        coreSyncScheduler = mockk(),
+                        rustSyncScheduler = mockk(),
+                        identityReset = recordingIdentityReset(events),
+                        gitEndpointSecurityMigration = mockk(),
+                    )
+
+                repository.setRemoteSyncBackend(SyncBackendType.GIT)
+
+                events shouldBe emptyList()
+                dataStore.syncBackendType.first() shouldBe "git"
+            }
+        }
+
+        test("applyRemoteSyncPolicy sanitizes legacy git endpoints before reading the backend") {
+            runTest {
+                val events = mutableListOf<String>()
+                val dataStore = createLomoDataStore(backgroundScope)
+                dataStore.setRemoteSyncBackendType("git")
+                val scheduler = mockk<RustSyncScheduler>()
+                val migration = mockk<GitEndpointSecurityMigration>()
+                coEvery { migration.migrateIfNeeded() } answers { events += "migrate" }
+                coEvery { scheduler.reschedule() } answers { events += "reschedule" }
+                val repository =
+                    SyncPolicyRepositoryImpl(
+                        dataStore = dataStore,
+                        coreSyncScheduler = mockk(),
+                        rustSyncScheduler = scheduler,
+                        identityReset = mockk(),
+                        gitEndpointSecurityMigration = migration,
+                    )
+
+                repository.applyRemoteSyncPolicy()
+
+                events shouldBe listOf("migrate", "reschedule")
+            }
+        }
+    })
 
 private fun createLomoDataStore(scope: CoroutineScope): LomoDataStore {
     val backingFile =

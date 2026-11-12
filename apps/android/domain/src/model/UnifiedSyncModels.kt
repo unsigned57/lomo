@@ -28,44 +28,23 @@ data class UnifiedSyncError(
 sealed interface UnifiedSyncState {
     data object Idle : UnifiedSyncState
 
-    data class Running(
-        val provider: SyncBackendType,
-        val phase: UnifiedSyncPhase,
-    ) : UnifiedSyncState
+    data class Running(val provider: SyncBackendType, val phase: UnifiedSyncPhase) : UnifiedSyncState
 
-    data class Success(
-        val provider: SyncBackendType,
-        val timestamp: Long,
-        val summary: String,
-    ) : UnifiedSyncState
+    data class Success(val provider: SyncBackendType, val timestamp: Long, val summary: String) : UnifiedSyncState
 
-    data class Error(
-        val error: UnifiedSyncError,
-        val timestamp: Long,
-    ) : UnifiedSyncState
+    data class Error(val error: UnifiedSyncError, val timestamp: Long) : UnifiedSyncState
 
-    data class NotConfigured(
-        val provider: SyncBackendType,
-    ) : UnifiedSyncState
+    data class NotConfigured(val provider: SyncBackendType) : UnifiedSyncState
 
-    data class ConflictDetected(
-        val provider: SyncBackendType,
-        val conflicts: SyncConflictSet,
-    ) : UnifiedSyncState
+    data class ConflictDetected(val provider: SyncBackendType, val conflicts: SyncConflictSet) : UnifiedSyncState
 
-    data class ReviewRequired(
-        val provider: SyncBackendType,
-        val review: SyncReviewSession,
-    ) : UnifiedSyncState
+    data class ReviewRequired(val provider: SyncBackendType, val review: SyncReviewSession) : UnifiedSyncState
 }
 
 sealed interface UnifiedSyncResult {
     val provider: SyncBackendType
 
-    data class Success(
-        override val provider: SyncBackendType,
-        val message: String,
-    ) : UnifiedSyncResult
+    data class Success(override val provider: SyncBackendType, val message: String) : UnifiedSyncResult
 
     /**
      * The work was accepted by the scheduler — **not** a completed sync.
@@ -73,30 +52,15 @@ sealed interface UnifiedSyncResult {
      * Enqueue receipts only prove WorkManager admission; the durable Rust cycle record owns the
      * real outcome (`com.lomo.data.engine.sync.RemoteSyncCycleStatus` / `syncState()` flows).
      */
-    data class Accepted(
-        override val provider: SyncBackendType,
-        val message: String,
-    ) : UnifiedSyncResult
+    data class Accepted(override val provider: SyncBackendType, val message: String) : UnifiedSyncResult
 
-    data class Error(
-        override val provider: SyncBackendType,
-        val error: UnifiedSyncError,
-    ) : UnifiedSyncResult
+    data class Error(override val provider: SyncBackendType, val error: UnifiedSyncError) : UnifiedSyncResult
 
-    data class NotConfigured(
-        override val provider: SyncBackendType,
-        val error: UnifiedSyncError,
-    ) : UnifiedSyncResult
+    data class NotConfigured(override val provider: SyncBackendType, val error: UnifiedSyncError) : UnifiedSyncResult
 
-    data class Conflict(
-        override val provider: SyncBackendType,
-        val message: String,
-        val conflicts: SyncConflictSet,
-    ) : UnifiedSyncResult
+    data class Conflict(override val provider: SyncBackendType, val message: String, val conflicts: SyncConflictSet) :
+        UnifiedSyncResult
 
-    data class Review(
-        override val provider: SyncBackendType,
-        val message: String,
-        val review: SyncReviewSession,
-    ) : UnifiedSyncResult
+    data class Review(override val provider: SyncBackendType, val message: String, val review: SyncReviewSession) :
+        UnifiedSyncResult
 }

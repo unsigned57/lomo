@@ -18,27 +18,27 @@ class OwnerReminderTokenFactory : ReminderTokenFactory {
         repeatCount: Int,
         intervalMinutes: Int,
         recurrence: Recurrence,
-    ): String =
-        buildReminderToken(
-            ReminderTokenBuildRequest(
-                dueAtLocal = dueAt.format(REMINDER_DUE_AT_FORMATTER),
-                repeatCount = repeatCount.toUInt(),
-                firedCount = 0u,
-                done = false,
-                intervalMinutes = intervalMinutes.toUInt(),
-                recurrence = recurrence.toNativeRecurrence(),
-            ),
-        )
+    ): String = buildReminderToken(
+        ReminderTokenBuildRequest(
+            dueAtLocal = dueAt.format(REMINDER_DUE_AT_FORMATTER),
+            repeatCount = repeatCount.toUInt(),
+            firedCount = 0u,
+            done = false,
+            intervalMinutes = intervalMinutes.toUInt(),
+            recurrence = recurrence.toNativeRecurrence(),
+        ),
+    )
 
-    override fun planMarkDone(currentToken: String): String =
-        planReminderTokenMutation(
-            currentToken = currentToken,
-            mutation = ReminderTokenMutationKind.MARK_DONE,
-        )
+    override fun dueAt(token: String): LocalDateTime =
+        LocalDateTime.parse(com.lomo.nativebridge.reminderDueAtLocal(token), REMINDER_DUE_AT_FORMATTER)
 
-    override fun planRecordFired(currentToken: String): String =
-        planReminderTokenMutation(
-            currentToken = currentToken,
-            mutation = ReminderTokenMutationKind.RECORD_FIRED,
-        )
+    override fun planMarkDone(currentToken: String): String = planReminderTokenMutation(
+        currentToken = currentToken,
+        mutation = ReminderTokenMutationKind.MARK_DONE,
+    )
+
+    override fun planRecordFired(currentToken: String): String = planReminderTokenMutation(
+        currentToken = currentToken,
+        mutation = ReminderTokenMutationKind.RECORD_FIRED,
+    )
 }

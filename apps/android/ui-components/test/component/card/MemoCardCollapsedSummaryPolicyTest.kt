@@ -14,36 +14,44 @@ import io.kotest.matchers.shouldBe
 class MemoCardCollapsedSummaryPolicyTest : UiComponentsFunSpec() {
     init {
         test("collapsed long memo preview prefers markdown path when markdown content exists") {
-        (resolveMemoCardCollapsedPreviewMode(
-                isCollapsedPreview = true,
-                hasProcessedContent = true,
-                collapsedSummary = "preview body",
-            )) shouldBe (MemoCardCollapsedPreviewMode.MarkdownPreview)
+            (
+                resolveMemoCardCollapsedPreviewMode(
+                    isCollapsedPreview = true,
+                    hasProcessedContent = true,
+                    collapsedSummary = "preview body",
+                )
+                ) shouldBe (MemoCardCollapsedPreviewMode.MarkdownPreview)
         }
     }
 
     init {
         test("summary fallback stays available only when collapsed preview has no markdown content") {
-        (resolveMemoCardCollapsedPreviewMode(
-                isCollapsedPreview = true,
-                hasProcessedContent = false,
-                collapsedSummary = "preview body",
-            )) shouldBe (MemoCardCollapsedPreviewMode.Summary)
+            (
+                resolveMemoCardCollapsedPreviewMode(
+                    isCollapsedPreview = true,
+                    hasProcessedContent = false,
+                    collapsedSummary = "preview body",
+                )
+                ) shouldBe (MemoCardCollapsedPreviewMode.Summary)
         }
     }
 
     init {
         test("expanded preview never stays on a collapsed rendering mode") {
-        (resolveMemoCardCollapsedPreviewMode(
-                isCollapsedPreview = false,
-                hasProcessedContent = true,
-                collapsedSummary = "preview body",
-            )) shouldBe (MemoCardCollapsedPreviewMode.FullContent)
-        (resolveMemoCardCollapsedPreviewMode(
-                isCollapsedPreview = true,
-                hasProcessedContent = false,
-                collapsedSummary = "",
-            )) shouldBe (MemoCardCollapsedPreviewMode.FullContent)
+            (
+                resolveMemoCardCollapsedPreviewMode(
+                    isCollapsedPreview = false,
+                    hasProcessedContent = true,
+                    collapsedSummary = "preview body",
+                )
+                ) shouldBe (MemoCardCollapsedPreviewMode.FullContent)
+            (
+                resolveMemoCardCollapsedPreviewMode(
+                    isCollapsedPreview = true,
+                    hasProcessedContent = false,
+                    collapsedSummary = "",
+                )
+                ) shouldBe (MemoCardCollapsedPreviewMode.FullContent)
         }
     }
 }

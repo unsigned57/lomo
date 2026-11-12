@@ -7,10 +7,9 @@ internal data class SyncInboxSectionPolicy(
 )
 
 internal object SyncInboxSectionPolicies {
-    fun resolve(enabled: Boolean): SyncInboxSectionPolicy =
-        SyncInboxSectionPolicy(
-            showSectionHeader = true,
-            headerInteractive = true,
-            showDirectoryPreference = enabled,
-        )
+    fun resolve(enabled: Boolean): SyncInboxSectionPolicy = SyncInboxSectionPolicy(
+        showSectionHeader = true,
+        headerInteractive = true,
+        showDirectoryPreference = enabled,
+    )
 }

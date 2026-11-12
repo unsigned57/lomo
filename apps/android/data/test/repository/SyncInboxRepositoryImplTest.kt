@@ -1,3 +1,11 @@
+/*
+ * Test Change Justification:
+ * Reason category: stage destination checks now use the mounted session capability.
+ * Old behavior/assertion being replaced: fixture methods accepted a nullable Direct-only workspace root.
+ * Why old assertion is no longer correct: that input cannot represent the selected SAF or independent attachment directory.
+ * Coverage preserved by: every existing result assertion; only the lease API and fixture signatures change.
+ * Why this is not fitting the test to the implementation: one authoritative session now supplies destination evidence.
+ */
 package com.lomo.data.repository
 
 /*
@@ -81,8 +89,8 @@ import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.data.sync.SyncConflictSuggestionPort
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.KotestTemporaryFolder
+import com.lomo.data.testing.fakes.FakeSyncInboxPreferencesRepository
 import com.lomo.data.testing.fakes.fakeMarkdownWorkspaceContentProjector
-import com.lomo.domain.model.MemoDocumentMutation
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncMergeSuggestion
 import com.lomo.domain.model.SyncReviewItemState
@@ -91,7 +99,6 @@ import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
-import com.lomo.data.testing.fakes.FakeSyncInboxPreferencesRepository
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
@@ -150,7 +157,7 @@ class SyncInboxRepositoryImplTest : DataFunSpec() {
                     harness.repository.resolveReview(
                         SyncReviewResolution(
                             perItemChoices =
-                                mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_INCOMING),
+                            mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_INCOMING),
                         ),
                         review,
                     )
@@ -199,7 +206,7 @@ class SyncInboxRepositoryImplTest : DataFunSpec() {
                     harness.repository.resolveReview(
                         SyncReviewResolution(
                             perItemChoices =
-                                mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_INCOMING),
+                            mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_INCOMING),
                         ),
                         review,
                     )
@@ -210,7 +217,7 @@ class SyncInboxRepositoryImplTest : DataFunSpec() {
                     harness.repository.resolveReview(
                         SyncReviewResolution(
                             perItemChoices =
-                                mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_INCOMING),
+                            mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_INCOMING),
                         ),
                         review,
                     )
@@ -243,7 +250,7 @@ class SyncInboxRepositoryImplTest : DataFunSpec() {
                     harness.repository.resolveReview(
                         SyncReviewResolution(
                             perItemChoices =
-                                mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_LOCAL),
+                            mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_LOCAL),
                         ),
                         review,
                     )
@@ -273,7 +280,7 @@ class SyncInboxRepositoryImplTest : DataFunSpec() {
                     harness.repository.resolveReview(
                         SyncReviewResolution(
                             perItemChoices =
-                                mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_INCOMING),
+                            mapOf(item.relativePath to SyncReviewResolutionChoice.KEEP_INCOMING),
                         ),
                         review,
                     )
@@ -299,22 +306,21 @@ class SyncInboxRepositoryImplTest : DataFunSpec() {
         val repository =
             SyncInboxRepositoryImpl(
                 dependencies =
-                    SyncInboxRepositoryDependencies(
-                        context = context,
-                        preferencesRepository = preferencesRepository,
-                        workspaceConfigSource = workspaceConfigSource,
-                        pendingReviewStore = reviewStore,
-                        storePort = storePort,
-                        pendingStages = pendingStages,
-                        workspaceRoot = { workspaceDir.absolutePath },
-                        committedMediaSink = RecordingCommittedMediaLocationSink(),
-                    ),
+                SyncInboxRepositoryDependencies(
+                    context = context,
+                    preferencesRepository = preferencesRepository,
+                    workspaceConfigSource = workspaceConfigSource,
+                    pendingReviewStore = reviewStore,
+                    storePort = storePort,
+                    pendingStages = pendingStages,
+                    committedMediaSink = RecordingCommittedMediaLocationSink(),
+                ),
                 writeLease = alwaysWritableWorkspaceMutationLease(),
                 contentProjector = fakeMarkdownWorkspaceContentProjector(),
                 suggestionPort =
-                    SyncConflictSuggestionPort { _, _, _, _, _ ->
-                        SyncMergeSuggestion(suggested = null, safe = null, mergedText = null)
-                    },
+                SyncConflictSuggestionPort { _, _, _, _, _ ->
+                    SyncMergeSuggestion(suggested = null, safe = null, mergedText = null)
+                },
             )
         return Harness(repository, mediaPort, storePort, reviewStore)
     }
@@ -330,11 +336,10 @@ class SyncInboxRepositoryImplTest : DataFunSpec() {
         const val NOTE_MTIME_MS = 1_710_000_000_000L
         val PNG_BYTES = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4)
 
-        fun sha256Hex(bytes: ByteArray): String =
-            MessageDigest
-                .getInstance("SHA-256")
-                .digest(bytes)
-                .joinToString("") { byte -> "%02x".format(byte) }
+        fun sha256Hex(bytes: ByteArray): String = MessageDigest
+            .getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { byte -> "%02x".format(byte) }
     }
 }
 
@@ -363,10 +368,9 @@ private class RecordingStageLedgerMediaPort : MediaPort {
     private val records = linkedMapOf<String, MediaStageRecord>()
     val deletedArtifacts = mutableListOf<String>()
 
-    fun leaseOwners(): Set<Pair<MediaStageOwnerKind, String>> =
-        records.values
-            .flatMap { record -> record.leases.map { it.ownerKind to it.ownerId } }
-            .toSet()
+    fun leaseOwners(): Set<Pair<MediaStageOwnerKind, String>> = records.values
+        .flatMap { record -> record.leases.map { it.ownerKind to it.ownerId } }
+        .toSet()
 
     override fun stageMedia(
         mediaRoot: String,
@@ -392,7 +396,6 @@ private class RecordingStageLedgerMediaPort : MediaPort {
     }
 
     override fun recordStageLease(
-        workspaceRoot: String?,
         staged: MediaStagedFacts,
         ownerKind: MediaStageOwnerKind,
         ownerId: String,
@@ -425,16 +428,11 @@ private class RecordingStageLedgerMediaPort : MediaPort {
         mediaRoot: String,
         ownerKind: MediaStageOwnerKind,
         ownerId: String,
-    ): List<MediaStageRecord> =
-        records.values.filter { record ->
-            record.leases.any { it.ownerKind == ownerKind && it.ownerId == ownerId }
-        }
+    ): List<MediaStageRecord> = records.values.filter { record ->
+        record.leases.any { it.ownerKind == ownerKind && it.ownerId == ownerId }
+    }
 
-    override fun transferStageLease(
-        mediaRoot: String,
-        from: MediaStageLease,
-        to: MediaStageLease,
-    ): MediaStageRelease {
+    override fun transferStageLease(mediaRoot: String, from: MediaStageLease, to: MediaStageLease): MediaStageRelease {
         val record = records.getValue(from.artifactId)
         if (!record.leases.contains(from)) {
             check(record.leases.contains(to)) { "stage lease transfer source is not held" }
@@ -445,10 +443,7 @@ private class RecordingStageLedgerMediaPort : MediaPort {
         return MediaStageRelease(from.artifactId, leases.size.toLong(), bytesDeleted = false)
     }
 
-    override fun releaseStageLease(
-        mediaRoot: String,
-        lease: MediaStageLease,
-    ): MediaStageRelease {
+    override fun releaseStageLease(mediaRoot: String, lease: MediaStageLease): MediaStageRelease {
         val record = records.getValue(lease.artifactId)
         val leases = record.leases.filterNot { it == lease }
         if (leases.isEmpty()) {
@@ -461,21 +456,13 @@ private class RecordingStageLedgerMediaPort : MediaPort {
         return MediaStageRelease(lease.artifactId, leases.size.toLong(), leases.isEmpty())
     }
 
-    override fun allocateRecordingTarget(
-        mediaRoot: String,
-        extension: String,
-    ): String = error("recording is not exercised by the inbox test")
+    override fun allocateRecordingTarget(mediaRoot: String, extension: String): String =
+        error("recording is not exercised by the inbox test")
 
-    override fun finalizeRecording(
-        mediaRoot: String,
-        recordingPath: String,
-        humanNameHint: String,
-    ): MediaStagedFacts = error("recording is not exercised by the inbox test")
+    override fun finalizeRecording(mediaRoot: String, recordingPath: String, humanNameHint: String): MediaStagedFacts =
+        error("recording is not exercised by the inbox test")
 
-    override fun queryMediaManifest(
-        workspaceRoot: String,
-        verifiedEntries: List<MediaCommittedEntry>,
-    ): MediaManifest =
+    override fun queryMediaManifest(workspaceRoot: String, verifiedEntries: List<MediaCommittedEntry>): MediaManifest =
         MediaManifest(stageDirName = ".lomo-media-stage", entries = emptyList())
 
     override fun sessionMediaOrphanSweep(
@@ -496,7 +483,7 @@ private class InboxRecordingStorePort : StorePort {
 
     override fun applyMemoCommand(
         command: StoreMemoCommand,
-        onPublication: (StoreMemoCommit) -> Unit,
+        onPublication: (com.lomo.data.engine.store.StoreMemoCommandPublication) -> Unit,
     ): StoreMemoCommit {
         attemptedOperationIds += command.operationId
         if (failNext) {
@@ -516,19 +503,13 @@ private class InboxRecordingStorePort : StorePort {
         )
     }
 
-    override fun permanentDeleteMany(
-        operationId: String,
-        targets: List<StoreMemoDeleteTarget>,
-    ): StoreMemoBatchCommit = error("unexpected")
-
-    override fun commitDocumentMutation(mutation: MemoDocumentMutation): StoreMemoCommit = error("unexpected")
+    override fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit =
+        error("unexpected")
 
     override fun startRebuild(batchSize: Int): StoreRebuildResult = error("unexpected")
 
-    override fun snoozeReminder(
-        opaqueId: String,
-        interval: com.lomo.domain.model.ReminderInterval,
-    ) = error("unexpected")
+    override fun snoozeReminder(opaqueId: String, interval: com.lomo.domain.model.ReminderInterval) =
+        error("unexpected")
 
     override fun recoverReminderSnooze() = error("unexpected")
 

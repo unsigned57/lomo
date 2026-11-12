@@ -1,9 +1,9 @@
 package com.lomo.app.feature.main
 
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.ui.component.common.uniqueMemoListRenderKeys
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
-import com.lomo.ui.component.common.uniqueMemoListRenderKeys
 
 /*
  * Behavior Contract:

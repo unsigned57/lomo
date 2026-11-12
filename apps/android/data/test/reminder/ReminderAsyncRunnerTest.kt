@@ -54,77 +54,80 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 
-class ReminderAsyncRunnerTest : FunSpec({
-    test("given receiver async work completes normally when launched then pending result is finished") {
-        runTest {
-            val dispatcher = StandardTestDispatcher(testScheduler)
-            val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher))
-            val pendingResult = pendingResultSpy()
-            var workCompleted = false
-            var result: ReminderReceiverWorkResult? = null
+class ReminderAsyncRunnerTest :
+    FunSpec({
+        test("given receiver async work completes normally when launched then pending result is finished") {
+            runTest {
+                val dispatcher = StandardTestDispatcher(testScheduler)
+                val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher))
+                val pendingResult = pendingResultSpy()
+                var workCompleted = false
+                var result: ReminderReceiverWorkResult? = null
 
-            val job =
-                runner.launch(pendingResult, onResult = { result = it }) {
-                    workCompleted = true
-                }
+                val job =
+                    runner.launch(pendingResult, onResult = { result = it }) {
+                        workCompleted = true
+                    }
 
-            workCompleted shouldBe false
-            testScheduler.advanceUntilIdle()
+                workCompleted shouldBe false
+                testScheduler.advanceUntilIdle()
 
-            workCompleted shouldBe true
-            job.isCompleted.shouldBeTrue()
-            job.isCancelled.shouldBeFalse()
-            result shouldBe ReminderReceiverWorkResult.Completed
-            verify(exactly = 1) { pendingResult.finish() }
+                workCompleted shouldBe true
+                job.isCompleted.shouldBeTrue()
+                job.isCancelled.shouldBeFalse()
+                result shouldBe ReminderReceiverWorkResult.Completed
+                verify(exactly = 1) { pendingResult.finish() }
+            }
         }
-    }
 
-    test("given receiver async work throws when launched then pending result is still finished") {
-        runTest {
-            val dispatcher = StandardTestDispatcher(testScheduler)
-            val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher))
-            val pendingResult = pendingResultSpy()
-            val failure = IllegalStateException("receiver work failed")
-            var result: ReminderReceiverWorkResult? = null
+        test("given receiver async work throws when launched then pending result is still finished") {
+            runTest {
+                val dispatcher = StandardTestDispatcher(testScheduler)
+                val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher))
+                val pendingResult = pendingResultSpy()
+                val failure = IllegalStateException("receiver work failed")
+                var result: ReminderReceiverWorkResult? = null
 
-            val job: Job =
-                runner.launch(pendingResult, onResult = { result = it }) {
-                    throw failure
-                }
-            testScheduler.advanceUntilIdle()
+                val job: Job =
+                    runner.launch(pendingResult, onResult = { result = it }) {
+                        throw failure
+                    }
+                testScheduler.advanceUntilIdle()
 
-            job.isCompleted.shouldBeTrue()
-            job.isCancelled.shouldBeFalse()
-            result.shouldBeInstanceOf<ReminderReceiverWorkResult.Failed>()
-            (result as ReminderReceiverWorkResult.Failed).cause shouldBe failure
-            verify(exactly = 1) { pendingResult.finish() }
+                job.isCompleted.shouldBeTrue()
+                job.isCancelled.shouldBeFalse()
+                result.shouldBeInstanceOf<ReminderReceiverWorkResult.Failed>()
+                (result as ReminderReceiverWorkResult.Failed).cause shouldBe failure
+                verify(exactly = 1) { pendingResult.finish() }
+            }
         }
-    }
 
-    test("given launched work is cancelled when runner executes then pending result finishes and cancel propagates") {
-        runTest {
-            val dispatcher = StandardTestDispatcher(testScheduler)
-            val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher))
-            val pendingResult = pendingResultSpy()
-            val started = CompletableDeferred<Unit>()
-            var result: ReminderReceiverWorkResult? = null
+        test(
+            "given launched work is cancelled when runner executes then pending result finishes and cancel propagates",
+        ) {
+            runTest {
+                val dispatcher = StandardTestDispatcher(testScheduler)
+                val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher))
+                val pendingResult = pendingResultSpy()
+                val started = CompletableDeferred<Unit>()
+                var result: ReminderReceiverWorkResult? = null
 
-            val job =
-                runner.launch(pendingResult, onResult = { result = it }) {
-                    started.complete(Unit)
-                    CompletableDeferred<Unit>().await()
-                }
-            testScheduler.runCurrent()
-            started.await()
-            job.cancel(CancellationException("receiver cancelled"))
-            testScheduler.advanceUntilIdle()
+                val job =
+                    runner.launch(pendingResult, onResult = { result = it }) {
+                        started.complete(Unit)
+                        CompletableDeferred<Unit>().await()
+                    }
+                testScheduler.runCurrent()
+                started.await()
+                job.cancel(CancellationException("receiver cancelled"))
+                testScheduler.advanceUntilIdle()
 
-            job.isCancelled.shouldBeTrue()
-            result shouldBe ReminderReceiverWorkResult.Cancelled
-            verify(exactly = 1) { pendingResult.finish() }
+                job.isCancelled.shouldBeTrue()
+                result shouldBe ReminderReceiverWorkResult.Cancelled
+                verify(exactly = 1) { pendingResult.finish() }
+            }
         }
-    }
-})
+    })
 
 private fun pendingResultSpy(): BroadcastReceiver.PendingResult =
     mockk<BroadcastReceiver.PendingResult>().also { pendingResult ->

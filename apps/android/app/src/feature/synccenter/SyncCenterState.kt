@@ -25,9 +25,7 @@ enum class SyncCenterPane {
     Recovery,
 }
 
-data class SyncCenterLayoutMode(
-    val isListDetail: Boolean,
-)
+data class SyncCenterLayoutMode(val isListDetail: Boolean)
 
 sealed interface SyncCenterLoadState {
     data object Idle : SyncCenterLoadState
@@ -56,9 +54,7 @@ sealed interface SyncCenterLoadState {
         val appliedPaths: ImmutableList<String>,
     ) : SyncCenterLoadState
 
-    data class Failed(
-        val message: String,
-    ) : SyncCenterLoadState
+    data class Failed(val message: String) : SyncCenterLoadState
 }
 
 data class SyncCenterUiState(
@@ -69,30 +65,19 @@ data class SyncCenterUiState(
 )
 
 sealed interface SyncCenterIntent {
-    data class Open(
-        val workspaceRoot: String,
-        val isListDetail: Boolean,
-    ) : SyncCenterIntent
+    data class Open(val workspaceRoot: String, val isListDetail: Boolean) : SyncCenterIntent
 
     data object Refresh : SyncCenterIntent
 
     data object LoadMoreConflicts : SyncCenterIntent
 
-    data class SelectConflict(
-        val path: String,
-    ) : SyncCenterIntent
+    data class SelectConflict(val path: String) : SyncCenterIntent
 
     data object ClearSelection : SyncCenterIntent
 
-    data class SetResolutionKind(
-        val path: String,
-        val kind: String,
-    ) : SyncCenterIntent
+    data class SetResolutionKind(val path: String, val kind: String) : SyncCenterIntent
 
-    data class SetMergedDraft(
-        val path: String,
-        val draft: String,
-    ) : SyncCenterIntent
+    data class SetMergedDraft(val path: String, val draft: String) : SyncCenterIntent
 
     data object ApplyResolutions : SyncCenterIntent
 
@@ -102,23 +87,15 @@ sealed interface SyncCenterIntent {
 
     data object NavigateRecovery : SyncCenterIntent
 
-    data class SetListDetail(
-        val isListDetail: Boolean,
-    ) : SyncCenterIntent
+    data class SetListDetail(val isListDetail: Boolean) : SyncCenterIntent
 
     data object CancelSession : SyncCenterIntent
 }
 
 sealed interface SyncCenterEffect {
-    data class LoadInitial(
-        val workspaceRoot: String,
-    ) : SyncCenterEffect
+    data class LoadInitial(val workspaceRoot: String) : SyncCenterEffect
 
-    data class LoadMore(
-        val workspaceRoot: String,
-        val cursor: Int,
-        val limit: Int,
-    ) : SyncCenterEffect
+    data class LoadMore(val workspaceRoot: String, val cursor: Int, val limit: Int) : SyncCenterEffect
 
     data class Resolve(
         val workspaceRoot: String,
@@ -140,17 +117,11 @@ sealed interface SyncCenterEffect {
     data object RequestCancel : SyncCenterEffect
 }
 
-data class SyncCenterReduceResult(
-    val state: SyncCenterUiState,
-    val effects: List<SyncCenterEffect> = emptyList(),
-)
+data class SyncCenterReduceResult(val state: SyncCenterUiState, val effects: List<SyncCenterEffect> = emptyList())
 
 internal const val SYNC_CENTER_CONFLICT_PAGE_LIMIT: Int = 100
 
-fun initialSyncCenterState(
-    workspaceRoot: String = "",
-    isListDetail: Boolean = false,
-): SyncCenterUiState =
+fun initialSyncCenterState(workspaceRoot: String = "", isListDetail: Boolean = false): SyncCenterUiState =
     SyncCenterUiState(
         workspaceRoot = workspaceRoot,
         pane = SyncCenterPane.Overview,

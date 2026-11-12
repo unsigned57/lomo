@@ -15,9 +15,7 @@ import java.time.Duration
  * [RustSyncScheduler]. Repositories and settings never enqueue work directly — every
  * WorkManager mutation exits through this scheduler package (audit B03/B05).
  */
-class CoreSyncScheduler(
-    private val context: Context,
-) {
+class CoreSyncScheduler(private val context: Context) {
     fun ensureActive() {
         val syncRequest =
             PeriodicWorkRequestBuilder<SyncWorker>(Duration.ofHours(1))

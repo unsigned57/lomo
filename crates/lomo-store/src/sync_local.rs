@@ -1153,7 +1153,7 @@ fn verify_memo_file_fingerprint(
 }
 
 fn hex_digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    lomo_core::hex_encode(&Sha256::digest(bytes))
 }
 
 /// Reads current `content_revision` for a memo (`None` when absent).

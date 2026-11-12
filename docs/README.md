@@ -10,6 +10,7 @@ subject. Translations serve different readers and share the same product facts.
 | [AGENTS](../AGENTS.md) | Task scope, autonomy, clarification, approval and completion |
 | [Architecture](../ARCHITECTURE.md) | Module authority, dependency boundaries and source layout |
 | [Quality](../quality/README.md) | Applicable gates, command evidence, build inputs and failure triage |
+| [Project directories](project-layout.md) | Source directory map and where to find packages, build state and reports |
 | [Dependency Selection](../quality/dependencies.md) | Advanced, actively maintained dependencies, research and custom-code justification |
 | [Dependency capabilities](../quality/dependency-capabilities.toml) | Version-independent library capability data consumed by architecture checks; no per-module library inventory |
 | [Meaningful Tests](../quality/testing/ai-meaningful-tests.md) | Shared behavior evidence, TDD applicability and assertion changes |
@@ -29,11 +30,13 @@ separate copies. Product confirmation flows and historical approvals do not auth
 | [English README](../README.md), [Chinese README](../README_CN.md) | Product introduction, installation and quick start in each language |
 | [Release-note format](release_notes_format_guide.md) | Bilingual user-facing release copy |
 | [Sponsor (中文)](sponsor.md), [Sponsor (English)](sponsor_en.md) | Sponsorship information in each language |
-| [Sidebar proposal](sidebar_preview.html) | A design snapshot with explicitly unverified current applicability |
 | [License](../LICENSE) | Legal licensing terms |
 | [Native binding notice](../apps/android/native-bindings/NOTICE) | Generated-source editing boundary |
 
 ## Test data and historical evidence
+
+[Workspace indexing performance](development/workspace-indexing-performance.md) records the measured directory
+pagination mechanism, history batching, reproducible corpora and evidence limits.
 
 [Fixtures](../fixtures/README.md) indexes the workspace, SQLite projection, sync, LAN and shell
 capability contracts. [Characterization](../fixtures/characterization/README.md) owns golden layout
@@ -42,7 +45,14 @@ The [TUI reading contract](../apps/tui/tests/reading_contract.md) covers a speci
 Small helper descriptions live next to their helper. Markdown corpus and quality-checker fixture
 files are test inputs, not instructions; baseline profile text is a build artifact/input.
 
-[2026-09-30 audit metadata](archive/audits/2026-09-30-metadata.json) preserves the recorded audit.
-The original HTML is unavailable in the current checkout; no replacement report or current
-verification claim is inferred. Historical recommendations, including preference for stable
-dependency lines, do not override the current dependency policy or authorize remediation.
+[SQLite dependency upgrade](development/sqlite-upgrade.md) records the patched database chain.
+
+[Build cache cleanup](development/cache-cleanup.md) records tool selection, retention and limits.
+
+Current, untracked verification evidence lives in repository-root `reports/`, grouped by tool or
+investigation. This directory survives build cleanup. Historical audits and temporary design
+scaffolds are not product documentation; do not add backup copies or generated reports here.
+
+[Android performance tooling](development/android-performance-tooling.md) records the benchmark
+and profile tooling decision. Static product images live in `assets/`; sponsorship images remain
+beside the sponsorship content under `sponsor/`.

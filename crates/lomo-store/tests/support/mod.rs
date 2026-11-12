@@ -60,7 +60,7 @@ pub fn seed_trash_record(root: &Path, memo_id: &str, body: &str, tags: &[&str]) 
         has_url: false,
     })
     .expect("trash record");
-    let relative = trash_record_relative_path(memo_id).expect("record path");
+    let relative = trash_record_relative_path(memo_id, &record.source_path).expect("record path");
     let marker = root.join(relative.as_str());
     fs::create_dir_all(marker.parent().expect("trash parent")).expect("trash dir");
     fs::write(&marker, encode_trash_record(&record).expect("encode")).expect("write marker");

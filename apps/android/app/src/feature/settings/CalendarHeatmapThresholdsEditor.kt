@@ -3,11 +3,7 @@ package com.lomo.app.feature.settings
 import com.lomo.domain.model.CalendarHeatmapThresholdRange
 import com.lomo.domain.model.CalendarHeatmapThresholds
 
-data class CalendarHeatmapThresholdEditorInput(
-    val level1Max: String,
-    val level2Max: String,
-    val level3Max: String,
-)
+data class CalendarHeatmapThresholdEditorInput(val level1Max: String, val level2Max: String, val level3Max: String)
 
 data class CalendarHeatmapThresholdEditorState(
     val input: CalendarHeatmapThresholdEditorInput,
@@ -32,18 +28,11 @@ data class CalendarHeatmapThresholdRangeRow(
 sealed interface CalendarHeatmapThresholdCountRange {
     data object Empty : CalendarHeatmapThresholdCountRange
 
-    data class Single(
-        val count: Int,
-    ) : CalendarHeatmapThresholdCountRange
+    data class Single(val count: Int) : CalendarHeatmapThresholdCountRange
 
-    data class Bounded(
-        val start: Int,
-        val endInclusive: Int,
-    ) : CalendarHeatmapThresholdCountRange
+    data class Bounded(val start: Int, val endInclusive: Int) : CalendarHeatmapThresholdCountRange
 
-    data class Unbounded(
-        val start: Int,
-    ) : CalendarHeatmapThresholdCountRange
+    data class Unbounded(val start: Int) : CalendarHeatmapThresholdCountRange
 }
 
 enum class CalendarHeatmapThresholdTone {
@@ -83,18 +72,16 @@ fun resolveCalendarHeatmapThresholdEditorState(
     return CalendarHeatmapThresholdEditorState(
         input = input,
         thresholds =
-            CalendarHeatmapThresholds.of(
-                level1Max = level1Max,
-                level2Max = level2Max,
-                level3Max = level3Max,
-            ),
+        CalendarHeatmapThresholds.of(
+            level1Max = level1Max,
+            level2Max = level2Max,
+            level3Max = level3Max,
+        ),
         validationError = null,
     )
 }
 
-fun calendarHeatmapThresholdRangeRows(
-    thresholds: CalendarHeatmapThresholds,
-): List<CalendarHeatmapThresholdRangeRow> =
+fun calendarHeatmapThresholdRangeRows(thresholds: CalendarHeatmapThresholds): List<CalendarHeatmapThresholdRangeRow> =
     thresholds.ranges.map { range ->
         when (range) {
             CalendarHeatmapThresholdRange.Empty ->
@@ -102,19 +89,21 @@ fun calendarHeatmapThresholdRangeRows(
                     range = CalendarHeatmapThresholdCountRange.Empty,
                     tone = CalendarHeatmapThresholdTone.Blank,
                 )
+
             is CalendarHeatmapThresholdRange.Bounded ->
                 CalendarHeatmapThresholdRangeRow(
                     range =
-                        if (range.start == range.endInclusive) {
-                            CalendarHeatmapThresholdCountRange.Single(range.start)
-                        } else {
-                            CalendarHeatmapThresholdCountRange.Bounded(
-                                start = range.start,
-                                endInclusive = range.endInclusive,
-                            )
-                        },
+                    if (range.start == range.endInclusive) {
+                        CalendarHeatmapThresholdCountRange.Single(range.start)
+                    } else {
+                        CalendarHeatmapThresholdCountRange.Bounded(
+                            start = range.start,
+                            endInclusive = range.endInclusive,
+                        )
+                    },
                     tone = range.level.toCalendarHeatmapThresholdTone(),
                 )
+
             is CalendarHeatmapThresholdRange.Unbounded ->
                 CalendarHeatmapThresholdRangeRow(
                     range = CalendarHeatmapThresholdCountRange.Unbounded(range.start),
@@ -125,21 +114,19 @@ fun calendarHeatmapThresholdRangeRows(
 
 private fun CalendarHeatmapThresholdEditorInput.invalid(
     error: CalendarHeatmapThresholdValidationError,
-): CalendarHeatmapThresholdEditorState =
-    CalendarHeatmapThresholdEditorState(
-        input = this,
-        thresholds = null,
-        validationError = error,
-    )
+): CalendarHeatmapThresholdEditorState = CalendarHeatmapThresholdEditorState(
+    input = this,
+    thresholds = null,
+    validationError = error,
+)
 
-private fun Int.toCalendarHeatmapThresholdTone(): CalendarHeatmapThresholdTone =
-    when (this) {
-        HEATMAP_LEVEL_LIGHT -> CalendarHeatmapThresholdTone.Light
-        HEATMAP_LEVEL_MEDIUM -> CalendarHeatmapThresholdTone.Medium
-        HEATMAP_LEVEL_DARKER -> CalendarHeatmapThresholdTone.Darker
-        HEATMAP_LEVEL_DARKEST -> CalendarHeatmapThresholdTone.Darkest
-        else -> error("Unknown calendar heatmap threshold level: $this")
-    }
+private fun Int.toCalendarHeatmapThresholdTone(): CalendarHeatmapThresholdTone = when (this) {
+    HEATMAP_LEVEL_LIGHT -> CalendarHeatmapThresholdTone.Light
+    HEATMAP_LEVEL_MEDIUM -> CalendarHeatmapThresholdTone.Medium
+    HEATMAP_LEVEL_DARKER -> CalendarHeatmapThresholdTone.Darker
+    HEATMAP_LEVEL_DARKEST -> CalendarHeatmapThresholdTone.Darkest
+    else -> error("Unknown calendar heatmap threshold level: $this")
+}
 
 private const val HEATMAP_LEVEL_LIGHT = 1
 private const val HEATMAP_LEVEL_MEDIUM = 2

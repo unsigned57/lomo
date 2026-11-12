@@ -1,7 +1,7 @@
 //! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 13;
+pub const STORE_SCHEMA_VERSION: u32 = 17;
 
 /// Tokenizer version embedded in FTS projections and `PageCursor`.
 pub const TOKENIZER_VERSION: u32 = 1;
@@ -220,7 +220,8 @@ INSERT INTO {store_meta}(key, value) VALUES
         history_attachment_ref = tables::HISTORY_ATTACHMENT_REF,
         purged_memo = tables::PURGED_MEMO,
         tokenizer_version = TOKENIZER_VERSION,
-    )
+    ) + INCREMENTAL_STATS_DDL
+        + MIGRATE_V16_TO_V17_DDL
 }
 
 /// Additive v1 -> v2 migration for durable SAF projection mutation replay.
@@ -380,4 +381,64 @@ pub const MIGRATE_V12_TO_V13_DDL: &str = r"
 DELETE FROM file_listing WHERE path LIKE '.lomo/state/v2/heads/%';
 DELETE FROM store_meta WHERE key = 'workspace_listing_digest';
 PRAGMA user_version = 13;
+";
+
+/// Additive v13 -> v14 migration: heal `has_todo` false negatives.
+///
+/// Builds whose renderer dropped `TaskListMarker` events inside loose lists (the dated-file
+/// shape, where blank-line-separated memos share one loose list) committed `has_todo = 0`
+/// for task-bearing memos. The reconcile gate certifies on
+/// `(memo_id, file_fingerprint, is_trashed)` only, so those rows persist across
+/// content-identical mounts. The persisted `body` is the committed fact source: one pass
+/// re-derives the flag with the exact marker spellings `project_content_facts` recognizes.
+/// Only 0 -> 1 repairs are possible — a `NULL` legacy body stays unreadable rather than
+/// inventing facts, and unmarked rows are untouched.
+pub const MIGRATE_V13_TO_V14_DDL: &str = r"
+UPDATE memo SET has_todo = 1
+WHERE has_todo = 0 AND body IS NOT NULL
+  AND (instr(body, '- [ ]') > 0 OR instr(body, '- [x]') > 0);
+PRAGMA user_version = 14;
+";
+
+/// v14 -> v15 reprojects preview and link facts from persisted bodies inside the upgrade transaction.
+/// The Rust migration uses the canonical preview/render owners instead of duplicating parsers in SQL.
+pub const MIGRATE_V14_TO_V15_DDL: &str = "PRAGMA user_version = 15;";
+
+/// Row-local aggregate maintenance shared by fresh projections and the v16 migration.
+/// Trigger effects share the publication transaction, including rollback and cascaded deletes.
+pub const INCREMENTAL_STATS_DDL: &str = r"
+UPDATE stats SET value_i64 = (SELECT COUNT(*) FROM memo) WHERE key='memo_count';
+UPDATE stats SET value_i64 = (SELECT COUNT(*) FROM memo WHERE is_pinned=1) WHERE key='pinned_count';
+UPDATE stats SET value_i64 = (SELECT COUNT(*) FROM memo WHERE is_trashed=1) WHERE key='trashed_count';
+UPDATE stats SET value_i64 = (SELECT COUNT(*) FROM tag) WHERE key='tag_count';
+CREATE TRIGGER memo_stats_insert AFTER INSERT ON memo BEGIN
+    UPDATE stats SET value_i64=value_i64+1 WHERE key='memo_count';
+    UPDATE stats SET value_i64=value_i64+NEW.is_pinned WHERE key='pinned_count';
+    UPDATE stats SET value_i64=value_i64+NEW.is_trashed WHERE key='trashed_count';
+END;
+CREATE TRIGGER memo_stats_delete AFTER DELETE ON memo BEGIN
+    UPDATE stats SET value_i64=value_i64-1 WHERE key='memo_count';
+    UPDATE stats SET value_i64=value_i64-OLD.is_pinned WHERE key='pinned_count';
+    UPDATE stats SET value_i64=value_i64-OLD.is_trashed WHERE key='trashed_count';
+END;
+CREATE TRIGGER memo_stats_update AFTER UPDATE OF is_pinned, is_trashed ON memo BEGIN
+    UPDATE stats SET value_i64=value_i64+NEW.is_pinned-OLD.is_pinned WHERE key='pinned_count';
+    UPDATE stats SET value_i64=value_i64+NEW.is_trashed-OLD.is_trashed WHERE key='trashed_count';
+END;
+CREATE TRIGGER tag_stats_insert AFTER INSERT ON tag BEGIN
+    UPDATE stats SET value_i64=value_i64+1 WHERE key='tag_count';
+END;
+CREATE TRIGGER tag_stats_delete AFTER DELETE ON tag BEGIN
+    UPDATE stats SET value_i64=value_i64-1 WHERE key='tag_count';
+END;
+PRAGMA user_version = 16;
+";
+
+/// Narrow partitions keep startup recovery and reminder planning independent of library size.
+pub const MIGRATE_V16_TO_V17_DDL: &str = r"
+CREATE INDEX idx_memo_pending_operation ON memo(pending_operation_id)
+    WHERE pending_operation_id IS NOT NULL;
+CREATE INDEX idx_memo_reminders ON memo(memo_id, reminders_json)
+    WHERE is_trashed=0 AND pending_operation_id IS NULL AND reminders_json!='[]';
+PRAGMA user_version = 17;
 ";

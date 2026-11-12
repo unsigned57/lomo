@@ -1,5 +1,6 @@
 package com.lomo.app.testing.fakes
 
+import com.lomo.domain.model.ImageLocationSnapshot
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
@@ -7,7 +8,7 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 
 class FakeMediaRepository : MediaRepository {
     private val _imageLocations = MutableStateFlow<Map<MediaEntryId, MediaImageDescriptor>>(emptyMap())
@@ -26,21 +27,16 @@ class FakeMediaRepository : MediaRepository {
     override suspend fun importImage(
         source: StorageLocation,
         draftId: com.lomo.domain.model.DraftId,
-    ): StorageLocation {
-        return source
-    }
+    ): StorageLocation = source
 
-    override suspend fun removeImage(
-        entryId: MediaEntryId,
-        draftId: com.lomo.domain.model.DraftId,
-    ) {
+    override suspend fun removeImage(entryId: MediaEntryId, draftId: com.lomo.domain.model.DraftId) {
         val current = _imageLocations.value.toMutableMap()
         current.remove(entryId)
         _imageLocations.value = current
     }
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
-        _imageLocations.asStateFlow()
+    override fun observeImageLocations(): Flow<ImageLocationSnapshot> =
+        _imageLocations.map { ImageLocationSnapshot.Ready(it) }
 
     var refreshImageLocationsCallCount = 0
         private set
@@ -60,13 +56,17 @@ class FakeMediaRepository : MediaRepository {
 
     fun verifyRefreshImageLocationsCalled(exactly: Int = 1) {
         if (refreshImageLocationsCallCount != exactly) {
-            throw AssertionError("Expected refreshImageLocations to be called $exactly times, but was called $refreshImageLocationsCallCount times")
+            throw AssertionError(
+                "Expected refreshImageLocations to be called $exactly times, but was called $refreshImageLocationsCallCount times",
+            )
         }
     }
 
     fun verifyRefreshImageLocationsNotCalled() {
         if (refreshImageLocationsCallCount != 0) {
-            throw AssertionError("Expected refreshImageLocations not to be called, but was called $refreshImageLocationsCallCount times")
+            throw AssertionError(
+                "Expected refreshImageLocations not to be called, but was called $refreshImageLocationsCallCount times",
+            )
         }
     }
 
@@ -97,12 +97,15 @@ class FakeMediaRepository : MediaRepository {
 
     var reconcileResult: com.lomo.domain.model.DraftMediaReconciliation? = null
     val releasedDraftIds = mutableListOf<com.lomo.domain.model.DraftId>()
+    val reconciledDraftIds = mutableListOf<com.lomo.domain.model.DraftId>()
 
     override suspend fun reconcileDraftMedia(
         draftId: com.lomo.domain.model.DraftId,
-    ): com.lomo.domain.model.DraftMediaReconciliation =
-        reconcileResult
+    ): com.lomo.domain.model.DraftMediaReconciliation {
+        reconciledDraftIds += draftId
+        return reconcileResult
             ?: com.lomo.domain.model.DraftMediaReconciliation(draftId = draftId, records = emptyList())
+    }
 
     override suspend fun releaseDraftLeases(draftId: com.lomo.domain.model.DraftId) {
         releasedDraftIds += draftId

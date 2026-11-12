@@ -10,10 +10,7 @@ internal object MarkdownCleanupFormatter {
     private val multiSpacePattern = Regex(""" {2,}""")
     private val multiBlankLinePattern = Regex("""\n{3,}""")
 
-    fun collapseSpacing(
-        content: String,
-        trim: Boolean = true,
-    ): String {
+    fun collapseSpacing(content: String, trim: Boolean = true): String {
         val normalized =
             content
                 .replace(multiSpacePattern, " ")

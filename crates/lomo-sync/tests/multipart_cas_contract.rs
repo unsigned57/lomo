@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 // adversarial-audit: multipart publish honours the CAS anchor end-to-end
 //
 // Probes (now GREEN regression locks):
@@ -292,8 +300,8 @@ mod tests {
         let server = StubServer::start(existing, vec![key.to_string()], Vec::new());
 
         let body = b"adversarial-body".to_vec();
-        let digest =
-            ContentDigest::parse(&format!("{:x}", sha2::Sha256::digest(&body))).expect("digest");
+        let digest = ContentDigest::parse(&lomo_core::hex_encode(&sha2::Sha256::digest(&body)))
+            .expect("digest");
         let mut objects = MapS3ObjectSource::default();
         objects.objects.insert("memo/big.md".to_owned(), body);
 
@@ -351,8 +359,8 @@ mod tests {
         let server = StubServer::start(HashMap::new(), Vec::new(), vec![key.to_string()]);
 
         let body = b"multipart-race-body".to_vec();
-        let digest =
-            ContentDigest::parse(&format!("{:x}", sha2::Sha256::digest(&body))).expect("digest");
+        let digest = ContentDigest::parse(&lomo_core::hex_encode(&sha2::Sha256::digest(&body)))
+            .expect("digest");
         let mut objects = MapS3ObjectSource::default();
         objects.objects.insert("memo/race.md".to_owned(), body);
 
@@ -405,8 +413,8 @@ mod tests {
         let server = StubServer::start(existing, Vec::new(), vec![key.to_string()]);
 
         let body = b"multipart-update-body".to_vec();
-        let digest =
-            ContentDigest::parse(&format!("{:x}", sha2::Sha256::digest(&body))).expect("digest");
+        let digest = ContentDigest::parse(&lomo_core::hex_encode(&sha2::Sha256::digest(&body)))
+            .expect("digest");
         let mut objects = MapS3ObjectSource::default();
         objects
             .objects

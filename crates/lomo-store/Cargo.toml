@@ -73,7 +73,7 @@ lomo-workspace = { path = "../lomo-workspace" }
 lomo-media = { path = "../lomo-media" }
 getrandom.workspace = true
 jiff.workspace = true
-rusqlite.workspace = true
+rusqlite = { workspace = true, features = ["functions"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -111,3 +111,19 @@ path = "tests/batch_hydration_contract.rs"
 [[test]]
 name = "reminder_snooze_contract"
 path = "tests/reminder_snooze_contract.rs"
+
+[[test]]
+name = "review_query_contract"
+path = "tests/review_query_contract.rs"
+
+[[test]]
+name = "preview_render_contract"
+path = "tests/preview_render_contract.rs"
+
+[[test]]
+name = "incremental_stats_contract"
+path = "tests/incremental_stats_contract.rs"
+
+[[test]]
+name = "recovered_edit_chain_contract"
+path = "tests/recovered_edit_chain_contract.rs"

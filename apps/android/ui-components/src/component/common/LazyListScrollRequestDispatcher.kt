@@ -22,9 +22,7 @@ internal class LazyListScrollRequestDispatcher(
     }
 }
 
-internal class CoroutineLazyListScrollRequest(
-    private val job: Job,
-) : LazyListScrollRequest {
+internal class CoroutineLazyListScrollRequest(private val job: Job) : LazyListScrollRequest {
     override fun cancel() {
         job.cancel()
     }

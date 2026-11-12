@@ -1,28 +1,35 @@
 package com.lomo.ui.component.dialog
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import org.jetbrains.compose.resources.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.lomo.ui.generated.resources.Res
-import com.lomo.ui.generated.resources.action_cancel
+import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 
+/**
+ * M3 Expressive single-choice picker: a bottom sheet with an emphasized title and segmented
+ * radio rows, replacing the plain alert dialog so theme, language, and format pickers share the
+ * same elevated segmented surface as the rest of the app.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun <T> SelectionDialog(
     title: String,
@@ -30,47 +37,84 @@ fun <T> SelectionDialog(
     currentSelection: T,
     onSelect: (T) -> Unit,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
     labelProvider: (T) -> String = { it.toString() },
 ) {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    AlertDialog(
+    val colorScheme = MaterialTheme.colorScheme
+    val unselectedColors =
+        ListItemDefaults.segmentedColors(
+            containerColor = colorScheme.surfaceContainerHigh,
+            contentColor = colorScheme.onSurface,
+        )
+    val selectedColors =
+        ListItemDefaults.segmentedColors(
+            containerColor = colorScheme.secondaryContainer,
+            contentColor = colorScheme.onSecondaryContainer,
+            leadingContentColor = colorScheme.onSecondaryContainer,
+        )
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
+        modifier = modifier,
+        shape = AppShapes.ExtraLargeIncreased,
+        containerColor = colorScheme.surfaceContainerLow,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+    ) {
+        Column(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppSpacing.Medium)
+                .padding(bottom = AppSpacing.ExtraLarge),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmallEmphasized,
+                modifier = Modifier.padding(bottom = AppSpacing.MediumSmall),
+            )
             LazyColumn(
                 modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 320.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = SelectionSheetTokens.MaxListHeight),
+                verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
             ) {
-                items(options) { option ->
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    haptic.medium()
-                                    onSelect(option)
-                                }.padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                itemsIndexed(options) { index, option ->
+                    val selected = option == currentSelection
+                    val baseShape = ListItemDefaults.segmentedShapes(index, options.size).shape
+                    val staticShapes =
+                        ListItemDefaults.shapes(
+                            shape = baseShape,
+                            selectedShape = baseShape,
+                            pressedShape = baseShape,
+                            focusedShape = baseShape,
+                            hoveredShape = baseShape,
+                            draggedShape = baseShape,
+                        )
+                    SegmentedListItem(
+                        selected = selected,
+                        onClick = {
+                            haptic.medium()
+                            onSelect(option)
+                        },
+                        shapes = staticShapes,
+                        colors = if (selected) selectedColors else unselectedColors,
+                        leadingContent = {
+                            RadioButton(selected = selected, onClick = null)
+                        },
                     ) {
-                        RadioButton(selected = (option == currentSelection), onClick = null)
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = labelProvider(option),
                             style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                         )
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    haptic.medium()
-                    onDismiss()
-                },
-            ) { Text(stringResource(Res.string.action_cancel)) }
-        },
-    )
+        }
+    }
+}
+
+private object SelectionSheetTokens {
+    val MaxListHeight = 420.dp
 }

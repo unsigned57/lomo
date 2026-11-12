@@ -67,27 +67,26 @@ interface WebDavSyncSettingsActions {
 }
 
 class WebDavSyncSettingsUseCase(
-        webDavSyncRepository: WebDavSyncRepository,
-        syncPolicyRepository: SyncPolicyRepository,
-        syncAndRebuildUseCase: SyncAndRebuildUseCase,
-    ) : WebDavSyncSettingsStateObservation by
-        WebDavSyncSettingsStateObservationImpl(webDavSyncRepository),
+    webDavSyncRepository: WebDavSyncRepository,
+    syncPolicyRepository: SyncPolicyRepository,
+    syncAndRebuildUseCase: SyncAndRebuildUseCase,
+) : WebDavSyncSettingsStateObservation by
+WebDavSyncSettingsStateObservationImpl(webDavSyncRepository),
     WebDavSyncCredentialObservation by
-        WebDavSyncCredentialObservationImpl(webDavSyncRepository),
+    WebDavSyncCredentialObservationImpl(webDavSyncRepository),
     WebDavSyncSettingsMutation by
-        WebDavSyncSettingsMutationImpl(
-            webDavSyncRepository = webDavSyncRepository,
-            syncPolicyRepository = syncPolicyRepository,
-        ),
+    WebDavSyncSettingsMutationImpl(
+        webDavSyncRepository = webDavSyncRepository,
+        syncPolicyRepository = syncPolicyRepository,
+    ),
     WebDavSyncSettingsActions by
-        WebDavSyncSettingsActionsImpl(
-            webDavSyncRepository = webDavSyncRepository,
-            syncAndRebuildUseCase = syncAndRebuildUseCase,
-        )
+    WebDavSyncSettingsActionsImpl(
+        webDavSyncRepository = webDavSyncRepository,
+        syncAndRebuildUseCase = syncAndRebuildUseCase,
+    )
 
-private class WebDavSyncSettingsStateObservationImpl(
-    private val webDavSyncRepository: WebDavSyncRepository,
-) : WebDavSyncSettingsStateObservation {
+private class WebDavSyncSettingsStateObservationImpl(private val webDavSyncRepository: WebDavSyncRepository) :
+    WebDavSyncSettingsStateObservation {
     private val shared =
         RemoteSyncSharedStateObservationImpl(
             enabled = webDavSyncRepository::isWebDavSyncEnabled,
@@ -119,9 +118,8 @@ private class WebDavSyncSettingsStateObservationImpl(
     override fun observeSyncState(): Flow<WebDavSyncState> = shared.observeSyncState()
 }
 
-private class WebDavSyncCredentialObservationImpl(
-    private val webDavSyncRepository: WebDavSyncRepository,
-) : WebDavSyncCredentialObservation {
+private class WebDavSyncCredentialObservationImpl(private val webDavSyncRepository: WebDavSyncRepository) :
+    WebDavSyncCredentialObservation {
     override suspend fun getPasswordStatus(): StoredCredentialStatus = webDavSyncRepository.getPasswordStatus()
 
     override suspend fun getCredentialState(): CredentialState = webDavSyncRepository.getCredentialState()

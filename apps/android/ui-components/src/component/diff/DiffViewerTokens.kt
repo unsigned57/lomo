@@ -24,22 +24,14 @@ internal object DiffViewerTokens {
     fun secondaryTextColor(colorScheme: ColorScheme): Color =
         colorScheme.onSurfaceVariant.copy(alpha = SecondaryTextAlpha)
 
-    fun changedLineBackgroundColor(
-        colorScheme: ColorScheme,
-        op: SimpleLineDiff.DiffOp,
-    ): Color =
-        when (op) {
-            SimpleLineDiff.DiffOp.DELETE -> colorScheme.errorContainer.copy(alpha = ChangedLineAlpha)
-            SimpleLineDiff.DiffOp.INSERT -> colorScheme.primaryContainer.copy(alpha = ChangedLineAlpha)
-            SimpleLineDiff.DiffOp.EQUAL -> Color.Transparent
-        }
+    fun changedLineBackgroundColor(colorScheme: ColorScheme, op: SimpleLineDiff.DiffOp): Color = when (op) {
+        SimpleLineDiff.DiffOp.DELETE -> colorScheme.errorContainer.copy(alpha = ChangedLineAlpha)
+        SimpleLineDiff.DiffOp.INSERT -> colorScheme.primaryContainer.copy(alpha = ChangedLineAlpha)
+        SimpleLineDiff.DiffOp.EQUAL -> Color.Transparent
+    }
 
-    fun lineContentColor(
-        colorScheme: ColorScheme,
-        op: SimpleLineDiff.DiffOp,
-    ): Color =
-        when (op) {
-            SimpleLineDiff.DiffOp.EQUAL -> colorScheme.onSurface.copy(alpha = EqualContentAlpha)
-            else -> colorScheme.onSurface
-        }
+    fun lineContentColor(colorScheme: ColorScheme, op: SimpleLineDiff.DiffOp): Color = when (op) {
+        SimpleLineDiff.DiffOp.EQUAL -> colorScheme.onSurface.copy(alpha = EqualContentAlpha)
+        else -> colorScheme.onSurface
+    }
 }

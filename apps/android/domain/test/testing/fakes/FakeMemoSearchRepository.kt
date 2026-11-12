@@ -10,9 +10,7 @@ import com.lomo.domain.model.TagSelection
 import com.lomo.domain.model.TagSelectionMode
 import com.lomo.domain.repository.MemoSearchRepository
 
-class FakeMemoSearchRepository(
-    private val store: FakeMemoStore,
-) : MemoSearchRepository {
+class FakeMemoSearchRepository(private val store: FakeMemoStore) : MemoSearchRepository {
     override fun getMemosByTagPagingSource(selection: TagSelection): PagingSource<String, Memo> =
         FakeMemoPagingSource { limit, offset ->
             store.taggedMemoPage(
@@ -31,9 +29,8 @@ class FakeMemoSearchRepository(
         store.mainListPagingSourceFor(MemoQuerySpec.fromFilter(queryText = query, filter = filter))
 }
 
-private class FakeMemoPagingSource(
-    private val pageLoader: suspend (limit: Int, offset: Int) -> List<Memo>,
-) : PagingSource<String, Memo>() {
+private class FakeMemoPagingSource(private val pageLoader: suspend (limit: Int, offset: Int) -> List<Memo>) :
+    PagingSource<String, Memo>() {
     override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> {
         val offset = decodeCursor(params.key)
         val items = pageLoader(params.loadSize, offset)
@@ -49,6 +46,5 @@ private class FakeMemoPagingSource(
 
 private fun encodeCursor(offset: Int): String = "fake-tag-cursor:$offset"
 
-private fun decodeCursor(cursor: String?): Int =
-    cursor?.removePrefix("fake-tag-cursor:")?.toIntOrNull()
-        ?: 0
+private fun decodeCursor(cursor: String?): Int = cursor?.removePrefix("fake-tag-cursor:")?.toIntOrNull()
+    ?: 0

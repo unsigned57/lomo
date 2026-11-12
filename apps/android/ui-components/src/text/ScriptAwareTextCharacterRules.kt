@@ -11,11 +11,7 @@ private val FULL_WIDTH_PUNCTUATION_MAP =
         '?' to '？',
     )
 
-internal fun consumeDashRunChunk(
-    source: CharSequence,
-    index: Int,
-    previousVisibleChar: Char?,
-): NormalizedChunk? {
+internal fun consumeDashRunChunk(source: CharSequence, index: Int, previousVisibleChar: Char?): NormalizedChunk? {
     val runLength = source.hyphenRunLengthFrom(index)
     return if (source[index] == HYPHEN_MINUS && runLength >= DASH_RUN_THRESHOLD) {
         val normalizedRun =
@@ -91,12 +87,14 @@ internal fun normalizeCharacterChunk(
         when (rawChar) {
             DOUBLE_QUOTE ->
                 normalizeDoubleQuote(state)
+
             SINGLE_QUOTE ->
                 normalizeSingleQuote(
                     source = source,
                     index = index,
                     state = state,
                 )
+
             OPEN_PAREN ->
                 normalizeOpenParenthesis(
                     source = source,
@@ -104,8 +102,10 @@ internal fun normalizeCharacterChunk(
                     previousVisibleChar = previousVisibleChar,
                     state = state,
                 )
+
             CLOSE_PAREN ->
                 normalizeCloseParenthesis(state)
+
             else ->
                 normalizeHalfWidthPunctuation(
                     source = source,
@@ -120,20 +120,15 @@ internal fun normalizeCharacterChunk(
     )
 }
 
-private fun normalizeDoubleQuote(state: MemoDisplayTextState): Char =
-    if (state.nextDoubleQuoteIsOpen) {
-        state.nextDoubleQuoteIsOpen = false
-        LEFT_DOUBLE_QUOTE
-    } else {
-        state.nextDoubleQuoteIsOpen = true
-        RIGHT_DOUBLE_QUOTE
-    }
+private fun normalizeDoubleQuote(state: MemoDisplayTextState): Char = if (state.nextDoubleQuoteIsOpen) {
+    state.nextDoubleQuoteIsOpen = false
+    LEFT_DOUBLE_QUOTE
+} else {
+    state.nextDoubleQuoteIsOpen = true
+    RIGHT_DOUBLE_QUOTE
+}
 
-private fun normalizeSingleQuote(
-    source: CharSequence,
-    index: Int,
-    state: MemoDisplayTextState,
-): Char {
+private fun normalizeSingleQuote(source: CharSequence, index: Int, state: MemoDisplayTextState): Char {
     val leftImmediate = source.getOrNull(index - 1)
     val rightImmediate = source.getOrNull(index + 1)
     if (leftImmediate?.isLatinAlphaNumeric() == true && rightImmediate?.isLatinAlphaNumeric() == true) {
@@ -167,19 +162,14 @@ private fun normalizeOpenParenthesis(
     }
 }
 
-private fun normalizeCloseParenthesis(state: MemoDisplayTextState): Char =
-    if (state.chineseParenthesisDepth > 0) {
-        state.chineseParenthesisDepth -= 1
-        FULLWIDTH_CLOSE_PAREN
-    } else {
-        CLOSE_PAREN
-    }
+private fun normalizeCloseParenthesis(state: MemoDisplayTextState): Char = if (state.chineseParenthesisDepth > 0) {
+    state.chineseParenthesisDepth -= 1
+    FULLWIDTH_CLOSE_PAREN
+} else {
+    CLOSE_PAREN
+}
 
-private fun normalizeHalfWidthPunctuation(
-    source: CharSequence,
-    index: Int,
-    rawChar: Char,
-): Char {
+private fun normalizeHalfWidthPunctuation(source: CharSequence, index: Int, rawChar: Char): Char {
     val mapped = FULL_WIDTH_PUNCTUATION_MAP[rawChar] ?: return rawChar
     val left = source.previousNonWhitespaceChar(index)
     val right = source.nextNonWhitespaceChar(index)

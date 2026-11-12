@@ -6,6 +6,7 @@ import android.os.Build
 import com.lomo.data.engine.ManagedEngineSession
 import com.lomo.data.local.datastore.LomoLanSharePreferencesStore
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.LanBatchDecision
 import com.lomo.domain.model.LanIncomingBatch
 import com.lomo.domain.model.LanPairingRequest
@@ -14,7 +15,6 @@ import com.lomo.domain.model.LanShareDiscoveryDiagnostics
 import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.LanTrustedPeer
-import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.ShareTransferErrorPolicy
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareService
@@ -170,61 +170,60 @@ internal class RustLanShareService(
         content: String,
         timestamp: Long,
         attachmentUris: Map<String, String>,
-    ): Result<Unit> =
-        withContext(dispatcherProvider.io) {
-            try {
-                check(preferences.lanShareEnabledValue()) { "LAN share is disabled in settings." }
-                refreshPeers()
-                if (_trustedPeers.value.none { peer -> peer.deviceId == device.deviceId }) {
-                    val limits = engine.lanProtocolLimits()
-                    val challenge = engine.beginLanPairing(device.deviceId, clockMillis(), limits.pairingTtlMs)
-                    _pendingPairing.value = challenge.toDomain()
-                    _transferState.value = ShareTransferState.WaitingPairing(device.name)
-                    return@withContext Result.success(Unit)
-                }
-
-                _transferState.value = ShareTransferState.Sending
+    ): Result<Unit> = withContext(dispatcherProvider.io) {
+        try {
+            check(preferences.lanShareEnabledValue()) { "LAN share is disabled in settings." }
+            refreshPeers()
+            if (_trustedPeers.value.none { peer -> peer.deviceId == device.deviceId }) {
                 val limits = engine.lanProtocolLimits()
-                val session = engine.beginLanSession(device.deviceId, clockMillis(), limits.sessionTtlMs)
-                engine.confirmLanSession(session.sessionId, deviceKey.sign(session), clockMillis())
-                engine.lanSessionState(session.sessionId)
-
-                val shape = engine.lanTransferShape()
-                val attachments = attachmentUris.entries.mapIndexed { index, entry ->
-                    prepareAttachment(index, entry.key, entry.value)
-                }
-                val contentBytes = content.encodeToByteArray()
-                val batchId = randomId()
-                val itemPlan =
-                    LanSendItemPlan(
-                        timestampMs = timestamp,
-                        contentDigest = contentBytes.sha256(),
-                        contentBytes = contentBytes.size.toULong(),
-                        title = content.lineSequence().firstOrNull()?.take(MAX_TITLE_CHARS).orEmpty(),
-                        attachments = attachments.map(PreparedAttachment::plan),
-                    )
-                engine.prepareLanBatch(session.sessionId, batchId, listOf(itemPlan))
-                outgoingPayloads[batchId] =
-                    OutgoingPayload(
-                        session.sessionId,
-                        batchId,
-                        device.deviceId,
-                        device.name,
-                        contentBytes,
-                        attachments,
-                        shape,
-                        itemPlan,
-                    )
-                _transferState.value = ShareTransferState.WaitingApproval(device.name)
-                Result.success(Unit)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-                _transferState.value = error.toTransferState(device.name)
-                Result.failure(error)
+                val challenge = engine.beginLanPairing(device.deviceId, clockMillis(), limits.pairingTtlMs)
+                _pendingPairing.value = challenge.toDomain()
+                _transferState.value = ShareTransferState.WaitingPairing(device.name)
+                return@withContext Result.success(Unit)
             }
+
+            _transferState.value = ShareTransferState.Sending
+            val limits = engine.lanProtocolLimits()
+            val session = engine.beginLanSession(device.deviceId, clockMillis(), limits.sessionTtlMs)
+            engine.confirmLanSession(session.sessionId, deviceKey.sign(session), clockMillis())
+            engine.lanSessionState(session.sessionId)
+
+            val shape = engine.lanTransferShape()
+            val attachments = attachmentUris.entries.mapIndexed { index, entry ->
+                prepareAttachment(index, entry.key, entry.value)
+            }
+            val contentBytes = content.encodeToByteArray()
+            val batchId = randomId()
+            val itemPlan =
+                LanSendItemPlan(
+                    timestampMs = timestamp,
+                    contentDigest = contentBytes.sha256(),
+                    contentBytes = contentBytes.size.toULong(),
+                    title = content.lineSequence().firstOrNull()?.take(MAX_TITLE_CHARS).orEmpty(),
+                    attachments = attachments.map(PreparedAttachment::plan),
+                )
+            engine.prepareLanBatch(session.sessionId, batchId, listOf(itemPlan))
+            outgoingPayloads[batchId] =
+                OutgoingPayload(
+                    session.sessionId,
+                    batchId,
+                    device.deviceId,
+                    device.name,
+                    contentBytes,
+                    attachments,
+                    shape,
+                    itemPlan,
+                )
+            _transferState.value = ShareTransferState.WaitingApproval(device.name)
+            Result.success(Unit)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            _transferState.value = error.toTransferState(device.name)
+            Result.failure(error)
         }
+    }
 
     override fun confirmPairing(pairingId: String) {
         appScope.launch(dispatcherProvider.io) {
@@ -306,19 +305,23 @@ internal class RustLanShareService(
                         recovery.drive != LanReceivedBatchDrive.Complete &&
                         recovery.drive != LanReceivedBatchDrive.ApprovalExpired
                 }.map(LanBatchRecovery::toDomain) +
-                inbox.pendingBatches.map(LanPendingBatch::toDomain)
+            inbox.pendingBatches.map(LanPendingBatch::toDomain)
         refreshPeers()
         inbox.outgoingBatches.forEach { batch ->
             when (batch.drive) {
                 LanOutgoingBatchDrive.AwaitingDecision,
                 LanOutgoingBatchDrive.Complete,
                 -> Unit
+
                 LanOutgoingBatchDrive.Sendable -> {
                     publishOutgoingProgress(batch)
                     transmitOnce(batch.batchId)
                 }
+
                 LanOutgoingBatchDrive.AwaitingReport -> publishOutgoingProgress(batch)
+
                 LanOutgoingBatchDrive.NeedsRebind -> rebindOutgoing(batch.batchId)
+
                 LanOutgoingBatchDrive.Rejected,
                 LanOutgoingBatchDrive.Failed,
                 -> {
@@ -406,11 +409,7 @@ internal class RustLanShareService(
     private val chunkSender = LanChunkSender()
 
     private inner class LanChunkSender {
-        fun sendByteArray(
-            payload: OutgoingPayload,
-            slot: UInt,
-            bytes: ByteArray,
-        ) {
+        fun sendByteArray(payload: OutgoingPayload, slot: UInt, bytes: ByteArray) {
             val width = payload.shape.chunkPlaintextBytes.toInt()
             val missing = engine.lanUnconfirmedBatchChunks(payload.batchId, 0u, slot).toHashSet()
             val group = ArrayList<LanChunkSend>(payload.shape.maxInflightChunks.toInt())
@@ -437,12 +436,7 @@ internal class RustLanShareService(
             drainChunkGroup(group)
         }
 
-        fun sendStream(
-            payload: OutgoingPayload,
-            slot: UInt,
-            input: InputStream,
-            sizeBytes: Long,
-        ) {
+        fun sendStream(payload: OutgoingPayload, slot: UInt, input: InputStream, sizeBytes: Long) {
             val width = payload.shape.chunkPlaintextBytes.toInt()
             val missing = engine.lanUnconfirmedBatchChunks(payload.batchId, 0u, slot).toHashSet()
             val group = ArrayList<LanChunkSend>(payload.shape.maxInflightChunks.toInt())
@@ -450,8 +444,7 @@ internal class RustLanShareService(
             var index = 0
             while (remaining > 0L) {
                 val expected = minOf(width.toLong(), remaining).toInt()
-                val chunk = input.readNBytes(expected)
-                check(chunk.size == expected) { "LAN attachment source ended before its planned size" }
+                val chunk = input.readExactly(expected)
                 if (index.toUInt() in missing) {
                     group.add(
                         LanChunkSend(
@@ -472,10 +465,7 @@ internal class RustLanShareService(
         }
 
         /** Sends the group the moment it reaches the Rust-owned in-flight window. */
-        private fun flushChunkGroup(
-            payload: OutgoingPayload,
-            group: ArrayList<LanChunkSend>,
-        ) {
+        private fun flushChunkGroup(payload: OutgoingPayload, group: ArrayList<LanChunkSend>) {
             if (group.size >= payload.shape.maxInflightChunks.toInt()) {
                 drainChunkGroup(group)
             }
@@ -507,22 +497,19 @@ internal class RustLanShareService(
             uri = uri,
             sizeBytes = size,
             plan =
-                LanAttachmentPlan(
-                    index.toUInt(),
-                    reference,
-                    reference.substringAfterLast('/'),
-                    digest.digest().hex(),
-                    size.toULong(),
-                ),
+            LanAttachmentPlan(
+                index.toUInt(),
+                reference,
+                reference.substringAfterLast('/'),
+                digest.digest().hex(),
+                size.toULong(),
+            ),
         )
     }
 
     private fun refreshPeers() {
-        // Peer truth is engine-durable: before the first adapter exists (cold start, engine
-        // still unopened) the only honest projection is empty. This collector runs on the
-        // process scope, so demanding the adapter here is process-fatal — the first post-attach
-        // inbox generation repopulates the list instead.
-        if (!engine.hasActiveEngineAdapter()) return
+        // Peer truth is engine-durable; with no installed adapter the session answers an empty
+        // page atomically, and the first post-attach inbox generation repopulates the list.
         _trustedPeers.value =
             engine.listLanPeers().peers
                 .filterNot(LanPeer::revoked)
@@ -542,11 +529,7 @@ internal class RustLanShareService(
         _diagnostics.value = LanShareDiscoveryDiagnostics(runtimeState = state)
     }
 
-    private data class PreparedAttachment(
-        val uri: Uri,
-        val sizeBytes: Long,
-        val plan: LanAttachmentPlan,
-    )
+    private data class PreparedAttachment(val uri: Uri, val sizeBytes: Long, val plan: LanAttachmentPlan)
 
     private data class OutgoingPayload(
         val sessionId: String,
@@ -567,8 +550,7 @@ internal class RustLanShareService(
     }
 }
 
-private suspend fun LomoLanSharePreferencesStore.lanShareEnabledValue(): Boolean =
-    lanShareEnabled.first()
+private suspend fun LomoLanSharePreferencesStore.lanShareEnabledValue(): Boolean = lanShareEnabled.first()
 
 private fun resolvedDeviceName(stored: String?): String {
     val storedName = stored?.trim()
@@ -579,29 +561,29 @@ private fun resolvedDeviceName(stored: String?): String {
 private fun LanPairingChallenge.toDomain() =
     LanPairingRequest(pairingId, peerDeviceId, peerDisplayName, shortCode, deadlineMs)
 
-private fun LanPendingBatch.toDomain() =
-    preview.toDomain(sessionId, LanBatchDecision.Pending, emptyList(), 0uL)
+private fun LanPendingBatch.toDomain() = preview.toDomain(sessionId, LanBatchDecision.Pending, emptyList(), 0uL)
 
-private fun LanBatchRecovery.toDomain() =
-    preview.toDomain(
-        sessionId,
-        when (decision) {
-            LanReceivedBatchDecision.Pending -> LanBatchDecision.Pending
-            LanReceivedBatchDecision.Approved -> LanBatchDecision.Approved
-            LanReceivedBatchDecision.Rejected -> LanBatchDecision.Rejected
-        },
-        items.map { item ->
-            when (item) {
-                is LanReceivedItemRecovery.Pending ->
-                    LanReceivedItemResult.Pending(item.itemId, item.itemIndex.toInt())
-                is LanReceivedItemRecovery.Committed ->
-                    LanReceivedItemResult.Committed(item.itemId, item.itemIndex.toInt(), item.memoId)
-                is LanReceivedItemRecovery.Failed ->
-                    LanReceivedItemResult.Failed(item.itemId, item.itemIndex.toInt(), item.code)
-            }
-        },
-        confirmedBytes,
-    )
+private fun LanBatchRecovery.toDomain() = preview.toDomain(
+    sessionId,
+    when (decision) {
+        LanReceivedBatchDecision.Pending -> LanBatchDecision.Pending
+        LanReceivedBatchDecision.Approved -> LanBatchDecision.Approved
+        LanReceivedBatchDecision.Rejected -> LanBatchDecision.Rejected
+    },
+    items.map { item ->
+        when (item) {
+            is LanReceivedItemRecovery.Pending ->
+                LanReceivedItemResult.Pending(item.itemId, item.itemIndex.toInt())
+
+            is LanReceivedItemRecovery.Committed ->
+                LanReceivedItemResult.Committed(item.itemId, item.itemIndex.toInt(), item.memoId)
+
+            is LanReceivedItemRecovery.Failed ->
+                LanReceivedItemResult.Failed(item.itemId, item.itemIndex.toInt(), item.code)
+        }
+    },
+    confirmedBytes,
+)
 
 private fun LanBatchPreview.toDomain(
     sessionId: String,
@@ -627,17 +609,16 @@ private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256").di
 private fun ByteArray.hex(): String =
     joinToString(separator = "") { byte -> "%02x".format(java.util.Locale.ROOT, byte) }
 
-private fun randomId(): String =
-    ByteArray(RANDOM_ID_BYTES).also(SecureRandom()::nextBytes).hex()
+private fun randomId(): String = ByteArray(RANDOM_ID_BYTES).also(SecureRandom()::nextBytes).hex()
 
 private fun InputStream?.required(uri: Uri): InputStream =
     requireNotNull(this) { "LAN attachment source cannot be opened: $uri" }
 
-private fun Exception.toTransferState(deviceName: String?): ShareTransferState.Error =
-    ShareTransferState.Error(
-        when (this) {
-            is EngineCommandFailureException ->
-                ShareTransferErrorPolicy.fromEngineFailure(failure, deviceName)
-            else -> ShareTransferErrorPolicy.protocolFailed(deviceName, message)
-        },
-    )
+private fun Exception.toTransferState(deviceName: String?): ShareTransferState.Error = ShareTransferState.Error(
+    when (this) {
+        is EngineCommandFailureException ->
+            ShareTransferErrorPolicy.fromEngineFailure(failure, deviceName)
+
+        else -> ShareTransferErrorPolicy.protocolFailed(deviceName, message)
+    },
+)

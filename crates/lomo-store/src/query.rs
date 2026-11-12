@@ -3,13 +3,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use rusqlite::functions::FunctionFlags;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
+use sha2::{Digest, Sha256};
 
 use lomo_core::PageSize;
-use lomo_workspace::{
-    MediaClass, attachment_media_class, decode_trash_record, trash_record_relative_path,
-};
+use lomo_workspace::{decode_trash_record, trash_record_relative_path};
 
 use crate::content_facts::fingerprint_content;
 use crate::cursor::{PageCursor, fingerprint_query};
@@ -29,6 +29,8 @@ pub enum MemoSortField {
     #[default]
     CreatedAt,
     UpdatedAt,
+    ReviewMonth,
+    ReviewRandom,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -38,28 +40,152 @@ pub enum SortDirection {
     Descending,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoSort {
     pub field: MemoSortField,
     pub direction: SortDirection,
+    pub seed: i64,
+    pub time_zone: String,
+}
+
+impl Default for MemoSort {
+    fn default() -> Self {
+        Self {
+            field: MemoSortField::default(),
+            direction: SortDirection::default(),
+            seed: 0,
+            time_zone: "UTC".to_owned(),
+        }
+    }
 }
 
 impl MemoSort {
-    const fn fingerprint(self) -> &'static str {
+    const fn is_review(&self) -> bool {
+        matches!(
+            self.field,
+            MemoSortField::ReviewMonth | MemoSortField::ReviewRandom
+        )
+    }
+
+    fn fingerprint(&self) -> String {
         match (self.field, self.direction) {
-            (MemoSortField::CreatedAt, SortDirection::Ascending) => "created_at:asc",
-            (MemoSortField::CreatedAt, SortDirection::Descending) => "created_at:desc",
-            (MemoSortField::UpdatedAt, SortDirection::Ascending) => "updated_at:asc",
-            (MemoSortField::UpdatedAt, SortDirection::Descending) => "updated_at:desc",
+            (MemoSortField::CreatedAt, SortDirection::Ascending) => "created_at:asc".to_owned(),
+            (MemoSortField::CreatedAt, SortDirection::Descending) => "created_at:desc".to_owned(),
+            (MemoSortField::UpdatedAt, SortDirection::Ascending) => "updated_at:asc".to_owned(),
+            (MemoSortField::UpdatedAt, SortDirection::Descending) => "updated_at:desc".to_owned(),
+            (MemoSortField::ReviewMonth, direction) => {
+                format!(
+                    "review_month:{direction:?}:{}:{}",
+                    self.seed, self.time_zone
+                )
+            }
+            (MemoSortField::ReviewRandom, direction) => {
+                format!("review_random:{direction:?}:{}", self.seed)
+            }
         }
     }
 
-    const fn primary_value(self, summary: &MemoSummary) -> i64 {
+    fn primary_value(&self, summary: &MemoSummary) -> Result<i64, lomo_core::LomoError> {
         match self.field {
-            MemoSortField::CreatedAt => summary.created_at_ms,
-            MemoSortField::UpdatedAt => summary.updated_at_ms,
+            MemoSortField::CreatedAt => Ok(summary.created_at_ms),
+            MemoSortField::UpdatedAt => Ok(summary.updated_at_ms),
+            MemoSortField::ReviewMonth => {
+                review_month(summary.created_at_ms, &review_time_zone(&self.time_zone)?)
+            }
+            MemoSortField::ReviewRandom => Ok(review_random_key(&summary.memo_id, self.seed)),
         }
     }
+
+    fn secondary_value(&self, summary: &MemoSummary) -> i64 {
+        if self.field == MemoSortField::ReviewMonth {
+            review_random_key(&summary.memo_id, self.seed)
+        } else {
+            summary.created_at_ms
+        }
+    }
+
+    const fn pinned_column(&self) -> &'static str {
+        if self.is_review() {
+            "CAST(0 AS INTEGER)"
+        } else {
+            "m.is_pinned"
+        }
+    }
+
+    fn primary_column(&self) -> String {
+        match self.field {
+            MemoSortField::CreatedAt => "m.created_at_ms".to_owned(),
+            MemoSortField::UpdatedAt => "m.updated_at_ms".to_owned(),
+            MemoSortField::ReviewMonth => "lomo_review_month(m.created_at_ms)".to_owned(),
+            MemoSortField::ReviewRandom => format!("lomo_review_key(m.memo_id, {})", self.seed),
+        }
+    }
+
+    fn secondary_column(&self) -> String {
+        if self.field == MemoSortField::ReviewMonth {
+            format!("lomo_review_key(m.memo_id, {})", self.seed)
+        } else {
+            "m.created_at_ms".to_owned()
+        }
+    }
+}
+
+fn review_random_key(memo_id: &str, seed: i64) -> i64 {
+    let mut hash = Sha256::new();
+    hash.update(b"lomo-review-v1");
+    hash.update(seed.to_be_bytes());
+    hash.update(memo_id.as_bytes());
+    let bytes: [u8; 32] = hash.finalize().into();
+    let [
+        first,
+        second,
+        third,
+        fourth,
+        fifth,
+        sixth,
+        seventh,
+        eighth,
+        ..,
+    ] = bytes;
+    i64::from_be_bytes([first, second, third, fourth, fifth, sixth, seventh, eighth])
+}
+
+fn review_time_zone(name: &str) -> Result<jiff::tz::TimeZone, lomo_core::LomoError> {
+    jiff::fmt::temporal::DateTimeParser::new()
+        .parse_time_zone(name)
+        .map_err(|error| validation("invalid_review_time_zone", &error.to_string()))
+}
+
+fn review_month(timestamp_ms: i64, zone: &jiff::tz::TimeZone) -> Result<i64, lomo_core::LomoError> {
+    let timestamp = jiff::Timestamp::from_millisecond(timestamp_ms)
+        .map_err(|error| validation("invalid_review_timestamp", &error.to_string()))?;
+    let date = timestamp.to_zoned(zone.clone()).date();
+    Ok(i64::from(date.year()) * 12 + i64::from(date.month()))
+}
+
+fn register_review_functions(
+    connection: &Connection,
+    sort: &MemoSort,
+) -> Result<(), lomo_core::LomoError> {
+    if !sort.is_review() {
+        return Ok(());
+    }
+    let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
+    connection
+        .create_scalar_function("lomo_review_key", 2, flags, |context| {
+            let id = context.get::<String>(0)?;
+            let seed = context.get::<i64>(1)?;
+            Ok(review_random_key(&id, seed))
+        })
+        .map_err(|error| from_sqlite(&error))?;
+    let zone = review_time_zone(&sort.time_zone)?;
+    connection
+        .create_scalar_function("lomo_review_month", 1, flags, move |context| {
+            review_month(context.get::<i64>(0)?, &zone)
+                .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))
+        })
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(())
 }
 
 /// Filters applied in the store query layer (parity with Room capabilities).
@@ -307,6 +433,7 @@ pub fn query_memos_starting_at(
     if let Some(boundary) = boundary {
         boundary.validate()?;
     }
+    register_review_functions(connection, &query.sort)?;
     let plan = query_plan_for(query)?;
     let query_fingerprint = fingerprint_for(query, &plan, boundary);
     let resolved = resolve_start(
@@ -369,22 +496,30 @@ pub fn query_memos_starting_at(
         &items,
         total,
     )?;
-    let prev_cursor = items.first().filter(|_| items_before > 0).map(|first| {
-        page_cursor_for(
-            first,
-            query.sort,
-            query_fingerprint.clone(),
-            high_water_revision,
-        )
-    });
-    let next_cursor = items.last().filter(|_| items_after > 0).map(|last| {
-        page_cursor_for(
-            last,
-            query.sort,
-            query_fingerprint.clone(),
-            high_water_revision,
-        )
-    });
+    let prev_cursor = items
+        .first()
+        .filter(|_| items_before > 0)
+        .map(|first| {
+            page_cursor_for(
+                first,
+                &query.sort,
+                query_fingerprint.clone(),
+                high_water_revision,
+            )
+        })
+        .transpose()?;
+    let next_cursor = items
+        .last()
+        .filter(|_| items_after > 0)
+        .map(|last| {
+            page_cursor_for(
+                last,
+                &query.sort,
+                query_fingerprint.clone(),
+                high_water_revision,
+            )
+        })
+        .transpose()?;
 
     Ok(MemoPage {
         items,
@@ -445,19 +580,19 @@ fn fingerprint_for(
 
 fn page_cursor_for(
     summary: &MemoSummary,
-    sort: MemoSort,
+    sort: &MemoSort,
     query_fingerprint: String,
     high_water_revision: u64,
-) -> PageCursor {
-    PageCursor::new(
+) -> Result<PageCursor, lomo_core::LomoError> {
+    Ok(PageCursor::new(
         query_fingerprint,
         summary.rank,
-        summary.is_pinned,
-        sort.primary_value(summary),
-        summary.created_at_ms,
+        summary.is_pinned && !sort.is_review(),
+        sort.primary_value(summary)?,
+        sort.secondary_value(summary),
         summary.memo_id.clone(),
         high_water_revision,
-    )
+    ))
 }
 
 fn resolve_start(
@@ -506,10 +641,10 @@ fn resolve_start(
             Ok(ResolvedStart {
                 cursor: Some(page_cursor_for(
                     &summary,
-                    query.sort,
+                    &query.sort,
                     query_fingerprint.to_owned(),
                     high_water_revision,
-                )),
+                )?),
                 bound: CursorBound::InclusiveAfter,
                 invert: false,
                 kind: ResolvedKind::AtMemo,
@@ -610,13 +745,17 @@ fn page_ranks(
 ) -> Result<(u64, u64), lomo_core::LomoError> {
     match (kind, items.first()) {
         (_, Some(first)) => {
-            let before = count_rows(
-                connection,
-                query,
-                plan,
-                boundary,
-                Some((first, CursorBound::ExclusiveBefore)),
-            )?;
+            let before = if matches!(kind, ResolvedKind::Head) {
+                0
+            } else {
+                count_rows(
+                    connection,
+                    query,
+                    plan,
+                    boundary,
+                    Some((first, CursorBound::ExclusiveBefore)),
+                )?
+            };
             let after = total
                 .checked_sub(before)
                 .and_then(|rest| rest.checked_sub(items.len() as u64))
@@ -641,12 +780,28 @@ fn count_rows(
     boundary: Option<&MemoQueryBoundary>,
     rank_of: Option<(&MemoSummary, CursorBound)>,
 ) -> Result<u64, lomo_core::LomoError> {
-    let cursor = rank_of.map(|(summary, bound)| {
-        (
-            page_cursor_for(summary, query.sort, String::new(), 0),
-            bound,
-        )
-    });
+    if boundary.is_none() && rank_of.is_none() && plan.match_expr.is_none() {
+        let mut unfiltered = query.filters.clone();
+        unfiltered.include_trash = false;
+        unfiltered.trash_only = false;
+        if unfiltered == MemoFilters::default() {
+            let stats = query_stats(connection)?;
+            let count = if query.filters.trash_only {
+                stats.trashed_count
+            } else if query.filters.include_trash {
+                stats.memo_count
+            } else {
+                stats.memo_count - stats.trashed_count
+            };
+            return u64::try_from(count)
+                .map_err(|_overflow| corruption("invalid_memo_count", "negative aggregate count"));
+        }
+    }
+    let cursor = rank_of
+        .map(|(summary, bound)| {
+            page_cursor_for(summary, &query.sort, String::new(), 0).map(|cursor| (cursor, bound))
+        })
+        .transpose()?;
     let PredicateSql {
         where_sql,
         match_expr,
@@ -742,7 +897,7 @@ fn build_sql(
 
     let from_sql = from_sql(use_fts);
 
-    let order_sql = order_sql(query.sort, use_fts, invert);
+    let order_sql = order_sql(&query.sort, use_fts, invert);
 
     let sql = format!(
         "SELECT m.memo_id, m.source_path, m.file_fingerprint, m.updated_at_ms, m.created_at_ms, \
@@ -785,13 +940,13 @@ fn predicate_sql(
 
     let first_dynamic_index = search_idx + usize::from(use_fts);
     if boundary.is_some() {
-        where_clauses.push(boundary_predicate(query.sort, first_dynamic_index));
+        where_clauses.push(boundary_predicate(&query.sort, first_dynamic_index));
     }
     let first_cursor_index = first_dynamic_index + usize::from(boundary.is_some()) * 4;
     if let Some(bound) = cursor {
         where_clauses.push(cursor_predicate(
             use_fts,
-            query.sort,
+            &query.sort,
             first_cursor_index,
             bound,
         ));
@@ -859,18 +1014,17 @@ fn push_boolean_clause(clauses: &mut Vec<String>, column: &str, value: Option<bo
     }
 }
 
-fn order_sql(sort: MemoSort, use_fts: bool, invert: bool) -> String {
-    let primary_column = match sort.field {
-        MemoSortField::CreatedAt => "m.created_at_ms",
-        MemoSortField::UpdatedAt => "m.updated_at_ms",
-    };
+fn order_sql(sort: &MemoSort, use_fts: bool, invert: bool) -> String {
+    let primary_column = sort.primary_column();
+    let secondary_column = sort.secondary_column();
+    let pinned = sort.pinned_column();
     let direction = match (sort.direction, invert) {
         (SortDirection::Ascending, false) | (SortDirection::Descending, true) => "ASC",
         (SortDirection::Descending, false) | (SortDirection::Ascending, true) => "DESC",
     };
     let pin_direction = if invert { "ASC" } else { "DESC" };
     let temporal = format!(
-        "is_pinned {pin_direction}, {primary_column} {direction}, m.created_at_ms {direction}, m.memo_id {direction}"
+        "({pinned}) {pin_direction}, {primary_column} {direction}, {secondary_column} {direction}, m.memo_id {direction}"
     );
     if use_fts {
         let rank_direction = if invert { "DESC" } else { "ASC" };
@@ -882,7 +1036,7 @@ fn order_sql(sort: MemoSort, use_fts: bool, invert: bool) -> String {
 
 fn cursor_predicate(
     use_fts: bool,
-    sort: MemoSort,
+    sort: &MemoSort,
     first_cursor_idx: usize,
     bound: CursorBound,
 ) -> String {
@@ -907,17 +1061,36 @@ fn cursor_predicate(
         CursorBound::ExclusiveBefore => "<",
         CursorBound::ExclusiveAfter | CursorBound::InclusiveAfter => ">",
     };
-    let primary_column = match sort.field {
-        MemoSortField::CreatedAt => "m.created_at_ms",
-        MemoSortField::UpdatedAt => "m.updated_at_ms",
-    };
-    let pinned = "m.is_pinned";
+    let primary_column = sort.primary_column();
+    let secondary_column = sort.secondary_column();
+    let pinned = sort.pinned_column();
+    // Descending feed order is one index tuple. Expanding it into nested ORs
+    // makes SQLite visit the entire active partition even for a rank-zero memo.
+    if !sort.is_review() && sort.direction == SortDirection::Descending {
+        let comparison = match bound {
+            CursorBound::ExclusiveBefore => ">",
+            CursorBound::ExclusiveAfter => "<",
+            CursorBound::InclusiveAfter => "<=",
+        };
+        let temporal = if sort.field == MemoSortField::CreatedAt {
+            format!(
+                "(m.is_pinned, m.created_at_ms, m.memo_id) {comparison} (?{pin_idx}, ?{primary_idx}, ?{memo_id_idx})"
+            )
+        } else {
+            format!(
+                "(m.is_pinned, m.updated_at_ms, m.created_at_ms, m.memo_id) {comparison} (?{pin_idx}, ?{primary_idx}, ?{created_idx}, ?{memo_id_idx})"
+            )
+        };
+        return rank_idx.map_or_else(|| temporal.clone(), |rank_idx| {
+            format!("(bm25(memo_fts) {rank_cmp} ?{rank_idx} OR (bm25(memo_fts) = ?{rank_idx} AND {temporal}))")
+        });
+    }
     let temporal = format!(
         "({pinned} {pin_cmp} ?{pin_idx} OR ({pinned} = ?{pin_idx} AND \
          ({primary_column} {temporal_cmp} ?{primary_idx} OR \
           ({primary_column} = ?{primary_idx} AND \
-           (m.created_at_ms {temporal_cmp} ?{created_idx} OR \
-            (m.created_at_ms = ?{created_idx} AND m.memo_id {id_cmp} ?{memo_id_idx}))))))"
+           ({secondary_column} {temporal_cmp} ?{created_idx} OR \
+            ({secondary_column} = ?{created_idx} AND m.memo_id {id_cmp} ?{memo_id_idx}))))))"
     );
     rank_idx.map_or_else(
         || temporal.clone(),
@@ -931,7 +1104,7 @@ fn cursor_predicate(
 
 /// Inclusive lexicographic predicate for a captured ordering boundary. Pin state is always the
 /// leading descending key; temporal keys follow the selected sort direction.
-fn boundary_predicate(sort: MemoSort, first_idx: usize) -> String {
+fn boundary_predicate(sort: &MemoSort, first_idx: usize) -> String {
     let primary_idx = first_idx + 1;
     let created_idx = first_idx + 2;
     let memo_id_idx = first_idx + 3;
@@ -943,16 +1116,15 @@ fn boundary_predicate(sort: MemoSort, first_idx: usize) -> String {
         SortDirection::Ascending => ">=",
         SortDirection::Descending => "<=",
     };
-    let primary_column = match sort.field {
-        MemoSortField::CreatedAt => "m.created_at_ms",
-        MemoSortField::UpdatedAt => "m.updated_at_ms",
-    };
+    let primary_column = sort.primary_column();
+    let secondary_column = sort.secondary_column();
+    let pinned = sort.pinned_column();
     format!(
-        "(m.is_pinned < ?{first_idx} OR (m.is_pinned = ?{first_idx} AND \
+        "({pinned} < ?{first_idx} OR ({pinned} = ?{first_idx} AND \
          ({primary_column} {comparison} ?{primary_idx} OR \
           ({primary_column} = ?{primary_idx} AND \
-           (m.created_at_ms {comparison} ?{created_idx} OR \
-            (m.created_at_ms = ?{created_idx} AND m.memo_id {inclusive} ?{memo_id_idx}))))))"
+           ({secondary_column} {comparison} ?{created_idx} OR \
+            ({secondary_column} = ?{created_idx} AND m.memo_id {inclusive} ?{memo_id_idx}))))))"
     )
 }
 
@@ -980,7 +1152,7 @@ pub fn get_memo(
     };
     let body_path = workspace_root.join(&summary.source_path);
     let body = if summary.is_trashed
-        && trash_record_relative_path(&summary.memo_id)
+        && trash_record_relative_path(&summary.memo_id, &summary.source_path)
             .is_ok_and(|relative| workspace_root.join(relative.as_str()).is_file())
     {
         // The checksummed workspace trash record is the durable authority.  Never prefer a stale
@@ -1020,7 +1192,7 @@ fn read_trash_record_body(
     workspace_root: &Path,
     summary: &MemoSummary,
 ) -> Result<String, lomo_core::LomoError> {
-    let relative = trash_record_relative_path(&summary.memo_id)?;
+    let relative = trash_record_relative_path(&summary.memo_id, &summary.source_path)?;
     let path = workspace_root.join(relative.as_str());
     let bytes = std::fs::read(&path).map_err(|error| {
         storage(
@@ -1328,15 +1500,12 @@ fn attach_tags_and_images(
         tags.push(tag);
     }
 
-    let mut images_by_memo = items
-        .iter()
-        .map(|item| (item.memo_id.clone(), Vec::<String>::new()))
-        .collect::<BTreeMap<_, _>>();
+    // Attachment references are a sweep-protection set: they omit external URLs and have no
+    // presentation order. Derive viewer destinations from the authoritative body in one batch.
+    let mut images_by_memo = BTreeMap::new();
     let mut stmt = connection
         .prepare(&format!(
-            "SELECT memo_id, relative_path FROM attachment_ref \
-             WHERE memo_id IN ({placeholders}) \
-             ORDER BY memo_id, relative_path"
+            "SELECT memo_id, body FROM memo WHERE memo_id IN ({placeholders})"
         ))
         .map_err(|err| from_sqlite(&err))?;
     let rows = stmt
@@ -1345,16 +1514,8 @@ fn attach_tags_and_images(
         })
         .map_err(|err| from_sqlite(&err))?;
     for row in rows {
-        let (memo_id, path) = row.map_err(|err| from_sqlite(&err))?;
-        if attachment_media_class(&path) != MediaClass::Audio {
-            let paths = images_by_memo.get_mut(&memo_id).ok_or_else(|| {
-                validation(
-                    "memo_attachment_owner_missing",
-                    "bulk attachment query returned an owner outside the requested page",
-                )
-            })?;
-            paths.push(path);
-        }
+        let (memo_id, body) = row.map_err(|err| from_sqlite(&err))?;
+        images_by_memo.insert(memo_id, crate::project_content_facts(&body)?.image_urls);
     }
     for item in items {
         item.tags = tags_by_memo.remove(&item.memo_id).ok_or_else(|| {
@@ -1471,6 +1632,7 @@ pub fn query_count(
     connection: &Connection,
     query: &MemoQuery,
 ) -> Result<u64, lomo_core::LomoError> {
+    register_review_functions(connection, &query.sort)?;
     let plan = query_plan_for(query)?;
     count_rows(connection, query, &plan, None, None)
 }
@@ -1501,6 +1663,7 @@ pub fn memos_matching_window(
     if memo_ids.is_empty() || (head.is_none() && tail.is_none()) {
         return Ok(MemoWindowSides::default());
     }
+    register_review_functions(connection, &query.sort)?;
     let plan = query_plan_for(query)?;
     // The id list travels as one JSON parameter — a single statement keeps the
     // ORDER BY global across the whole set instead of one ordering per chunk.
@@ -1551,7 +1714,7 @@ fn matching_window_side(
          AND m.memo_id IN (SELECT value FROM json_each(?{ids_idx})) \
          ORDER BY {}",
         from_sql(use_fts),
-        order_sql(query.sort, use_fts, false),
+        order_sql(&query.sort, use_fts, false),
     );
     let mut bindings = bind_query(
         query,
@@ -1635,21 +1798,6 @@ pub fn query_memo_statistics_rows(
         }
     }
     Ok(out)
-}
-
-/// Recomputes stats from base tables (used after batch projection updates).
-pub fn recompute_stats(connection: &Connection) -> Result<(), lomo_core::LomoError> {
-    connection
-        .execute_batch(
-            r"
-            UPDATE stats SET value_i64 = (SELECT COUNT(*) FROM memo) WHERE key = 'memo_count';
-            UPDATE stats SET value_i64 = (SELECT COUNT(*) FROM memo WHERE is_pinned = 1) WHERE key = 'pinned_count';
-            UPDATE stats SET value_i64 = (SELECT COUNT(*) FROM memo WHERE is_trashed = 1) WHERE key = 'trashed_count';
-            UPDATE stats SET value_i64 = (SELECT COUNT(*) FROM tag) WHERE key = 'tag_count';
-            ",
-        )
-        .map_err(|err| from_sqlite(&err))?;
-    Ok(())
 }
 
 /// One projected attachment reference with its owner's lifecycle bit.
@@ -1834,4 +1982,35 @@ pub fn memo_source_path(
         )
         .optional()
         .map_err(|err| from_sqlite(&err))
+}
+
+/// Only active reminder facts, without loading unrelated memo bodies or attachments.
+#[derive(Debug, Clone)]
+pub struct MemoReminderProjection {
+    pub memo_id: String,
+    pub reminders: Vec<lomo_workspace::ReminderReference>,
+}
+
+/// Reads the indexed active reminder partition.
+///
+/// # Errors
+/// Returns storage failures or malformed typed reminder projections.
+pub fn query_reminder_projections(
+    connection: &Connection,
+) -> Result<Vec<MemoReminderProjection>, lomo_core::LomoError> {
+    let mut statement = connection.prepare(
+        "SELECT memo_id,reminders_json FROM memo INDEXED BY idx_memo_reminders WHERE is_trashed=0 AND pending_operation_id IS NULL AND reminders_json!='[]'"
+    ).map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| from_sqlite(&error))?;
+    rows.map(|row| {
+        let (memo_id, json) = row.map_err(|error| from_sqlite(&error))?;
+        let reminders = serde_json::from_str(&json)
+            .map_err(|error| corruption("invalid_reminder_projection", &error.to_string()))?;
+        Ok(MemoReminderProjection { memo_id, reminders })
+    })
+    .collect()
 }

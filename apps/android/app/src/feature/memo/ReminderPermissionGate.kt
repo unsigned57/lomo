@@ -3,7 +3,6 @@ package com.lomo.app.feature.memo
 import android.app.AlarmManager
 import android.content.Context
 import android.content.Intent
-import androidx.core.net.toUri
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
@@ -14,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.core.net.toUri
 import com.lomo.app.CapabilityRecoveryDecision
 import com.lomo.app.R
 
@@ -103,13 +103,12 @@ private fun hasExactAlarmCapability(context: Context): Boolean {
 }
 
 @Composable
-private fun rememberReminderRecoveryExecutor(context: Context): ReminderCapabilityRecoveryExecutor =
-    remember(context) {
-        ReminderCapabilityRecoveryExecutor(
-            onOpenAppSettings = { openReminderAppSettings(context) },
-            onOpenExactAlarmSettings = { openExactAlarmSettings(context) },
-        )
-    }
+private fun rememberReminderRecoveryExecutor(context: Context): ReminderCapabilityRecoveryExecutor = remember(context) {
+    ReminderCapabilityRecoveryExecutor(
+        onOpenAppSettings = { openReminderAppSettings(context) },
+        onOpenExactAlarmSettings = { openExactAlarmSettings(context) },
+    )
+}
 
 private fun openReminderAppSettings(context: Context) {
     val intent =

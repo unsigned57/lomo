@@ -6,10 +6,8 @@ enum class GalleryReelOverlayAnchor {
     Expanded,
 }
 
-fun nextAnchorOnBack(current: GalleryReelOverlayAnchor): GalleryReelOverlayAnchor =
-    when (current) {
-        GalleryReelOverlayAnchor.Expanded -> GalleryReelOverlayAnchor.Collapsed
-        GalleryReelOverlayAnchor.Collapsed -> GalleryReelOverlayAnchor.Hidden
-        GalleryReelOverlayAnchor.Hidden -> GalleryReelOverlayAnchor.Hidden
-    }
-
+fun nextAnchorOnBack(current: GalleryReelOverlayAnchor): GalleryReelOverlayAnchor = when (current) {
+    GalleryReelOverlayAnchor.Expanded -> GalleryReelOverlayAnchor.Collapsed
+    GalleryReelOverlayAnchor.Collapsed -> GalleryReelOverlayAnchor.Hidden
+    GalleryReelOverlayAnchor.Hidden -> GalleryReelOverlayAnchor.Hidden
+}

@@ -5,8 +5,8 @@ import android.content.ContextWrapper
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
-import org.koin.androidx.compose.koinViewModel
 import androidx.lifecycle.ViewModel
+import org.koin.androidx.compose.koinViewModel
 
 @Composable
 internal inline fun <reified VM : ViewModel> injectedKoinViewModel(): VM = koinViewModel()
@@ -19,9 +19,8 @@ internal inline fun <reified VM : ViewModel> activityKoinViewModel(): VM {
     return koinViewModel(viewModelStoreOwner = activity)
 }
 
-private tailrec fun Context.findComponentActivity(): ComponentActivity? =
-    when (this) {
-        is ComponentActivity -> this
-        is ContextWrapper -> baseContext.findComponentActivity()
-        else -> null
-    }
+internal tailrec fun Context.findComponentActivity(): ComponentActivity? = when (this) {
+    is ComponentActivity -> this
+    is ContextWrapper -> baseContext.findComponentActivity()
+    else -> null
+}

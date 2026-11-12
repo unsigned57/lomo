@@ -1,13 +1,13 @@
 package com.lomo.detektrules
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.detektrules
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
@@ -49,11 +48,12 @@ import kotlin.io.path.writeText
  * Excludes:
  * - the MainDispatcherExtension implementation file itself.
  */
-class NoDispatchersSetMainInTestsRuleTest : FunSpec({
-    test("flags Dispatchers.setMain in feature test source") {
-        val findings = rule().findingsForTestSource(
-            "test/sample/FeatureTest.kt",
-            """
+class NoDispatchersSetMainInTestsRuleTest :
+    FunSpec({
+        test("flags Dispatchers.setMain in feature test source") {
+            val findings = rule().findingsForTestSource(
+                "test/sample/FeatureTest.kt",
+                """
             package com.lomo.sample
 
             import kotlinx.coroutines.Dispatchers
@@ -63,14 +63,14 @@ class NoDispatchersSetMainInTestsRuleTest : FunSpec({
                 Dispatchers.setMain(StandardTestDispatcher())
             }
             """,
-        )
-        findings.shouldHaveSize(1)
-    }
+            )
+            findings.shouldHaveSize(1)
+        }
 
-    test("allows production source uses") {
-        val findings = rule().findingsForTestSource(
-            "src/sample/Setup.kt",
-            """
+        test("allows production source uses") {
+            val findings = rule().findingsForTestSource(
+                "src/sample/Setup.kt",
+                """
             package com.lomo.sample
 
             import kotlinx.coroutines.Dispatchers
@@ -80,14 +80,14 @@ class NoDispatchersSetMainInTestsRuleTest : FunSpec({
                 Dispatchers.setMain(StandardTestDispatcher())
             }
             """,
-        )
-        findings.shouldHaveSize(0)
-    }
+            )
+            findings.shouldHaveSize(0)
+        }
 
-    test("allows MainDispatcherExtension implementation file itself") {
-        val findings = rule().findingsForTestSource(
-            "test/testing/MainDispatcherExtension.kt",
-            """
+        test("allows MainDispatcherExtension implementation file itself") {
+            val findings = rule().findingsForTestSource(
+                "test/testing/MainDispatcherExtension.kt",
+                """
             package com.lomo.app.testing
 
             import kotlinx.coroutines.Dispatchers
@@ -96,10 +96,10 @@ class NoDispatchersSetMainInTestsRuleTest : FunSpec({
                 fun bind() { Dispatchers.setMain(kotlinx.coroutines.test.StandardTestDispatcher()) }
             }
             """,
-        )
-        findings.shouldHaveSize(0)
-    }
-})
+            )
+            findings.shouldHaveSize(0)
+        }
+    })
 
 private fun rule(config: Config = Config.empty): Rule =
     checkNotNull(LomoTestStyleRuleSetProvider().instance().rules[RuleName("NoDispatchersSetMainInTests")]) {

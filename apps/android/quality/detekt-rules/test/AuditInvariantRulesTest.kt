@@ -52,27 +52,28 @@ import kotlin.io.path.writeText
  * Excludes:
  * - Rust-side equivalents (lomo-architecture-tests policy module) and runtime behavior.
  */
-class AuditInvariantRulesTest : FunSpec({
-    test("registers all audit-invariant rules in the rule set") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
-        rules[RuleName("NoMintedIdentity")].shouldNotBeNull()
-        rules[RuleName("NoErrorMessageControlFlow")].shouldNotBeNull()
-        rules[RuleName("NoPlaceholderCollaborator")].shouldNotBeNull()
-        rules[RuleName("NoCapabilitySeam")].shouldNotBeNull()
-        rules[RuleName("NoSecretInWorkPayload")].shouldNotBeNull()
-        rules[RuleName("NoNamePredicateDelete")].shouldNotBeNull()
-        rules[RuleName("NoCorruptionEmptyReset")].shouldNotBeNull()
-        rules[RuleName("NoDomainClock")].shouldNotBeNull()
-        rules[RuleName("NoConstantStatusValue")].shouldNotBeNull()
-    }
+class AuditInvariantRulesTest :
+    FunSpec({
+        test("registers all audit-invariant rules in the rule set") {
+            val rules = LomoArchitectureRuleSetProvider().instance().rules
+            rules[RuleName("NoMintedIdentity")].shouldNotBeNull()
+            rules[RuleName("NoErrorMessageControlFlow")].shouldNotBeNull()
+            rules[RuleName("NoPlaceholderCollaborator")].shouldNotBeNull()
+            rules[RuleName("NoCapabilitySeam")].shouldNotBeNull()
+            rules[RuleName("NoSecretInWorkPayload")].shouldNotBeNull()
+            rules[RuleName("NoNamePredicateDelete")].shouldNotBeNull()
+            rules[RuleName("NoCorruptionEmptyReset")].shouldNotBeNull()
+            rules[RuleName("NoDomainClock")].shouldNotBeNull()
+            rules[RuleName("NoConstantStatusValue")].shouldNotBeNull()
+        }
 
-    // ---- NoMintedIdentity ---------------------------------------------------
+        // ---- NoMintedIdentity ---------------------------------------------------
 
-    test("NoMintedIdentity: flags UUID minted into request operationId argument") {
-        val findings =
-            rule("NoMintedIdentity").findingsForSource(
-                "data/src/repository/StoreMemoTaskRepository.kt",
-                """
+        test("NoMintedIdentity: flags UUID minted into request operationId argument") {
+            val findings =
+                rule("NoMintedIdentity").findingsForSource(
+                    "data/src/repository/StoreMemoTaskRepository.kt",
+                    """
                 package com.lomo.data.repository
 
                 import java.util.UUID
@@ -85,17 +86,17 @@ class AuditInvariantRulesTest : FunSpec({
                     class SessionToggleTaskRequest(val operationId: String)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "operationId"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "operationId"
+        }
 
-    test("NoMintedIdentity: flags positional mint inside a Request constructor") {
-        val findings =
-            rule("NoMintedIdentity").findingsForSource(
-                "data/src/repository/Sample.kt",
-                """
+        test("NoMintedIdentity: flags positional mint inside a Request constructor") {
+            val findings =
+                rule("NoMintedIdentity").findingsForSource(
+                    "data/src/repository/Sample.kt",
+                    """
                 package com.lomo.data.repository
 
                 import java.util.UUID
@@ -107,17 +108,17 @@ class AuditInvariantRulesTest : FunSpec({
                     class PinMemoRequest(val requestId: String, val line: Int)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "PinMemoRequest"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "PinMemoRequest"
+        }
 
-    test("NoMintedIdentity: flags hash-derived sequencing identity") {
-        val findings =
-            rule("NoMintedIdentity").findingsForSource(
-                "data/src/engine/Sample.kt",
-                """
+        test("NoMintedIdentity: flags hash-derived sequencing identity") {
+            val findings =
+                rule("NoMintedIdentity").findingsForSource(
+                    "data/src/engine/Sample.kt",
+                    """
                 package com.lomo.data.engine
 
                 class Sample {
@@ -127,17 +128,17 @@ class AuditInvariantRulesTest : FunSpec({
                     class SyncFence(val revisionToken: String)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "revisionToken"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "revisionToken"
+        }
 
-    test("NoMintedIdentity: allows content-addressed digest") {
-        val findings =
-            rule("NoMintedIdentity").findingsForSource(
-                "data/src/engine/Sample.kt",
-                """
+        test("NoMintedIdentity: allows content-addressed digest") {
+            val findings =
+                rule("NoMintedIdentity").findingsForSource(
+                    "data/src/engine/Sample.kt",
+                    """
                 package com.lomo.data.engine
 
                 class Sample {
@@ -150,16 +151,16 @@ class AuditInvariantRulesTest : FunSpec({
                     private fun consume(digest: String) {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(0)
-    }
+            findings.shouldHaveSize(0)
+        }
 
-    test("NoMintedIdentity: flags local identity property minted from Random") {
-        val findings =
-            rule("NoMintedIdentity").findingsForSource(
-                "data/src/engine/Sample.kt",
-                """
+        test("NoMintedIdentity: flags local identity property minted from Random") {
+            val findings =
+                rule("NoMintedIdentity").findingsForSource(
+                    "data/src/engine/Sample.kt",
+                    """
                 package com.lomo.data.engine
 
                 import kotlin.random.Random
@@ -172,32 +173,32 @@ class AuditInvariantRulesTest : FunSpec({
                     private fun consume(token: String) {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoMintedIdentity: allows canonical minting function") {
-        val findings =
-            rule("NoMintedIdentity").findingsForSource(
-                "app/src/feature/common/MemoOperationIds.kt",
-                """
+        test("NoMintedIdentity: allows canonical minting function") {
+            val findings =
+                rule("NoMintedIdentity").findingsForSource(
+                    "app/src/feature/common/MemoOperationIds.kt",
+                    """
                 package com.lomo.app.feature.common
 
                 import java.util.UUID
 
                 internal fun newMemoOperationId(): String = UUID.randomUUID().toString()
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoMintedIdentity: allows injectable mint provider default") {
-        val findings =
-            rule("NoMintedIdentity").findingsForSource(
-                "app/src/TrustedLaunchIntents.kt",
-                """
+        test("NoMintedIdentity: allows injectable mint provider default") {
+            val findings =
+                rule("NoMintedIdentity").findingsForSource(
+                    "app/src/TrustedLaunchIntents.kt",
+                    """
                 package com.lomo.app
 
                 import java.util.UUID
@@ -206,16 +207,16 @@ class AuditInvariantRulesTest : FunSpec({
                     private val nonceProvider: () -> String = { UUID.randomUUID().toString() },
                 )
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoMintedIdentity: allows owner-mint marker") {
-        val findings =
-            rule("NoMintedIdentity").findingsForSource(
-                "data/src/local/LomoDataStoreDelegates.kt",
-                """
+        test("NoMintedIdentity: allows owner-mint marker") {
+            val findings =
+                rule("NoMintedIdentity").findingsForSource(
+                    "data/src/local/LomoDataStoreDelegates.kt",
+                    """
                 package com.lomo.data.local
 
                 import java.util.UUID
@@ -230,18 +231,18 @@ class AuditInvariantRulesTest : FunSpec({
                     class Transition(val id: String)
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    // ---- NoErrorMessageControlFlow -------------------------------------------
+        // ---- NoErrorMessageControlFlow -------------------------------------------
 
-    test("NoErrorMessageControlFlow: flags contains-branch on error message") {
-        val findings =
-            rule("NoErrorMessageControlFlow").findingsForSource(
-                "domain/src/model/Sample.kt",
-                """
+        test("NoErrorMessageControlFlow: flags contains-branch on error message") {
+            val findings =
+                rule("NoErrorMessageControlFlow").findingsForSource(
+                    "domain/src/model/Sample.kt",
+                    """
                 package com.lomo.domain.model
 
                 fun codeFrom(error: Throwable): Int =
@@ -250,17 +251,17 @@ class AuditInvariantRulesTest : FunSpec({
                         else -> 0
                     }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "Control flow"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "Control flow"
+        }
 
-    test("NoErrorMessageControlFlow: flags equality check on exception message") {
-        val findings =
-            rule("NoErrorMessageControlFlow").findingsForSource(
-                "data/src/Sample.kt",
-                """
+        test("NoErrorMessageControlFlow: flags equality check on exception message") {
+            val findings =
+                rule("NoErrorMessageControlFlow").findingsForSource(
+                    "data/src/Sample.kt",
+                    """
                 package com.lomo.data
 
                 class Sample {
@@ -277,16 +278,16 @@ class AuditInvariantRulesTest : FunSpec({
                     private fun recover() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoErrorMessageControlFlow: flags when subject on message text") {
-        val findings =
-            rule("NoErrorMessageControlFlow").findingsForSource(
-                "data/src/Sample.kt",
-                """
+        test("NoErrorMessageControlFlow: flags when subject on message text") {
+            val findings =
+                rule("NoErrorMessageControlFlow").findingsForSource(
+                    "data/src/Sample.kt",
+                    """
                 package com.lomo.data
 
                 class Sample {
@@ -297,31 +298,31 @@ class AuditInvariantRulesTest : FunSpec({
                         }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoErrorMessageControlFlow: flags decoder function name") {
-        val findings =
-            rule("NoErrorMessageControlFlow").findingsForSource(
-                "domain/src/model/Sample.kt",
-                """
+        test("NoErrorMessageControlFlow: flags decoder function name") {
+            val findings =
+                rule("NoErrorMessageControlFlow").findingsForSource(
+                    "domain/src/model/Sample.kt",
+                    """
                 package com.lomo.domain.model
 
                 private fun s3SyncErrorCodeFromMessage(rawMessage: String?): Int = 0
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "s3SyncErrorCodeFromMessage"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "s3SyncErrorCodeFromMessage"
+        }
 
-    test("NoErrorMessageControlFlow: allows message rendering for diagnostics") {
-        val findings =
-            rule("NoErrorMessageControlFlow").findingsForSource(
-                "data/src/Sample.kt",
-                """
+        test("NoErrorMessageControlFlow: allows message rendering for diagnostics") {
+            val findings =
+                rule("NoErrorMessageControlFlow").findingsForSource(
+                    "data/src/Sample.kt",
+                    """
                 package com.lomo.data
 
                 class Sample {
@@ -334,16 +335,16 @@ class AuditInvariantRulesTest : FunSpec({
                     private fun go(): String = "ok"
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoErrorMessageControlFlow: allows sealed-type dispatch named like diagnostics") {
-        val findings =
-            rule("NoErrorMessageControlFlow").findingsForSource(
-                "app/src/feature/settings/Sample.kt",
-                """
+        test("NoErrorMessageControlFlow: allows sealed-type dispatch named like diagnostics") {
+            val findings =
+                rule("NoErrorMessageControlFlow").findingsForSource(
+                    "app/src/feature/settings/Sample.kt",
+                    """
                 package com.lomo.app.feature.settings
 
                 class Sample {
@@ -364,18 +365,18 @@ class AuditInvariantRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    // ---- NoPlaceholderCollaborator -------------------------------------------
+        // ---- NoPlaceholderCollaborator -------------------------------------------
 
-    test("NoPlaceholderCollaborator: flags NoOp repository object") {
-        val findings =
-            rule("NoPlaceholderCollaborator").findingsForSource(
-                "app/src/feature/settings/Sample.kt",
-                """
+        test("NoPlaceholderCollaborator: flags NoOp repository object") {
+            val findings =
+                rule("NoPlaceholderCollaborator").findingsForSource(
+                    "app/src/feature/settings/Sample.kt",
+                    """
                 package com.lomo.app.feature.settings
 
                 interface MemoSnapshotPreferencesRepository {
@@ -386,17 +387,17 @@ class AuditInvariantRulesTest : FunSpec({
                     override fun enabled() = false
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "NoOpMemoSnapshotPreferencesRepository"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "NoOpMemoSnapshotPreferencesRepository"
+        }
 
-    test("NoPlaceholderCollaborator: flags Fake service class") {
-        val findings =
-            rule("NoPlaceholderCollaborator").findingsForSource(
-                "app/src/feature/Sample.kt",
-                """
+        test("NoPlaceholderCollaborator: flags Fake service class") {
+            val findings =
+                rule("NoPlaceholderCollaborator").findingsForSource(
+                    "app/src/feature/Sample.kt",
+                    """
                 package com.lomo.app.feature
 
                 interface SyncService {
@@ -407,16 +408,16 @@ class AuditInvariantRulesTest : FunSpec({
                     override fun sync() {}
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoPlaceholderCollaborator: allows sensory no-op outside capability suffixes") {
-        val findings =
-            rule("NoPlaceholderCollaborator").findingsForSource(
-                "ui-components/src/util/AppHapticFeedback.kt",
-                """
+        test("NoPlaceholderCollaborator: allows sensory no-op outside capability suffixes") {
+            val findings =
+                rule("NoPlaceholderCollaborator").findingsForSource(
+                    "ui-components/src/util/AppHapticFeedback.kt",
+                    """
                 package com.lomo.ui.util
 
                 interface AppHapticFeedback {
@@ -428,18 +429,18 @@ class AuditInvariantRulesTest : FunSpec({
                         override fun light() = Unit
                     }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    // ---- NoCapabilitySeam -----------------------------------------------------
+        // ---- NoCapabilitySeam -----------------------------------------------------
 
-    test("NoCapabilitySeam: flags nullable repository constructor parameter") {
-        val findings =
-            rule("NoCapabilitySeam").findingsForSource(
-                "app/src/feature/settings/Sample.kt",
-                """
+        test("NoCapabilitySeam: flags nullable repository constructor parameter") {
+            val findings =
+                rule("NoCapabilitySeam").findingsForSource(
+                    "app/src/feature/settings/Sample.kt",
+                    """
                 package com.lomo.app.feature.settings
 
                 interface SyncInboxRepository
@@ -448,17 +449,17 @@ class AuditInvariantRulesTest : FunSpec({
                     private val syncInboxRepository: SyncInboxRepository? = null,
                 )
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "syncInboxRepository"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "syncInboxRepository"
+        }
 
-    test("NoCapabilitySeam: flags nullable capability without default") {
-        val findings =
-            rule("NoCapabilitySeam").findingsForSource(
-                "data/src/worker/Sample.kt",
-                """
+        test("NoCapabilitySeam: flags nullable capability without default") {
+            val findings =
+                rule("NoCapabilitySeam").findingsForSource(
+                    "data/src/worker/Sample.kt",
+                    """
                 package com.lomo.data.worker
 
                 interface SecretMaterialSource
@@ -467,16 +468,16 @@ class AuditInvariantRulesTest : FunSpec({
                     private val identityMaterial: SecretMaterialSource?,
                 )
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoCapabilitySeam: flags NoOp default argument") {
-        val findings =
-            rule("NoCapabilitySeam").findingsForSource(
-                "app/src/feature/settings/Sample.kt",
-                """
+        test("NoCapabilitySeam: flags NoOp default argument") {
+            val findings =
+                rule("NoCapabilitySeam").findingsForSource(
+                    "app/src/feature/settings/Sample.kt",
+                    """
                 package com.lomo.app.feature.settings
 
                 interface MemoSnapshotPreferencesRepository
@@ -487,16 +488,16 @@ class AuditInvariantRulesTest : FunSpec({
 
                 object NoOpMemoSnapshotPreferencesRepository : MemoSnapshotPreferencesRepository
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoCapabilitySeam: flags getOrNull inside DI module") {
-        val findings =
-            rule("NoCapabilitySeam").findingsForSource(
-                "app/src/di/AppModule.kt",
-                """
+        test("NoCapabilitySeam: flags getOrNull inside DI module") {
+            val findings =
+                rule("NoCapabilitySeam").findingsForSource(
+                    "app/src/di/AppModule.kt",
+                    """
                 package com.lomo.app.di
 
                 val module = org.koin.dsl.module {
@@ -509,17 +510,17 @@ class AuditInvariantRulesTest : FunSpec({
 
                 class Deps(val syncInboxRepository: Any?)
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "getOrNull"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "getOrNull"
+        }
 
-    test("NoCapabilitySeam: allows non-null injected capability") {
-        val findings =
-            rule("NoCapabilitySeam").findingsForSource(
-                "app/src/feature/settings/Sample.kt",
-                """
+        test("NoCapabilitySeam: allows non-null injected capability") {
+            val findings =
+                rule("NoCapabilitySeam").findingsForSource(
+                    "app/src/feature/settings/Sample.kt",
+                    """
                 package com.lomo.app.feature.settings
 
                 interface SyncInboxRepository
@@ -528,16 +529,16 @@ class AuditInvariantRulesTest : FunSpec({
                     private val syncInboxRepository: SyncInboxRepository,
                 )
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoCapabilitySeam: allows optional data fields on data classes") {
-        val findings =
-            rule("NoCapabilitySeam").findingsForSource(
-                "app/src/feature/review/Sample.kt",
-                """
+        test("NoCapabilitySeam: allows optional data fields on data classes") {
+            val findings =
+                rule("NoCapabilitySeam").findingsForSource(
+                    "app/src/feature/review/Sample.kt",
+                    """
                 package com.lomo.app.feature.review
 
                 interface CollectionSource
@@ -546,18 +547,18 @@ class AuditInvariantRulesTest : FunSpec({
                     val collectionSource: CollectionSource? = null,
                 )
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    // ---- NoSecretInWorkPayload ------------------------------------------------
+        // ---- NoSecretInWorkPayload ------------------------------------------------
 
-    test("NoSecretInWorkPayload: flags secret value in workDataOf") {
-        val findings =
-            rule("NoSecretInWorkPayload").findingsForSource(
-                "data/src/worker/Sample.kt",
-                """
+        test("NoSecretInWorkPayload: flags secret value in workDataOf") {
+            val findings =
+                rule("NoSecretInWorkPayload").findingsForSource(
+                    "data/src/worker/Sample.kt",
+                    """
                 package com.lomo.data.worker
 
                 import androidx.work.workDataOf
@@ -568,17 +569,17 @@ class AuditInvariantRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "secretAccessKey"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "secretAccessKey"
+        }
 
-    test("NoSecretInWorkPayload: flags putString of password value") {
-        val findings =
-            rule("NoSecretInWorkPayload").findingsForSource(
-                "data/src/worker/Sample.kt",
-                """
+        test("NoSecretInWorkPayload: flags putString of password value") {
+            val findings =
+                rule("NoSecretInWorkPayload").findingsForSource(
+                    "data/src/worker/Sample.kt",
+                    """
                 package com.lomo.data.worker
 
                 import androidx.work.Data
@@ -590,16 +591,16 @@ class AuditInvariantRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoSecretInWorkPayload: allows field-name indirection") {
-        val findings =
-            rule("NoSecretInWorkPayload").findingsForSource(
-                "data/src/worker/RustSyncWorker.kt",
-                """
+        test("NoSecretInWorkPayload: allows field-name indirection") {
+            val findings =
+                rule("NoSecretInWorkPayload").findingsForSource(
+                    "data/src/worker/RustSyncWorker.kt",
+                    """
                 package com.lomo.data.worker
 
                 import androidx.work.Data
@@ -614,16 +615,16 @@ class AuditInvariantRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoSecretInWorkPayload: ignores credential stores outside WorkManager files") {
-        val findings =
-            rule("NoSecretInWorkPayload").findingsForSource(
-                "data/src/webdav/WebDavCredentialStore.kt",
-                """
+        test("NoSecretInWorkPayload: ignores credential stores outside WorkManager files") {
+            val findings =
+                rule("NoSecretInWorkPayload").findingsForSource(
+                    "data/src/webdav/WebDavCredentialStore.kt",
+                    """
                 package com.lomo.data.webdav
 
                 class Store(private val prefs: SecureStringStore) {
@@ -639,18 +640,18 @@ class AuditInvariantRulesTest : FunSpec({
                     fun putString(key: String, value: String?)
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    // ---- NoNamePredicateDelete -------------------------------------------------
+        // ---- NoNamePredicateDelete -------------------------------------------------
 
-    test("NoNamePredicateDelete: flags name.contains inside removeIf") {
-        val findings =
-            rule("NoNamePredicateDelete").findingsForSource(
-                "data/src/repository/Sample.kt",
-                """
+        test("NoNamePredicateDelete: flags name.contains inside removeIf") {
+            val findings =
+                rule("NoNamePredicateDelete").findingsForSource(
+                    "data/src/repository/Sample.kt",
+                    """
                 package com.lomo.data.repository
 
                 import java.io.File
@@ -661,17 +662,17 @@ class AuditInvariantRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "exact identity"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "exact identity"
+        }
 
-    test("NoNamePredicateDelete: flags name predicate inside delete-named function") {
-        val findings =
-            rule("NoNamePredicateDelete").findingsForSource(
-                "data/src/repository/Sample.kt",
-                """
+        test("NoNamePredicateDelete: flags name predicate inside delete-named function") {
+            val findings =
+                rule("NoNamePredicateDelete").findingsForSource(
+                    "data/src/repository/Sample.kt",
+                    """
                 package com.lomo.data.repository
 
                 import java.io.File
@@ -684,16 +685,16 @@ class AuditInvariantRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoNamePredicateDelete: allows exact name equality in delete context") {
-        val findings =
-            rule("NoNamePredicateDelete").findingsForSource(
-                "data/src/repository/Sample.kt",
-                """
+        test("NoNamePredicateDelete: allows exact name equality in delete context") {
+            val findings =
+                rule("NoNamePredicateDelete").findingsForSource(
+                    "data/src/repository/Sample.kt",
+                    """
                 package com.lomo.data.repository
 
                 import java.io.File
@@ -706,16 +707,16 @@ class AuditInvariantRulesTest : FunSpec({
                     }
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoNamePredicateDelete: allows fuzzy name match outside destructive context") {
-        val findings =
-            rule("NoNamePredicateDelete").findingsForSource(
-                "app/src/feature/Sample.kt",
-                """
+        test("NoNamePredicateDelete: allows fuzzy name match outside destructive context") {
+            val findings =
+                rule("NoNamePredicateDelete").findingsForSource(
+                    "app/src/feature/Sample.kt",
+                    """
                 package com.lomo.app.feature
 
                 class Sample {
@@ -723,18 +724,18 @@ class AuditInvariantRulesTest : FunSpec({
                         names.filter { it.contains(query) }
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    // ---- NoCorruptionEmptyReset -------------------------------------------------
+        // ---- NoCorruptionEmptyReset -------------------------------------------------
 
-    test("NoCorruptionEmptyReset: flags emptyPreferences corruption reset") {
-        val findings =
-            rule("NoCorruptionEmptyReset").findingsForSource(
-                "data/src/local/datastore/LomoDataStore.kt",
-                """
+        test("NoCorruptionEmptyReset: flags emptyPreferences corruption reset") {
+            val findings =
+                rule("NoCorruptionEmptyReset").findingsForSource(
+                    "data/src/local/datastore/LomoDataStore.kt",
+                    """
                 package com.lomo.data.local.datastore
 
                 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
@@ -742,17 +743,17 @@ class AuditInvariantRulesTest : FunSpec({
 
                 val handler = ReplaceFileCorruptionHandler { emptyPreferences() }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "corruption"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "corruption"
+        }
 
-    test("NoCorruptionEmptyReset: allows recovery handler") {
-        val findings =
-            rule("NoCorruptionEmptyReset").findingsForSource(
-                "data/src/local/datastore/Sample.kt",
-                """
+        test("NoCorruptionEmptyReset: allows recovery handler") {
+            val findings =
+                rule("NoCorruptionEmptyReset").findingsForSource(
+                    "data/src/local/datastore/Sample.kt",
+                    """
                 package com.lomo.data.local.datastore
 
                 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
@@ -762,35 +763,35 @@ class AuditInvariantRulesTest : FunSpec({
 
                 fun recover(error: Throwable): Preferences = throw error
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    // ---- NoDomainClock -----------------------------------------------------------
+        // ---- NoDomainClock -----------------------------------------------------------
 
-    test("NoDomainClock: flags System.currentTimeMillis in domain") {
-        val findings =
-            rule("NoDomainClock").findingsForSource(
-                "domain/src/usecase/Sample.kt",
-                """
+        test("NoDomainClock: flags System.currentTimeMillis in domain") {
+            val findings =
+                rule("NoDomainClock").findingsForSource(
+                    "domain/src/usecase/Sample.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 class Sample {
                     fun load(): Long = System.currentTimeMillis()
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "clock"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "clock"
+        }
 
-    test("NoDomainClock: flags LocalDate.now in domain body") {
-        val findings =
-            rule("NoDomainClock").findingsForSource(
-                "domain/src/usecase/Sample.kt",
-                """
+        test("NoDomainClock: flags LocalDate.now in domain body") {
+            val findings =
+                rule("NoDomainClock").findingsForSource(
+                    "domain/src/usecase/Sample.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 import java.time.LocalDate
@@ -799,16 +800,16 @@ class AuditInvariantRulesTest : FunSpec({
                     fun load(): LocalDate = LocalDate.now()
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoDomainClock: allows injected date provider default") {
-        val findings =
-            rule("NoDomainClock").findingsForSource(
-                "domain/src/usecase/Sample.kt",
-                """
+        test("NoDomainClock: allows injected date provider default") {
+            val findings =
+                rule("NoDomainClock").findingsForSource(
+                    "domain/src/usecase/Sample.kt",
+                    """
                 package com.lomo.domain.usecase
 
                 import java.time.LocalDate
@@ -818,34 +819,34 @@ class AuditInvariantRulesTest : FunSpec({
                     private val dateSnapshotProvider: () -> Long = { LocalDate.now().toEpochDay() },
                 )
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    test("NoDomainClock: allows wall clock outside domain") {
-        val findings =
-            rule("NoDomainClock").findingsForSource(
-                "data/src/repository/Sample.kt",
-                """
+        test("NoDomainClock: allows wall clock outside domain") {
+            val findings =
+                rule("NoDomainClock").findingsForSource(
+                    "data/src/repository/Sample.kt",
+                    """
                 package com.lomo.data.repository
 
                 class Sample {
                     fun load(): Long = System.currentTimeMillis()
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
+            findings shouldBe emptyList()
+        }
 
-    // ---- NoConstantStatusValue -----------------------------------------------------
+        // ---- NoConstantStatusValue -----------------------------------------------------
 
-    test("NoConstantStatusValue: flags literal progress argument") {
-        val findings =
-            rule("NoConstantStatusValue").findingsForSource(
-                "data/src/engine/lan/Sample.kt",
-                """
+        test("NoConstantStatusValue: flags literal progress argument") {
+            val findings =
+                rule("NoConstantStatusValue").findingsForSource(
+                    "data/src/engine/lan/Sample.kt",
+                    """
                 package com.lomo.data.engine.lan
 
                 sealed interface ShareTransferState {
@@ -856,17 +857,17 @@ class AuditInvariantRulesTest : FunSpec({
                     private val state = ShareTransferState.Transferring(progress = 0f)
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "progress"
-    }
+            findings.shouldHaveSize(1)
+            findings.single().message shouldContain "progress"
+        }
 
-    test("NoConstantStatusValue: flags positional literal on transferring state ctor") {
-        val findings =
-            rule("NoConstantStatusValue").findingsForSource(
-                "data/src/engine/lan/Sample.kt",
-                """
+        test("NoConstantStatusValue: flags positional literal on transferring state ctor") {
+            val findings =
+                rule("NoConstantStatusValue").findingsForSource(
+                    "data/src/engine/lan/Sample.kt",
+                    """
                 package com.lomo.data.engine.lan
 
                 class Sample {
@@ -877,16 +878,16 @@ class AuditInvariantRulesTest : FunSpec({
                     data class Transferring(val progress: Float) : ShareTransferState
                 }
                 """,
-            )
+                )
 
-        findings.shouldHaveSize(1)
-    }
+            findings.shouldHaveSize(1)
+        }
 
-    test("NoConstantStatusValue: allows measured progress value") {
-        val findings =
-            rule("NoConstantStatusValue").findingsForSource(
-                "data/src/engine/lan/Sample.kt",
-                """
+        test("NoConstantStatusValue: allows measured progress value") {
+            val findings =
+                rule("NoConstantStatusValue").findingsForSource(
+                    "data/src/engine/lan/Sample.kt",
+                    """
                 package com.lomo.data.engine.lan
 
                 class Sample {
@@ -899,24 +900,18 @@ class AuditInvariantRulesTest : FunSpec({
                     data class Transferring(val progress: Float) : ShareTransferState
                 }
                 """,
-            )
+                )
 
-        findings shouldBe emptyList()
-    }
-})
+            findings shouldBe emptyList()
+        }
+    })
 
-private fun rule(
-    name: String,
-    config: Config = Config.empty,
-): Rule =
+private fun rule(name: String, config: Config = Config.empty): Rule =
     checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)
 
-private fun Rule.findingsForSource(
-    relativePath: String,
-    code: String,
-): List<Finding> {
+private fun Rule.findingsForSource(relativePath: String, code: String): List<Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
     val file = tempDir.resolve(relativePath)
     file.parent.createDirectories()

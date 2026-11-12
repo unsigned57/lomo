@@ -86,7 +86,13 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let la = CivilDate::new(2026, 9, 9).expect("la date");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let shanghai = CivilDate::new(2026, 9, 10).expect("sh date");
         let west = ctx
             .session
@@ -142,7 +148,13 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let date = CivilDate::new(2026, 9, 10).expect("date");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
 
         let first = ctx.session.review_candidates("UTC", date).expect("first");
         let probe = ctx.session.projection_query_stats().expect("probe");
@@ -190,6 +202,9 @@ mod tests {
             })
             .expect("create a");
         ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
             .create_memo(CreateMemoRequest {
                 operation_id: OperationId::parse("stat-b").expect("op"),
                 relative_path: Some(RelativeWorkspacePath::parse("2026_09_12.md").expect("path")),
@@ -201,6 +216,9 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create b");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
 
         // Legacy/incomplete projections may hold NULL bodies. Statistics must still answer from
         // the materialized columns alone; per-memo body reads would surface

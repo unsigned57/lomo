@@ -1,0 +1,39 @@
+# Behavior Contract:
+# Capability: more tools inserts validated coordinates; owner: app; P1.
+# Given an editor, when coordinates are inserted, then a geo link appears in the draft.
+# Given undo and redo, when invoked, then the insertion changes atomically.
+# RED: ui-followup/toolbar-red.log; host tests cover invalid and signed boundary coordinates.
+# Excludes: location provider accuracy, covered by Android's positioning service.
+appId: com.lomo.app
+---
+- launchApp
+- runFlow: setup_workspace.yaml
+- tapOn:
+    id: "benchmark_main_create_fab"
+- tapOn:
+    text: "Expand"
+    below:
+      id: "benchmark_input_editor"
+- tapOn: "Insert coordinates"
+- tapOn:
+    text: "While using the app"
+    optional: true
+- tapOn:
+    text: "使用应用时允许"
+    optional: true
+- tapOn:
+    text: "Only this time"
+    optional: true
+- tapOn:
+    text: "仅本次允许"
+    optional: true
+- assertVisible: ".*geo:.*"
+- tapOn: "Undo"
+- assertNotVisible: ".*geo:.*"
+- tapOn: "Redo"
+- assertVisible: ".*geo:.*"
+- takeScreenshot: editor-coordinates-inserted
+- tapOn:
+    id: "benchmark_input_submit"
+- assertVisible:
+    id: "benchmark_main_root"

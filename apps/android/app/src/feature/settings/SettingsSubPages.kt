@@ -2,20 +2,17 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,24 +22,12 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.Vibration
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.toImmutableMap
-
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,46 +43,18 @@ internal fun SyncBackupSettingsPage(
     onOpenSyncCenter: (() -> Unit)? = null,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val haptic = LocalAppHapticFeedback.current
     val subPageMigrationPickers = rememberMigrationPickersForSubPages(migrationPickers = migrationPickers)
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            LargeTopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Sync,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.width(AppSpacing.Medium))
-                        Text(stringResource(R.string.settings_category_sync_backup))
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.medium()
-                        onBack()
-                    }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
+            SettingsPageTopAppBar(
+                title = stringResource(R.string.settings_category_sync_backup),
                 scrollBehavior = scrollBehavior,
+                onBack = onBack,
             )
-        }
+        },
     ) { padding ->
         SyncBackupSettingsBody(
             onOpenSyncCenter = onOpenSyncCenter,
@@ -114,7 +71,6 @@ internal fun SyncBackupSettingsPage(
 
 @Composable
 private fun SyncBackupSettingsBody(
-    onOpenSyncCenter: (() -> Unit)? = null,
     padding: PaddingValues,
     uiState: SettingsScreenUiState,
     dialogState: SettingsDialogState,
@@ -122,6 +78,7 @@ private fun SyncBackupSettingsBody(
     dialogOptions: SettingsDialogOptions,
     storagePickers: StoragePickerActions,
     migrationPickers: MigrationPickers,
+    onOpenSyncCenter: (() -> Unit)? = null,
 ) {
     val gitSyncIntervalLabels = remember(dialogOptions.gitSyncIntervalLabels) {
         dialogOptions.gitSyncIntervalLabels.toImmutableMap()
@@ -142,8 +99,10 @@ private fun SyncBackupSettingsBody(
             .padding(padding)
             .verticalScroll(rememberScrollState())
             .padding(
-                horizontal = AppSpacing.ScreenHorizontalPadding,
-                vertical = AppSpacing.MediumSmall,
+                start = AppSpacing.ScreenHorizontalPadding,
+                end = AppSpacing.ScreenHorizontalPadding,
+                top = AppSpacing.MediumSmall,
+                bottom = AppSpacing.ExtraLarge,
             ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
     ) {
@@ -190,7 +149,7 @@ private fun SyncBackupSettingsBody(
             onSelectSyncInbox = storagePickers.openSyncInbox,
             onOpenSyncCenter = onOpenSyncCenter,
             gitContent = {
-                GitSyncSettingsSectionContainer(
+                gitSyncSettingsSectionContainer(
                     state = uiState.git,
                     dialogState = dialogState,
                     gitFeature = features.git,
@@ -198,7 +157,7 @@ private fun SyncBackupSettingsBody(
                 )
             },
             webDavContent = {
-                WebDavSyncSettingsSectionContainer(
+                webDavSyncSettingsSectionContainer(
                     state = uiState.webDav,
                     dialogState = dialogState,
                     webDavFeature = features.webDav,
@@ -207,7 +166,7 @@ private fun SyncBackupSettingsBody(
                 )
             },
             s3Content = {
-                S3SyncSettingsSectionContainer(
+                s3SyncSettingsSectionContainer(
                     state = uiState.s3,
                     dialogState = dialogState,
                     s3Feature = features.s3,
@@ -228,44 +187,16 @@ internal fun StorageFormatsSettingsPage(
     onBack: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val haptic = LocalAppHapticFeedback.current
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Tune,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.width(AppSpacing.Medium))
-                        Text(stringResource(R.string.settings_category_storage_formats))
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.medium()
-                        onBack()
-                    }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
+            SettingsPageTopAppBar(
+                title = stringResource(R.string.settings_category_storage_formats),
                 scrollBehavior = scrollBehavior,
+                onBack = onBack,
             )
-        }
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -273,8 +204,10 @@ internal fun StorageFormatsSettingsPage(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(
-                    horizontal = AppSpacing.ScreenHorizontalPadding,
-                    vertical = AppSpacing.MediumSmall,
+                    start = AppSpacing.ScreenHorizontalPadding,
+                    end = AppSpacing.ScreenHorizontalPadding,
+                    top = AppSpacing.MediumSmall,
+                    bottom = AppSpacing.ExtraLarge,
                 ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
@@ -312,47 +245,20 @@ internal fun StorageFormatsSettingsPage(
 internal fun InteractionSecuritySettingsPage(
     uiState: SettingsScreenUiState,
     features: SettingsFeatures,
+    onOpenQuickBall: () -> Unit,
     onBack: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val haptic = LocalAppHapticFeedback.current
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Vibration,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.width(AppSpacing.Medium))
-                        Text(stringResource(R.string.settings_category_interaction_security))
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.medium()
-                        onBack()
-                    }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
+            SettingsPageTopAppBar(
+                title = stringResource(R.string.settings_category_interaction_security),
                 scrollBehavior = scrollBehavior,
+                onBack = onBack,
             )
-        }
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -360,29 +266,40 @@ internal fun InteractionSecuritySettingsPage(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(
-                    horizontal = AppSpacing.ScreenHorizontalPadding,
-                    vertical = AppSpacing.MediumSmall,
+                    start = AppSpacing.ScreenHorizontalPadding,
+                    end = AppSpacing.ScreenHorizontalPadding,
+                    top = AppSpacing.MediumSmall,
+                    bottom = AppSpacing.ExtraLarge,
                 ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
+            com.lomo.ui.component.settings.SettingsGroup(title = stringResource(R.string.quick_ball_title)) {
+                item {
+                    com.lomo.ui.component.settings.PreferenceItem(
+                        title = stringResource(R.string.quick_ball_title),
+                        subtitle = stringResource(R.string.quick_ball_subtitle),
+                        icon = androidx.compose.material.icons.Icons.Outlined.TouchApp,
+                        onClick = onOpenQuickBall,
+                        modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_QUICK_BALL),
+                    )
+                }
+            }
             InteractionSettingsSection(
                 state = uiState.interaction,
                 onToggleInputHints = features.interaction::updateShowInputHints,
                 onToggleDoubleTapEdit = features.interaction::updateDoubleTapEditEnabled,
                 onToggleFreeTextCopy = features.interaction::updateFreeTextCopyEnabled,
-                onToggleMemoActionAutoReorder = features.interaction::updateMemoActionAutoReorderEnabled,
                 onToggleQuickSaveOnBack = features.interaction::updateQuickSaveOnBackEnabled,
                 onToggleScrollbar = features.interaction::updateScrollbarEnabled,
                 onToggleAutoOpenInputOnForeground = features.interaction::updateAutoOpenInputOnForeground,
+                onToggleAppLock = features.interaction::updateAppLockEnabled,
+                onToggleHaptic = features.interaction::updateHapticFeedback,
             )
         }
     }
 }
 
-data class MigrationPickers(
-    val onExportNotesArchive: () -> Unit,
-    val onImportNotesArchive: () -> Unit,
-)
+data class MigrationPickers(val onExportNotesArchive: () -> Unit, val onImportNotesArchive: () -> Unit)
 
 @Composable
 private fun rememberMigrationPickersForSubPages(migrationPickers: MigrationPickerActions): MigrationPickers =
@@ -404,45 +321,17 @@ internal fun AboutSettingsPage(
     onBack: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val haptic = LocalAppHapticFeedback.current
     val uriHandler = LocalUriHandler.current
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Info,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.width(AppSpacing.Medium))
-                        Text(stringResource(R.string.settings_category_about))
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.medium()
-                        onBack()
-                    }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
+            SettingsPageTopAppBar(
+                title = stringResource(R.string.settings_category_about),
                 scrollBehavior = scrollBehavior,
+                onBack = onBack,
             )
-        }
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -450,8 +339,10 @@ internal fun AboutSettingsPage(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(
-                    horizontal = AppSpacing.ScreenHorizontalPadding,
-                    vertical = AppSpacing.MediumSmall,
+                    start = AppSpacing.ScreenHorizontalPadding,
+                    end = AppSpacing.ScreenHorizontalPadding,
+                    top = AppSpacing.MediumSmall,
+                    bottom = AppSpacing.ExtraLarge,
                 ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {

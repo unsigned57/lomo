@@ -24,10 +24,7 @@ enum class AlarmTriggerMode {
     InexactFallback,
 }
 
-data class ExactAlarmCapability(
-    val canScheduleExactAlarms: Boolean,
-    val sdkInt: Int,
-)
+data class ExactAlarmCapability(val canScheduleExactAlarms: Boolean, val sdkInt: Int)
 
 data class AlarmScheduleRequest(
     /** Durable occurrence identity issued by the Rust plan; the sole PendingIntent identity key. */
@@ -57,14 +54,13 @@ interface AlarmSchedulePort {
      * re-schedule occurrences whose platform delivery mode has drifted (permission revoked
      * after scheduling, or a previous InexactFallback/AllowWhileIdle rescue).
      */
-    fun plannedMode(): AlarmTriggerMode =
-        exactAlarmCapability().let { capability ->
-            if (capability.sdkInt >= Build.VERSION_CODES.S && !capability.canScheduleExactAlarms) {
-                AlarmTriggerMode.AllowWhileIdle
-            } else {
-                AlarmTriggerMode.AlarmClock
-            }
+    fun plannedMode(): AlarmTriggerMode = exactAlarmCapability().let { capability ->
+        if (capability.sdkInt >= Build.VERSION_CODES.S && !capability.canScheduleExactAlarms) {
+            AlarmTriggerMode.AllowWhileIdle
+        } else {
+            AlarmTriggerMode.AlarmClock
         }
+    }
 
     fun schedule(request: AlarmScheduleRequest): AlarmScheduleResult
 

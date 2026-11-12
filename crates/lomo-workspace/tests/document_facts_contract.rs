@@ -23,12 +23,18 @@
 //!   source text that produced that fact.
 //! - Given extension expansion or an overlong title/language/destination, when final IR validation
 //!   runs, then it fails closed with `resource_limit`; post-parse expansion cannot bypass budgets.
+//! - Given a dated workspace file whose accumulated IR exceeds the presentation node budget, when
+//!   it is parsed for indexing, then every memo is projected; the same source rendered for
+//!   presentation still fails with `render_document_too_large`.
 //!
 //! Observable outcomes: typed semantic facts, exact source slices, distinct `ReminderRef` values,
 //! byte-local reminder patches, and structured resource-limit/stale errors.
 //! TDD proof: RED on the pre-fix tree because semantic facts/ReminderRef do not exist, reminder
 //! matching accepts malformed suffixes, extension nodes bypass the final budget, and title/language
 //! strings are unchecked.
+//! TDD proof: RED on 2026-11-10 (`cargo test -p lomo-workspace --test document_facts_contract
+//! --locked workspace_document_beyond`): parse failed with `render_document_too_large` — one long
+//! daily file locked the whole workspace read-only on Android. GREEN after the node budget split.
 //! Excludes: Android provider execution, Compose layout, scheduling policy, and production DI.
 
 #[cfg(test)]
@@ -40,7 +46,7 @@ mod support;
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
-    use super::support::ResultTestExt;
+    use super::support::{OptionTestExt, ResultTestExt};
     use lomo_core::ErrorCategory;
     use lomo_workspace::{
         DocumentPatchCommand, MAX_IR_STRING_UTF8_BYTES, MAX_RENDER_DOCUMENT_NODES,
@@ -339,6 +345,28 @@ mod tests {
     }
 
     #[test]
+    fn dated_file_memo_with_loose_task_list_projects_has_todo() {
+        // In a dated file the memo headers (`- HH:MM:SS`) and bodies share one outer list and
+        // memos are separated by blank lines, so pulldown parses that list as loose: task markers
+        // arrive inside paragraph frames, not directly under the item frame. The renderer must
+        // still attribute each marker to its enclosing item or `has_todo` silently stays false
+        // and the tasks screen renders an empty projection.
+        let text =
+            "- 09:30:00\n## plan\n- [ ] task one\n- [x] task two\n\n- 12:00:00\nother memo\n";
+        let source = SourceBytes::try_from_str(text).test_ok("source");
+        let document = parse_workspace_document(&source, "2026-10-12").test_ok("parse");
+        let task_memo = document
+            .memos()
+            .iter()
+            .find(|memo| memo.content().contains("task one"))
+            .test_ok("task memo missing");
+        assert!(
+            task_memo.has_todo(),
+            "task-bearing memo must project has_todo"
+        );
+    }
+
+    #[test]
     fn final_ir_budget_rejects_extension_node_explosion() {
         let count = usize::try_from(MAX_RENDER_DOCUMENT_NODES).test_ok("node limit") + 1;
         let text = std::iter::repeat_n("#tag ", count).collect::<String>();
@@ -346,6 +374,33 @@ mod tests {
         let error = render_markdown(&source).test_err("expanded nodes must exceed final budget");
         assert_eq!(error.category(), ErrorCategory::ResourceLimit);
         assert_eq!(error.code(), "render_document_too_large");
+    }
+
+    #[test]
+    fn workspace_document_beyond_presentation_node_budget_still_indexes() {
+        // A dated file accumulates every memo's nodes into one document IR. The presentation
+        // budget bounds what crosses to a renderer, not what a user's own file may hold; one long
+        // daily file must not lock the whole workspace with `render_document_too_large`.
+        let items = usize::try_from(MAX_RENDER_DOCUMENT_NODES).test_ok("node limit");
+        let list = (0..items)
+            .map(|index| format!("  - item {index} #t{index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let text = format!("- 09:00:00 oversized\n{list}\n\n- 10:00:00 small neighbour\n");
+        let source = SourceBytes::try_from_str(&text).test_ok("source");
+
+        let document =
+            parse_workspace_document(&source, "2026_11_09").test_ok("oversized workspace parse");
+
+        assert!(document.render_document().node_count() > MAX_RENDER_DOCUMENT_NODES);
+        let contents = document
+            .memos()
+            .iter()
+            .map(|memo| memo.content().lines().next().test_ok("memo first line"))
+            .collect::<Vec<_>>();
+        assert_eq!(contents, ["oversized", "small neighbour"]);
+        let presentation = render_markdown(&source).test_err("presentation budget still applies");
+        assert_eq!(presentation.code(), "render_document_too_large");
     }
 
     #[test]

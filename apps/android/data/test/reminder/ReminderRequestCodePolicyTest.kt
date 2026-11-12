@@ -55,67 +55,72 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 
-class ReminderRequestCodePolicyTest : FunSpec({
-    val occurrenceId = "gen-a␟rem-1␟1700000000000"
-    val otherOccurrenceId = "gen-a␟rem-1␟1700000001000"
-    val memoId = "memo-2026-05-22"
-    val tokenRaw = "@remind(2026-05-22T09:30 repeat=3 every=15m)"
+class ReminderRequestCodePolicyTest :
+    FunSpec({
+        val occurrenceId = "gen-a␟rem-1␟1700000000000"
+        val otherOccurrenceId = "gen-a␟rem-1␟1700000001000"
+        val memoId = "memo-2026-05-22"
+        val tokenRaw = "@remind(2026-05-22T09:30 repeat=3 every=15m)"
 
-    test("given the same occurrence and reminder inputs when ids are requested then policy results are stable") {
-        val action = ReminderIntents.ACTION_SNOOZE
+        test("given the same occurrence and reminder inputs when ids are requested then policy results are stable") {
+            val action = ReminderIntents.ACTION_SNOOZE
 
-        assertSoftly {
-            ReminderRequestCodePolicy.alarmRequestCode(occurrenceId) shouldBe
-                ReminderRequestCodePolicy.alarmRequestCode(occurrenceId)
-            ReminderRequestCodePolicy.occurrenceTag(occurrenceId) shouldBe
-                ReminderRequestCodePolicy.occurrenceTag(occurrenceId)
-            ReminderRequestCodePolicy.notificationId(memoId, tokenRaw) shouldBe
-                ReminderRequestCodePolicy.notificationId(memoId, tokenRaw)
-            ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, action) shouldBe
-                ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, action)
+            assertSoftly {
+                ReminderRequestCodePolicy.alarmRequestCode(occurrenceId) shouldBe
+                    ReminderRequestCodePolicy.alarmRequestCode(occurrenceId)
+                ReminderRequestCodePolicy.occurrenceTag(occurrenceId) shouldBe
+                    ReminderRequestCodePolicy.occurrenceTag(occurrenceId)
+                ReminderRequestCodePolicy.notificationId(memoId, tokenRaw) shouldBe
+                    ReminderRequestCodePolicy.notificationId(memoId, tokenRaw)
+                ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, action) shouldBe
+                    ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, action)
+            }
         }
-    }
 
-    test("given different notification actions when request codes are requested then action identities differ") {
-        ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, ReminderIntents.ACTION_SNOOZE) shouldNotBe
-            ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, ReminderIntents.ACTION_DONE)
-    }
-
-    test("given two occurrences of one reminder when identities are derived then they differ") {
-        assertSoftly {
-            ReminderRequestCodePolicy.alarmRequestCode(occurrenceId) shouldNotBe
-                ReminderRequestCodePolicy.alarmRequestCode(otherOccurrenceId)
-            ReminderRequestCodePolicy.occurrenceTag(occurrenceId) shouldNotBe
-                ReminderRequestCodePolicy.occurrenceTag(otherOccurrenceId)
+        test("given different notification actions when request codes are requested then action identities differ") {
+            ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, ReminderIntents.ACTION_SNOOZE) shouldNotBe
+                ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, ReminderIntents.ACTION_DONE)
         }
-    }
 
-    test("given representative reminder inputs when request codes are derived then golden ids stay stable") {
-        assertSoftly {
-            ReminderRequestCodePolicy.alarmRequestCode(occurrenceId) shouldBe 972_039_267
-            ReminderRequestCodePolicy.notificationId(memoId, tokenRaw) shouldBe 2_081_756_623
-            ReminderRequestCodePolicy.actionRequestCode(
-                memoId,
-                tokenRaw,
-                "${ReminderIntents.ACTION_SNOOZE}:$occurrenceId",
-            ) shouldBe 835_549_579
-            ReminderRequestCodePolicy.actionRequestCode(
-                memoId,
-                tokenRaw,
-                "${ReminderIntents.ACTION_DONE}:$occurrenceId",
-            ) shouldBe 2_100_949_961
+        test("given two occurrences of one reminder when identities are derived then they differ") {
+            assertSoftly {
+                ReminderRequestCodePolicy.alarmRequestCode(occurrenceId) shouldNotBe
+                    ReminderRequestCodePolicy.alarmRequestCode(otherOccurrenceId)
+                ReminderRequestCodePolicy.occurrenceTag(occurrenceId) shouldNotBe
+                    ReminderRequestCodePolicy.occurrenceTag(otherOccurrenceId)
+            }
         }
-    }
 
-    test("given legacy hash formulas when request codes are requested then persisted ids do not reuse hashCode") {
-        val action = ReminderIntents.ACTION_DONE
-        val legacyAlarmRequestCode = "$memoId|$tokenRaw".hashCode()
-        val legacyActionRequestCode = (legacyAlarmRequestCode.toString() + action).hashCode()
-
-        assertSoftly {
-            ReminderRequestCodePolicy.alarmRequestCode(occurrenceId) shouldNotBe legacyAlarmRequestCode
-            ReminderRequestCodePolicy.notificationId(memoId, tokenRaw) shouldNotBe legacyAlarmRequestCode
-            ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, action) shouldNotBe legacyActionRequestCode
+        test("given representative reminder inputs when request codes are derived then golden ids stay stable") {
+            assertSoftly {
+                ReminderRequestCodePolicy.alarmRequestCode(occurrenceId) shouldBe 972_039_267
+                ReminderRequestCodePolicy.notificationId(memoId, tokenRaw) shouldBe 2_081_756_623
+                ReminderRequestCodePolicy.actionRequestCode(
+                    memoId,
+                    tokenRaw,
+                    "${ReminderIntents.ACTION_SNOOZE}:$occurrenceId",
+                ) shouldBe 835_549_579
+                ReminderRequestCodePolicy.actionRequestCode(
+                    memoId,
+                    tokenRaw,
+                    "${ReminderIntents.ACTION_DONE}:$occurrenceId",
+                ) shouldBe 2_100_949_961
+            }
         }
-    }
-})
+
+        test("given legacy hash formulas when request codes are requested then persisted ids do not reuse hashCode") {
+            val action = ReminderIntents.ACTION_DONE
+            val legacyAlarmRequestCode = "$memoId|$tokenRaw".hashCode()
+            val legacyActionRequestCode = (legacyAlarmRequestCode.toString() + action).hashCode()
+
+            assertSoftly {
+                ReminderRequestCodePolicy.alarmRequestCode(occurrenceId) shouldNotBe legacyAlarmRequestCode
+                ReminderRequestCodePolicy.notificationId(memoId, tokenRaw) shouldNotBe legacyAlarmRequestCode
+                ReminderRequestCodePolicy.actionRequestCode(
+                    memoId,
+                    tokenRaw,
+                    action,
+                ) shouldNotBe legacyActionRequestCode
+            }
+        }
+    })

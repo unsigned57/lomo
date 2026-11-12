@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 // adversarial re-audit (round 2) of the 05-F1 LAN fixes: these probes extend the original
 // audit matrix into same-family variants the first pass did not reach — out-of-plan
 // coordinate boundaries before sealing, digest-pin scope across batch/index/session keys,
@@ -346,7 +354,7 @@ mod tests {
                     &batch,
                     0,
                     1_700_000_000_000,
-                    &format!("{:x}", Sha256::digest(body)),
+                    &lomo_core::hex_encode(&Sha256::digest(body)),
                     body.len() as u64,
                     "reaudit item",
                     Vec::new(),

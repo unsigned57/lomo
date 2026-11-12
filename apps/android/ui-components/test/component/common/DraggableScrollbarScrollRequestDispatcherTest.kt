@@ -16,44 +16,44 @@ import io.kotest.matchers.shouldBe
 class DraggableScrollbarScrollRequestDispatcherTest : UiComponentsFunSpec() {
     init {
         test("dispatch cancels the previous in-flight request before launching the latest target") {
-        val launchedRequests = mutableListOf<RecordingScrollRequest>()
-        val dispatcher =
-            LazyListScrollRequestDispatcher { target ->
-                RecordingScrollRequest(target).also(launchedRequests::add)
-            }
+            val launchedRequests = mutableListOf<RecordingScrollRequest>()
+            val dispatcher =
+                LazyListScrollRequestDispatcher { target ->
+                    RecordingScrollRequest(target).also(launchedRequests::add)
+                }
 
-        dispatcher.dispatch(LazyListScrollTarget(index = 10, scrollOffsetPx = 0))
-        dispatcher.dispatch(LazyListScrollTarget(index = 40, scrollOffsetPx = 12))
+            dispatcher.dispatch(LazyListScrollTarget(index = 10, scrollOffsetPx = 0))
+            dispatcher.dispatch(LazyListScrollTarget(index = 40, scrollOffsetPx = 12))
 
-        (launchedRequests.map { it.target }) shouldBe (listOf(
-                LazyListScrollTarget(index = 10, scrollOffsetPx = 0),
-                LazyListScrollTarget(index = 40, scrollOffsetPx = 12),
-            ))
-        (launchedRequests.first().isCancelled) shouldBe true
-        (launchedRequests.last().isCancelled) shouldBe false
+            (launchedRequests.map { it.target }) shouldBe (
+                listOf(
+                    LazyListScrollTarget(index = 10, scrollOffsetPx = 0),
+                    LazyListScrollTarget(index = 40, scrollOffsetPx = 12),
+                )
+                )
+            (launchedRequests.first().isCancelled) shouldBe true
+            (launchedRequests.last().isCancelled) shouldBe false
         }
     }
 
     init {
         test("cancel active request only cancels the newest launched target") {
-        val launchedRequests = mutableListOf<RecordingScrollRequest>()
-        val dispatcher =
-            LazyListScrollRequestDispatcher { target ->
-                RecordingScrollRequest(target).also(launchedRequests::add)
-            }
+            val launchedRequests = mutableListOf<RecordingScrollRequest>()
+            val dispatcher =
+                LazyListScrollRequestDispatcher { target ->
+                    RecordingScrollRequest(target).also(launchedRequests::add)
+                }
 
-        dispatcher.dispatch(LazyListScrollTarget(index = 3, scrollOffsetPx = 0))
-        dispatcher.dispatch(LazyListScrollTarget(index = 6, scrollOffsetPx = 80))
-        dispatcher.cancelActiveRequest()
+            dispatcher.dispatch(LazyListScrollTarget(index = 3, scrollOffsetPx = 0))
+            dispatcher.dispatch(LazyListScrollTarget(index = 6, scrollOffsetPx = 80))
+            dispatcher.cancelActiveRequest()
 
-        (launchedRequests[0].isCancelled) shouldBe true
-        (launchedRequests[1].isCancelled) shouldBe true
+            (launchedRequests[0].isCancelled) shouldBe true
+            (launchedRequests[1].isCancelled) shouldBe true
         }
     }
 
-    private class RecordingScrollRequest(
-        val target: LazyListScrollTarget,
-    ) : LazyListScrollRequest {
+    private class RecordingScrollRequest(val target: LazyListScrollTarget) : LazyListScrollRequest {
         var isCancelled: Boolean = false
             private set
 

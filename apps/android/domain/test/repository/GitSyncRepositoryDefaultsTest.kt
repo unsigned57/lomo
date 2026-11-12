@@ -1,13 +1,13 @@
 package com.lomo.domain.repository
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,18 +16,17 @@ package com.lomo.domain.repository
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
-import java.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import java.time.Instant
 
 /*
  * Behavior Contract:
@@ -41,28 +40,26 @@ class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
     init {
         test("observeLastSyncTimeMillis maps zero sentinel to null") {
             runTest {
-                        val repository = LastSyncOnlyGitSyncRepository(flowOf(null))
+                val repository = LastSyncOnlyGitSyncRepository(flowOf(null))
 
-                        val lastSync = repository.observeLastSyncTimeMillis().first()
+                val lastSync = repository.observeLastSyncTimeMillis().first()
 
-                        lastSync shouldBe null
-                    }
+                lastSync shouldBe null
+            }
         }
 
         test("observeLastSyncInstant maps positive millis to instant") {
             runTest {
-                        val repository = LastSyncOnlyGitSyncRepository(flowOf(1_700_000_000_000L))
+                val repository = LastSyncOnlyGitSyncRepository(flowOf(1_700_000_000_000L))
 
-                        val lastSync = repository.observeLastSyncInstant().first()
+                val lastSync = repository.observeLastSyncInstant().first()
 
-                        lastSync shouldBe Instant.ofEpochMilli(1_700_000_000_000L)
-                    }
+                lastSync shouldBe Instant.ofEpochMilli(1_700_000_000_000L)
+            }
         }
     }
 
-    private class LastSyncOnlyGitSyncRepository(
-        private val lastSyncTimeFlow: Flow<Long?>,
-    ) : GitSyncRepository {
+    private class LastSyncOnlyGitSyncRepository(private val lastSyncTimeFlow: Flow<Long?>) : GitSyncRepository {
         override fun isGitSyncEnabled(): Flow<Boolean> = flowOf(false)
 
         override fun getRemoteUrl(): Flow<String?> = flowOf(null)
@@ -85,10 +82,7 @@ class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
 
         override suspend fun getTokenStatus(): StoredCredentialStatus = StoredCredentialStatus.Missing
 
-        override suspend fun setAuthorInfo(
-            name: String,
-            email: String,
-        ) = Unit
+        override suspend fun setAuthorInfo(name: String, email: String) = Unit
 
         override fun getAuthorName(): Flow<String> = flowOf("")
 
@@ -104,13 +98,12 @@ class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
 
         override suspend fun sync(): GitSyncResult = GitSyncResult.NotConfigured
 
-        override suspend fun getStatus(): GitSyncStatus =
-            GitSyncStatus(
-                hasLocalChanges = false,
-                aheadCount = 0,
-                behindCount = 0,
-                lastSyncTime = null,
-            )
+        override suspend fun getStatus(): GitSyncStatus = GitSyncStatus(
+            hasLocalChanges = false,
+            aheadCount = 0,
+            behindCount = 0,
+            lastSyncTime = null,
+        )
 
         override suspend fun testConnection(): GitSyncResult = GitSyncResult.NotConfigured
 

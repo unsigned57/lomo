@@ -144,12 +144,11 @@ private fun command(
     status: ExternalAppCommandStatus = ExternalAppCommandStatus.Pending,
     createdAtMillis: Long = 1_000L,
     expiresAtMillis: Long = createdAtMillis + EXTERNAL_APP_COMMAND_TTL_MILLIS,
-): ExternalAppCommand =
-    ExternalAppCommand(
-        id = id,
-        action = action,
-        source = source,
-        status = status,
-        createdAtMillis = createdAtMillis,
-        expiresAtMillis = expiresAtMillis,
-    )
+): ExternalAppCommand = ExternalAppCommand(
+    id = id,
+    action = action,
+    source = source,
+    status = status,
+    createdAtMillis = createdAtMillis,
+    expiresAtMillis = expiresAtMillis,
+)

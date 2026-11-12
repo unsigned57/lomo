@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract (Stage-6 P6-09 product session runtime)
 //!
 //! Capability: paired Rust-owned LAN managers mutually authenticate a fresh X25519 session with
@@ -430,7 +438,7 @@ mod tests {
     }
 
     fn shared_attachment_batch(batch_id: &LanBatchId) -> LanBatchPlan {
-        let attachment_digest = format!("{:x}", Sha256::digest(SHARED_ATTACHMENT));
+        let attachment_digest = lomo_core::hex_encode(&Sha256::digest(SHARED_ATTACHMENT));
         LanBatchPlan::new(
             batch_id.clone(),
             vec![
@@ -438,7 +446,7 @@ mod tests {
                     batch_id,
                     0,
                     1_700_000_000_000,
-                    &format!("{:x}", Sha256::digest(FIRST_BODY)),
+                    &lomo_core::hex_encode(&Sha256::digest(FIRST_BODY)),
                     FIRST_BODY.len() as u64,
                     "Bounded preview title",
                     vec![
@@ -457,7 +465,7 @@ mod tests {
                     batch_id,
                     1,
                     1_700_000_000_001,
-                    &format!("{:x}", Sha256::digest(SECOND_BODY)),
+                    &lomo_core::hex_encode(&Sha256::digest(SECOND_BODY)),
                     SECOND_BODY.len() as u64,
                     "Second preview",
                     vec![
@@ -509,11 +517,11 @@ mod tests {
             (0, 0, 0),
             SHARED_ATTACHMENT,
         );
-        assert!(
+        assert_eq!(
             tablet_runtime
                 .unconfirmed_batch_chunks(batch_id, 0, ATTACHMENT_SLOT_BODY)
-                .expect("resume range resolves")
-                .is_empty()
+                .expect("resume range resolves"),
+            Vec::<u32>::new()
         );
         assert!(
             tablet_runtime
@@ -874,7 +882,7 @@ mod tests {
                     batch_id,
                     0,
                     1_700_000_000_002,
-                    &format!("{:x}", Sha256::digest(body)),
+                    &lomo_core::hex_encode(&Sha256::digest(body)),
                     body.len() as u64,
                     "Restart resume",
                     Vec::new(),
@@ -1586,7 +1594,7 @@ mod tests {
                     batch_id,
                     0,
                     1_700_000_000_000,
-                    &format!("{:x}", Sha256::digest(body)),
+                    &lomo_core::hex_encode(&Sha256::digest(body)),
                     body.len() as u64,
                     "pooled window body",
                     Vec::new(),

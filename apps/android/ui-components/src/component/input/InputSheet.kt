@@ -1,50 +1,9 @@
 package com.lomo.ui.component.input
 
 import androidx.compose.animation.core.MutableTransitionState
-
-import androidx.compose.runtime.CompositionLocalProvider
-
-import android.Manifest
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Label
-import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.CheckBox
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.PhotoCamera
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,32 +11,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.dp
-import com.lomo.ui.generated.resources.Res
-import com.lomo.ui.text.scriptAwareFor
-import com.lomo.ui.theme.AppShapes
-import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.AppHapticFeedback
 import com.lomo.ui.util.LocalAppHapticFeedback
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
-
-data class InputSheetState(
-    val surface: InputEditorSurfaceState,
-    val ownerSubmission: InputSheetOwnerSubmission,
-)
+data class InputSheetState(val surface: InputEditorSurfaceState, val ownerSubmission: InputSheetOwnerSubmission)
 
 /**
  * The fate of this sheet's in-flight submission, as reported by whoever owns the durable mutation.
@@ -92,14 +36,13 @@ enum class InputSheetOwnerSubmission {
 }
 
 /** Projects [owner] onto the sheet's local submission lock. Never revives an unlocked sheet. */
-internal fun applyInputSheetOwnerSubmission(
-    sessionState: InputSheetSessionState,
-    owner: InputSheetOwnerSubmission,
-) {
+internal fun applyInputSheetOwnerSubmission(sessionState: InputSheetSessionState, owner: InputSheetOwnerSubmission) {
     if (!sessionState.isSubmitting) return
     when (owner) {
         InputSheetOwnerSubmission.Pending -> Unit
+
         InputSheetOwnerSubmission.Resolved -> sessionState.clearSubmissionLock()
+
         InputSheetOwnerSubmission.Rejected -> {
             sessionState.clearSubmissionLock()
             sessionState.isDismissing = false
@@ -109,27 +52,18 @@ internal fun applyInputSheetOwnerSubmission(
 }
 
 sealed interface InputInterceptionResult {
-    data class UpdateValue(
-        val value: TextFieldValue,
-    ) : InputInterceptionResult
+    data class UpdateValue(val value: TextFieldValue) : InputInterceptionResult
 
-    data class SubmitContent(
-        val content: String,
-    ) : InputInterceptionResult
+    data class SubmitContent(val content: String) : InputInterceptionResult
 }
 
 fun interface InputInterceptor {
-    fun intercept(
-        previousValue: TextFieldValue,
-        newValue: TextFieldValue,
-    ): InputInterceptionResult
+    fun intercept(previousValue: TextFieldValue, newValue: TextFieldValue): InputInterceptionResult
 }
 
 private object PassThroughInputInterceptor : InputInterceptor {
-    override fun intercept(
-        previousValue: TextFieldValue,
-        newValue: TextFieldValue,
-    ): InputInterceptionResult = InputInterceptionResult.UpdateValue(newValue)
+    override fun intercept(previousValue: TextFieldValue, newValue: TextFieldValue): InputInterceptionResult =
+        InputInterceptionResult.UpdateValue(newValue)
 }
 
 fun passThroughInputInterceptor(): InputInterceptor = PassThroughInputInterceptor
@@ -137,16 +71,20 @@ fun passThroughInputInterceptor(): InputInterceptor = PassThroughInputIntercepto
 data class InputSheetCallbacks(
     val onInputValueChange: (TextFieldValue) -> Unit,
     val onDismiss: () -> Unit,
-    val onToggleExpanded: () -> Unit,
-    val onCollapse: () -> Unit,
+    /** Commits the long-form target; the sheet animates toward it from wherever its motion is. */
+    val onExpandedChange: (Boolean) -> Unit,
     val onDisplayModeChange: (InputEditorDisplayMode) -> Unit,
-    val onConsumeBackPress: () -> Boolean,
     val onSubmit: suspend (String) -> Boolean,
     val commands: InputEditorCommandHandler,
     val onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
     val inputInterceptor: InputInterceptor = passThroughInputInterceptor(),
     val autoSubmitOnDismiss: Boolean = false,
     val hasDraftPersistence: Boolean = false,
+    /**
+     * Fired once per accepted submission after the owner reports a durable commit. Rejected or
+     * failed submissions never reach it, so callers can surface a "saved" confirmation here.
+     */
+    val onAutoSaveCommitted: () -> Unit = {},
 )
 
 data class InputSheetSlots(
@@ -168,22 +106,25 @@ fun InputSheet(
     benchmarkRootTag: String? = null,
     benchmarkEditorTag: String? = null,
     benchmarkSubmitTag: String? = null,
+    benchmarkExpandTag: String? = null,
 ) {
     val surface = state.surface
     val inputValue = surface.inputValue
     val hintText = remember(surface.hints) { surface.hints.randomOrNull().orEmpty() }
-    val resolvedDisplayMode =
-        if (surface.isExpanded) {
-            surface.displayMode
-        } else {
-            InputEditorDisplayMode.Edit
-        }
-    val presentationTransition =
-        rememberInputSheetPresentationTransition(
-            targetExpanded = surface.isExpanded,
-            targetDisplayMode = resolvedDisplayMode,
+    val layoutMotion = LocalLomoMotion.current.layout
+    // One owner moves the sheet between its forms; toggle, back and drag all retarget it in flight.
+    val expansion = remember { InputSheetExpansionState(expanded = surface.isExpanded) }
+    LaunchedEffect(expansion, surface.isExpanded, layoutMotion) {
+        expansion.animateTo(expanded = surface.isExpanded, animationSpec = layoutMotion.defaultSpatialSpec())
+    }
+    // A compact card always edits: preview needs the long form's height to be useful.
+    val displayMode = if (surface.isExpanded) surface.displayMode else InputEditorDisplayMode.Edit
+    val displayProgress =
+        animateFloatAsState(
+            targetValue = if (displayMode == InputEditorDisplayMode.Preview) 1f else 0f,
+            animationSpec = layoutMotion.defaultEffectsSpec(),
+            label = "InputEditorDisplayProgress",
         )
-    val presentationState = presentationTransition.targetState
     val sessionState = rememberInputSheetSessionState(surface.focusRequestToken, inputValue.text)
     val visibilityState = remember { MutableTransitionState(false) }
     visibilityState.targetState = sessionState.isSheetVisible
@@ -193,13 +134,26 @@ fun InputSheet(
             callbacks.onDismiss()
         }
     }
-    CompositionLocalProvider(
-        LocalInputSheetPresentationTransition provides presentationTransition,
-        LocalInputSheetVisibilityState provides visibilityState,
-    ) {
+    CompositionLocalProvider(LocalInputSheetVisibilityState provides visibilityState) {
         InputSheetSessionContent(
-            state, callbacks, slots, sessionState, presentationState, hintText,
-            benchmarkRootTag, benchmarkEditorTag, benchmarkSubmitTag,
+            state = state,
+            callbacks = callbacks,
+            slots = slots,
+            sessionState = sessionState,
+            motion =
+            InputSheetMotion(
+                expansion = expansion,
+                displayMode = displayMode,
+                displayProgress = displayProgress,
+            ),
+            hintText = hintText,
+            benchmarkTags =
+            InputSheetBenchmarkTags(
+                root = benchmarkRootTag,
+                editor = benchmarkEditorTag,
+                submit = benchmarkSubmitTag,
+                expand = benchmarkExpandTag,
+            ),
         )
     }
 }
@@ -210,11 +164,9 @@ private fun InputSheetSessionContent(
     callbacks: InputSheetCallbacks,
     slots: InputSheetSlots,
     sessionState: InputSheetSessionState,
-    presentationState: InputSheetPresentationState,
+    motion: InputSheetMotion,
     hintText: String,
-    benchmarkRootTag: String?,
-    benchmarkEditorTag: String?,
-    benchmarkSubmitTag: String?,
+    benchmarkTags: InputSheetBenchmarkTags,
 ) {
     val surface = state.surface
     val inputValue = surface.inputValue
@@ -236,6 +188,7 @@ private fun InputSheetSessionContent(
         rememberSubmitWithLock(
             sessionState = sessionState,
             onSubmit = callbacks.onSubmit,
+            onAutoSaveCommitted = callbacks.onAutoSaveCommitted,
             keyboardController = keyboardController,
             focusParkingRequester = focusParkingRequester,
             scope = scope,
@@ -254,24 +207,24 @@ private fun InputSheetSessionContent(
         enabled = !sessionState.isDismissing && !sessionState.showDiscardDialog,
     ) {
         if (surface.isExpanded) {
-            callbacks.onCollapse()
-        } else if (!callbacks.onConsumeBackPress()) {
+            callbacks.onExpandedChange(false)
+        } else {
             requestDismiss()
         }
     }
     CompositionLocalProvider(LocalInputSheetBackProgress provides backProgress) {
         InputSheetLifecycle(
             state =
-                InputSheetLifecycleState(
-                    sessionState = sessionState,
-                    sheetState = state,
-                    inputText = inputValue.text,
-                    presentationState = presentationState,
-                    focusRequester = focusRequester,
-                    focusParkingRequester = focusParkingRequester,
-                    focusRequestToken = surface.focusRequestToken,
-                    keyboardController = keyboardController,
-                ),
+            InputSheetLifecycleState(
+                sessionState = sessionState,
+                sheetState = state,
+                inputText = inputValue.text,
+                editorAcceptsFocus = motion.displayMode == InputEditorDisplayMode.Edit,
+                focusRequester = focusRequester,
+                focusParkingRequester = focusParkingRequester,
+                focusRequestToken = surface.focusRequestToken,
+                keyboardController = keyboardController,
+            ),
 
         )
 
@@ -287,40 +240,32 @@ private fun InputSheetSessionContent(
 
         InputSheetContent(
             params =
-                InputSheetContentParams(
-                    state = state,
-                    callbacks = callbacks,
-                    slots = slots,
-                    sessionState = sessionState,
-                    presentationState = presentationState,
-                    inputValue = inputValue,
-                    hintText = hintText,
-                    focusRequester = focusRequester,
-                    focusParkingRequester = focusParkingRequester,
-                    haptic = haptic,
-                    dismissSheet = dismissSheet,
-                    requestDismiss = requestDismiss,
-                    handleTextChange = handleTextChange,
-                    submitWithLock = submitWithLock,
-                    benchmarkRootTag = benchmarkRootTag,
-                    benchmarkEditorTag = benchmarkEditorTag,
-                    benchmarkSubmitTag = benchmarkSubmitTag,
-                ),
+            InputSheetContentParams(
+                state = state,
+                callbacks = callbacks,
+                slots = slots,
+                sessionState = sessionState,
+                motion = motion,
+                inputValue = inputValue,
+                hintText = hintText,
+                focusRequester = focusRequester,
+                focusParkingRequester = focusParkingRequester,
+                haptic = haptic,
+                dismissSheet = dismissSheet,
+                requestDismiss = requestDismiss,
+                handleTextChange = handleTextChange,
+                submitWithLock = submitWithLock,
+                benchmarkTags = benchmarkTags,
+            ),
         )
-
     }
 }
 
 @Composable
-private fun rememberInputSheetSessionState(
-    sessionToken: Long,
-    initialInputText: String,
-): InputSheetSessionState =
+private fun rememberInputSheetSessionState(sessionToken: Long, initialInputText: String): InputSheetSessionState =
     remember(sessionToken) { InputSheetSessionState(initialInputText) }
 
-internal class InputSheetSessionState(
-    val initialInputText: String,
-) {
+internal class InputSheetSessionState(val initialInputText: String) {
     var showTagSelector by mutableStateOf(false)
     var isSubmitting by mutableStateOf(false)
     var pendingSubmissionTriggerText by mutableStateOf<String?>(null)
@@ -341,11 +286,12 @@ internal class InputSheetSessionState(
 private fun rememberSubmitWithLock(
     sessionState: InputSheetSessionState,
     onSubmit: suspend (String) -> Boolean,
+    onAutoSaveCommitted: () -> Unit,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     focusParkingRequester: FocusRequester,
     scope: kotlinx.coroutines.CoroutineScope,
 ): (String, String, String) -> Unit =
-    remember(sessionState, onSubmit, keyboardController, focusParkingRequester, scope) {
+    remember(sessionState, onSubmit, onAutoSaveCommitted, keyboardController, focusParkingRequester, scope) {
         { content, triggerText, sourceText ->
             submitInputSheetContent(
                 sessionState = sessionState,
@@ -360,6 +306,7 @@ private fun rememberSubmitWithLock(
                     )
                 },
                 onSubmit = onSubmit,
+                onCommitted = onAutoSaveCommitted,
             )
         }
     }
@@ -373,6 +320,7 @@ internal fun submitInputSheetContent(
     scope: kotlinx.coroutines.CoroutineScope,
     releaseFocus: () -> Unit,
     onSubmit: suspend (String) -> Boolean,
+    onCommitted: () -> Unit = {},
 ): Boolean {
     if (sessionState.isSubmitting) return false
     sessionState.isSubmitting = true
@@ -381,12 +329,14 @@ internal fun submitInputSheetContent(
     sessionState.isDismissing = true
     sessionState.isSheetVisible = false
     releaseFocus()
-    scope.launch {
+    scope.launch(start = CoroutineStart.UNDISPATCHED) {
         var committed = false
         try {
             committed = onSubmit(content)
         } finally {
-            if (!committed) {
+            if (committed) {
+                onCommitted()
+            } else {
                 sessionState.clearSubmissionLock()
                 sessionState.isDismissing = false
                 sessionState.isSheetVisible = true
@@ -404,29 +354,30 @@ private fun rememberRequestDismiss(
     hasDraftPersistence: Boolean,
     dismissSheet: () -> Unit,
     submitWithLock: (String, String, String) -> Unit,
-): () -> Unit =
-    remember(
-        sessionState,
-        currentInputText,
-        autoSubmitOnDismiss,
-        hasDraftPersistence,
-        dismissSheet,
-        submitWithLock,
-    ) {
-        requestDismiss@{
-            if (sessionState.isSubmitting) return@requestDismiss
-            val hasUnsavedChanges = currentInputText != sessionState.initialInputText
-            when {
-                autoSubmitOnDismiss && currentInputText.isNotBlank() -> {
-                    submitWithLock(currentInputText.trim(), currentInputText, currentInputText)
-                }
-
-                hasDraftPersistence -> dismissSheet()
-                hasUnsavedChanges -> sessionState.showDiscardDialog = true
-                else -> dismissSheet()
+): () -> Unit = remember(
+    sessionState,
+    currentInputText,
+    autoSubmitOnDismiss,
+    hasDraftPersistence,
+    dismissSheet,
+    submitWithLock,
+) {
+    requestDismiss@{
+        if (sessionState.isSubmitting) return@requestDismiss
+        val hasUnsavedChanges = currentInputText != sessionState.initialInputText
+        when {
+            autoSubmitOnDismiss && currentInputText.isNotBlank() -> {
+                submitWithLock(currentInputText.trim(), currentInputText, currentInputText)
             }
+
+            hasDraftPersistence -> dismissSheet()
+
+            hasUnsavedChanges -> sessionState.showDiscardDialog = true
+
+            else -> dismissSheet()
         }
     }
+}
 
 @Composable
 private fun rememberInputTextChangeHandler(
@@ -466,38 +417,33 @@ private fun rememberDismissSheetAction(
     onSheetVisibleChange: (Boolean) -> Unit,
     focusParkingRequester: FocusRequester,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
-): () -> Unit =
-    dismiss@{
-        if (isDismissing) return@dismiss
-        onDismissingChange(true)
-        releaseEditorFocusAndKeyboardImmediately(
-            keyboardController = keyboardController,
-            focusParkingRequester = focusParkingRequester,
-        )
-        onSheetVisibleChange(false)
-    }
+): () -> Unit = dismiss@{
+    if (isDismissing) return@dismiss
+    onDismissingChange(true)
+    releaseEditorFocusAndKeyboardImmediately(
+        keyboardController = keyboardController,
+        focusParkingRequester = focusParkingRequester,
+    )
+    onSheetVisibleChange(false)
+}
 
 @Composable
-private fun InputSheetLifecycle(
-    state: InputSheetLifecycleState,
-) {
+private fun InputSheetLifecycle(state: InputSheetLifecycleState) {
     InputSheetVisibilityEffects(
         focusRequestToken = state.focusRequestToken,
         onSheetVisibleChange = { state.sessionState.isSheetVisible = it },
     )
     InputSheetFocusRequestEffects(
         state =
-            InputSheetFocusRequestState(
-                isSheetVisible = state.sessionState.isSheetVisible,
-                isSheetEntrySettled = state.sessionState.isSheetEntrySettled,
-                presentationState = state.presentationState,
-                isRecording = state.sheetState.surface.recordingState.isRecording,
-                isDismissing = state.sessionState.isDismissing,
-                focusRequester = state.focusRequester,
-                focusParkingRequester = state.focusParkingRequester,
-                focusRequestToken = state.focusRequestToken,
-                keyboardController = state.keyboardController,
-            ),
+        InputSheetFocusRequestState(
+            sessionState = state.sessionState,
+            editorAcceptsFocus = state.editorAcceptsFocus,
+            isRecording = state.sheetState.surface.recordingState.isRecording,
+            focusRequester = state.focusRequester,
+            focusParkingRequester = state.focusParkingRequester,
+            focusRequestToken = state.focusRequestToken,
+            keyboardController = state.keyboardController,
+        ),
     )
     InputSheetSubmissionResetEffect(
         inputText = state.inputText,

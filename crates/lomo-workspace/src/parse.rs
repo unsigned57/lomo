@@ -2,7 +2,7 @@
 //!
 //! Segmentation uses byte-offset line tables (not `String.lines()` as write-back authority).
 //! CommonMark/GFM structure and Lomo extensions are projected once via the shared
-//! [`crate::render::render_markdown`] pipeline; memo storage tags/attachments use that same
+//! [`crate::render::project_markdown_facts`] pipeline; memo storage tags/attachments use that same
 //! node-fact authority (not a second body tokenizer or duplicate tag scanner).
 
 use std::collections::{BTreeMap, HashMap};
@@ -16,7 +16,7 @@ use crate::header::{parse_memo_header_line, validate_filename_stem};
 use crate::limits::validation;
 use crate::reminder::ReminderRef;
 use crate::render::{
-    RenderBlock, RenderDocumentV1, RenderInline, SemanticFactKind, render_markdown_core,
+    RenderBlock, RenderDocumentV1, RenderInline, SemanticFactKind, project_markdown_facts,
 };
 use crate::source::{ByteSpan, SourceBytes};
 use crate::types::MemoIdentity;
@@ -61,7 +61,7 @@ pub fn parse_workspace_document(
     validate_filename_stem(filename_stem)?;
     // Single semantic body projection for the whole source. Workspace render IR is this value —
     // callers must not re-tokenize the same body for RenderDocumentV1.
-    let render = render_markdown_core(source)?;
+    let render = project_markdown_facts(source)?;
     let gfm = count_gfm_facts(&render);
 
     let lines = build_line_table(source.as_str());
@@ -528,6 +528,7 @@ fn count_inlines(inlines: &[RenderInline], image: &mut u32, link: &mut u32) {
             RenderInline::Strong { children, .. }
             | RenderInline::Emphasis { children, .. }
             | RenderInline::Strikethrough { children, .. }
+            | RenderInline::Underline { children, .. }
             | RenderInline::Highlight { children, .. }
             | RenderInline::WikiReference { children, .. } => {
                 count_inlines(children, image, link);

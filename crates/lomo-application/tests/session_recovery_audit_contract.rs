@@ -126,8 +126,10 @@ mod tests {
         let request = Fixture::request("once", "one memo");
         let session = fixture.open();
         let first = session.create_memo(request.clone()).value();
+        session.settle_workspace().value();
         let original = fs::read(fixture.path()).value();
         let replay = session.create_memo(request).value();
+        session.settle_workspace().value();
         assert_eq!(replay.memo_id, first.memo_id);
         assert_eq!(
             replay.commit_result.event_sequence,
@@ -187,6 +189,7 @@ mod tests {
         session
             .create_memo(Fixture::request("large", &"x".repeat(48 * 1024)))
             .value();
+        session.settle_workspace().value();
         let bytes: u64 = journal_files(&fixture.config.state_dir.join("intents"))
             .iter()
             .map(|path| fs::metadata(path).value().len())
@@ -204,6 +207,7 @@ mod tests {
         session
             .create_memo(Fixture::request("old", "first"))
             .value();
+        session.settle_workspace().value();
         let receipt = journal_files(&fixture.config.state_dir.join("intents"))
             .into_iter()
             .find(|path| path.file_name().is_some_and(|name| name == "old.rec"))
@@ -212,6 +216,7 @@ mod tests {
         let created = session
             .create_memo(Fixture::request("new", "second"))
             .value();
+        session.settle_workspace().value();
         assert!(created.commit_result.core_revision > 0);
         assert_eq!(fs::read(receipt).value(), b"corrupt historical evidence");
     }
@@ -250,6 +255,7 @@ mod tests {
         let created = session
             .create_memo(Fixture::request("create", "restored exactly once"))
             .value();
+        session.settle_workspace().value();
         session
             .delete_memo(DeleteMemoRequest {
                 operation_id: OperationId::parse("delete").value(),
@@ -258,15 +264,20 @@ mod tests {
                 trashed_at_ms: None,
             })
             .value();
+        session.settle_workspace().value();
         let request = RestoreMemoRequest {
             operation_id: OperationId::parse("restore").value(),
             memo_id: created.memo_id.clone(),
         };
-        let Err(error) = session.restore_memo(&request) else {
-            panic!("injected delete failure must be visible");
+        // The restore commits its intent; the injected delete failure stalls convergence and
+        // surfaces from the settle, while the frozen intent stays queued for the retry below.
+        session.restore_memo(&request).value();
+        let Err(error) = session.settle_workspace() else {
+            panic!("injected delete failure must stall convergence visibly");
         };
         assert_eq!(error.code(), "injected_after_delete");
         session.restore_memo(&request).value();
+        session.settle_workspace().value();
         assert_eq!(
             fs::read_to_string(fixture.path())
                 .value()
@@ -329,8 +340,11 @@ mod tests {
         });
         let session = WorkspaceSession::open(fixture.config.clone(), executor).value();
         let request = Fixture::request("partial", "saved once");
-        let Err(failure) = session.create_memo(request.clone()) else {
-            panic!("the injected identity write must fail");
+        // The create commits its intent; the identity write fails while converging, after the
+        // document bytes really landed, and the frozen plan stays journaled.
+        session.create_memo(request.clone()).value();
+        let Err(failure) = session.settle_workspace() else {
+            panic!("the injected identity write must stall convergence");
         };
         assert_eq!(failure.code(), "injected_identity_failure");
         assert_eq!(
@@ -340,6 +354,7 @@ mod tests {
         drop(session);
         let reopened = fixture.open();
         let committed = reopened.create_memo(request).value();
+        reopened.settle_workspace().value();
         let body = fs::read_to_string(fixture.path()).value();
         assert_eq!(body.matches("saved once").count(), 1);
         assert_eq!(
@@ -358,9 +373,11 @@ mod tests {
         let first = session
             .create_memo(Fixture::request("first", "first body"))
             .value();
+        session.settle_workspace().value();
         let second = session
             .create_memo(Fixture::request("second", "second body"))
             .value();
+        session.settle_workspace().value();
         let source =
             lomo_workspace::SourceBytes::try_from_bytes(fs::read(fixture.path()).value()).value();
         let document = lomo_workspace::parse_workspace_document(&source, "2026_09_09").value();
@@ -395,9 +412,11 @@ mod tests {
         session
             .create_memo(Fixture::request("first", "same"))
             .value();
+        session.settle_workspace().value();
         session
             .create_memo(Fixture::request("second", "same"))
             .value();
+        session.settle_workspace().value();
         fs::write(
             fixture.path(),
             "<!-- external -->\n- 09:00:00\nsame\n- 09:00:00\nsame\n",
@@ -431,6 +450,7 @@ mod tests {
         request.time_token = None;
         let session = fixture.open();
         let created = session.create_memo(request).value();
+        session.settle_workspace().value();
         let memo = session
             .get_memo(&created.memo_id)
             .value()
@@ -489,6 +509,7 @@ mod tests {
         let created = session
             .create_memo(Fixture::request("zone", "local morning"))
             .value();
+        session.settle_workspace().value();
         let memo = session
             .get_memo(&created.memo_id)
             .value()
@@ -504,6 +525,7 @@ mod tests {
         let mut request = Fixture::request("format", "formatted filename");
         request.relative_path = None;
         let created = session.create_memo(request).value();
+        session.settle_workspace().value();
         let memo = session
             .get_memo(&created.memo_id)
             .value()
@@ -549,6 +571,7 @@ mod tests {
         let created = initial
             .create_memo(Fixture::request("create", "before edit"))
             .value();
+        initial.settle_workspace().value();
         drop(initial);
         let executor = Arc::new(FailIdentityWrite {
             executor: Arc::clone(&fixture.executor),
@@ -566,8 +589,9 @@ mod tests {
             expected_document_fingerprint: before.file_fingerprint,
             pending_promotes: Vec::new(),
         };
-        let Err(error) = session.update_memo(request.clone()) else {
-            panic!("injected partial update");
+        session.update_memo(request.clone()).value();
+        let Err(error) = session.settle_workspace() else {
+            panic!("injected partial update must stall convergence");
         };
         assert_eq!(error.code(), "injected_identity_failure");
         assert_eq!(
@@ -599,7 +623,7 @@ mod tests {
             .get_memo(memo)
             .value()
             .unwrap_or_else(|| panic!("active memo"));
-        session
+        let committed = session
             .update_memo(UpdateMemoRequest {
                 operation_id: OperationId::parse(operation).value(),
                 memo_id: memo.clone(),
@@ -607,7 +631,9 @@ mod tests {
                 expected_document_fingerprint: before.file_fingerprint,
                 pending_promotes: Vec::new(),
             })
-            .value()
+            .value();
+        session.settle_workspace().value();
+        committed
     }
 
     #[test]
@@ -617,6 +643,7 @@ mod tests {
         let first = session
             .create_memo(Fixture::request("create", "version one"))
             .value();
+        session.settle_workspace().value();
         let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
             &fixture.temp.path().join("notes"),
             lomo_workspace::LomoLayoutVersion::V2,
@@ -651,6 +678,7 @@ mod tests {
         let created = session
             .create_memo(Fixture::request("create", "one"))
             .value();
+        session.settle_workspace().value();
         update(&session, &created.memo_id, "second", "two");
         session.rebuild_projection().value();
         let third = update(&session, &created.memo_id, "third", "three");
@@ -664,6 +692,7 @@ mod tests {
         let created = session
             .create_memo(Fixture::request("create", "merged body"))
             .value();
+        session.settle_workspace().value();
         let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
             &fixture.temp.path().join("notes"),
             lomo_workspace::LomoLayoutVersion::V2,
@@ -737,6 +766,7 @@ mod tests {
         let mut request = Fixture::request("create", "shared pin state");
         request.pinned = true;
         let created = first_device.create_memo(request).value();
+        first_device.settle_workspace().value();
         let mut second_config = fixture.config.clone();
         second_config.cache_dir = fixture.temp.path().join("second/cache");
         second_config.state_dir = fixture.temp.path().join("second/state");
@@ -753,6 +783,7 @@ mod tests {
                 .value(),
             )
             .value();
+        second_device.settle_workspace().value();
         first_device.rebuild_projection().value();
         assert_eq!(
             first_device
@@ -790,6 +821,7 @@ mod tests {
         let created = session
             .create_memo(Fixture::request("create", "original body"))
             .value();
+        session.settle_workspace().value();
         let baseline = fs::read(fixture.path()).value();
         let current = b"- 09:00:00\r\nexternal edit\r\n";
         fs::write(fixture.path(), current).value();
@@ -807,6 +839,7 @@ mod tests {
             &fs::read(fixture.config.state_dir.join("drafts/conflict.json")).value(),
         )
         .value();
+        session.settle_workspace().value();
         assert_eq!(
             evidence.get("baseline_bytes"),
             Some(&serde_json::json!(baseline))
@@ -828,6 +861,7 @@ mod tests {
         let session = fixture.open();
         let request = Fixture::request("sealed-op", "only memo");
         session.create_memo(request.clone()).value();
+        session.settle_workspace().value();
         let committed = fixture
             .config
             .state_dir
@@ -872,6 +906,7 @@ mod tests {
         session
             .create_memo(Fixture::request("epoch-one", "first memo"))
             .value();
+        session.settle_workspace().value();
         assert!(session.seal().value());
         drop(session);
 
@@ -879,6 +914,7 @@ mod tests {
         let created = reopened
             .create_memo(Fixture::request("epoch-two", "second memo"))
             .value();
+        reopened.settle_workspace().value();
         assert!(created.commit_result.core_revision > 0);
         let body = fs::read_to_string(fixture.path()).value();
         assert!(body.contains("first memo"));
@@ -891,10 +927,12 @@ mod tests {
         let session = fixture.open();
         let first = Fixture::request("epoch-one-op", "first memo");
         session.create_memo(first.clone()).value();
+        session.settle_workspace().value();
         assert!(session.seal().value());
         session
             .create_memo(Fixture::request("epoch-two-op", "second memo"))
             .value();
+        session.settle_workspace().value();
         assert!(session.seal().value());
         drop(session);
 
@@ -934,6 +972,7 @@ mod tests {
         session
             .create_memo(Fixture::request("qc-one", "first memo"))
             .value();
+        session.settle_workspace().value();
         page();
         assert_eq!(
             session.reader_integrity_checks(),

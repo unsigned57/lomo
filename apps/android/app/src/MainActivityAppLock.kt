@@ -4,13 +4,33 @@ import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,18 +42,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.lomo.domain.model.SecuritySessionState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.component.common.LomoButton
+import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
+import com.lomo.ui.util.LocalAppHapticFeedback
 
-internal fun requestAppUnlock(
-    activity: AppCompatActivity,
-    onSuccess: () -> Unit,
-    onFailure: (String) -> Unit,
-) {
+internal fun requestAppUnlock(activity: AppCompatActivity, onSuccess: () -> Unit, onFailure: (String) -> Unit) {
     val authenticators = resolveSupportedAuthenticators(activity)
     if (authenticators == null) {
         onFailure(activity.getString(R.string.app_lock_error_unavailable))
@@ -66,10 +90,7 @@ internal fun requestAppUnlock(
                     onSuccess()
                 }
 
-                override fun onAuthenticationError(
-                    errorCode: Int,
-                    errString: CharSequence,
-                ) {
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     val message =
                         when (errorCode) {
                             BiometricPrompt.ERROR_USER_CANCELED,
@@ -183,37 +204,48 @@ internal fun AppLockGate(
 ) {
     val showError = !errorMessage.isNullOrBlank() && !isConfigLoading && !isUnlockInProgress
     val showLoadingIndicator = isConfigLoading || isUnlockInProgress
-    val showRetryButton = !showLoadingIndicator
+    val showRetryButton = !isConfigLoading
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
+        color = MaterialTheme.colorScheme.surface,
     ) {
         Box(
             modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(AppSpacing.Large),
+            Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .padding(AppSpacing.Large),
             contentAlignment = Alignment.Center,
         ) {
+            // Subtle ambient M3E halo backdrop
+            Box(
+                modifier =
+                Modifier
+                    .size(320.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.14f)),
+            )
             Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
+                modifier =
+                Modifier
+                    .widthIn(max = 400.dp)
+                    .fillMaxWidth(),
+                shape = AppShapes.ExtraExtraLarge,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
                 tonalElevation = AppSpacing.ExtraSmall,
             ) {
                 Column(
-                    modifier = Modifier.padding(AppSpacing.Large),
+                    modifier =
+                    Modifier.padding(
+                        horizontal = AppSpacing.Large,
+                        vertical = AppSpacing.ExtraLarge,
+                    ),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
                 ) {
                     AppLockGateContent(
                         statusMessage = appLockStatusMessage(isConfigLoading, isUnlockInProgress, errorMessage),
-                        statusColor =
-                            if (showError) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                        showError = showError,
                         showLoadingIndicator = showLoadingIndicator,
                         showRetryButton = showRetryButton,
                         onRetry = onRetry,
@@ -224,51 +256,70 @@ internal fun AppLockGate(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AppLockGateContent(
     statusMessage: String,
-    statusColor: androidx.compose.ui.graphics.Color,
+    showError: Boolean,
     showLoadingIndicator: Boolean,
     showRetryButton: Boolean,
     onRetry: () -> Unit,
 ) {
+    val haptic = LocalAppHapticFeedback.current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
     ) {
-        Text(
-            text = stringResource(R.string.app_lock_gate_title),
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = stringResource(R.string.app_lock_gate_subtitle),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
+        // Security badge pill
+        AppLockSecurityBadge()
 
-        if (showLoadingIndicator) {
-            ExpressiveContainedLoadingIndicator()
+        // Layered M3E Biometric Hero Emblem (also tappable to trigger unlock)
+        AppLockBiometricEmblem(showError, showLoadingIndicator, showRetryButton, onRetry)
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
+        ) {
+            Text(
+                text = stringResource(R.string.app_lock_gate_title),
+                style = MaterialTheme.typography.headlineMediumEmphasized,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = stringResource(R.string.app_lock_gate_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
         }
 
-        Text(
-            text = statusMessage,
-            style = MaterialTheme.typography.bodySmall,
-            color = statusColor,
-            textAlign = TextAlign.Center,
-        )
+        // Animated status banner
+        AppLockStatusBanner(statusMessage, showLoadingIndicator, showError)
 
         if (showRetryButton) {
-            Button(
-                onClick = onRetry,
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
+            LomoButton(
+                onClick = {
+                    haptic.medium()
+                    onRetry()
+                },
+                enabled = !showLoadingIndicator,
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 54.dp),
             ) {
+                Icon(
+                    imageVector = Icons.Outlined.Fingerprint,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(AppSpacing.Small))
                 Text(
                     text = stringResource(R.string.app_lock_action_retry),
                     style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         }
@@ -304,10 +355,178 @@ private fun appLockStatusMessage(
     isConfigLoading: Boolean,
     isUnlockInProgress: Boolean,
     errorMessage: String?,
-): String =
-    when {
-        isConfigLoading -> stringResource(R.string.app_lock_status_loading)
-        isUnlockInProgress -> stringResource(R.string.app_lock_status_unlocking)
-        !errorMessage.isNullOrBlank() -> errorMessage
-        else -> stringResource(R.string.app_lock_status_waiting)
+): String = when {
+    isConfigLoading -> stringResource(R.string.app_lock_status_loading)
+    isUnlockInProgress -> stringResource(R.string.app_lock_status_unlocking)
+    !errorMessage.isNullOrBlank() -> errorMessage
+    else -> stringResource(R.string.app_lock_status_waiting)
+}
+
+@Composable
+private fun AppLockSecurityBadge() {
+    Surface(
+        shape = AppShapes.Full,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = AppSpacing.MediumSmall, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Lock,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Text(
+                text = stringResource(R.string.settings_app_lock),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
     }
+}
+
+@Composable
+private fun AppLockBiometricEmblem(
+    showError: Boolean,
+    showLoadingIndicator: Boolean,
+    showRetryButton: Boolean,
+    onRetry: () -> Unit,
+) {
+    val haptic = LocalAppHapticFeedback.current
+    val componentMotion = LocalLomoMotion.current.component
+    val canTapEmblem = showRetryButton && !showLoadingIndicator
+
+    val innerEmblemColor by animateColorAsState(
+        targetValue =
+        if (showError) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.primaryContainer
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "AppLockEmblemContainer",
+    )
+    val innerEmblemTint by animateColorAsState(
+        targetValue =
+        if (showError) {
+            MaterialTheme.colorScheme.onErrorContainer
+        } else {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "AppLockEmblemTint",
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.padding(vertical = AppSpacing.ExtraSmall),
+    ) {
+        Box(
+            modifier =
+            Modifier
+                .size(128.dp)
+                .clip(CircleShape)
+                .background(innerEmblemColor.copy(alpha = 0.22f)),
+        )
+        Box(
+            modifier =
+            Modifier
+                .size(104.dp)
+                .clip(CircleShape)
+                .background(innerEmblemColor.copy(alpha = 0.42f)),
+        )
+        Surface(
+            shape = AppShapes.ExtraLargeIncreased,
+            color = innerEmblemColor,
+            modifier =
+            Modifier
+                .size(80.dp)
+                .then(
+                    if (canTapEmblem) {
+                        Modifier.clickable(role = Role.Button) {
+                            haptic.medium()
+                            onRetry()
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Outlined.Fingerprint,
+                    contentDescription = null,
+                    tint = innerEmblemTint,
+                    modifier = Modifier.size(44.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppLockStatusBanner(statusMessage: String, showLoadingIndicator: Boolean, showError: Boolean) {
+    val layoutMotion = LocalLomoMotion.current.layout
+
+    Surface(
+        shape = AppShapes.Large,
+        color =
+        if (showError) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        AnimatedContent(
+            targetState = Triple(showLoadingIndicator, showError, statusMessage),
+            transitionSpec = {
+                fadeIn(layoutMotion.fastEffectsSpec()) togetherWith
+                    fadeOut(layoutMotion.fastEffectsSpec())
+            },
+            label = "AppLockStatusTransition",
+        ) { (loading, isError, message) ->
+            Column(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.MediumSmall),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+            ) {
+                if (loading) {
+                    ExpressiveContainedLoadingIndicator()
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                ) {
+                    if (isError) {
+                        Icon(
+                            imageVector = Icons.Rounded.ErrorOutline,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = if (isError) FontWeight.Medium else FontWeight.Normal,
+                        color =
+                        if (isError) {
+                            MaterialTheme.colorScheme.onErrorContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
+}

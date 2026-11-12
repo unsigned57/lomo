@@ -1,7 +1,6 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.common.appWhileSubscribed
-
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
@@ -36,10 +35,7 @@ private data class S3RcloneFilenameState(
     val encryptedSuffix: String,
 )
 
-class SettingsS3StateProvider(
-    s3Coordinator: SettingsS3Coordinator,
-    scope: CoroutineScope,
-) {
+class SettingsS3StateProvider(s3Coordinator: SettingsS3Coordinator, scope: CoroutineScope) {
     val connectionTestState: StateFlow<RemoteProviderConnectionTestState> = s3Coordinator.connectionTestState
 
     private val baseExtensionState: StateFlow<S3ExtensionState> =
@@ -60,13 +56,13 @@ class SettingsS3StateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                S3ExtensionState(
-                    endpointUrl = s3Coordinator.s3EndpointUrl.value,
-                    region = s3Coordinator.s3Region.value,
-                    bucket = s3Coordinator.s3Bucket.value,
-                    prefix = s3Coordinator.s3Prefix.value,
-                    localSyncDirectory = "",
-                ),
+            S3ExtensionState(
+                endpointUrl = s3Coordinator.s3EndpointUrl.value,
+                region = s3Coordinator.s3Region.value,
+                bucket = s3Coordinator.s3Bucket.value,
+                prefix = s3Coordinator.s3Prefix.value,
+                localSyncDirectory = "",
+            ),
         )
 
     private val extensionState: StateFlow<S3ExtensionState> =
@@ -79,9 +75,9 @@ class SettingsS3StateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                baseExtensionState.value.copy(
-                    localSyncDirectory = s3Coordinator.s3LocalSyncDirectory.value,
-                ),
+            baseExtensionState.value.copy(
+                localSyncDirectory = s3Coordinator.s3LocalSyncDirectory.value,
+            ),
         )
 
     private val routingState: StateFlow<S3RoutingState> =
@@ -118,15 +114,15 @@ class SettingsS3StateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                S3RoutingState(
-                    pathStyle = s3Coordinator.s3PathStyle.value,
-                    encryptionMode = s3Coordinator.s3EncryptionMode.value,
-                    rcloneFilenameEncryption = s3Coordinator.s3RcloneFilenameEncryption.value,
-                    rcloneFilenameEncoding = s3Coordinator.s3RcloneFilenameEncoding.value,
-                    rcloneDirectoryNameEncryption = s3Coordinator.s3RcloneDirectoryNameEncryption.value,
-                    rcloneDataEncryptionEnabled = s3Coordinator.s3RcloneDataEncryptionEnabled.value,
-                    rcloneEncryptedSuffix = s3Coordinator.s3RcloneEncryptedSuffix.value,
-                ),
+            S3RoutingState(
+                pathStyle = s3Coordinator.s3PathStyle.value,
+                encryptionMode = s3Coordinator.s3EncryptionMode.value,
+                rcloneFilenameEncryption = s3Coordinator.s3RcloneFilenameEncryption.value,
+                rcloneFilenameEncoding = s3Coordinator.s3RcloneFilenameEncoding.value,
+                rcloneDirectoryNameEncryption = s3Coordinator.s3RcloneDirectoryNameEncryption.value,
+                rcloneDataEncryptionEnabled = s3Coordinator.s3RcloneDataEncryptionEnabled.value,
+                rcloneEncryptedSuffix = s3Coordinator.s3RcloneEncryptedSuffix.value,
+            ),
         )
 
     val sectionState: StateFlow<S3SectionState> =
@@ -143,29 +139,28 @@ class SettingsS3StateProvider(
             scope = scope,
             started = appWhileSubscribed(),
             initialValue =
-                s3Coordinator.providerSettingsModel.value.toS3SectionState(
-                    extension = extensionState.value,
-                    routing = routingState.value,
-                ),
+            s3Coordinator.providerSettingsModel.value.toS3SectionState(
+                extension = extensionState.value,
+                routing = routingState.value,
+            ),
         )
 }
 
 private fun RemoteProviderSettingsModel.toS3SectionState(
     extension: S3ExtensionState,
     routing: S3RoutingState,
-): S3SectionState =
-    S3SectionState(
-        providerSettings = this,
-        endpointUrl = extension.endpointUrl,
-        region = extension.region,
-        bucket = extension.bucket,
-        prefix = extension.prefix,
-        localSyncDirectory = extension.localSyncDirectory,
-        pathStyle = routing.pathStyle,
-        encryptionMode = routing.encryptionMode,
-        rcloneFilenameEncryption = routing.rcloneFilenameEncryption,
-        rcloneFilenameEncoding = routing.rcloneFilenameEncoding,
-        rcloneDirectoryNameEncryption = routing.rcloneDirectoryNameEncryption,
-        rcloneDataEncryptionEnabled = routing.rcloneDataEncryptionEnabled,
-        rcloneEncryptedSuffix = routing.rcloneEncryptedSuffix,
-    )
+): S3SectionState = S3SectionState(
+    providerSettings = this,
+    endpointUrl = extension.endpointUrl,
+    region = extension.region,
+    bucket = extension.bucket,
+    prefix = extension.prefix,
+    localSyncDirectory = extension.localSyncDirectory,
+    pathStyle = routing.pathStyle,
+    encryptionMode = routing.encryptionMode,
+    rcloneFilenameEncryption = routing.rcloneFilenameEncryption,
+    rcloneFilenameEncoding = routing.rcloneFilenameEncoding,
+    rcloneDirectoryNameEncryption = routing.rcloneDirectoryNameEncryption,
+    rcloneDataEncryptionEnabled = routing.rcloneDataEncryptionEnabled,
+    rcloneEncryptedSuffix = routing.rcloneEncryptedSuffix,
+)

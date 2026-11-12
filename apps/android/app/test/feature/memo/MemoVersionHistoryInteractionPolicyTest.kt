@@ -74,23 +74,18 @@ class MemoVersionHistoryInteractionPolicyTest : AppFunSpec() {
             (presentation.isBusy) shouldBe (true)
         }
     }
-
 }
 
-private fun revision(
-    id: String,
-    isCurrent: Boolean,
-): MemoRevision =
-    MemoRevision(
-        revisionId = id,
-        parentRevisionId = null,
-        memoId = "memo-1",
-        commitId = "commit-$id",
-        batchId = null,
-        createdAt = 1L,
-        origin = MemoRevisionOrigin.LOCAL_EDIT,
-        summary = "",
-        lifecycleState = MemoRevisionLifecycleState.ACTIVE,
-        memoContent = "content-$id",
-        isCurrent = isCurrent,
-    )
+private fun revision(id: String, isCurrent: Boolean): MemoRevision = MemoRevision(
+    revisionId = id,
+    parentRevisionId = null,
+    memoId = "memo-1",
+    commitId = "commit-$id",
+    batchId = null,
+    createdAt = 1L,
+    origin = MemoRevisionOrigin.LOCAL_EDIT,
+    summary = "",
+    lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+    memoContent = "content-$id",
+    isCurrent = isCurrent,
+)

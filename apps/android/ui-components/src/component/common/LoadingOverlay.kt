@@ -12,16 +12,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.zIndex
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.loading_message
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
-fun LoadingOverlay(
-    modifier: Modifier = Modifier,
-    message: String? = null,
-) {
+fun LoadingOverlay(modifier: Modifier = Modifier, message: String? = null) {
     val resolvedMessage = message ?: stringResource(Res.string.loading_message)
     Surface(
         modifier = modifier.fillMaxSize().zIndex(LoadingOverlayTokens.ZIndex),

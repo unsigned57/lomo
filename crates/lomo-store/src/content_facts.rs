@@ -1,14 +1,14 @@
 //! Content-derived projection facts (tags / attachments) from the workspace render owner.
 //!
 //! Store projections must not invent a second Markdown tag/attachment scanner. Facts come from
-//! `lomo_workspace::render_markdown_core`; a body the render owner cannot project has unknown
+//! `lomo_workspace::project_markdown_facts`; a body the render owner cannot project has unknown
 //! attachment references and must fail closed rather than masquerade as an empty keep-set.
 
 use sha2::{Digest, Sha256};
 
 use lomo_core::LomoError;
 use lomo_workspace::{
-    MediaClass, MemoIdentity, SourceBytes, attachment_media_class, render_markdown,
+    MediaClass, MemoIdentity, SourceBytes, attachment_media_class, project_markdown_facts,
 };
 
 use crate::error::validation;
@@ -41,7 +41,7 @@ pub fn project_content_facts(content: &str) -> Result<ContentFacts, LomoError> {
         return Ok(ContentFacts::default());
     }
     let source = SourceBytes::try_from_str(content)?;
-    let doc = render_markdown(&source)?;
+    let doc = project_markdown_facts(&source)?;
     let attachment_paths: Vec<String> = doc
         .attachment_destinations()
         .iter()
@@ -56,7 +56,10 @@ pub fn project_content_facts(content: &str) -> Result<ContentFacts, LomoError> {
     tags.retain(|tag| !tag.is_empty() && tag.len() <= 128 && !tag.contains('\''));
     tags.sort();
     tags.dedup();
-    let has_todo = content.contains("- [ ]") || content.contains("- [x]");
+    let has_todo = doc
+        .semantic_facts()
+        .iter()
+        .any(|fact| fact.kind() == lomo_workspace::SemanticFactKind::TaskItem);
     let has_url = content.contains("http://") || content.contains("https://");
     Ok(ContentFacts {
         has_todo,
@@ -150,29 +153,34 @@ pub fn merge_tags(
 /// Hex SHA-256 of content bytes (memo file fingerprint authority).
 #[must_use]
 pub fn fingerprint_content(content: &str) -> String {
-    format!("{:x}", Sha256::digest(content.as_bytes()))
+    lomo_core::hex_encode(&Sha256::digest(content.as_bytes()))
 }
 
 /// Maximum character budget for the list-row body preview.
-pub const BODY_PREVIEW_MAX_CHARS: usize = 200;
+pub const BODY_PREVIEW_MAX_CHARS: usize = 1_200;
 
 /// Card-preview raw material for list rows.
 ///
 /// The preview is the only body bytes a list row carries, and the app renders it as a standalone
-/// Markdown document, so the cut must land on a block boundary: a blank-line separator when one
-/// exists inside the budget, else a line boundary, and never inside an unclosed fenced code block.
+/// Markdown document. Prefer a block/line boundary in the latter half of the budget; otherwise
+/// retain the bounded prefix. `CommonMark` closes an open code fence at EOF, so removing an entire
+/// code block would discard visible content and can produce a completely empty card.
 #[must_use]
 pub fn body_preview(content: &str) -> String {
     if content.chars().count() <= BODY_PREVIEW_MAX_CHARS {
         return content.to_owned();
     }
     let head: String = content.chars().take(BODY_PREVIEW_MAX_CHARS).collect();
-    let cut = last_block_boundary(&head).unwrap_or(head.len());
-    let cut = fence_safe_cut(&head, cut);
-    // Cut points come from newline/fence-line boundaries, which are always char boundaries; a
-    // boundary miss degrades to the un-cut head instead of trusting a possibly invalid slice.
+    let minimum_cut = head
+        .char_indices()
+        .nth(BODY_PREVIEW_MAX_CHARS / 2)
+        .map_or(head.len(), |(offset, _)| offset);
+    let cut = last_block_boundary(&head)
+        .filter(|offset| *offset >= minimum_cut)
+        .unwrap_or(head.len());
+    // Boundaries come from this UTF-8 string; split_at_checked keeps that contract explicit.
     head.split_at_checked(cut)
-        .map_or(head.as_str(), |(head_part, _tail)| head_part)
+        .map_or(head.as_str(), |(prefix, _)| prefix)
         .trim_end()
         .to_owned()
 }
@@ -211,24 +219,6 @@ fn last_block_boundary(head: &str) -> Option<usize> {
     })
 }
 
-fn fence_safe_cut(head: &str, cut: usize) -> usize {
-    let mut fence_open_lines: Vec<usize> = Vec::new();
-    let mut offset = 0;
-    for line in head.split_inclusive('\n') {
-        if offset >= cut {
-            break;
-        }
-        if line.trim_start().starts_with("```") {
-            fence_open_lines.push(offset);
-        }
-        offset += line.len();
-    }
-    if fence_open_lines.len() % 2 == 1 {
-        return fence_open_lines.last().copied().unwrap_or(0);
-    }
-    cut
-}
-
 /// Aggregate digest over sorted `(memo_id, fingerprint)` pairs for cutover compare.
 #[must_use]
 pub fn aggregate_memo_digest(pairs: &[(String, String)]) -> String {
@@ -239,5 +229,5 @@ pub fn aggregate_memo_digest(pairs: &[(String, String)]) -> String {
         hasher.update(fingerprint.as_bytes());
         hasher.update(b"\n");
     }
-    format!("{:x}", hasher.finalize())
+    lomo_core::hex_encode(&hasher.finalize())
 }

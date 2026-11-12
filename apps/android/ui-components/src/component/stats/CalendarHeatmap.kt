@@ -1,11 +1,9 @@
 package com.lomo.ui.component.stats
 
 import android.graphics.Paint
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,19 +16,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
-import org.jetbrains.compose.resources.stringResource
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.CalendarHeatmapIntensity
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.calendar_heatmap_date_format
-import com.lomo.ui.theme.LomoTheme
+import kotlinx.collections.immutable.ImmutableMap
+import org.jetbrains.compose.resources.stringResource
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.toImmutableMap
 import kotlin.math.roundToInt
 
 @Composable
@@ -128,11 +122,7 @@ internal data class HeatmapColors(
     val level4: Color,
 )
 
-internal data class HeatmapPopupData(
-    val date: LocalDate,
-    val count: Int,
-    val offset: Offset,
-)
+internal data class HeatmapPopupData(val date: LocalDate, val count: Int, val offset: Offset)
 
 internal data class CalendarHeatmapWindow(
     val today: LocalDate,
@@ -173,10 +163,7 @@ internal fun resolveCalendarHeatmapWindow(
     )
 }
 
-internal fun resolveHeatmapIntensity(
-    count: Int,
-    thresholds: CalendarHeatmapThresholds,
-): HeatmapIntensity =
+internal fun resolveHeatmapIntensity(count: Int, thresholds: CalendarHeatmapThresholds): HeatmapIntensity =
     when (thresholds.intensityForCount(count)) {
         CalendarHeatmapIntensity.Empty -> HeatmapIntensity.Empty
         CalendarHeatmapIntensity.Level1 -> HeatmapIntensity.Level1
@@ -227,14 +214,10 @@ private fun rememberHeatmapLayout(
 }
 
 @Composable
-private fun rememberHeatmapColors(): HeatmapColors =
-    StatsChartTokens.heatmapColors(MaterialTheme.colorScheme)
+private fun rememberHeatmapColors(): HeatmapColors = StatsChartTokens.heatmapColors(MaterialTheme.colorScheme)
 
 @Composable
-private fun rememberHeatmapTextPaint(
-    density: androidx.compose.ui.unit.Density,
-    textColor: Int,
-): Paint {
+private fun rememberHeatmapTextPaint(density: androidx.compose.ui.unit.Density, textColor: Int): Paint {
     val densityScale = density.density
     val fontScale = density.fontScale
     return remember(textColor, densityScale, fontScale) {
@@ -252,16 +235,12 @@ internal fun heatmapPopupOffset(
     layout: HeatmapLayout,
     hit: HeatmapCellHit,
     horizontalScrollOffsetPx: Float = 0f,
-): Offset =
-    Offset(
-        hit.col * layout.weekWidth + layout.cellSizePx / 2 - horizontalScrollOffsetPx,
-        layout.monthLabelHeightPx + hit.row * layout.weekWidth,
-    )
+): Offset = Offset(
+    hit.col * layout.weekWidth + layout.cellSizePx / 2 - horizontalScrollOffsetPx,
+    layout.monthLabelHeightPx + hit.row * layout.weekWidth,
+)
 
-internal fun resolveTappedCell(
-    offset: Offset,
-    layout: HeatmapLayout,
-): HeatmapCellHit? {
+internal fun resolveTappedCell(offset: Offset, layout: HeatmapLayout): HeatmapCellHit? {
     val y = offset.y - layout.monthLabelHeightPx
     val hasValidRowOffset = y in 0f..(DAYS_PER_WEEK * layout.weekWidth)
     val col = (offset.x / layout.weekWidth).toInt()
@@ -276,24 +255,11 @@ internal fun resolveTappedCell(
     return if (date.isAfter(layout.today)) null else HeatmapCellHit(col = col, row = row, date = date)
 }
 
-internal data class HeatmapCellHit(
-    val col: Int,
-    val row: Int,
-    val date: LocalDate,
-)
+internal data class HeatmapCellHit(val col: Int, val row: Int, val date: LocalDate)
 
-internal data class MonthLabel(
-    val week: Int,
-    val text: String,
-    val year: Int,
-)
+internal data class MonthLabel(val week: Int, val text: String, val year: Int)
 
-internal data class HeatmapCell(
-    val week: Int,
-    val day: Int,
-    val date: LocalDate,
-    val count: Int,
-)
+internal data class HeatmapCell(val week: Int, val day: Int, val date: LocalDate, val count: Int)
 
 internal class HeatmapPopupPositionProvider(
     private val contentOffset: Offset,
@@ -326,4 +292,3 @@ internal class HeatmapPopupPositionProvider(
 internal const val MIN_WEEKS = 52
 internal const val DAYS_PER_WEEK = 7
 internal const val LAST_WEEKDAY_INDEX = DAYS_PER_WEEK - 1
-

@@ -17,7 +17,7 @@ pub fn run_dependencies(workspace: &Workspace, mode: DependencyMode) -> Result<(
     match mode {
         DependencyMode::Check => {
             let mut deny = cargo(workspace);
-            deny.args(["deny", "check"]);
+            deny.args(["deny", "--config", "quality/rust/deny.toml", "check"]);
             run(&mut deny)?;
             // Invoke the tool binary directly: `cargo machete` relies on the
             // `CARGO` env var that `cargo()` intentionally strips, which would
@@ -34,7 +34,7 @@ pub fn run_dependencies(workspace: &Workspace, mode: DependencyMode) -> Result<(
             update.arg("update");
             run(&mut update)?;
             let mut deny = cargo(workspace);
-            deny.args(["deny", "check"]);
+            deny.args(["deny", "--config", "quality/rust/deny.toml", "check"]);
             run(&mut deny)
         }
     }

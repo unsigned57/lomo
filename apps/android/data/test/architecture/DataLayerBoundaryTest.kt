@@ -18,14 +18,14 @@
 
 package com.lomo.data.architecture
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -34,12 +34,10 @@ package com.lomo.data.architecture
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
-
-import java.io.File
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.booleans.shouldBeTrue
+import java.io.File
 
 class DataLayerBoundaryTest : DataFunSpec() {
     init {
@@ -47,7 +45,6 @@ class DataLayerBoundaryTest : DataFunSpec() {
 
         test("data layer does not reference ui frameworks") { `data layer does not reference ui frameworks`() }
     }
-
 
     private val moduleRoot = resolveModuleRoot("data")
     private val sourceRoot = moduleRoot.resolve("src")
@@ -58,7 +55,9 @@ class DataLayerBoundaryTest : DataFunSpec() {
 
         val offenders = kotlinFiles.filter(::containsAppLayerReference)
 
-        withClue("Data layer must not reference app layer package. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()).shouldBeTrue() }
+        withClue(
+            "Data layer must not reference app layer package. Offenders: ${offenders.joinToString { it.path }}",
+        ) { (offenders.isEmpty()).shouldBeTrue() }
     }
 
     private fun `data layer does not reference ui frameworks`() {
@@ -67,7 +66,9 @@ class DataLayerBoundaryTest : DataFunSpec() {
 
         val offenders = kotlinFiles.filter(::containsUiLayerReference)
 
-        withClue("Data layer must not reference UI packages. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()).shouldBeTrue() }
+        withClue(
+            "Data layer must not reference UI packages. Offenders: ${offenders.joinToString { it.path }}",
+        ) { (offenders.isEmpty()).shouldBeTrue() }
     }
 
     private fun containsAppLayerReference(file: File): Boolean {
@@ -84,11 +85,10 @@ class DataLayerBoundaryTest : DataFunSpec() {
         return UI_FQCN_PATTERN.containsMatchIn(nonImportOrPackageContent)
     }
 
-    private fun stripImportAndPackageLines(content: String): String =
-        content
-            .lineSequence()
-            .filterNot { IMPORT_OR_PACKAGE_LINE_PATTERN.containsMatchIn(it) }
-            .joinToString(separator = "\n")
+    private fun stripImportAndPackageLines(content: String): String = content
+        .lineSequence()
+        .filterNot { IMPORT_OR_PACKAGE_LINE_PATTERN.containsMatchIn(it) }
+        .joinToString(separator = "\n")
 
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."
@@ -111,9 +111,13 @@ class DataLayerBoundaryTest : DataFunSpec() {
         val APP_IMPORT_PATTERN = Regex("""(?m)^\s*import\s+com\.lomo\.app(?:\.|$)""")
         val APP_FQCN_PATTERN = Regex("""\bcom\.lomo\.app\.[A-Za-z_]\w*""")
         val UI_IMPORT_PATTERN =
-            Regex("""(?m)^\s*import\s+(?:com\.lomo\.ui(?:\.|$)|androidx\.compose(?:\.|$)|androidx\.lifecycle\.ViewModel\b)""")
+            Regex(
+                """(?m)^\s*import\s+(?:com\.lomo\.ui(?:\.|$)|androidx\.compose(?:\.|$)|androidx\.lifecycle\.ViewModel\b)""",
+            )
         val UI_FQCN_PATTERN =
-            Regex("""\b(?:com\.lomo\.ui\.[A-Za-z_]\w*|androidx\.compose\.[A-Za-z_]\w*|androidx\.lifecycle\.ViewModel\b)""")
+            Regex(
+                """\b(?:com\.lomo\.ui\.[A-Za-z_]\w*|androidx\.compose\.[A-Za-z_]\w*|androidx\.lifecycle\.ViewModel\b)""",
+            )
         val IMPORT_OR_PACKAGE_LINE_PATTERN = Regex("""^\s*(import|package)\s+""")
     }
 }

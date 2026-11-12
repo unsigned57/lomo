@@ -1,3 +1,20 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
+// Independent media archive regression: RED omitted z.png from a separately granted root;
+// GREEN history_trash_media_contract exports it and rejects different bytes at the same path.
+// Excludes: remote HTTP downloads; archives preserve remote references as Markdown URLs.
+// Capability export regression: Given a workspace accessible only by the bound executor,
+// when exported, then its note appears in the archive without nominating a host root path.
+// TDD proof: RED export_reads_bound returned archive_workspace_missing for a SAF URI;
+// GREEN cargo test -p lomo-application --test history_trash_media_contract --locked.
+//
 //! Behavior Contract
 //! Capability: history listing, trash restore, attachment protection, archive export/import,
 //! and fail-closed soft delete when the activity Markdown source has been removed externally.
@@ -8,7 +25,7 @@
 //! fails closed; deleting a projected memo whose `.md`
 //! was unlinked outside Lomo returns `memo_source_missing` and does not invent a trash record.
 //! Observable outcomes: protected paths, restored bodies, restore commit clocks, zip entries,
-//! unchanged live files, error code `memo_source_missing`, and no `.lomo/trash/v1` record for the
+//! unchanged live files, error code `memo_source_missing`, and no `.trash` record for the
 //! rejected delete.
 //! TDD proof: session lifecycle/media/archive APIs did not exist; missing-source delete used to
 //! parse an empty document and fail later at identity resolution.
@@ -44,6 +61,7 @@ mod tests {
 
     struct Ctx {
         session: WorkspaceSession,
+        executor: Arc<FsPlatformActionExecutor>,
         workspace_path: std::path::PathBuf,
         exchange_path: std::path::PathBuf,
         _workspace: tempfile::TempDir,
@@ -64,6 +82,7 @@ mod tests {
         executor
             .bind_root(capability.clone(), workspace.path())
             .expect("bind");
+        let session_executor = Arc::clone(&executor);
         let session = WorkspaceSession::open(
             WorkspaceSessionConfig {
                 capability,
@@ -78,10 +97,11 @@ mod tests {
                 exchange_dir: exchange.path().to_path_buf(),
                 media_stage_root: workspace.path().to_path_buf(),
             },
-            executor,
+            session_executor,
         )
         .expect("open");
         Ctx {
+            executor,
             workspace_path: workspace.path().to_path_buf(),
             exchange_path: exchange.path().to_path_buf(),
             session,
@@ -91,6 +111,92 @@ mod tests {
             _runtime: runtime,
             _exchange: exchange,
         }
+    }
+
+    #[test]
+    fn export_reads_bound_capability_without_a_host_workspace_path() {
+        let ctx = open_session();
+        fs::write(
+            ctx.workspace_path.join("2026_10_26.md"),
+            "- 10:00:00\nSAF export\n",
+        )
+        .expect("seed");
+        let exported = ctx
+            .session
+            .export_archive(None, &[])
+            .expect("capability export");
+        let staging = tempdir().expect("staging parent");
+        let inspected = lomo_store::archive_inspect(
+            &exported.archive_path,
+            &staging.path().join("archive-inspect"),
+        )
+        .expect("inspect");
+        assert!(
+            inspected
+                .manifest
+                .entries
+                .iter()
+                .any(|entry| entry.path == "2026_10_26.md")
+        );
+    }
+
+    // Given independent notes/media grants, when exported, then the portable archive retains
+    // media at its original relative name and refuses differing bytes with the same name.
+    #[test]
+    fn archive_retains_independent_media_roots_without_overwriting_collisions() {
+        let ctx = open_session();
+        let media = tempdir().expect("media");
+        let capability = CapabilityToken::parse("independent-images").expect("media cap");
+        ctx.executor
+            .bind_root(capability.clone(), media.path())
+            .expect("media bind");
+        fs::write(media.path().join("z.png"), PNG).expect("image");
+        fs::write(media.path().join("voice.m4a"), b"voice bytes").expect("voice");
+        fs::write(media.path().join("secret.md"), b"not media").expect("unrelated note");
+        fs::write(
+            ctx.workspace_path.join("2026_10_26.md"),
+            "- 10:00:00\n![z](z.png)\n",
+        )
+        .expect("note");
+        let exported = ctx
+            .session
+            .export_archive(None, std::slice::from_ref(&capability))
+            .expect("export media");
+        let staging = tempdir().expect("inspect");
+        let inspected =
+            lomo_store::archive_inspect(&exported.archive_path, &staging.path().join("contents"))
+                .expect("inspect archive");
+        assert!(
+            inspected
+                .manifest
+                .entries
+                .iter()
+                .any(|entry| entry.path == "z.png")
+        );
+        assert!(
+            inspected
+                .manifest
+                .entries
+                .iter()
+                .any(|entry| entry.path == "voice.m4a")
+        );
+        assert!(
+            !inspected
+                .manifest
+                .entries
+                .iter()
+                .any(|entry| entry.path == "secret.md")
+        );
+        fs::write(ctx.workspace_path.join("z.png"), PNG).expect("identical copy");
+        ctx.session
+            .export_archive(None, std::slice::from_ref(&capability))
+            .expect("identical media coalesce");
+        fs::write(ctx.workspace_path.join("z.png"), b"different image").expect("collision");
+        let error = ctx
+            .session
+            .export_archive(None, &[capability])
+            .expect_err("reject collision");
+        assert_eq!(error.code(), "archive_media_path_collision");
     }
 
     #[test]
@@ -110,11 +216,14 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let history = ctx
             .session
             .list_history(&created.memo_id, None, 10)
             .expect("history");
-        assert!(!history.items.is_empty());
+        assert_ne!(history.items, Vec::<lomo_store::MemoHistoryRevision>::new());
         ctx.session
             .delete_memo(DeleteMemoRequest {
                 operation_id: OperationId::parse("del").expect("op"),
@@ -123,6 +232,9 @@ mod tests {
                 trashed_at_ms: Some(1_757_500_000_000),
             })
             .expect("delete");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             ctx.session
                 .attachment_is_protected("image.png")
@@ -136,6 +248,9 @@ mod tests {
                 memo_id: created.memo_id.clone(),
             })
             .expect("restore");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             restored_commit.commit_result.core_revision > created.commit_result.core_revision,
             "restore must publish a later store clock than create"
@@ -168,7 +283,16 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         fs::remove_file(ctx.workspace_path.join("2026_09_10.md")).expect("unlink source");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let error = ctx
             .session
             .delete_memo(DeleteMemoRequest {
@@ -179,7 +303,11 @@ mod tests {
             })
             .expect_err("missing activity source must fail closed");
         assert_eq!(error.code(), "memo_source_missing");
-        let trash = trash_record_relative_path(created.memo_id.as_str()).expect("trash path");
+        let trash = trash_record_relative_path(created.memo_id.as_str(), "2026_09_10.md")
+            .expect("trash path");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             !ctx.workspace_path.join(trash.as_str()).exists(),
             "delete must not invent a trash record for a missing source"
@@ -201,9 +329,12 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let exported = ctx
             .session
-            .export_archive(&ctx.workspace_path, Some("contract-archive"))
+            .export_archive(Some("contract-archive"), &[])
             .expect("export");
         let archive_path = exported.archive_path;
         assert!(archive_path.is_file());
@@ -220,6 +351,9 @@ mod tests {
         let original =
             fs::read_to_string(ctx.workspace_path.join("2026_09_10.md")).expect("original");
         let archives = tempdir().expect("archives");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let bad = archives.path().join("bad.zip");
         fs::write(&bad, b"not a zip").expect("bad zip");
         let staging = tempdir().expect("staging");
@@ -230,6 +364,9 @@ mod tests {
             panic!("corrupt import must fail, got {result:?}");
         }
         let after = fs::read_to_string(ctx.workspace_path.join("2026_09_10.md")).expect("after");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert_eq!(original, after);
     }
 
@@ -240,7 +377,7 @@ mod tests {
         // No hint: the session mints a collision-free name inside its export root.
         let generated = ctx
             .session
-            .export_archive(&ctx.workspace_path, None)
+            .export_archive(None, &[])
             .expect("default-name export");
         let generated_name = generated
             .archive_path
@@ -266,7 +403,7 @@ mod tests {
         // idempotently and never lets the hint escape its export root.
         let hinted = ctx
             .session
-            .export_archive(&ctx.workspace_path, Some("backup-2026_10.zip"))
+            .export_archive(Some("backup-2026_10.zip"), &[])
             .expect("hinted export");
         assert_eq!(
             hinted.archive_path.file_name().and_then(|n| n.to_str()),
@@ -290,7 +427,7 @@ mod tests {
         ] {
             let error = ctx
                 .session
-                .export_archive(&ctx.workspace_path, Some(hint))
+                .export_archive(Some(hint), &[])
                 .expect_err("foreign file name must be rejected");
             assert_eq!(error.code(), "archive_export_name_invalid", "hint={hint:?}");
         }
@@ -327,7 +464,13 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create with attachment");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let dest = ctx.workspace_path.join(final_rel.as_str());
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(dest.is_file(), "attachment must land in the workspace");
         assert_eq!(fs::read(&dest).expect("dest bytes"), PNG);
         assert!(
@@ -414,6 +557,12 @@ mod tests {
                 chronology_epoch_ms: Some(chronology),
             })
             .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             ctx.workspace_path.join(&stamp.filename).is_file(),
             "dated file must follow sender chronology, expected {}",
@@ -453,6 +602,9 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let deleted = ctx
             .session
             .delete_memo(DeleteMemoRequest {
@@ -462,6 +614,9 @@ mod tests {
                 trashed_at_ms: Some(1_757_500_000_000),
             })
             .expect("delete");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         PermanentDeleteManyTarget {
             memo_id: created.memo_id,
             source_path: file.to_owned(),
@@ -471,7 +626,8 @@ mod tests {
     }
 
     fn trash_record_exists(ctx: &Ctx, target: &PermanentDeleteManyTarget) -> bool {
-        let path = trash_record_relative_path(target.memo_id.as_str()).expect("trash path");
+        let path = trash_record_relative_path(target.memo_id.as_str(), &target.source_path)
+            .expect("trash path");
         ctx.workspace_path.join(path.as_str()).exists()
     }
 
@@ -489,6 +645,9 @@ mod tests {
                 targets: vec![gamma.clone(), alpha.clone(), beta.clone()],
             })
             .expect("batch delete");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let mut expected = vec![
             alpha.memo_id.clone(),
             beta.memo_id.clone(),
@@ -502,7 +661,10 @@ mod tests {
             "three targets fit one bounded batch"
         );
         assert!(!result.batches.first().expect("one batch").idempotent_replay);
-        assert!(!result.commit_result.scopes.is_empty());
+        assert_ne!(
+            result.commit_result.scopes,
+            Vec::<lomo_core::InvalidationScope>::new()
+        );
         for target in [&alpha, &beta, &gamma] {
             assert!(
                 ctx.session
@@ -511,6 +673,9 @@ mod tests {
                     .is_none(),
                 "permanently deleted memo must leave the projection"
             );
+            ctx.session
+                .settle_workspace()
+                .expect("committed writes converge");
             assert!(
                 !trash_record_exists(&ctx, target),
                 "durable trash record must be deleted with the memo"
@@ -530,10 +695,16 @@ mod tests {
         ctx.session
             .permanently_delete_many(&request)
             .expect("first batch");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let replayed = ctx
             .session
             .permanently_delete_many(&request)
             .expect("replay must succeed");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(replayed.idempotent_replay);
         assert_eq!(replayed.batches.len(), 1);
         assert!(
@@ -584,6 +755,9 @@ mod tests {
                 targets: targets.clone(),
             })
             .expect("retry with corrected baseline");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         assert!(
             committed.batches.len() > 1,
             "129 targets must split into multiple durable batches"
@@ -620,6 +794,9 @@ mod tests {
                 memo_id: restored.memo_id.clone(),
             })
             .expect("restore");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let error = ctx
             .session
             .permanently_delete_many(&PermanentDeleteManyRequest {
@@ -657,6 +834,9 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
         let untrashed = PermanentDeleteManyTarget {
             memo_id: live.memo_id.clone(),
             source_path: "2026_09_18.md".to_owned(),

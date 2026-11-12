@@ -1,13 +1,13 @@
 package com.lomo.app.navigation
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.app.navigation
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
@@ -97,6 +96,4 @@ class GalleryReelPayloadStoreTest : AppFunSpec() {
             (GalleryReelPayloadStore.get(newKey)?.memoIds) shouldBe (listOf("new"))
         }
     }
-
 }
-

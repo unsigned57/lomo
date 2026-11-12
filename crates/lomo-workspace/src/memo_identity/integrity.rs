@@ -6,8 +6,8 @@ use lomo_core::LomoError;
 use serde::Deserialize;
 
 use super::{
-    IDENTITY_SCHEMA, IdentityTransition, MemoBinding, MemoIdentityChange, MemoIdentityConflict,
-    MemoIdentityMap, MemoIdentityOperation, reused_id,
+    IDENTITY_SCHEMA, IdentityJournalCheckpoint, IdentityTransition, MemoBinding,
+    MemoIdentityChange, MemoIdentityConflict, MemoIdentityMap, MemoIdentityOperation, reused_id,
 };
 use crate::limits::validation;
 use crate::{MemoId, MemoLocator, SourceFingerprint, WorkspaceRelativePath, WorkspaceRootId};
@@ -25,6 +25,10 @@ pub(super) struct IdentityMapWire {
     allocated_ids: BTreeSet<MemoId>,
     retired_ids: BTreeSet<MemoId>,
     operations: Vec<MemoIdentityOperation>,
+    /// Present only once the record's journal has been truncated into a checkpoint;
+    /// pre-window records omit it and still validate their complete chain.
+    #[serde(default)]
+    journal_checkpoint: Option<IdentityJournalCheckpoint>,
 }
 
 impl TryFrom<IdentityMapWire> for MemoIdentityMap {
@@ -42,6 +46,7 @@ impl TryFrom<IdentityMapWire> for MemoIdentityMap {
             allocated_ids: wire.allocated_ids,
             retired_ids: wire.retired_ids,
             operations: wire.operations,
+            journal_checkpoint: wire.journal_checkpoint,
         };
         map.validate()?;
         Ok(map)
@@ -56,7 +61,6 @@ impl MemoIdentityMap {
                 "refuse to process an unknown identity schema",
             ));
         }
-        SourceFingerprint::parse(self.fingerprint.as_str())?;
         let mut active_ids = BTreeSet::new();
         let mut locations = BTreeMap::new();
         let ordered = self
@@ -71,7 +75,6 @@ impl MemoIdentityMap {
             if !active_ids.insert(binding.memo_id.clone()) {
                 return Err(reused_id());
             }
-            SourceFingerprint::parse(binding.block_fingerprint.as_str())?;
             self.validate_current_locator(&binding.locator, &mut locations)?;
         }
         for locator in &self.unbound {
@@ -103,7 +106,6 @@ impl MemoIdentityMap {
         locations: &BTreeMap<u32, &MemoLocator>,
     ) -> Result<(), LomoError> {
         let previous = &conflict.previous;
-        SourceFingerprint::parse(previous.block_fingerprint.as_str())?;
         let mut seen = BTreeSet::new();
         if conflict.observed_fingerprint != self.fingerprint
             || previous.locator.root_id() != self.root_id
@@ -144,21 +146,48 @@ impl MemoIdentityMap {
 
     fn validate_operations(&self) -> Result<(), LomoError> {
         let mut operation_ids = BTreeSet::new();
-        let mut fingerprint = None;
-        let mut allocation = Allocation::default();
+        // The checkpoint is the durable accounting for evicted history: the retained
+        // tail must continue its fingerprint chain and replay its allocation state.
+        // Without one, the journal is unevicted and must open with `Initialize`.
+        let mut fingerprint = self
+            .journal_checkpoint
+            .as_ref()
+            .map(|checkpoint| &checkpoint.after);
+        let mut allocation =
+            self.journal_checkpoint
+                .as_ref()
+                .map_or_else(Allocation::default, |checkpoint| Allocation {
+                    allocated: checkpoint.allocated_ids.clone(),
+                    retired: checkpoint.retired_ids.clone(),
+                });
         for (index, operation) in self.operations.iter().enumerate() {
-            SourceFingerprint::parse(operation.after.as_str())?;
             if !operation_ids.insert(operation.operation_id.clone())
                 || operation.before.as_ref() != fingerprint
             {
                 return Err(invalid_journal());
             }
             match &operation.transition {
-                IdentityTransition::Initialize(ids) if index == 0 => allocation.reserve(ids)?,
+                IdentityTransition::Initialize(ids)
+                    if index == 0 && self.journal_checkpoint.is_none() =>
+                {
+                    allocation.reserve(ids)?;
+                }
                 IdentityTransition::Initialize(_) => return Err(invalid_journal()),
-                _ if index == 0 => return Err(invalid_journal()),
+                _ if index == 0 && self.journal_checkpoint.is_none() => {
+                    return Err(invalid_journal());
+                }
                 IdentityTransition::Patch(change) => allocation.apply(change)?,
                 IdentityTransition::Discover(ids) => allocation.reserve(ids)?,
+                IdentityTransition::RetireAbsent(ids) => {
+                    for id in ids {
+                        allocation.apply(&MemoIdentityChange::Remove(id.clone()))?;
+                    }
+                    if operation.after != SourceFingerprint::of_bytes(&[])
+                        || allocation.allocated != allocation.retired
+                    {
+                        return Err(invalid_journal());
+                    }
+                }
                 IdentityTransition::External => {}
             }
             fingerprint = Some(&operation.after);

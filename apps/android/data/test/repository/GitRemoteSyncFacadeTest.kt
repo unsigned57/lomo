@@ -29,10 +29,9 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.engine.sync.RemoteSyncBackendProbe
-import com.lomo.data.engine.sync.RemoteSyncBoundaryFailure
 import com.lomo.data.engine.sync.RemoteSyncConflictPage
-import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncConflictResolution
+import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncCyclePlanSummary
 import com.lomo.data.engine.sync.RemoteSyncCycleRequest
 import com.lomo.data.engine.sync.RemoteSyncCycleStatus
@@ -159,10 +158,7 @@ class GitRemoteSyncFacadeTest : DataFunSpec() {
     }
 }
 
-private class FacadeHarness(
-    backend: String,
-    workspaceRoot: String? = "/workspaces/notes",
-) {
+private class FacadeHarness(backend: String, workspaceRoot: String? = "/workspaces/notes") {
     // DataStore writes run on a real dispatcher — the virtual test scheduler would deadlock
     // the harness's synchronous init write.
     private val storeScope =
@@ -232,10 +228,7 @@ private class FakeGitConfigurationMutation : GitSyncConfigurationMutationReposit
 
     override suspend fun getTokenStatus(): StoredCredentialStatus = StoredCredentialStatus.Missing
 
-    override suspend fun setAuthorInfo(
-        name: String,
-        email: String,
-    ) = Unit
+    override suspend fun setAuthorInfo(name: String, email: String) = Unit
 
     override fun getAuthorName(): Flow<String> = flowOf("Lomo")
 
@@ -253,10 +246,8 @@ private class FakeGitStateRepository : GitSyncStateRepository {
 }
 
 private class FakeFacadeSecretSupplier : RustSyncSecretSupplier {
-    override fun issueLease(
-        fieldKey: String,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease = RemoteSyncSecretLease(leaseId = "lease-$fieldKey")
+    override fun issueLease(fieldKey: String, ttlMillis: Long): RemoteSyncSecretLease =
+        RemoteSyncSecretLease(leaseId = "lease-$fieldKey")
 
     override fun revokeLease(leaseId: String) = Unit
 
@@ -296,11 +287,7 @@ private class FakeFacadeRemoteSync : RemoteSyncRepository {
         lastResetRoot = workspaceRoot
     }
 
-    override fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage = error("unused")
+    override fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage = error("unused")
 
     override fun resolveConflicts(
         workspaceRoot: String,
@@ -308,10 +295,7 @@ private class FakeFacadeRemoteSync : RemoteSyncRepository {
         resolutions: List<RemoteSyncConflictResolution>,
     ): RemoteSyncConflictResolveResult = error("unused")
 
-    override fun issueSecretLease(
-        secretBytes: ByteArray,
-        ttlMillis: Long,
-    ): RemoteSyncSecretLease = error("unused")
+    override fun issueSecretLease(secretBytes: ByteArray, ttlMillis: Long): RemoteSyncSecretLease = error("unused")
 
     override fun probeSecretLease(leaseId: String): Int = error("unused")
 
@@ -322,37 +306,36 @@ private class FakeFacadeRemoteSync : RemoteSyncRepository {
     override fun loadWorkspaceGeneration(workspaceRoot: String): String = error("unused")
 }
 
-private fun durableStatus(): RemoteSyncCycleStatus =
-    RemoteSyncCycleStatus(
-        hasRecord = true,
-        cycleSeq = 3L,
-        cycleId = "cycle-000003",
-        fenceKey = "fence",
-        backendKind = "git",
-        sessionId = "session",
-        applyRemote = true,
-        phase = RemoteSyncCycleStatus.PHASE_COMPLETED,
-        stage = RemoteSyncCycleStatus.STAGE_FINISHED,
-        ensurePresentCount = 0,
-        ensureAbsentCount = 0,
-        pullPresentCount = 0,
-        openConflictCount = 0,
-        holdCount = 0,
-        localEntryCount = 0,
-        remoteListedCount = 0,
-        baselineEntryCount = 0,
-        pagesApplied = 0,
-        baselineAdvanced = true,
-        retryDisposition = "never",
-        failureCode = null,
-        failureMessage = null,
-        cancelRequested = false,
-        startedAtMs = 1L,
-        updatedAtMs = 2L,
-        finishedAtMs = 3L,
-        lastSuccessfulAtMs = null,
-        stateStamp = 4L,
-    )
+private fun durableStatus(): RemoteSyncCycleStatus = RemoteSyncCycleStatus(
+    hasRecord = true,
+    cycleSeq = 3L,
+    cycleId = "cycle-000003",
+    fenceKey = "fence",
+    backendKind = "git",
+    sessionId = "session",
+    applyRemote = true,
+    phase = RemoteSyncCycleStatus.PHASE_COMPLETED,
+    stage = RemoteSyncCycleStatus.STAGE_FINISHED,
+    ensurePresentCount = 0,
+    ensureAbsentCount = 0,
+    pullPresentCount = 0,
+    openConflictCount = 0,
+    holdCount = 0,
+    localEntryCount = 0,
+    remoteListedCount = 0,
+    baselineEntryCount = 0,
+    pagesApplied = 0,
+    baselineAdvanced = true,
+    retryDisposition = "never",
+    failureCode = null,
+    failureMessage = null,
+    cancelRequested = false,
+    startedAtMs = 1L,
+    updatedAtMs = 2L,
+    finishedAtMs = 3L,
+    lastSuccessfulAtMs = null,
+    stateStamp = 4L,
+)
 
 private fun createLomoDataStore(scope: CoroutineScope): LomoDataStore {
     val backingFile =

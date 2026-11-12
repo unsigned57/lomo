@@ -16,11 +16,8 @@ import com.lomo.domain.repository.RemoteSyncCenterRepository
  * Keeps ViewModels free of domain.repository types while preserving expected-revision resolve
  * and markdown/binary detail honesty.
  */
-class RemoteSyncCenterUseCase(
-    private val repository: RemoteSyncCenterRepository,
-) {
-    suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
-        repository.configSummary(workspaceRoot)
+class RemoteSyncCenterUseCase(private val repository: RemoteSyncCenterRepository) {
+    suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary = repository.configSummary(workspaceRoot)
 
     suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
         repository.sessionProgress(workspaceRoot)
@@ -28,11 +25,7 @@ class RemoteSyncCenterUseCase(
     suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress =
         repository.requestCancel(workspaceRoot)
 
-    fun listConflicts(
-        workspaceRoot: String,
-        cursor: Int,
-        limit: Int,
-    ): RemoteSyncConflictPage =
+    fun listConflicts(workspaceRoot: String, cursor: Int, limit: Int): RemoteSyncConflictPage =
         repository.listConflicts(
             workspaceRoot = workspaceRoot,
             cursor = cursor,
@@ -43,28 +36,23 @@ class RemoteSyncCenterUseCase(
         workspaceRoot: String,
         expectedRevision: Long,
         resolutions: List<RemoteSyncConflictResolution>,
-    ): RemoteSyncConflictResolveResult =
-        repository.resolveConflicts(
-            workspaceRoot = workspaceRoot,
-            expectedRevision = expectedRevision,
-            resolutions = resolutions,
-        )
+    ): RemoteSyncConflictResolveResult = repository.resolveConflicts(
+        workspaceRoot = workspaceRoot,
+        expectedRevision = expectedRevision,
+        resolutions = resolutions,
+    )
 
     fun markdownConflictFacts(
         workspaceRoot: String,
         path: RemoteSyncConflictPath,
         mergedDraft: String?,
-    ): RemoteSyncMarkdownConflictFacts =
-        repository.markdownConflictFacts(
-            workspaceRoot = workspaceRoot,
-            path = path,
-            mergedDraft = mergedDraft,
-        )
+    ): RemoteSyncMarkdownConflictFacts = repository.markdownConflictFacts(
+        workspaceRoot = workspaceRoot,
+        path = path,
+        mergedDraft = mergedDraft,
+    )
 
-    fun binaryConflictFacts(
-        workspaceRoot: String,
-        path: RemoteSyncConflictPath,
-    ): RemoteSyncBinaryConflictFacts =
+    fun binaryConflictFacts(workspaceRoot: String, path: RemoteSyncConflictPath): RemoteSyncBinaryConflictFacts =
         repository.binaryConflictFacts(
             workspaceRoot = workspaceRoot,
             path = path,

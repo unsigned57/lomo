@@ -64,5 +64,4 @@ class UpdateProgressBackdropSupportTest : AppFunSpec() {
             ((probeCalled)) shouldBe false
         }
     }
-
 }

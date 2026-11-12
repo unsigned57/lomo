@@ -3,9 +3,7 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.UnifiedSyncProvider
 
-class SyncProviderRegistry(
-    providers: Set<UnifiedSyncProvider>,
-) {
+class SyncProviderRegistry(providers: Set<UnifiedSyncProvider>) {
     private val providersByType = providers.toProviderMap()
 
     fun get(backendType: SyncBackendType): UnifiedSyncProvider? = providersByType[backendType]

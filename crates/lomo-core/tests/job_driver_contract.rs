@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //!
 //! Capability: job driver kinds, registry, and driver context allocate identifiers and expose
@@ -148,7 +157,7 @@ mod tests {
 
         let start = ProbeDriver.start(&mut saf_ctx, "{}").must_succeed("start");
         assert_eq!(start.state_json, "{}");
-        assert!(start.actions.is_empty());
+        assert_eq!(start.actions, Vec::<lomo_core::PlatformAction>::new());
         assert_eq!(start.result_json.as_deref(), Some(r#"{"ok":true}"#));
         assert!(matches!(
             format!("{start:?}"),

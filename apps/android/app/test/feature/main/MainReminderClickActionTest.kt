@@ -65,13 +65,13 @@ class MainReminderClickActionTest : AppFunSpec() {
                     intervalMinutes = 15,
                     recurrence = Recurrence.WEEKLY,
                     reference =
-                        ReminderReference(
-                            opaqueId = "rem-1",
-                            revision = "1",
-                            memoIdentity = "memo-42",
-                            sourceSpan = MarkdownSourceSpan(6u, 27u),
-                            tokenFingerprint = "fp",
-                        ),
+                    ReminderReference(
+                        opaqueId = "rem-1",
+                        revision = "1",
+                        memoIdentity = "memo-42",
+                        sourceSpan = MarkdownSourceSpan(6u, 27u),
+                        tokenFingerprint = "fp",
+                    ),
                     token = token,
                 ),
             )

@@ -47,59 +47,40 @@ data class MemoQuerySpec(
     val hasContentFilters: Boolean
         get() = criteria.isNotEmpty()
 
-    fun matches(analysis: MemoContentAnalysis): Boolean =
-        criteria.all { criterion -> criterion.matches(analysis) }
+    fun matches(analysis: MemoContentAnalysis): Boolean = criteria.all { criterion -> criterion.matches(analysis) }
 
-    private fun requireNoContradiction(
-        positive: MemoFilterCriterion,
-        negative: MemoFilterCriterion,
-        name: String,
-    ) {
+    private fun requireNoContradiction(positive: MemoFilterCriterion, negative: MemoFilterCriterion, name: String) {
         require(!(positive in criteria && negative in criteria)) {
             "MemoQuerySpec cannot require both positive and negative $name criteria"
         }
     }
 
     companion object {
-        fun fromFilter(
-            queryText: String = "",
-            filter: MemoListFilter,
-        ): MemoQuerySpec =
-            MemoQuerySpec(
-                queryText = queryText,
-                dateRange = MemoQueryDateRange.from(filter.startDate, filter.endDate),
-                criteria = filter.toCriteria(),
-                sort =
-                    MemoQuerySort(
-                        option = filter.sortOption,
-                        ascending = filter.sortAscending,
-                    ),
-            )
+        fun fromFilter(queryText: String = "", filter: MemoListFilter): MemoQuerySpec = MemoQuerySpec(
+            queryText = queryText,
+            dateRange = MemoQueryDateRange.from(filter.startDate, filter.endDate),
+            criteria = filter.toCriteria(),
+            sort =
+            MemoQuerySort(
+                option = filter.sortOption,
+                ascending = filter.sortAscending,
+            ),
+        )
     }
 }
 
-data class MemoQueryDateRange(
-    val startDate: LocalDate? = null,
-    val endDate: LocalDate? = null,
-) {
+data class MemoQueryDateRange(val startDate: LocalDate? = null, val endDate: LocalDate? = null) {
     companion object {
-        fun from(
-            startDate: LocalDate?,
-            endDate: LocalDate?,
-        ): MemoQueryDateRange {
-            val normalizedRange = listOfNotNull(startDate, endDate).sorted()
-            return MemoQueryDateRange(
-                startDate = normalizedRange.firstOrNull() ?: startDate,
-                endDate = normalizedRange.lastOrNull() ?: endDate,
-            )
-        }
+        fun from(startDate: LocalDate?, endDate: LocalDate?): MemoQueryDateRange =
+            if (startDate != null && endDate != null && startDate > endDate) {
+                MemoQueryDateRange(startDate = endDate, endDate = startDate)
+            } else {
+                MemoQueryDateRange(startDate = startDate, endDate = endDate)
+            }
     }
 }
 
-data class MemoQuerySort(
-    val option: MemoSortOption = MemoSortOption.CREATED_TIME,
-    val ascending: Boolean = false,
-)
+data class MemoQuerySort(val option: MemoSortOption = MemoSortOption.CREATED_TIME, val ascending: Boolean = false)
 
 sealed interface MemoFilterCriterion {
     fun matches(analysis: MemoContentAnalysis): Boolean
@@ -129,21 +110,20 @@ sealed interface MemoFilterCriterion {
     }
 }
 
-private fun MemoListFilter.toCriteria(): Set<MemoFilterCriterion> =
-    buildSet {
-        hasTodo?.let { hasTodo ->
-            add(if (hasTodo) MemoFilterCriterion.HasTodo else MemoFilterCriterion.NoTodo)
-        }
-        hasAttachment?.let { hasAttachment ->
-            add(
-                if (hasAttachment) {
-                    MemoFilterCriterion.HasAttachment
-                } else {
-                    MemoFilterCriterion.NoAttachment
-                },
-            )
-        }
-        hasUrl?.let { hasUrl ->
-            add(if (hasUrl) MemoFilterCriterion.HasUrl else MemoFilterCriterion.NoUrl)
-        }
+private fun MemoListFilter.toCriteria(): Set<MemoFilterCriterion> = buildSet {
+    hasTodo?.let { hasTodo ->
+        add(if (hasTodo) MemoFilterCriterion.HasTodo else MemoFilterCriterion.NoTodo)
     }
+    hasAttachment?.let { hasAttachment ->
+        add(
+            if (hasAttachment) {
+                MemoFilterCriterion.HasAttachment
+            } else {
+                MemoFilterCriterion.NoAttachment
+            },
+        )
+    }
+    hasUrl?.let { hasUrl ->
+        add(if (hasUrl) MemoFilterCriterion.HasUrl else MemoFilterCriterion.NoUrl)
+    }
+}

@@ -1,13 +1,13 @@
 package com.lomo.data.util
 
-/**
+/*
  * Behavior Contract:
  * Capability: Kotest Migration
  * Scenarios: Given standard test execution, when tests run, then assertions hold.
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -16,12 +16,10 @@ package com.lomo.data.util
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-
-
 import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.shouldBe
 
 /*
  * Behavior Contract:
@@ -33,11 +31,14 @@ import io.kotest.matchers.booleans.shouldBeFalse
  */
 class SensitiveLogValueSanitizerTest : DataFunSpec() {
     init {
-        test("sanitizePathForLog keeps only a short basename prefix plus hash") { `sanitizePathForLog keeps only a short basename prefix plus hash`() }
+        test(
+            "sanitizePathForLog keeps only a short basename prefix plus hash",
+        ) { `sanitizePathForLog keeps only a short basename prefix plus hash`() }
 
-        test("sanitizePathForLog is deterministic for the same input") { `sanitizePathForLog is deterministic for the same input`() }
+        test(
+            "sanitizePathForLog is deterministic for the same input",
+        ) { `sanitizePathForLog is deterministic for the same input`() }
     }
-
 
     private fun `sanitizePathForLog keeps only a short basename prefix plus hash`() {
         val sanitized = sanitizePathForLog("/vault/private/2026_03_25-secret.md")

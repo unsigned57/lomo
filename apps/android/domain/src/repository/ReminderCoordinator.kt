@@ -11,25 +11,13 @@ interface ReminderCoordinator {
 
     suspend fun syncForMemo(memoId: String)
 
-    suspend fun cancelForMemo(
-        memoId: String,
-        reminderIds: Set<String>,
-    )
+    suspend fun cancelForMemo(memoId: String, reminderIds: Set<String>)
 
     suspend fun rebuildAll()
 
-    suspend fun snooze(
-        memoId: String,
-        reminderId: String,
-    )
+    suspend fun snooze(memoId: String, reminderId: String)
 
-    suspend fun markDone(
-        memoId: String,
-        reminderId: String,
-    )
+    suspend fun markDone(memoId: String, reminderId: String)
 
-    suspend fun recordFired(
-        memoId: String,
-        reminderId: String,
-    )
+    suspend fun recordFired(memoId: String, reminderId: String)
 }

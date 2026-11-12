@@ -20,10 +20,7 @@ object ReminderRescheduleBroadcast {
     fun accepts(action: String?): Boolean = action != null && action in ACTIONS
 }
 
-internal fun enqueueReminderRescheduleDemand(
-    action: String?,
-    demand: ReminderRebuildDemand,
-): Boolean {
+internal fun enqueueReminderRescheduleDemand(action: String?, demand: ReminderRebuildDemand): Boolean {
     if (!ReminderRescheduleBroadcast.accepts(action)) {
         return false
     }

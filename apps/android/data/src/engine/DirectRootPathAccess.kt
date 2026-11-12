@@ -50,21 +50,19 @@ internal class DirectRootPathAccess {
         }
 
         /** lstat of [name] inside the pinned directory. */
-        fun attributes(): BasicFileAttributes =
-            dir
-                .getFileAttributeView(
-                    name,
-                    BasicFileAttributeView::class.java,
-                    LinkOption.NOFOLLOW_LINKS,
-                ).readAttributes()
+        fun attributes(): BasicFileAttributes = dir
+            .getFileAttributeView(
+                name,
+                BasicFileAttributeView::class.java,
+                LinkOption.NOFOLLOW_LINKS,
+            ).readAttributes()
 
         /** Opens [name] inside the pinned directory without following links. */
         fun openChannel(vararg options: OpenOption): SeekableByteChannel =
             dir.newByteChannel(name, setOf(*options, LinkOption.NOFOLLOW_LINKS))
 
         /** Opens [name] — a verified directory — as its own pinned descriptor stream. */
-        fun openDirectoryStream(): SecureDirectoryStream<Path> =
-            dir.newDirectoryStream(name, LinkOption.NOFOLLOW_LINKS)
+        fun openDirectoryStream(): SecureDirectoryStream<Path> = dir.newDirectoryStream(name, LinkOption.NOFOLLOW_LINKS)
 
         /** Deletes [name] from the pinned directory; a swapped component fails, never escapes. */
         fun delete() {
@@ -88,10 +86,7 @@ internal class DirectRootPathAccess {
      * segment is rejected before descent. A final segment that does not exist resolves with
      * [Resolved.existed] `false` so create/write callers can bind the verified parent.
      */
-    fun resolveBeneath(
-        grant: DirectCapabilityGrant,
-        relative: String,
-    ): Resolved? {
+    fun resolveBeneath(grant: DirectCapabilityGrant, relative: String): Resolved? {
         val segments = relative.split('/')
         var stream = secureStream(grant.canonicalRoot.toPath())
         var absolute = grant.canonicalRoot.toPath()
@@ -138,17 +133,21 @@ internal class DirectRootPathAccess {
                             }
                             false
                         }
+
                         attributes.isSymbolicLink -> rejectSymlink(segment)
+
                         isLast -> {
                             absolute = absolute.resolve(segment)
                             resolved = true
                             result = Resolved(absolute, stream, name, existed = true)
                             false
                         }
+
                         !attributes.isDirectory -> {
                             absolute = absolute.resolve(segment)
                             false
                         }
+
                         else -> {
                             absolute = absolute.resolve(segment)
                             val child =
@@ -184,11 +183,7 @@ internal class DirectRootPathAccess {
      * Resolves a write target: an existing target must be a regular file unless [mode] is
      * CREATE (which refuses any existing name); an absent target only needs a live parent.
      */
-    fun requireFileTarget(
-        grant: DirectCapabilityGrant,
-        path: String,
-        mode: WriteMode,
-    ): Resolved {
+    fun requireFileTarget(grant: DirectCapabilityGrant, path: String, mode: WriteMode): Resolved {
         val resolved =
             resolveBeneath(grant, path)
                 ?: throw DirectRootAccessException(
@@ -216,16 +211,12 @@ internal class DirectRootPathAccess {
     }
 
     /** Resolves a move target whose parent must exist whether or not the name does. */
-    fun requireAbsentOrFile(
-        grant: DirectCapabilityGrant,
-        path: String,
-    ): Resolved =
-        resolveBeneath(grant, path)
-            ?: throw DirectRootAccessException(
-                category = "storage",
-                code = "document_not_found",
-                diagnostic = "move parent directory is absent",
-            )
+    fun requireAbsentOrFile(grant: DirectCapabilityGrant, path: String): Resolved = resolveBeneath(grant, path)
+        ?: throw DirectRootAccessException(
+            category = "storage",
+            code = "document_not_found",
+            diagnostic = "move parent directory is absent",
+        )
 
     /**
      * Opens a descriptor-relative stream on [path]. The grant root itself is the only anchor
@@ -244,43 +235,37 @@ internal class DirectRootPathAccess {
         target: WorkspaceTarget,
         bytes: ByteArray? = null,
         digest: SnapshotDigestMode,
-    ): PlatformDocumentSnapshot =
-        snapshot(
-            absolute = resolved.absolute,
-            attributes = resolved.attributes(),
-            openReadChannel = { resolved.openChannel(StandardOpenOption.READ) },
-            target = target,
-            bytes = bytes,
-            digest = digest,
-        )
+    ): PlatformDocumentSnapshot = snapshot(
+        absolute = resolved.absolute,
+        attributes = resolved.attributes(),
+        openReadChannel = { resolved.openChannel(StandardOpenOption.READ) },
+        target = target,
+        bytes = bytes,
+        digest = digest,
+    )
 
     /** Snapshot of a directory pinned open by [dir] — attributes come from the descriptor. */
     fun snapshotPinnedDirectory(
         dir: SecureDirectoryStream<Path>,
         absolute: Path,
         target: WorkspaceTarget,
-    ): PlatformDocumentSnapshot =
-        snapshot(
-            absolute = absolute,
-            attributes = dir.getFileAttributeView(BasicFileAttributeView::class.java).readAttributes(),
-            openReadChannel = { Files.newByteChannel(absolute, StandardOpenOption.READ) },
-            target = target,
-            digest = SnapshotDigestMode.METADATA_ONLY,
-        )
+    ): PlatformDocumentSnapshot = snapshot(
+        absolute = absolute,
+        attributes = dir.getFileAttributeView(BasicFileAttributeView::class.java).readAttributes(),
+        openReadChannel = { Files.newByteChannel(absolute, StandardOpenOption.READ) },
+        target = target,
+        digest = SnapshotDigestMode.METADATA_ONLY,
+    )
 
     /** Snapshot of the grant root anchor itself; its identity is established at registration. */
-    fun snapshotAnchor(
-        path: Path,
-        target: WorkspaceTarget,
-    ): PlatformDocumentSnapshot =
-        snapshot(
-            absolute = path,
-            attributes =
-                Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS),
-            openReadChannel = { Files.newByteChannel(path, StandardOpenOption.READ) },
-            target = target,
-            digest = SnapshotDigestMode.METADATA_ONLY,
-        )
+    fun snapshotAnchor(path: Path, target: WorkspaceTarget): PlatformDocumentSnapshot = snapshot(
+        absolute = path,
+        attributes =
+        Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS),
+        openReadChannel = { Files.newByteChannel(path, StandardOpenOption.READ) },
+        target = target,
+        digest = SnapshotDigestMode.METADATA_ONLY,
+    )
 
     /**
      * Metadata-only snapshot of one child inside an already-pinned directory stream. Listing a
@@ -293,28 +278,24 @@ internal class DirectRootPathAccess {
         attributes: BasicFileAttributes,
         absolute: Path,
         target: WorkspaceTarget,
-    ): PlatformDocumentSnapshot =
-        snapshot(
-            absolute = absolute,
-            attributes = attributes,
-            openReadChannel = {
-                dir.newByteChannel(
-                    name,
-                    setOf(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS),
-                )
-            },
-            target = target,
-            digest = SnapshotDigestMode.METADATA_ONLY,
-        )
+    ): PlatformDocumentSnapshot = snapshot(
+        absolute = absolute,
+        attributes = attributes,
+        openReadChannel = {
+            dir.newByteChannel(
+                name,
+                setOf(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS),
+            )
+        },
+        target = target,
+        digest = SnapshotDigestMode.METADATA_ONLY,
+    )
 
     /**
      * Writes [writer]'s bytes to a fresh sibling temp entry inside the target's pinned directory,
      * fsyncs it, then atomically renames it over the target name — all descriptor-relative.
      */
-    fun writeAtomically(
-        target: Resolved,
-        writer: (FileChannel) -> Unit,
-    ) {
+    fun writeAtomically(target: Resolved, writer: (FileChannel) -> Unit) {
         val tempName = Paths.get(".lomo-write-${UUID.randomUUID()}.tmp")
         val channel =
             target.dir.newByteChannel(
@@ -369,27 +350,25 @@ internal class DirectRootPathAccess {
             target = target,
             kind = if (directory) DocumentKind.DIRECTORY else DocumentKind.FILE,
             mimeType =
-                when {
-                    directory -> null
-                    absolute.fileName.toString().endsWith(".md", ignoreCase = true) -> "text/markdown"
-                    else -> "application/octet-stream"
-                },
+            when {
+                directory -> null
+                absolute.fileName.toString().endsWith(".md", ignoreCase = true) -> "text/markdown"
+                else -> "application/octet-stream"
+            },
             length =
-                when {
-                    directory -> 0uL
-                    bytes != null -> bytes.size.toULong()
-                    else -> attributes.size().toULong()
-                },
+            when {
+                directory -> 0uL
+                bytes != null -> bytes.size.toULong()
+                else -> attributes.size().toULong()
+            },
             lastModifiedEpochMillis = attributes.lastModifiedTime().toMillis().coerceAtLeast(0L),
             documentId = documentId(absolute, attributes),
             digest = contentDigest,
+            displayName = absolute.fileName?.toString(),
         )
     }
 
-    private fun documentId(
-        path: Path,
-        attributes: BasicFileAttributes,
-    ): String {
+    private fun documentId(path: Path, attributes: BasicFileAttributes): String {
         val key = attributes.fileKey()?.toString()
         return key ?: path.toAbsolutePath().toString()
     }
@@ -412,25 +391,20 @@ internal fun rejectEscapingSegment(segment: String) {
     }
 }
 
-internal fun rejectUnwritableTarget(mode: WriteMode): Nothing =
-    throw DirectRootAccessException(
-        category = "conflict",
-        code = "platform_postcondition_mismatch",
-        diagnostic =
-            if (mode == WriteMode.CREATE) {
-                "Create refused because the target already exists"
-            } else {
-                "write target is not a regular file"
-            },
-    )
+internal fun rejectUnwritableTarget(mode: WriteMode): Nothing = throw DirectRootAccessException(
+    category = "conflict",
+    code = "platform_postcondition_mismatch",
+    diagnostic =
+    if (mode == WriteMode.CREATE) {
+        "Create refused because the target already exists"
+    } else {
+        "write target is not a regular file"
+    },
+)
 
-internal fun rejectSymlink(
-    segment: String,
-    cause: Throwable? = null,
-): Nothing =
-    throw DirectRootAccessException(
-        category = "permission",
-        code = "symlink_escape_rejected",
-        diagnostic = "symbolic link traversal rejected for '$segment'",
-        cause = cause,
-    )
+internal fun rejectSymlink(segment: String, cause: Throwable? = null): Nothing = throw DirectRootAccessException(
+    category = "permission",
+    code = "symlink_escape_rejected",
+    diagnostic = "symbolic link traversal rejected for '$segment'",
+    cause = cause,
+)

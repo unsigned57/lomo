@@ -22,71 +22,68 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.nio.channels.UnresolvedAddressException
-internal class AppUpdateRepositoryImpl(
-    private val httpClientProvider: AppUpdateHttpClientProvider,
-) : AppUpdateRepository {
-        override suspend fun fetchLatestRelease(): LatestAppRelease =
-            try {
-                httpClientProvider.withHttpClient { client ->
-                    val response =
-                        client.get(GITHUB_LATEST_RELEASES_URL) {
-                            header(HttpHeaders.UserAgent, USER_AGENT)
-                            timeout {
-                                connectTimeoutMillis = CONNECT_TIMEOUT_MS
-                                requestTimeoutMillis = REQUEST_TIMEOUT_MS
-                            }
-                        }
-                    if (!response.status.isSuccess()) {
-                        throw AppUpdateFetchException(
-                            AppUpdateFetchFailure.Http(
-                                code = response.status.value,
-                                diagnostic = "release endpoint answered HTTP ${response.status.value}",
-                            ),
-                        )
-                    }
-                    try {
-                        parseLatestReleaseResponse(response.bodyAsText())
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Exception) {
-                        throw AppUpdateFetchException(
-                            AppUpdateFetchFailure.MalformedResponse(
-                                diagnostic =
-                                    "unparseable release document: " +
-                                        (error.message ?: error.javaClass.simpleName),
-                            ),
-                            error,
-                        )
+internal class AppUpdateRepositoryImpl(private val httpClientProvider: AppUpdateHttpClientProvider) :
+    AppUpdateRepository {
+    override suspend fun fetchLatestRelease(): LatestAppRelease = try {
+        httpClientProvider.withHttpClient { client ->
+            val response =
+                client.get(GITHUB_LATEST_RELEASES_URL) {
+                    header(HttpHeaders.UserAgent, USER_AGENT)
+                    timeout {
+                        connectTimeoutMillis = CONNECT_TIMEOUT_MS
+                        requestTimeoutMillis = REQUEST_TIMEOUT_MS
                     }
                 }
-            } catch (error: AppUpdateFetchException) {
-                throw error
+            if (!response.status.isSuccess()) {
+                throw AppUpdateFetchException(
+                    AppUpdateFetchFailure.Http(
+                        code = response.status.value,
+                        diagnostic = "release endpoint answered HTTP ${response.status.value}",
+                    ),
+                )
+            }
+            try {
+                parseLatestReleaseResponse(response.bodyAsText())
             } catch (error: CancellationException) {
                 throw error
-            } catch (error: HttpRequestTimeoutException) {
-                throw networkFailure(error)
-            } catch (error: SocketTimeoutException) {
-                throw networkFailure(error)
-            } catch (error: UnresolvedAddressException) {
-                throw networkFailure(error)
-            } catch (error: IOException) {
-                throw networkFailure(error)
+            } catch (error: Exception) {
+                throw AppUpdateFetchException(
+                    AppUpdateFetchFailure.MalformedResponse(
+                        diagnostic =
+                        "unparseable release document: " +
+                            (error.message ?: error.javaClass.simpleName),
+                    ),
+                    error,
+                )
             }
-        private companion object {
-            const val GITHUB_LATEST_RELEASES_URL =
-                "https://api.github.com/repos/unsigned57/lomo/releases/latest"
-            const val USER_AGENT = "Lomo-App"
-            const val CONNECT_TIMEOUT_MS = 5_000L
-            const val REQUEST_TIMEOUT_MS = 5_000L
         }
+    } catch (error: AppUpdateFetchException) {
+        throw error
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: HttpRequestTimeoutException) {
+        throw networkFailure(error)
+    } catch (error: SocketTimeoutException) {
+        throw networkFailure(error)
+    } catch (error: UnresolvedAddressException) {
+        throw networkFailure(error)
+    } catch (error: IOException) {
+        throw networkFailure(error)
     }
-private fun networkFailure(cause: Exception): AppUpdateFetchException =
-    AppUpdateFetchException(
-        AppUpdateFetchFailure.Network(
-            diagnostic = cause.message ?: cause.javaClass.simpleName.orEmpty(),
-        ),
-        cause,
-    )
+    private companion object {
+        const val GITHUB_LATEST_RELEASES_URL =
+            "https://api.github.com/repos/unsigned57/lomo/releases/latest"
+        const val USER_AGENT = "Lomo-App"
+        const val CONNECT_TIMEOUT_MS = 5_000L
+        const val REQUEST_TIMEOUT_MS = 5_000L
+    }
+}
+private fun networkFailure(cause: Exception): AppUpdateFetchException = AppUpdateFetchException(
+    AppUpdateFetchFailure.Network(
+        diagnostic = cause.message ?: cause.javaClass.simpleName.orEmpty(),
+    ),
+    cause,
+)
 internal fun parseLatestReleaseResponse(responseBody: String): LatestAppRelease {
     val json = releaseJsonParser.parseToJsonElement(responseBody).jsonObject
     val assets = json["assets"]?.jsonArray.orEmpty()
@@ -126,10 +123,10 @@ private fun parseAssetCandidate(
         downloadUrl = downloadUrl,
         sizeBytes = asset["size"].jsonLongOrNull()?.takeIf { it > 0 },
         verification =
-            asset.toAppUpdateAssetVerification(
-                downloadUrl = downloadUrl,
-                releaseVersion = releaseVersion,
-            ),
+        asset.toAppUpdateAssetVerification(
+            downloadUrl = downloadUrl,
+            releaseVersion = releaseVersion,
+        ),
     )
 }
 private fun kotlinx.serialization.json.JsonObject.toAppUpdateAssetVerification(
@@ -159,10 +156,7 @@ private fun kotlinx.serialization.json.JsonObject.toAppUpdateAssetVerification(
         versionCode = metadata.versionCode,
     )
 }
-private data class ReleaseAssetNameMetadata(
-    val versionName: String,
-    val versionCode: Long?,
-)
+private data class ReleaseAssetNameMetadata(val versionName: String, val versionCode: Long?)
 private object AppUpdateReleaseAssetNamePolicy {
     private val assetNamePattern =
         Regex("""^lomo-v(?<versionName>[0-9][A-Za-z0-9._-]*?)(?:-vc(?<versionCode>[1-9][0-9]*))?\.apk$""")
@@ -175,17 +169,14 @@ private object AppUpdateReleaseAssetNamePolicy {
 }
 private fun unsupported(reason: AppUpdateAssetUnsupportedReason): AppUpdateAssetVerification =
     AppUpdateAssetVerification.Unsupported(reason)
-private fun requireJsonString(
-    json: kotlinx.serialization.json.JsonObject,
-    key: String,
-): String = requireNotNull(json[key].jsonContentOrNull()) { "Missing GitHub release field: $key" }
-private fun JsonElement?.jsonContentOrNull(): String? =
-    try {
-        this?.run { jsonPrimitive.content }
-    } catch (_: IllegalArgumentException) {
-        // behavior-contract: silent-result-ok: optional JSON field is absent or not a primitive
-        null
-    }
+private fun requireJsonString(json: kotlinx.serialization.json.JsonObject, key: String): String =
+    requireNotNull(json[key].jsonContentOrNull()) { "Missing GitHub release field: $key" }
+private fun JsonElement?.jsonContentOrNull(): String? = try {
+    this?.run { jsonPrimitive.content }
+} catch (_: IllegalArgumentException) {
+    // behavior-contract: silent-result-ok: optional JSON field is absent or not a primitive
+    null
+}
 private fun JsonElement?.jsonLongOrNull(): Long? = jsonContentOrNull()?.toLongOrNull()
 private val releaseJsonParser =
     Json {

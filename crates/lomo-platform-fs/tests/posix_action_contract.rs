@@ -1,3 +1,11 @@
+//! Test Change Justification:
+//! Reason category: mechanical migration.
+//! Old behavior/assertion being replaced: SHA2 digest formatting via `LowerHex`.
+//! Why old assertion is no longer correct: SHA2 0.11 returns byte arrays without `LowerHex`.
+//! Coverage preserved by: identical input bytes, expected strings, golden vectors and failures.
+//! Why this is not fitting the test to the implementation: only digest-to-text API spelling
+//! changes; the existing shared encoder retains the same fixed-width lowercase bytes.
+//!
 //! Behavior Contract
 //!
 //! Capability: execute the complete set of 8 platform action protocols (`Stat`, `ListChildren`,
@@ -66,7 +74,7 @@ mod tests {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(data);
-        let hex = format!("{:x}", hasher.finalize());
+        let hex = lomo_core::hex_encode(&hasher.finalize());
         Sha256Digest::parse(&hex).must_succeed("valid sha256 hex")
     }
 

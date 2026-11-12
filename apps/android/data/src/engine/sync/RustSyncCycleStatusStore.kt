@@ -28,8 +28,7 @@ class RustSyncCycleStatusStore(
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /** Direct workspace root backing the durable record; `null` when SAF-hosted or blank. */
-    fun workspaceRootPath(): String? =
-        workspaceRoot.absolutePathOrNull()?.takeIf { it.isNotBlank() }
+    fun workspaceRootPath(): String? = workspaceRoot.absolutePathOrNull()?.takeIf { it.isNotBlank() }
 
     /** Single durable read; `null` when no Direct workspace root exists. */
     fun refresh(): RemoteSyncCycleStatus? {
@@ -43,13 +42,12 @@ class RustSyncCycleStatusStore(
      * Emits the real record on collection and re-reads while active so running-cycle
      * transitions (cancel requests, terminal records) surface without fabricated state.
      */
-    fun observe(pollIntervalMillis: Long = DEFAULT_POLL_INTERVAL_MS): Flow<RemoteSyncCycleStatus?> =
-        flow {
-            while (currentCoroutineContext().isActive) {
-                emit(refresh())
-                delay(pollIntervalMillis)
-            }
-        }.distinctUntilChanged().flowOn(dispatcher)
+    fun observe(pollIntervalMillis: Long = DEFAULT_POLL_INTERVAL_MS): Flow<RemoteSyncCycleStatus?> = flow {
+        while (currentCoroutineContext().isActive) {
+            emit(refresh())
+            delay(pollIntervalMillis)
+        }
+    }.distinctUntilChanged().flowOn(dispatcher)
 
     companion object {
         const val DEFAULT_POLL_INTERVAL_MS: Long = 2_000

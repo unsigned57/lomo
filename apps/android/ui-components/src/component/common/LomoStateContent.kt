@@ -5,10 +5,10 @@ import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.lomo.ui.theme.LocalLomoMotion
 
 /** Animate presentation changes by a semantic key, without replaying motion for data refreshes. */
 @Composable
@@ -18,7 +18,7 @@ fun <T> LomoStateContent(
     modifier: Modifier = Modifier,
     content: @Composable AnimatedContentScope.(T) -> Unit,
 ) {
-    val scheme = MaterialTheme.motionScheme
+    val scheme = LocalLomoMotion.current.component
     AnimatedContent(
         targetState = state,
         contentKey = contentKey,

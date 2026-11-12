@@ -4,23 +4,25 @@ import dev.detekt.api.Config
 import dev.detekt.api.Entity
 import dev.detekt.api.Finding
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtBlockExpression
+import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCatchClause
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.KtTryExpression
 
-internal class NoSwallowedCancellationInSuspendRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Catching generic Exception, Throwable, or using runCatching inside suspend functions without checking and re-throwing CancellationException breaks structured concurrency. Rethrow CancellationException or mark with `// behavior-contract: cancellation-swallowed-ok: <reason>`.",
-) {
+internal class NoSwallowedCancellationInSuspendRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Catching generic Exception, Throwable, or using runCatching inside suspend functions without checking and re-throwing CancellationException breaks structured concurrency. Rethrow CancellationException or mark with `// behavior-contract: cancellation-swallowed-ok: <reason>`.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*(cancellation-swallowed-ok|silent-result-ok)""")
 
     private val broadExceptionTypes = setOf(
-        "Exception", "Throwable", "RuntimeException", "Error"
+        "Exception",
+        "Throwable",
+        "RuntimeException",
+        "Error",
     )
 
     override fun visitCatchSection(catchClause: KtCatchClause) {
@@ -57,7 +59,8 @@ internal class NoSwallowedCancellationInSuspendRule(
                 Finding(
                     Entity.from(catchClause),
                     "Swallowed CancellationException in suspend function '${enclosingFunction.name}': " +
-                        "catching '$typeText' without rethrowing CancellationException breaks coroutine cancellation. " +
+                        "catching '$typeText' without rethrowing CancellationException breaks coroutine " +
+                        "cancellation. " +
                         "Add 'if (e is CancellationException) throw e' or mark with `// behavior-contract: cancellation-swallowed-ok: <reason>`.",
                 ),
             )
@@ -83,7 +86,8 @@ internal class NoSwallowedCancellationInSuspendRule(
         reportElement(
             expression,
             "Unchecked 'runCatching' in suspend function '${enclosingFunction.name}': " +
-                "runCatching catches all Throwables including CancellationException, breaking structured concurrency. " +
+                "runCatching catches all Throwables including CancellationException, breaking structured " +
+                "concurrency. " +
                 "Use an explicit try-catch with 'if (e is CancellationException) throw e' or mark with `// behavior-contract: silent-result-ok: <reason>`.",
         )
     }
@@ -105,12 +109,11 @@ private fun KtCatchClause.catchesAndRethrowsCancellation(): Boolean {
     return body.preservesCaughtCancellation(name)
 }
 
-internal class NoUnboundedFlowSharingRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "UI state flows must use SharingStarted.WhileSubscribed(...) (e.g. appWhileSubscribed()) instead of Lazily or Eagerly to prevent background battery drain, flow retention, and memory leaks.",
-) {
+internal class NoUnboundedFlowSharingRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "UI state flows must use SharingStarted.WhileSubscribed(...) (e.g. appWhileSubscribed()) instead of Lazily or Eagerly to prevent background battery drain, flow retention, and memory leaks.",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*(unbounded-flow-ok|lazy-flow-ok|eager-flow-ok)""")
 
     override fun visitCallExpression(expression: KtCallExpression) {
@@ -135,7 +138,8 @@ internal class NoUnboundedFlowSharingRule(
                 reportElement(
                     target,
                     "Forbidden $strategy in UI layer (/app/src/): UI flows must use " +
-                        "SharingStarted.WhileSubscribed(...) (or appWhileSubscribed()) to stop upstream collection when views detach. " +
+                        "SharingStarted.WhileSubscribed(...) (or appWhileSubscribed()) to stop upstream collection " +
+                        "when views detach. " +
                         "Or mark with `// behavior-contract: unbounded-flow-ok: <reason>`.",
                 )
             }
@@ -143,12 +147,11 @@ internal class NoUnboundedFlowSharingRule(
     }
 }
 
-internal class NoUnmanagedCoroutineScopeRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Creating unmanaged CoroutineScope instances or using GlobalScope in production code is forbidden. Inject an application scope or use structured concurrency (coroutineScope / viewModelScope).",
-) {
+internal class NoUnmanagedCoroutineScopeRule(config: Config) :
+    LomoBaseRule(
+        config,
+        "Creating unmanaged CoroutineScope instances or using GlobalScope in production code is forbidden. Inject an application scope or use structured concurrency (coroutineScope / viewModelScope).",
+    ) {
     private val optOutMarker = Regex("""behavior-contract:\s*unmanaged-scope-ok""")
 
     override fun visitCallExpression(expression: KtCallExpression) {
@@ -185,7 +188,9 @@ internal class NoUnmanagedCoroutineScopeRule(
         if (!file.isProductionSource()) return
 
         val isImportOrPackage = generateSequence(expression.parent) { it.parent }
-            .any { it is org.jetbrains.kotlin.psi.KtImportDirective || it is org.jetbrains.kotlin.psi.KtPackageDirective }
+            .any {
+                it is org.jetbrains.kotlin.psi.KtImportDirective || it is org.jetbrains.kotlin.psi.KtPackageDirective
+            }
         if (isImportOrPackage) return
 
         if (expression.getReferencedName() == "GlobalScope") {

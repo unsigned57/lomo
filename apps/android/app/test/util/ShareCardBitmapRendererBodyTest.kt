@@ -37,7 +37,7 @@
 
 package com.lomo.app.util
 
-/**
+/*
  * Behavior Contract:
  * - Unit under test: countShareCardImageSlots + buildShareBodyLines
  * - Behavior focus: image slots come from owner IR image/attachment nodes (not Markdown regex);
@@ -71,47 +71,49 @@ class ShareCardBitmapRendererBodyTest : AppFunSpec() {
                     plainText = "Intro cover photo voice Outro",
                     tagNames = emptyList(),
                     attachments =
-                        listOf(
-                            MarkdownAttachment("cover.png", MediaClass.IMAGE),
-                            MarkdownAttachment("gallery/day-1.jpg", MediaClass.IMAGE),
-                            MarkdownAttachment("recordings/memo.ogg", MediaClass.AUDIO),
-                        ),
+                    listOf(
+                        MarkdownAttachment("cover.png", MediaClass.IMAGE),
+                        MarkdownAttachment("gallery/day-1.jpg", MediaClass.IMAGE),
+                        MarkdownAttachment("recordings/memo.ogg", MediaClass.AUDIO),
+                    ),
                     blocks =
-                        listOf(
-                            MarkdownRenderBlock.Paragraph(
-                                sourceSpan = span(0u, 10u),
-                                inlines =
-                                    listOf(
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(0u, 4u),
-                                            destination = "cover.png",
-                                            title = null,
-                                            altText = "cover",
-                                            mediaClass = MediaClass.IMAGE,
-                                        ),
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(4u, 8u),
-                                            destination = "gallery/day-1.jpg",
-                                            title = null,
-                                            altText = "photo",
-                                            mediaClass = MediaClass.IMAGE,
-                                        ),
-                                        MarkdownRenderInline.Image(
-                                            sourceSpan = span(8u, 10u),
-                                            destination = "recordings/memo.ogg",
-                                            title = null,
-                                            altText = "voice",
-                                            mediaClass = MediaClass.AUDIO,
-                                        ),
-                                    ),
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0u, 10u),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(0u, 4u),
+                                    destination = "cover.png",
+                                    title = null,
+                                    altText = "cover",
+                                    mediaClass = MediaClass.IMAGE,
+                                ),
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(4u, 8u),
+                                    destination = "gallery/day-1.jpg",
+                                    title = null,
+                                    altText = "photo",
+                                    mediaClass = MediaClass.IMAGE,
+                                ),
+                                MarkdownRenderInline.Image(
+                                    sourceSpan = span(8u, 10u),
+                                    destination = "recordings/memo.ogg",
+                                    title = null,
+                                    altText = "voice",
+                                    mediaClass = MediaClass.AUDIO,
+                                ),
                             ),
                         ),
+                    ),
                 )
 
             countShareCardImageSlots(document) shouldBe 2
         }
 
-        test("buildShareBodyLines classifies paragraphs quotes bullets code and image placeholders while collapsing blank lines") {
+        test(
+            "buildShareBodyLines classifies paragraphs quotes bullets code and image placeholders while collapsing blank lines",
+        ) {
             val bodyText =
                 """
                 Intro ${IMAGE_MARKER_PREFIX}0$IMAGE_MARKER_SUFFIX outro
@@ -161,7 +163,4 @@ class ShareCardBitmapRendererBodyTest : AppFunSpec() {
     }
 }
 
-private fun span(
-    start: ULong,
-    end: ULong,
-): MarkdownSourceSpan = MarkdownSourceSpan(startByte = start, endByte = end)
+private fun span(start: ULong, end: ULong): MarkdownSourceSpan = MarkdownSourceSpan(startByte = start, endByte = end)

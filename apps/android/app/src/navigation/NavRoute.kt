@@ -13,7 +13,6 @@ internal object NavRouteSerialNames {
     const val IMAGE_VIEWER = "imageViewer"
     const val DAILY_REVIEW = "dailyReview"
     const val GALLERY = "gallery"
-    const val TASKS = "tasks"
     const val GALLERY_REEL = "galleryReel"
     const val STATISTICS = "statistics"
     const val SHARE = "share"
@@ -40,9 +39,7 @@ sealed interface NavRoute {
 
     @Serializable
     @SerialName(NavRouteSerialNames.TAG)
-    data class Tag(
-        val tagName: String,
-    ) : NavRoute
+    data class Tag(val tagName: String) : NavRoute
 
     @Serializable
     @SerialName(NavRouteSerialNames.IMAGE_VIEWER)
@@ -62,16 +59,8 @@ sealed interface NavRoute {
     data object Gallery : NavRoute
 
     @Serializable
-    @SerialName(NavRouteSerialNames.TASKS)
-    data object Tasks : NavRoute
-
-    @Serializable
     @SerialName(NavRouteSerialNames.GALLERY_REEL)
-    data class GalleryReel(
-        val payloadKey: String,
-        val initialMemoIndex: Int,
-        val initialImageIndex: Int,
-    ) : NavRoute
+    data class GalleryReel(val payloadKey: String, val initialMemoIndex: Int, val initialImageIndex: Int) : NavRoute
 
     @Serializable
     @SerialName(NavRouteSerialNames.STATISTICS)
@@ -79,10 +68,7 @@ sealed interface NavRoute {
 
     @Serializable
     @SerialName(NavRouteSerialNames.SHARE)
-    data class Share(
-        val payloadKey: String,
-        val memoTimestamp: Long,
-    ) : NavRoute
+    data class Share(val payloadKey: String, val memoTimestamp: Long) : NavRoute
 
     @Serializable
     @SerialName(NavRouteSerialNames.SYNC_CENTER)
@@ -102,6 +88,7 @@ object ShareRoutePayloadStore {
             ttlMillis = ENTRY_TTL_MILLIS,
         )
     private val consumedKeys = mutableSetOf<String>()
+
     @Volatile
     private var persistentCache: ShareRoutePayloadPersistentCache? = null
 
@@ -168,28 +155,12 @@ object ShareRoutePayloadStore {
  * Entries are cached and pruned by age/size so viewer state survives recomposition/config changes.
  */
 object ImageViewerRoutePayloadStore {
-    private const val MAX_ENTRIES = 64
-    private const val ENTRY_TTL_MILLIS = 10 * 60 * 1000L
-    private val registry =
-        NavigationPayloadRegistry<List<String>>(
-            maxEntries = MAX_ENTRIES,
-            ttlMillis = ENTRY_TTL_MILLIS,
-        )
-
-    fun putImageUrls(imageUrls: List<String>): String {
-        return registry.put(
-            imageUrls
-                .asSequence()
-                .map(String::trim)
-                .filter(String::isNotEmpty)
-                .toList(),
-        )
-    }
-
-    fun getImageUrls(key: String): List<String>? {
-        return registry.get(key)
-    }
-
+    private val registry = NavigationPayloadRegistry<com.lomo.app.feature.image.ImageViewerRequest>(
+        maxEntries = 64,
+        ttlMillis = 10 * 60 * 1000L,
+    )
+    fun put(request: com.lomo.app.feature.image.ImageViewerRequest): String = registry.put(request)
+    fun get(key: String): com.lomo.app.feature.image.ImageViewerRequest? = registry.get(key)
     fun clearForTest() {
         registry.clear()
     }
@@ -200,10 +171,7 @@ object ImageViewerRoutePayloadStore {
  * Entries are cached and pruned by age/size so a configuration change can restore the reel.
  */
 object GalleryReelPayloadStore {
-    data class Payload(
-        val memoIds: List<String>,
-        val aspectByMemoId: Map<String, Float>,
-    )
+    data class Payload(val memoIds: List<String>, val aspectByMemoId: Map<String, Float>)
 
     const val MAX_ENTRIES_FOR_TEST = 64
     const val ENTRY_TTL_MILLIS_FOR_TEST = 10 * 60 * 1000L
@@ -213,27 +181,23 @@ object GalleryReelPayloadStore {
             ttlMillis = ENTRY_TTL_MILLIS_FOR_TEST,
         )
 
-    fun put(payload: Payload): String {
-        return registry.put(
-            Payload(
-                memoIds =
-                    payload.memoIds
-                        .asSequence()
-                        .map(String::trim)
-                        .filter(String::isNotEmpty)
-                        .distinct()
-                        .toList(),
-                aspectByMemoId =
-                    payload.aspectByMemoId
-                        .filterKeys { key -> key.isNotBlank() }
-                        .filterValues { aspect -> aspect.isFinite() && aspect > 0f },
-            ),
-        )
-    }
+    fun put(payload: Payload): String = registry.put(
+        Payload(
+            memoIds =
+            payload.memoIds
+                .asSequence()
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .distinct()
+                .toList(),
+            aspectByMemoId =
+            payload.aspectByMemoId
+                .filterKeys { key -> key.isNotBlank() }
+                .filterValues { aspect -> aspect.isFinite() && aspect > 0f },
+        ),
+    )
 
-    fun get(key: String): Payload? {
-        return registry.get(key)
-    }
+    fun get(key: String): Payload? = registry.get(key)
 
     fun clearForTest() {
         registry.clear()

@@ -3,18 +3,11 @@ package com.lomo.data.engine
 internal sealed interface NativeEngineSnapshot {
     data object AwaitingWorkspaceSelection : NativeEngineSnapshot
 
-    data class Opening(
-        val jobId: String,
-    ) : NativeEngineSnapshot
+    data class Opening(val jobId: String) : NativeEngineSnapshot
 
-    data class Ready(
-        val coreRevision: ULong,
-        val eventSequence: ULong,
-    ) : NativeEngineSnapshot
+    data class Ready(val coreRevision: ULong, val eventSequence: ULong) : NativeEngineSnapshot
 
-    data class ReadOnlyRecovery(
-        val failure: EngineFailureSnapshot,
-    ) : NativeEngineSnapshot
+    data class ReadOnlyRecovery(val failure: EngineFailureSnapshot) : NativeEngineSnapshot
 
     data object ShuttingDown : NativeEngineSnapshot
 }
@@ -37,10 +30,7 @@ internal interface NativeEnginePort : AutoCloseable {
 
     fun pollJob(jobId: String): NativeJobStep
 
-    fun submitPlatformResult(
-        jobId: String,
-        result: com.lomo.nativebridge.PlatformBatchResult,
-    ): NativeJobStep
+    fun submitPlatformResult(jobId: String, result: com.lomo.nativebridge.PlatformBatchResult): NativeJobStep
 
     override fun close()
 }

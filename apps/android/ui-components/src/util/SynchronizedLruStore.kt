@@ -3,9 +3,7 @@ package com.lomo.ui.util
 import androidx.collection.LruCache
 import java.util.LinkedHashMap
 
-class SynchronizedLruStore<K : Any, V : Any>(
-    maxEntries: Int,
-) {
+class SynchronizedLruStore<K : Any, V : Any>(maxEntries: Int) {
     private val cache =
         object : LruCache<K, V>(maxEntries) {}
 
@@ -13,10 +11,7 @@ class SynchronizedLruStore<K : Any, V : Any>(
     fun get(key: K): V? = cache[key]
 
     @Synchronized
-    fun put(
-        key: K,
-        value: V,
-    ) {
+    fun put(key: K, value: V) {
         cache.put(key, value)
     }
 

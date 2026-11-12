@@ -1,3 +1,12 @@
+// Dependency upgrade — Test Change Justification:
+// Reason category: mechanical migration.
+// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
+// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
+// byte encoding, image geometry types and equality assertions that print failing collections.
+// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
+// Why this is not fitting the test to the implementation: observable behavior and golden vectors
+// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+//
 //! Behavior Contract
 //! Capability: attachment images decode and encode off the draw path on a probed
 //! picker, and placements obey reader visibility.
@@ -44,7 +53,7 @@ mod tests {
     /// A picker the way `StdioProber` reports one: queried font metrics plus an
     /// explicit protocol answer.
     fn picker(protocol: ProtocolType) -> Picker {
-        let mut picker = Picker::from_fontsize((8, 16));
+        let mut picker = crate::support::picker_with_font_size((8, 16));
         picker.set_protocol_type(protocol);
         picker
     }
@@ -320,9 +329,9 @@ mod tests {
     #[test]
     fn queried_font_metrics_drive_the_fitted_cell_area() {
         let source = png().expect("fixture and operation must succeed");
-        let mut short = Picker::from_fontsize((8, 16));
+        let mut short = crate::support::picker_with_font_size((8, 16));
         short.set_protocol_type(ProtocolType::Sixel);
-        let mut tall = Picker::from_fontsize((16, 32));
+        let mut tall = crate::support::picker_with_font_size((16, 32));
         tall.set_protocol_type(ProtocolType::Sixel);
         let short_image = prepare_image(&source, 20, 8, &short, &CancelToken::live())
             .expect("fixture and operation must succeed");
@@ -336,7 +345,7 @@ mod tests {
         assert_eq!(tall_image.bytes(), 256 * 256 * 4);
         // A font with a different aspect changes which axis binds the fit —
         // the cell coverage follows the reported metrics.
-        let mut wide = Picker::from_fontsize((8, 20));
+        let mut wide = crate::support::picker_with_font_size((8, 20));
         wide.set_protocol_type(ProtocolType::Sixel);
         let wide_image = prepare_image(&source, 20, 8, &wide, &CancelToken::live())
             .expect("fixture and operation must succeed");
@@ -442,7 +451,7 @@ mod tests {
         // budget: halfblocks keeps the encode cheap while `bytes()` still
         // accounts the fitted image the protocol state retains.
         let fat_image = || {
-            let mut fat_picker = Picker::from_fontsize((16, 16));
+            let mut fat_picker = crate::support::picker_with_font_size((16, 16));
             fat_picker.set_protocol_type(ProtocolType::Halfblocks);
             prepare_image(
                 &png().expect("fixture and operation must succeed"),
