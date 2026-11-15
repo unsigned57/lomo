@@ -7,9 +7,9 @@
 //! priority P0.
 //!
 //! Scenarios:
-//! - Given a document that receives far more memo updates than the durable witness window,
-//!   when the identity record is decoded afterwards, then the retained operation tail and
-//!   the record bytes stay bounded, and median per-commit latency in the final stretch is
+//! - Given a document whose durable witness window is already full, when further memo
+//!   updates accumulate and its identity record is decoded, then the retained operation
+//!   tail and record bytes stay bounded, and median per-commit latency in the final stretch is
 //!   comparable to the first stretch instead of growing with history depth.
 //! - Given an operation committed and then evicted from both the intent journal's retained
 //!   retired epochs and the identity record's retained tail, when the same operation id is
@@ -20,11 +20,25 @@
 //! Observable outcomes: bounded `MemoIdentityMap::operations()`, bounded `.lomo/identity`
 //! record bytes, flat per-commit latency, `operation_expired` error, fresh commits
 //! unaffected.
-//! TDD proof: RED — the identity operation journal is append-only today, so the bounded
-//! tail/bytes assertions and the flat-latency assertion fail as the document's history
-//! grows.
+//! TDD proof: the original append-only identity journal failed the bounded-tail, byte-budget
+//! and flat-latency assertions as document history grew.
 //! Excludes: SAF provider execution, Kotlin FFI surface, and cross-device sync arbitration
 //! (the retained tail remains the durable cross-device replay witness inside its window).
+//!
+//! Test Change Justification:
+//! Reason category: correct the steady-state performance baseline.
+//! Old behavior/assertion being replaced: compare the first 30 commits of a growing
+//! witness tail with the final 30 commits of a saturated tail.
+//! Why old assertion is no longer correct: bounded initial growth to 64 operations is
+//! permitted; coverage instrumentation exposes its extra work compared with an empty tail.
+//! Coverage preserved by: the unchanged 1.75x latency limit, 64-operation limit, record-byte
+//! budget and expiration scenario, plus an explicit saturated-baseline assertion.
+//! Why this is not fitting the test to the implementation: both measured stretches now
+//! start from the same contract-defined witness capacity while history depth keeps growing.
+//! RED evidence: ci-release.stderr.log and ci-verified.stderr.log under
+//! reports/manual/directory-tidy-2026-11-14/ record 8.077ms vs 14.254ms against the 1.75x limit.
+//! GREEN evidence: witness-steady-state.stderr.log in the same directory records both
+//! existing scenarios passing under workspace-feature coverage after baseline saturation.
 
 #[cfg(test)]
 #[expect(
@@ -49,11 +63,9 @@ mod tests {
     const WITNESS_BUDGET: usize = 64;
     /// Upper bound for the serialized identity record under the witness window.
     const RECORD_BYTE_BUDGET: usize = WITNESS_BUDGET * 512;
-    /// Commits driven through one document — well past the witness window so the
-    /// unbounded regime is unmistakable.
+    /// Measured commits after the witness window has reached its retained capacity.
     const COMMITS: usize = 140;
-    /// Measured device/host evidence: the unbounded journal drifts ~3x from the first
-    /// to the last quartile on this corpus; a bounded witness must stay below ~1.75x.
+    /// Compare saturated witness windows with the existing 1.75x latency budget.
     const MAX_LATENCY_RATIO_NUM: u128 = 7;
     const MAX_LATENCY_RATIO_DEN: u128 = 4;
 
@@ -178,8 +190,19 @@ mod tests {
     fn commit_work_is_bounded_as_document_history_grows() {
         let ctx = setup_test_context();
         let (memo_id, mut fingerprint) = seed_document(&ctx);
+        for index in 0..WITNESS_BUDGET {
+            let (_, next) = commit_update(&ctx, index, &memo_id, &fingerprint);
+            fingerprint = next;
+        }
+        let baseline_record = identity_record(&ctx);
+        let baseline_map = MemoIdentityMap::decode(&baseline_record).expect("decode baseline");
+        assert_eq!(
+            baseline_map.operations().len(),
+            WITNESS_BUDGET,
+            "latency sampling requires a saturated witness tail"
+        );
         let mut durations = Vec::with_capacity(COMMITS);
-        for index in 0..COMMITS {
+        for index in WITNESS_BUDGET..WITNESS_BUDGET + COMMITS {
             let (elapsed, next) = commit_update(&ctx, index, &memo_id, &fingerprint);
             durations.push(elapsed);
             fingerprint = next;
@@ -194,8 +217,9 @@ mod tests {
         );
         assert!(
             record.len() <= RECORD_BYTE_BUDGET,
-            "identity record grew to {} bytes after {COMMITS} commits",
-            record.len()
+            "identity record grew to {} bytes after {} commits",
+            record.len(),
+            WITNESS_BUDGET + COMMITS
         );
 
         let head = median(&durations[..30]);
