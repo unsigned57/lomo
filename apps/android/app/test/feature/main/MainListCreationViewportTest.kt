@@ -44,48 +44,23 @@ import kotlinx.coroutines.test.runTest
  * reports isCompleted=false before the first frame; lomo-bugs-app-green.log verifies immediate placement.
  * Production scope: apps/android/app/src/feature/main/MainListCreationViewport.kt
  * Excludes: persistence, Android layout cost, and animation phase ordering.
+ * Fixture refactor: keep scenario names, completion/identity assertions, and failure cases unchanged;
+ * consolidate framework setup in a viewport fixture instead of repeating it across scenarios.
+ * Regression preservation: initial CI verification passed app 952/data 855 tests before this
+ * fixture cleanup. After cleanup, data passed 855 tests and the widget dispatch target passed
+ * all six scenarios; the final CI gate rechecks the complete workspace.
+ * Evidence: reports/manual/directory-tidy-2026-11-14/test-fixtures.stdout.log and widget-fixture.stdout.log.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainListCreationViewportTest :
     FunSpec({
-        fun layout(key: String, index: Int): LazyListLayoutInfo {
-            val item = mockk<LazyListItemInfo>()
-            every { item.key } returns key
-            every { item.index } returns index
-            every { item.size } returns 0 // The committed row is deliberately held before entry.
-            val info = mockk<LazyListLayoutInfo>()
-            every { info.visibleItemsInfo } returns listOf(item)
-            return info
-        }
-        fun paging(id: String, rank: Int = 0): LazyPagingItems<MemoUiModel> {
-            val model = MemoUiModel(
-                memo = Memo(id = id, timestamp = 1L, content = "memo", rawContent = "memo", dateKey = "2026_11_01"),
-                processedContent = "memo",
-                renderDocument = emptyRenderDocument("memo"),
-                tags = persistentListOf(),
-                imageUrls = persistentListOf(),
-                reminders = persistentListOf(),
-                shouldShowExpand = false,
-                collapsedSummary = "",
-            )
-            val items = mockk<LazyPagingItems<MemoUiModel>>()
-            every { items.itemCount } returns rank + 1
-            every { items.peek(rank) } returns model
-            return items
-        }
         test(
             "given a zero height held row below pinned memos then entry starts with the requested placement without waiting for its own layout",
         ) {
             runTest {
-                val state = mockk<LazyListState>()
-                every { state.layoutInfo } returns layout("pinned", 0)
-                every { state.firstVisibleItemIndex } returns 0
-                every { state.firstVisibleItemScrollOffset } returns 0
-                every { state.canScrollBackward } returns false
-                every { state.isScrollInProgress } returns false
-                justRun { state.requestScrollToItem(any(), any()) }
+                val fixture = CreationViewportFixture("pinned")
                 val result = async(BroadcastFrameClock()) {
-                    state.positionCreatedMemoForEnter(paging("created", rank = 4), "created", 4)
+                    fixture.state.positionCreatedMemoForEnter(fixture.paging("created", rank = 4), "created", 4)
                 }
                 runCurrent()
                 result.isCompleted shouldBe true
@@ -96,13 +71,9 @@ class MainListCreationViewportTest :
             "given paging has the committed head and the list is at top then entry does not wait for the previous layout to measure it",
         ) {
             runTest {
-                val state = mockk<LazyListState>()
-                every { state.layoutInfo } returns layout("previous", 0)
-                every { state.canScrollBackward } returns false
-                every { state.isScrollInProgress } returns false
-                justRun { state.requestScrollToItem(any(), any()) }
+                val fixture = CreationViewportFixture("previous")
                 val result = async(BroadcastFrameClock()) {
-                    state.positionCreatedMemoForEnter(paging("created"), "created", 0)
+                    fixture.state.positionCreatedMemoForEnter(fixture.paging("created"), "created", 0)
                 }
                 runCurrent()
                 result.isCompleted shouldBe true
@@ -111,13 +82,9 @@ class MainListCreationViewportTest :
         }
         test("given the exact held row already at top then entry acknowledgement needs no additional frame") {
             runTest {
-                val state = mockk<LazyListState>()
-                every { state.layoutInfo } returns layout("created", 0)
-                every { state.canScrollBackward } returns false
-                every { state.isScrollInProgress } returns false
-                justRun { state.requestScrollToItem(any(), any()) }
+                val fixture = CreationViewportFixture("created")
                 val result = async(BroadcastFrameClock()) {
-                    state.positionCreatedMemoForEnter(paging("created"), "created", 0)
+                    fixture.state.positionCreatedMemoForEnter(fixture.paging("created"), "created", 0)
                 }
                 runCurrent()
                 result.isCompleted shouldBe true
@@ -126,18 +93,13 @@ class MainListCreationViewportTest :
         }
         test("given a viewport still below top then entry waits for its actual layout acknowledgement") {
             runTest {
-                val ready = mutableStateOf(false)
-                val state = mockk<LazyListState>()
-                every { state.layoutInfo } answers { if (ready.value) layout("created", 0) else layout("old", 1) }
-                every { state.canScrollBackward } answers { !ready.value }
-                every { state.isScrollInProgress } returns false
-                justRun { state.requestScrollToItem(any(), any()) }
+                val fixture = CreationViewportFixture("created", initiallyReady = false)
                 val result = async(BroadcastFrameClock()) {
-                    state.positionCreatedMemoForEnter(paging("created"), "created", 0)
+                    fixture.state.positionCreatedMemoForEnter(fixture.paging("created"), "created", 0)
                 }
                 runCurrent()
                 result.isCompleted shouldBe false
-                ready.value = true
+                fixture.ready.value = true
                 Snapshot.sendApplyNotifications()
                 runCurrent()
                 result.isCompleted shouldBe true
@@ -146,13 +108,9 @@ class MainListCreationViewportTest :
         }
         test("given a different paging row then a ready viewport must not reveal it as the committed identity") {
             runTest {
-                val state = mockk<LazyListState>()
-                every { state.layoutInfo } returns layout("created", 0)
-                every { state.canScrollBackward } returns false
-                every { state.isScrollInProgress } returns false
-                justRun { state.requestScrollToItem(any(), any()) }
+                val fixture = CreationViewportFixture("created")
                 val result = async(BroadcastFrameClock()) {
-                    state.positionCreatedMemoForEnter(paging("other"), "created", 0)
+                    fixture.state.positionCreatedMemoForEnter(fixture.paging("other"), "created", 0)
                 }
                 runCurrent()
                 result.isCompleted shouldBe true
@@ -160,3 +118,43 @@ class MainListCreationViewportTest :
             }
         }
     })
+
+private class CreationViewportFixture(key: String, initiallyReady: Boolean = true) {
+    val ready = mutableStateOf(initiallyReady)
+    val state = mockk<LazyListState>()
+
+    init {
+        every { state.layoutInfo } answers { if (ready.value) layout(key, 0) else layout("old", 1) }
+        every { state.canScrollBackward } answers { !ready.value }
+        every { state.isScrollInProgress } returns false
+        every { state.firstVisibleItemIndex } returns 0
+        every { state.firstVisibleItemScrollOffset } returns 0
+        justRun { state.requestScrollToItem(any(), any()) }
+    }
+
+    private fun layout(key: String, index: Int): LazyListLayoutInfo {
+        val item = mockk<LazyListItemInfo>()
+        every { item.key } returns key
+        every { item.index } returns index
+        every { item.size } returns 0 // The committed row is deliberately held before entry.
+        val info = mockk<LazyListLayoutInfo>()
+        every { info.visibleItemsInfo } returns listOf(item)
+        return info
+    }
+    fun paging(id: String, rank: Int = 0): LazyPagingItems<MemoUiModel> {
+        val model = MemoUiModel(
+            memo = Memo(id = id, timestamp = 1L, content = "memo", rawContent = "memo", dateKey = "2026_11_01"),
+            processedContent = "memo",
+            renderDocument = emptyRenderDocument("memo"),
+            tags = persistentListOf(),
+            imageUrls = persistentListOf(),
+            reminders = persistentListOf(),
+            shouldShowExpand = false,
+            collapsedSummary = "",
+        )
+        val items = mockk<LazyPagingItems<MemoUiModel>>()
+        every { items.itemCount } returns rank + 1
+        every { items.peek(rank) } returns model
+        return items
+    }
+}

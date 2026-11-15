@@ -8,6 +8,7 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.testing.fakes.FakeCursor
 import com.lomo.domain.model.StorageLocation
+import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -27,6 +28,19 @@ import kotlinx.coroutines.test.runTest
  * Observable outcomes: classified rejection or successful validation; no settings writes occur in this boundary.
  * TDD proof: target/lomo/reports/manual/directory-selection/candidate-red.log and verification-green.log.
  * Excludes: recursive Rust import and real provider timing.
+ * Test Change Justification:
+ * Reason category: behavior-preserving organization of Android boundary fixtures.
+ * Old behavior/assertion being replaced: inline platform stubbing; scenario names and outcomes stay unchanged.
+ * Why old assertion is no longer correct: existing outcomes remain correct; platform setup belongs
+ * in a scenario fixture, and successful validation/broadcast delivery needs an explicit outcome assertion.
+ * Coverage preserved by: the same selected-directory, validation, or widget routing scenarios,
+ * with all former success and rejection expectations retained.
+ * Why this is not fitting the test to the implementation: fixtures expose provider results or
+ * recorded broadcast payloads; production code and the behavior contract are unchanged.
+ * Regression preservation: initial CI verification passed app 952/data 855 tests before this
+ * fixture cleanup. After cleanup, data passed 855 tests and the widget dispatch target passed
+ * all six scenarios; the final CI gate rechecks the complete workspace.
+ * Evidence: reports/manual/directory-tidy-2026-11-14/test-fixtures.stdout.log and widget-fixture.stdout.log.
  */
 class SelectedDirectoryCandidateTest :
     FunSpec({
@@ -36,7 +50,7 @@ class SelectedDirectoryCandidateTest :
             "given an available grant parent and unavailable selected child when validated then the child is rejected",
         ) {
             runTest {
-                val provider = CandidateProvider(childAvailable = false, listingAvailable = true)
+                val provider = CandidateProviderFixture(childAvailable = false, listingAvailable = true)
                 shouldThrow<WorkspaceCandidateValidationException> {
                     WorkspaceCandidateProbe(
                         provider.context,
@@ -47,7 +61,7 @@ class SelectedDirectoryCandidateTest :
         }
         test("given a null listing when validated then the candidate fails before switching") {
             runTest {
-                val provider = CandidateProvider(childAvailable = true, listingAvailable = false)
+                val provider = CandidateProviderFixture(childAvailable = true, listingAvailable = false)
                 shouldThrow<WorkspaceCandidateValidationException> {
                     WorkspaceCandidateProbe(
                         provider.context,
@@ -58,18 +72,20 @@ class SelectedDirectoryCandidateTest :
         }
         test("given a complete empty selected directory when validated then it is accepted") {
             runTest {
-                val provider = CandidateProvider(childAvailable = true, listingAvailable = true)
-                WorkspaceCandidateProbe(
-                    provider.context,
-                    com.lomo.domain.usecase.DefaultDispatcherProvider(),
-                ).validate(StorageLocation(CANDIDATE))
+                val provider = CandidateProviderFixture(childAvailable = true, listingAvailable = true)
+                shouldNotThrowAny {
+                    WorkspaceCandidateProbe(
+                        provider.context,
+                        com.lomo.domain.usecase.DefaultDispatcherProvider(),
+                    ).validate(StorageLocation(CANDIDATE))
+                }
             }
         }
     })
 
 private const val CANDIDATE = "content://provider/tree/parent/document/selected-child"
 
-private class CandidateProvider(childAvailable: Boolean, listingAvailable: Boolean) {
+private class CandidateProviderFixture(childAvailable: Boolean, listingAvailable: Boolean) {
     val context = mockk<Context>()
 
     init {
