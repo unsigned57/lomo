@@ -111,4 +111,5 @@
     <string name="memo_card_pending">保存中…</string>
     <!-- Page Indicator -->
     <string name="cd_page_indicator">第 %1$d 页，共 %2$d 页</string>
+    <string name="cd_close_action_group">关闭选项</string>
 </resources>

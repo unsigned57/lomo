@@ -9,13 +9,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ManageSearch
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -24,7 +20,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -34,6 +29,9 @@ import com.lomo.app.R
 import com.lomo.domain.model.MemoSearchMode
 import com.lomo.ui.component.common.LomoFilledTonalButton
 import com.lomo.ui.component.common.lomoCompactInteractiveHeight
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -95,7 +93,7 @@ internal fun SearchModeFloatingCapsule(
         ) {
             SearchModeSegmentOption(
                 selected = !isFuzzy,
-                icon = Icons.Rounded.Search,
+                icon = LomoIcons.Search,
                 label = stringResource(R.string.search_mode_fulltext),
                 onClick = {
                     if (isFuzzy) {
@@ -106,7 +104,7 @@ internal fun SearchModeFloatingCapsule(
             )
             SearchModeSegmentOption(
                 selected = isFuzzy,
-                icon = Icons.AutoMirrored.Rounded.ManageSearch,
+                icon = LomoIcons.ManageSearch,
                 label = stringResource(R.string.search_mode_fuzzy),
                 onClick = {
                     if (!isFuzzy) {
@@ -121,7 +119,7 @@ internal fun SearchModeFloatingCapsule(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SearchModeSegmentOption(selected: Boolean, icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun SearchModeSegmentOption(selected: Boolean, icon: LomoIconSpec, label: String, onClick: () -> Unit) {
     val componentMotion = LocalLomoMotion.current.component
     val containerColor by animateColorAsState(
         targetValue =
@@ -155,8 +153,8 @@ private fun SearchModeSegmentOption(selected: Boolean, icon: ImageVector, label:
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
         modifier = Modifier.lomoCompactInteractiveHeight(34.dp),
     ) {
-        Icon(
-            imageVector = icon,
+        LomoIcon(
+            icon = icon,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
         )

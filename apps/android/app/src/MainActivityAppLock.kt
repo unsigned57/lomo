@@ -25,12 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Fingerprint
-import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,6 +47,8 @@ import androidx.core.content.ContextCompat
 import com.lomo.domain.model.SecuritySessionState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.LomoButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
@@ -310,8 +307,8 @@ private fun AppLockGateContent(
                     .fillMaxWidth()
                     .heightIn(min = 54.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Fingerprint,
+                LomoIcon(
+                    icon = LomoIcons.Fingerprint,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                 )
@@ -373,8 +370,8 @@ private fun AppLockSecurityBadge() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(
-                imageVector = Icons.Rounded.Lock,
+            LomoIcon(
+                icon = LomoIcons.Lock,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -457,8 +454,8 @@ private fun AppLockBiometricEmblem(
                 ),
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Outlined.Fingerprint,
+                LomoIcon(
+                    icon = LomoIcons.Fingerprint,
                     contentDescription = null,
                     tint = innerEmblemTint,
                     modifier = Modifier.size(44.dp),
@@ -506,8 +503,8 @@ private fun AppLockStatusBanner(statusMessage: String, showLoadingIndicator: Boo
                     horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                 ) {
                     if (isError) {
-                        Icon(
-                            imageVector = Icons.Rounded.ErrorOutline,
+                        LomoIcon(
+                            icon = LomoIcons.Error,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onErrorContainer,

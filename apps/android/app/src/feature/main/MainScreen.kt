@@ -24,6 +24,7 @@ import com.lomo.app.feature.common.PendingUiEvent
 import com.lomo.app.feature.conflict.SyncConflictStateViewModel
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.MemoEditorController
+import com.lomo.app.feature.memo.MemoEditorHostBindings
 import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
@@ -56,15 +57,6 @@ import timber.log.Timber
 internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
 internal const val MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX = 10
 
-internal data class MainScreenDependencies(
-    val mainViewModel: MainViewModel,
-    val sidebarViewModel: SidebarViewModel,
-    val editorViewModel: MemoEditorViewModel,
-    val recordingViewModel: RecordingViewModel,
-    val conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel,
-    val conflictStateViewModel: SyncConflictStateViewModel,
-)
-
 @Composable
 fun MainScreen(
     onNavigateToSettings: () -> Unit,
@@ -85,32 +77,18 @@ fun MainScreen(
     conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = injectedKoinViewModel(),
     conflictStateViewModel: SyncConflictStateViewModel = injectedKoinViewModel(),
 ) {
-    val dependencies =
-        remember(
-            viewModel,
-            sidebarViewModel,
-            editorViewModel,
-            recordingViewModel,
-            conflictViewModel,
-            conflictStateViewModel,
-        ) {
-            MainScreenDependencies(
-                mainViewModel = viewModel,
-                sidebarViewModel = sidebarViewModel,
-                editorViewModel = editorViewModel,
-                recordingViewModel = recordingViewModel,
-                conflictViewModel = conflictViewModel,
-                conflictStateViewModel = conflictStateViewModel,
-            )
-        }
-    val screenState = collectMainScreenUiSnapshot(dependencies = dependencies)
+    val mainBindings = viewModel.hostBindings
+    val screenState =
+        collectMainScreenUiSnapshot(
+            sidebarBindings = sidebarViewModel.hostBindings,
+            mainFlows = mainBindings.snapshotFlows,
+        )
     val hostState = rememberMainScreenHostState()
     RecoveryDiagnosticExportEffect(
-        viewModel = dependencies.mainViewModel,
+        diagnosticBindings = mainBindings.diagnosticExport,
         snackbarHostState = hostState.snackbarHostState,
     )
-    val pagedUiMemos: LazyPagingItems<MemoUiModel> =
-        dependencies.mainViewModel.pagedUiMemos.collectAsLazyPagingItems()
+    val pagedUiMemos: LazyPagingItems<MemoUiModel> = viewModel.pagedUiMemos.collectAsLazyPagingItems()
     val pagedItemSnapshotList = pagedUiMemos.itemSnapshotList
     val displayedVisibleUiMemoStartIndex = pagedItemSnapshotList.placeholdersBefore
     val displayedVisibleUiMemos = pagedItemSnapshotList.items
@@ -120,16 +98,19 @@ fun MainScreen(
 
     MainScreenDraftAutosaveEffect(
         editorController = hostState.editorController,
-        dependencies = dependencies,
+        onSaveDraft = editorViewModel.hostBindings.actions.onSaveDraft,
     )
     MainScreenPendingNewMemoCreationEffect(
         listState = hostState.listState,
         pagedUiMemos = pagedUiMemos,
-        dependencies = dependencies,
+        creationBindings = mainBindings.creation,
+        editorBindings = editorViewModel.hostBindings,
     )
 
     MainScreenTransientEffects(
-        dependencies = dependencies,
+        effectBindings = mainBindings.effects,
+        editorBindings = editorViewModel.hostBindings,
+        recordingBindings = recordingViewModel.hostBindings,
         visibleUiMemos = displayedVisibleUiMemos,
         visibleUiMemoStartIndex = displayedVisibleUiMemoStartIndex,
         searchQuery = screenState.searchQuery,
@@ -151,13 +132,19 @@ fun MainScreen(
         autoOpenInputOnForeground = screenState.autoOpenInputOnForeground,
         pendingNewMemoCreationEvent = screenState.pendingNewMemoCreationEvent,
     )
-    MainScreenConflictHost(dependencies = dependencies)
+    MainScreenConflictHost(
+        conflictController = conflictViewModel.dialogController,
+        stateBindings = conflictStateViewModel.hostBindings,
+    )
     MainScreenFullyDrawnEffect(pagedUiMemos = pagedUiMemos)
     MainScreenContentHost(
         screenState = screenState,
         pagedUiMemos = pagedUiMemos,
         hostState = hostState,
-        dependencies = dependencies,
+        contentBindings = mainBindings.content,
+        sidebarBindings = sidebarViewModel.hostBindings,
+        editorBindings = editorViewModel.hostBindings,
+        recordingBindings = recordingViewModel.hostBindings,
         unknownErrorMessage = unknownErrorMessage,
         isRefreshing = isRefreshing,
         onNavigateToSettings = onNavigateToSettings,
@@ -174,7 +161,10 @@ fun MainScreen(
 }
 
 @Composable
-private fun RecoveryDiagnosticExportEffect(viewModel: MainViewModel, snackbarHostState: SnackbarHostState) {
+private fun RecoveryDiagnosticExportEffect(
+    diagnosticBindings: MainDiagnosticExportBindings,
+    snackbarHostState: SnackbarHostState,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val dispatcherProvider =
@@ -211,12 +201,12 @@ private fun RecoveryDiagnosticExportEffect(viewModel: MainViewModel, snackbarHos
             }
         }
 
-    val diagnosticExports by viewModel.diagnosticExports.collectAsStateWithLifecycle()
+    val diagnosticExports by diagnosticBindings.diagnosticExports.collectAsStateWithLifecycle()
     LaunchedEffect(diagnosticExports, launcher) {
         val event = diagnosticExports.lastOrNull() ?: return@LaunchedEffect
         pendingReport = event.payload
         launcher.launch(event.payload.fileName)
-        viewModel.consumeDiagnosticExport(event.id)
+        diagnosticBindings.onConsumeDiagnosticExport(event.id)
     }
 }
 
@@ -224,10 +214,12 @@ private fun RecoveryDiagnosticExportEffect(viewModel: MainViewModel, snackbarHos
 private fun MainScreenPendingNewMemoCreationEffect(
     listState: androidx.compose.foundation.lazy.LazyListState,
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
-    dependencies: MainScreenDependencies,
+    creationBindings: MainNewMemoCreationBindings,
+    editorBindings: MemoEditorHostBindings,
 ) {
     val scope = rememberCoroutineScope()
-    val latestDependencies = rememberUpdatedState(dependencies)
+    val latestCreationBindings = rememberUpdatedState(creationBindings)
+    val latestEditorBindings = rememberUpdatedState(editorBindings)
     val creationCoordinator =
         remember(listState, scope) {
             NewMemoCreationCoordinator<PendingUiEvent<PendingNewMemoCreationRequest>>(
@@ -243,17 +235,17 @@ private fun MainScreenPendingNewMemoCreationEffect(
                         pagedUiMemos.itemSnapshotList.items.mapTo(mutableSetOf()) { it.memo.id }
                     },
                     prepareEnter = { keys ->
-                        latestDependencies.value.mainViewModel.enterAnimationRegistry.beginPendingEnter(keys)
+                        latestCreationBindings.value.enterAnimationRegistry.beginPendingEnter(keys)
                     },
                     bindCommittedEnter = { requestId, memoId ->
-                        latestDependencies.value.mainViewModel.enterAnimationRegistry
+                        latestCreationBindings.value.enterAnimationRegistry
                             .bindPendingEnter(requestId, memoId)
                     },
                     startPreparedEnter = { requestId ->
-                        latestDependencies.value.mainViewModel.enterAnimationRegistry.startPendingEnter(requestId)
+                        latestCreationBindings.value.enterAnimationRegistry.startPendingEnter(requestId)
                     },
                     createdMemoRank = { memoId ->
-                        latestDependencies.value.mainViewModel.rankInActiveMainListQuery(memoId)
+                        latestCreationBindings.value.rankInActiveMainListQuery(memoId)
                     },
                     createMemo = { event, _, onAccepted ->
                         // The feed renders loaded rows from the paging snapshot and only calls
@@ -266,27 +258,27 @@ private fun MainScreenPendingNewMemoCreationEffect(
                             pagedUiMemos[0]
                         }
                         val consumedRequest =
-                            latestDependencies.value.mainViewModel.consumePendingNewMemoCreationEvent(event.id)
+                            latestCreationBindings.value.onConsumePendingNewMemoCreationEvent(event.id)
                         if (consumedRequest == null) {
-                            latestDependencies.value.editorViewModel.submissions.reject(
+                            latestEditorBindings.value.submissions.reject(
                                 event.payload.submissionId,
                                 IllegalStateException("Pending memo request was already consumed or cancelled"),
                             )
                             null
                         } else {
                             try {
-                                latestDependencies.value.editorViewModel.submissions.create(
+                                latestEditorBindings.value.submissions.create(
                                     submissionId = consumedRequest.submissionId,
                                     content = consumedRequest.content,
                                     timestampMillis = consumedRequest.timestampMillis,
                                     onAccepted = onAccepted,
                                 )
                                 if (
-                                    latestDependencies.value.editorViewModel.submissions.await(
+                                    latestEditorBindings.value.submissions.await(
                                         consumedRequest.submissionId,
                                     )
                                 ) {
-                                    latestDependencies.value.editorViewModel.submissions
+                                    latestEditorBindings.value.submissions
                                         .committedMemo(consumedRequest.submissionId)?.id
                                 } else {
                                     null
@@ -294,7 +286,7 @@ private fun MainScreenPendingNewMemoCreationEffect(
                             } catch (error: CancellationException) {
                                 throw error
                             } catch (error: Exception) {
-                                latestDependencies.value.editorViewModel.submissions.reject(
+                                latestEditorBindings.value.submissions.reject(
                                     consumedRequest.submissionId,
                                     error,
                                 )
@@ -309,24 +301,24 @@ private fun MainScreenPendingNewMemoCreationEffect(
                         listState.positionCreatedMemoForEnter(pagedUiMemos, memoId, rank)
                     },
                     releaseEnter = { memoId ->
-                        latestDependencies.value.mainViewModel.enterAnimationRegistry.settleEnter(memoId)
+                        latestCreationBindings.value.enterAnimationRegistry.settleEnter(memoId)
                     },
                     cancelPreparedEnter = { requestId ->
-                        latestDependencies.value.mainViewModel.enterAnimationRegistry.cancelEnterRequest(requestId)
+                        latestCreationBindings.value.enterAnimationRegistry.cancelEnterRequest(requestId)
                     },
                 ),
             )
         }
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    val requests = dependencies.mainViewModel.pendingNewMemoCreationEvents
+    val requests = creationBindings.pendingNewMemoCreationEvents
     val activeRequests = remember(requests, lifecycleOwner) {
         requests.flowWithLifecycle(lifecycleOwner.lifecycle)
     }
     NewMemoCreationRequestEffect(activeRequests) { event ->
         if (!creationCoordinator.submit(event)) {
-            latestDependencies.value.mainViewModel.cancelPendingNewMemoCreationEvent(event.id)
-            latestDependencies.value.editorViewModel.submissions.reject(
+            latestCreationBindings.value.onCancelPendingNewMemoCreationEvent(event.id)
+            latestEditorBindings.value.submissions.reject(
                 event.payload.submissionId,
                 IllegalStateException("Memo creation reveal is still in progress"),
             )
@@ -402,7 +394,9 @@ private fun rememberInputHints(showInputHints: Boolean): ImmutableList<String> {
 
 @Composable
 private fun MainScreenTransientEffects(
-    dependencies: MainScreenDependencies,
+    effectBindings: MainEffectHostBindings,
+    editorBindings: MemoEditorHostBindings,
+    recordingBindings: MainRecordingBindings,
     visibleUiMemos: List<MemoUiModel>,
     visibleUiMemoStartIndex: Int,
     searchQuery: String,
@@ -424,7 +418,10 @@ private fun MainScreenTransientEffects(
     // effects when a decision runs, and must never become a composition or LaunchedEffect key —
     // per-keystroke recomposition of this host previously restarted external command execution.
     MainScreenForegroundEffects(
-        dependencies = dependencies,
+        foregroundFlows = effectBindings.foregroundFlows,
+        externalCommands = effectBindings.externalCommands,
+        recordingBindings = recordingBindings,
+        editorBindings = editorBindings,
         foregroundEntryId = foregroundEntryId,
         autoOpenInputOnForeground = autoOpenInputOnForeground,
         canOpenCreateMemo = canOpenCreateMemo,
@@ -434,7 +431,11 @@ private fun MainScreenTransientEffects(
     )
 
     MainScreenEventEffectsSurface(
-        dependencies = dependencies,
+        eventFlows = effectBindings.eventFlows,
+        eventActions = effectBindings.eventActions,
+        editorBindings = editorBindings,
+        onClearRecordingError = recordingBindings.actions.onClearError,
+        recordingErrorFlow = recordingBindings.flows.errorMessage,
         visibleUiMemos = visibleUiMemos,
         visibleUiMemoStartIndex = visibleUiMemoStartIndex,
         searchQuery = searchQuery,
@@ -451,7 +452,11 @@ private fun MainScreenTransientEffects(
 
 @Composable
 private fun MainScreenEventEffectsSurface(
-    dependencies: MainScreenDependencies,
+    eventFlows: MainEventEffectFlows,
+    eventActions: MainEventEffectActions,
+    editorBindings: MemoEditorHostBindings,
+    onClearRecordingError: () -> Unit,
+    recordingErrorFlow: kotlinx.coroutines.flow.StateFlow<String?>,
     visibleUiMemos: List<MemoUiModel>,
     visibleUiMemoStartIndex: Int,
     searchQuery: String,
@@ -464,20 +469,20 @@ private fun MainScreenEventEffectsSurface(
     unknownErrorMessage: String,
     memoNotFoundMessage: String,
 ) {
-    val errorMessage by dependencies.mainViewModel.errorMessage.collectAsStateWithLifecycle()
-    val imageLocationState by dependencies.mainViewModel.imageLocationState.collectAsStateWithLifecycle()
+    val errorMessage by eventFlows.errorMessage.collectAsStateWithLifecycle()
+    val imageLocationState by eventFlows.imageLocationState.collectAsStateWithLifecycle()
     val imageLocationError = when (imageLocationState) {
         is ImageLocationSnapshot.Unavailable -> stringResource(R.string.image_directory_scan_failed)
         ImageLocationSnapshot.Loading, is ImageLocationSnapshot.Ready -> null
     }
-    val editorErrorMessage by dependencies.editorViewModel.errorMessage.collectAsStateWithLifecycle()
-    val recordingErrorMessage by dependencies.recordingViewModel.errorMessage.collectAsStateWithLifecycle()
-    val sharedContentEvents by dependencies.mainViewModel.sharedContentEvents.collectAsStateWithLifecycle()
-    val pendingSharedImageEvents by dependencies.mainViewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
-    val appActionEvents by dependencies.mainViewModel.appActionEvents.collectAsStateWithLifecycle()
-    val imageDirectory by dependencies.mainViewModel.imageDirectory.collectAsStateWithLifecycle()
+    val editorErrorMessage by editorBindings.flows.errorMessage.collectAsStateWithLifecycle()
+    val recordingErrorMessage by recordingErrorFlow.collectAsStateWithLifecycle()
+    val sharedContentEvents by eventFlows.sharedContentEvents.collectAsStateWithLifecycle()
+    val pendingSharedImageEvents by eventFlows.pendingSharedImageEvents.collectAsStateWithLifecycle()
+    val appActionEvents by eventFlows.appActionEvents.collectAsStateWithLifecycle()
+    val imageDirectory by eventFlows.imageDirectory.collectAsStateWithLifecycle()
     val openFullMemoEditor =
-        rememberFullMemoEditorOpener(editorController, dependencies.editorViewModel::reportError)
+        rememberFullMemoEditorOpener(editorController, editorBindings.actions.onReportError)
 
     MainScreenEventEffectsHost(
         sharedContentEvents = remember(sharedContentEvents) { sharedContentEvents.toImmutableList() },
@@ -500,7 +505,7 @@ private fun MainScreenEventEffectsSurface(
                 visibleUiMemos = visibleUiMemos,
                 visibleUiMemoStartIndex = visibleUiMemoStartIndex,
                 canResolveOffscreenMainListFocus = canResolveOffscreenMainListFocus,
-                resolveOffscreenIndex = dependencies.mainViewModel.resolveDefaultMainListIndex,
+                resolveOffscreenIndex = eventActions.onResolveDefaultMainListIndex,
                 positioner =
                 MainScreenFocusPositioner { index ->
                     // Same pending-modification constraint as the new-memo reveal: a
@@ -510,7 +515,7 @@ private fun MainScreenEventEffectsSurface(
                 },
             )
         },
-        onMainListFocusConsumed = dependencies.mainViewModel::clearMainListFocusReanchor,
+        onMainListFocusConsumed = eventActions.onClearMainListFocusReanchor,
         focusRetryKey =
         remember(
             visibleUiMemos,
@@ -531,28 +536,31 @@ private fun MainScreenEventEffectsSurface(
                     },
             )
         },
-        onResolveMemoById = dependencies.mainViewModel.resolveMemoById,
+        onResolveMemoById = eventActions.onResolveMemoById,
         onSaveImage = { uri, onResult, onError ->
-            dependencies.editorViewModel.saveImage(
-                uri = uri,
-                draftId = dependencies.editorViewModel.ownerDraftId,
-                onResult = onResult,
-                onError = onError,
+            editorBindings.actions.onSaveImage(
+                uri,
+                editorBindings.flows.getOwnerDraftId(),
+                onResult,
+                onError,
             )
         },
         onRequireImageDirectory = directoryGuideController::requestImage,
-        onConsumeSharedContentEvent = dependencies.mainViewModel.consumeSharedContentEvent,
-        onConsumeAppActionEvent = dependencies.mainViewModel.consumeAppActionEvent,
-        onConsumePendingSharedImageEvent = dependencies.mainViewModel.consumePendingSharedImageEvent,
-        onClearMainError = dependencies.mainViewModel.clearError,
-        onClearEditorError = dependencies.editorViewModel::clearError,
-        onClearRecordingError = dependencies.recordingViewModel::clearError,
+        onConsumeSharedContentEvent = eventActions.onConsumeSharedContentEvent,
+        onConsumeAppActionEvent = eventActions.onConsumeAppActionEvent,
+        onConsumePendingSharedImageEvent = eventActions.onConsumePendingSharedImageEvent,
+        onClearMainError = eventActions.onClearError,
+        onClearEditorError = editorBindings.actions.onClearError,
+        onClearRecordingError = onClearRecordingError,
     )
 }
 
 @Composable
 internal fun MainScreenInteractionBindings(
-    dependencies: MainScreenDependencies,
+    versionMediaFlows: MainVersionMediaFlows,
+    memoInteractions: MainMemoInteractionActions,
+    editorBindings: MemoEditorHostBindings,
+    recordingBindings: MainRecordingBindings,
     editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
     scope: CoroutineScope,
@@ -572,17 +580,19 @@ internal fun MainScreenInteractionBindings(
     lanShareEnabled: Boolean,
     content: MainScreenInteractionContent,
 ) {
-    val versionHistoryState by dependencies.mainViewModel.versionHistoryState.collectAsStateWithLifecycle()
-    val rootDirectory by dependencies.mainViewModel.rootDirectory.collectAsStateWithLifecycle()
-    val imageDirectory by dependencies.mainViewModel.imageDirectory.collectAsStateWithLifecycle()
-    val imageMap by dependencies.mainViewModel.imageMap.collectAsStateWithLifecycle()
-    val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
+    val versionHistoryState by versionMediaFlows.versionHistoryState.collectAsStateWithLifecycle()
+    val rootDirectory by versionMediaFlows.rootDirectory.collectAsStateWithLifecycle()
+    val imageDirectory by versionMediaFlows.imageDirectory.collectAsStateWithLifecycle()
+    val imageMap by versionMediaFlows.imageMap.collectAsStateWithLifecycle()
+    val voiceDirectory by versionMediaFlows.voiceDirectory.collectAsStateWithLifecycle()
     val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val inputHints = rememberInputHints(showInputHints = showInputHints)
 
     val interactionCallbacks =
         rememberMainScreenInteractionCallbacks(
-            dependencies = dependencies,
+            memoInteractions = memoInteractions,
+            editorBindings = editorBindings,
+            recordingActions = recordingBindings.actions,
             editorController = editorController,
             directoryGuideController = directoryGuideController,
             voiceDirectory = voiceDirectory,
@@ -591,7 +601,7 @@ internal fun MainScreenInteractionBindings(
             unknownErrorMessage = unknownErrorMessage,
         )
     val openFullMemoEditor =
-        rememberFullMemoEditorOpener(editorController, dependencies.editorViewModel::reportError)
+        rememberFullMemoEditorOpener(editorController, editorBindings.actions.onReportError)
     val memoMenuCommandHandler =
         rememberMemoMenuCommandHandler(
             presentationState =
@@ -602,21 +612,23 @@ internal fun MainScreenInteractionBindings(
                 customFontPath = customFontPath,
             ),
             onEditMemo = openFullMemoEditor,
-            onDeleteMemo = dependencies.mainViewModel.deleteMemo,
+            onDeleteMemo = memoInteractions.onDeleteMemo,
             onLanShare =
             if (lanShareEnabled) {
                 { request -> onNavigateToShare(request.content, request.timestamp) }
             } else {
                 null
             },
-            contextAction = MemoMenuContextAction.TogglePin(dependencies.mainViewModel.setMemoPinned),
+            contextAction = MemoMenuContextAction.TogglePin(memoInteractions.onSetMemoPinned),
             onVersionHistory = interactionCallbacks.onVersionHistory,
         )
 
-    val isRecording by dependencies.recordingViewModel.isRecording.collectAsStateWithLifecycle()
+    val isRecording by recordingBindings.flows.isRecording.collectAsStateWithLifecycle()
     val editorSurface =
         rememberMainMemoEditorSurface(
-            dependencies = dependencies,
+            editorBindings = editorBindings,
+            recordingBindings = recordingBindings,
+            onUpdateInputToolbarToolOrder = memoInteractions.onUpdateInputToolbarToolOrder,
             interactionCallbacks = interactionCallbacks,
             imageDirectory = imageDirectory,
             rootDirectory = rootDirectory,
@@ -635,7 +647,7 @@ internal fun MainScreenInteractionBindings(
         menuCommandHandler = memoMenuCommandHandler,
         controller = editorController,
         editorSurface = editorSurface,
-        onEditorOpenFailure = dependencies.editorViewModel::reportError,
+        onEditorOpenFailure = editorBindings.actions.onReportError,
     ) { showMenu, openEditor ->
         content(showMenu, openEditor)
     }
@@ -645,15 +657,17 @@ internal fun MainScreenInteractionBindings(
         rootPath = rootDirectory,
         imagePath = imageDirectory,
         imageMap = stableImageMap,
-        onDismiss = dependencies.mainViewModel.dismissVersionHistory,
-        onLoadMore = dependencies.mainViewModel.loadMoreVersionHistory,
-        onRestore = { memo, version -> dependencies.mainViewModel.restoreVersion(memo, version) },
+        onDismiss = memoInteractions.versionHistory.onDismissVersionHistory,
+        onLoadMore = memoInteractions.versionHistory.onLoadMoreVersionHistory,
+        onRestore = { memo, version -> memoInteractions.versionHistory.onRestoreVersion(memo, version) },
     )
 }
 
 @Composable
 private fun rememberMainScreenInteractionCallbacks(
-    dependencies: MainScreenDependencies,
+    memoInteractions: MainMemoInteractionActions,
+    editorBindings: MemoEditorHostBindings,
+    recordingActions: MainRecordingActions,
     editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
     voiceDirectory: String?,
@@ -661,7 +675,9 @@ private fun rememberMainScreenInteractionCallbacks(
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
 ): MainScreenInteractionCallbacks = remember(
-    dependencies,
+    memoInteractions,
+    editorBindings,
+    recordingActions,
     editorController,
     directoryGuideController,
     voiceDirectory,
@@ -671,10 +687,10 @@ private fun rememberMainScreenInteractionCallbacks(
 ) {
     MainScreenInteractionCallbacks(
         onCreateMemo = { submissionId, contentText, timestampMillis ->
-            dependencies.mainViewModel.requestPendingNewMemoCreation(
-                submissionId = submissionId,
-                content = contentText,
-                timestampMillis = timestampMillis,
+            memoInteractions.onRequestPendingNewMemoCreation(
+                submissionId,
+                contentText,
+                timestampMillis,
             )
         },
         onCameraCaptureError = { error ->
@@ -686,22 +702,22 @@ private fun rememberMainScreenInteractionCallbacks(
             if (voiceDirectory == null) {
                 directoryGuideController.requestVoice()
             } else {
-                dependencies.recordingViewModel.startRecording(
-                    editorController.editingSession?.draftId ?: dependencies.editorViewModel.ownerDraftId,
+                recordingActions.onStartRecording(
+                    editorController.editingSession?.draftId ?: editorBindings.flows.getOwnerDraftId(),
                 )
             }
         },
         onStopRecording = {
             val insertRecording = editorController.captureMarkdownInsertion()
-            dependencies.recordingViewModel.stopRecording { markdown ->
+            recordingActions.onStopRecording { markdown ->
                 markdown?.let { block ->
                     insertRecording(block)
-                    dependencies.editorViewModel.trackVoiceMarkdown(block)
+                    editorBindings.actions.onTrackVoiceMarkdown(block)
                 }
             }
         },
         onVersionHistory = { state ->
-            dependencies.mainViewModel.loadVersionHistory(state.memo)
+            memoInteractions.versionHistory.onLoadVersionHistory(state.memo)
         },
     )
 }

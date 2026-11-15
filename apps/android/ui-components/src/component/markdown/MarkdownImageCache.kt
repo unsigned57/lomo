@@ -266,7 +266,6 @@ private fun Modifier.rememberSharedImageModifier(
     this
 }
 
-@Composable
 private fun Modifier.rememberImageBlockModifier(
     ratio: Float,
     destination: String,

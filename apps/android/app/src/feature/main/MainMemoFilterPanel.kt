@@ -1,6 +1,5 @@
 package com.lomo.app.feature.main
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,20 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDatePickerState
@@ -37,8 +27,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -49,10 +37,17 @@ import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.LomoButtonDefaults
 import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.component.common.LomoModalBottomSheet
+import com.lomo.ui.component.common.LomoSheetTokens
 import com.lomo.ui.component.common.rememberModalSheetPresentation
 import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
 import com.lomo.ui.component.picker.ExpressivePickerDialog
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
+import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import java.time.Instant
@@ -95,12 +90,9 @@ internal fun MainMemoFilterSheet(
         onEndDateSelected(null)
     }
 
-    ModalBottomSheet(
+    LomoModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = presentation.sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = AppSpacing.ExtraSmall,
-        dragHandle = { MainMemoFilterDragHandle() },
     ) {
         Column(
             modifier =
@@ -149,10 +141,10 @@ internal fun MainMemoFilterHeader(isFilterActive: Boolean = false, onResetFilter
     ) {
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(AppSpacing.MediumSmall),
+            shape = AppShapes.Medium,
         ) {
-            Icon(
-                imageVector = Icons.Rounded.FilterAlt,
+            LomoIcon(
+                icon = LomoIcons.FilterAlt,
                 contentDescription = null,
                 modifier = Modifier.padding(AppSpacing.Small),
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -193,10 +185,10 @@ internal fun MainMemoDateRangeSectionCard(
             ) {
                 Surface(
                     color = iconColors.containerColor,
-                    shape = RoundedCornerShape(AppSpacing.Small),
+                    shape = AppShapes.Small,
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.CalendarMonth,
+                    LomoIcon(
+                        icon = LomoIcons.CalendarMonth,
                         contentDescription = null,
                         tint = iconColors.iconColor,
                         modifier = Modifier.padding(AppSpacing.Small),
@@ -217,7 +209,7 @@ internal fun MainMemoDateRangeSectionCard(
 internal fun MainMemoSortButton(
     text: String,
     directionLabel: String?,
-    icon: ImageVector,
+    icon: LomoIconSpec,
     selected: Boolean,
     modifier: Modifier = Modifier,
     benchmarkTag: String? = null,
@@ -230,7 +222,7 @@ internal fun MainMemoSortButton(
         if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
+            LomoSheetTokens.tileSurfaceColor(MaterialTheme.colorScheme)
         },
         animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
         label = "MemoSortContainer",
@@ -260,7 +252,7 @@ internal fun MainMemoSortButton(
                     benchmarkTag
                 },
             ),
-        shapes = ButtonShapes(com.lomo.ui.theme.AppShapes.LargeIncreased, RoundedCornerShape(12.dp)),
+        shapes = LomoButtonDefaults.tileShapes(),
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = containerColor, contentColor = contentColor),
         contentPadding = PaddingValues(0.dp),
     ) {
@@ -269,8 +261,8 @@ internal fun MainMemoSortButton(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp).height(64.dp),
         ) {
-            Icon(
-                imageVector = icon,
+            LomoIcon(
+                icon = icon,
                 contentDescription = null,
                 tint = contentColor,
                 modifier = Modifier.size(24.dp),
@@ -320,7 +312,7 @@ internal fun MainMemoDateField(
             onPick()
         },
         modifier = modifier,
-        shapes = ButtonShapes(RoundedCornerShape(AppSpacing.Small), RoundedCornerShape(4.dp)),
+        shapes = LomoButtonDefaults.cardFieldShapes(),
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.containerColor),
         contentPadding = PaddingValues(0.dp),
     ) {
@@ -389,19 +381,6 @@ internal fun MainMemoDatePickerDialog(
     ) {
         ExpressiveDatePickerSurface(state = datePickerState)
     }
-}
-
-@Composable
-private fun MainMemoFilterDragHandle() {
-    Box(
-        modifier =
-        Modifier
-            .padding(vertical = AppSpacing.Large)
-            .width(AppSpacing.ExtraLarge)
-            .size(width = AppSpacing.ExtraLarge, height = AppSpacing.ExtraSmall)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
-    )
 }
 
 @Composable

@@ -14,10 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CloseFullscreen
-import androidx.compose.material.icons.rounded.OpenInFull
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +50,8 @@ import com.lomo.ui.generated.resources.cd_collapse
 import com.lomo.ui.generated.resources.cd_expand
 import com.lomo.ui.generated.resources.input_mode_edit
 import com.lomo.ui.generated.resources.input_mode_preview
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.AppHapticFeedback
@@ -410,8 +408,8 @@ private fun InputEditorFormToggleButton(
                 .size(InputSheetTokens.HeaderIconSize)
                 .semantics { contentDescription = description },
         ) {
-            Icon(
-                imageVector = Icons.Rounded.OpenInFull,
+            LomoIcon(
+                icon = LomoIcons.OpenInFull,
                 contentDescription = null,
                 tint = expandTint,
                 modifier =
@@ -421,8 +419,8 @@ private fun InputEditorFormToggleButton(
                     rotationZ = INPUT_TOGGLE_TURN_DEGREES * fraction
                 },
             )
-            Icon(
-                imageVector = Icons.Rounded.CloseFullscreen,
+            LomoIcon(
+                icon = LomoIcons.CloseFullscreen,
                 contentDescription = null,
                 tint = collapseTint,
                 modifier =

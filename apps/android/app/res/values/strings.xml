@@ -125,6 +125,20 @@
     <string name="settings_font_selected_deleted">Selected font removed; switched to the system font.</string>
     <string name="settings_font_selected_missing">The selected font file is missing or unreadable. The system font is being used.</string>
     <string name="settings_font_legacy_name_state">Imported before font names were kept</string>
+    <string name="settings_font_variable_badge">Variable</string>
+    <plurals name="settings_font_variable_axes_count">
+        <item quantity="one">%1$d axis</item>
+        <item quantity="other">%1$d axes</item>
+    </plurals>
+    <string name="settings_font_axes_title">Variable Axes</string>
+    <string name="settings_font_axes_reset">Reset</string>
+    <string name="settings_font_axis_default_hint">Default %1$s</string>
+    <string name="settings_font_axis_wght">Weight</string>
+    <string name="settings_font_axis_wdth">Width</string>
+    <string name="settings_font_axis_opsz">Optical Size</string>
+    <string name="settings_font_axis_slnt">Slant</string>
+    <string name="settings_font_axis_ital">Italic</string>
+    <string name="settings_font_axis_grad">Grade</string>
     <string name="settings_typography_font_size">Font Size</string>
     <string name="settings_typography_line_height">Line Height</string>
     <string name="settings_typography_letter_spacing">Letter Spacing</string>
@@ -248,10 +262,54 @@
     <string name="back">Back</string>
 
     <!-- Widget -->
-    <string name="widget_description">View recent memos and quickly create new ones</string>
+    <string name="widget_quick_notes_label">Quick Notes</string>
+    <string name="widget_description">Capture notes or voice memos, search, and browse recent notes</string>
+    <string name="widget_tasks_label">Tasks</string>
+    <string name="widget_tasks_description">Check off Markdown todos directly from your home screen</string>
+    <string name="widget_insights_label">Heatmap &amp; Streak</string>
+    <string name="widget_insights_description">Track your writing streaks, weekly pace, and activity heatmap</string>
+    <string name="widget_review_label">Daily Memory</string>
+    <string name="widget_review_description">Rediscover past memos on your home screen</string>
+    <string name="widget_action_new_memo">New note</string>
+    <string name="widget_action_record">Voice memo</string>
+    <string name="widget_action_search">Search</string>
+    <string name="widget_pinned_badge">Pinned</string>
+    <plurals name="widget_today_count_badge">
+        <item quantity="one">+%1$d today</item>
+        <item quantity="other">+%1$d today</item>
+    </plurals>
     <string name="widget_no_memos">No memos yet. Tap + to create one!</string>
-    <string name="widget_preview_recent_time">2 minutes ago</string>
-    <string name="widget_preview_placeholder">Your recent memos will appear here…</string>
+    <string name="widget_redacted_summary">Unlock Lomo to view widget content</string>
+    <string name="widget_tasks_title">Tasks</string>
+    <string name="widget_tasks_empty">All caught up! Add a `- [ ]` task in any memo.</string>
+    <string name="widget_tasks_redacted">Unlock Lomo to view tasks</string>
+    <string name="widget_tasks_toggle_description">Toggle task</string>
+    <string name="widget_insights_title">Activity</string>
+    <string name="widget_insights_streak_days">%1$dd streak</string>
+    <string name="widget_insights_total_label">Notes</string>
+    <string name="widget_insights_week_label">Week</string>
+    <string name="widget_insights_days_label">Days</string>
+    <plurals name="widget_insights_heatmap_range">
+        <item quantity="one">Last %1$d week</item>
+        <item quantity="other">Last %1$d weeks</item>
+    </plurals>
+    <string name="widget_insights_redacted_value">—</string>
+    <string name="widget_insights_heatmap_description">Writing activity heatmap</string>
+    <string name="widget_review_title">Memory</string>
+    <string name="widget_review_empty">Write memos to unlock daily flashbacks</string>
+    <string name="widget_review_redacted">Unlock Lomo to revisit memories</string>
+    <string name="widget_review_next">Next memory</string>
+    <string name="widget_review_age_today">Today</string>
+    <string name="widget_review_age_yesterday">Yesterday</string>
+    <string name="widget_review_age_days_ago">%1$dd ago</string>
+    <string name="widget_review_open_all">Review all</string>
+    <string name="widget_sample_memo_first">Capture ideas fast with tags and Markdown checklists.</string>
+    <string name="widget_sample_memo_second">Morning walk notes and reading highlights.</string>
+    <string name="widget_sample_task_first">Finish reviewing Q4 notes</string>
+    <string name="widget_sample_task_second">Sketch weekend reading list</string>
+    <string name="widget_sample_review_quote">Capture fleeting thoughts before they fade, and let time turn fragments into clarity.</string>
+    <string name="widget_sample_tag_ideas">ideas</string>
+    <string name="widget_sample_tag_reading">reading</string>
     <string name="tile_new_memo_label">New Memo</string>
     <string name="tile_start_recording_label">Start Recording</string>
     <string name="tile_stop_recording_label">Stop Recording</string>
@@ -449,6 +507,7 @@
     <string name="trash_clear_confirm_title">Clear trash?</string>
     <string name="trash_clear_confirm_message">This will permanently delete all memos in trash.</string>
     <string name="action_copy">Copy</string>
+    <string name="action_share_menu">Share</string>
     <string name="action_share">Share as image</string>
     <string name="action_share_text">Share as text</string>
     <string name="action_lan_share">Send over LAN</string>

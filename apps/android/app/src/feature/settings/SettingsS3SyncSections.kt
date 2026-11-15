@@ -1,12 +1,5 @@
 package com.lomo.app.feature.settings
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.DataObject
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
@@ -15,6 +8,7 @@ import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroupScope
 import com.lomo.ui.component.settings.SwitchPreferenceItem
+import com.lomo.ui.icon.LomoIcons
 
 data class S3SyncSectionLabels(
     val common: RemoteProviderSectionLabels,
@@ -90,7 +84,7 @@ private fun SettingsGroupScope.s3EndpointPreferences(state: S3SectionState, acti
         PreferenceItem(
             title = stringResource(R.string.settings_s3_endpoint_url),
             subtitle = state.endpointUrl.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.Link,
+            icon = LomoIcons.Link,
             onClick = actions.openEndpointUrl,
         )
     }
@@ -98,7 +92,7 @@ private fun SettingsGroupScope.s3EndpointPreferences(state: S3SectionState, acti
         PreferenceItem(
             title = stringResource(R.string.settings_s3_region),
             subtitle = state.region.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.AccessTime,
+            icon = LomoIcons.Schedule,
             onClick = actions.openRegion,
         )
     }
@@ -106,7 +100,7 @@ private fun SettingsGroupScope.s3EndpointPreferences(state: S3SectionState, acti
         PreferenceItem(
             title = stringResource(R.string.settings_s3_bucket),
             subtitle = state.bucket.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.FolderOpen,
+            icon = LomoIcons.FolderOpen,
             onClick = actions.openBucket,
         )
     }
@@ -114,7 +108,7 @@ private fun SettingsGroupScope.s3EndpointPreferences(state: S3SectionState, acti
         PreferenceItem(
             title = stringResource(R.string.settings_s3_prefix),
             subtitle = state.prefix.ifBlank { stringResource(R.string.settings_s3_prefix_root) },
-            icon = Icons.Outlined.FolderOpen,
+            icon = LomoIcons.FolderOpen,
             onClick = actions.openPrefix,
         )
     }
@@ -122,7 +116,7 @@ private fun SettingsGroupScope.s3EndpointPreferences(state: S3SectionState, acti
         PreferenceItem(
             title = stringResource(R.string.settings_s3_local_sync_directory),
             subtitle = s3LocalSyncDirectorySubtitle(state.localSyncDirectory),
-            icon = Icons.Outlined.FolderOpen,
+            icon = LomoIcons.FolderOpen,
             onClick = actions.selectLocalSyncDirectory,
         )
     }
@@ -131,7 +125,7 @@ private fun SettingsGroupScope.s3EndpointPreferences(state: S3SectionState, acti
             PreferenceItem(
                 title = stringResource(R.string.settings_s3_local_sync_directory_default),
                 subtitle = stringResource(R.string.settings_s3_local_sync_directory_default_subtitle),
-                icon = Icons.Outlined.Refresh,
+                icon = LomoIcons.Refresh,
                 onClick = actions.clearLocalSyncDirectory,
             )
         }
@@ -149,7 +143,7 @@ private fun SettingsGroupScope.s3CredentialPreferences(state: S3SectionState, ac
                 configuredResId = R.string.settings_s3_access_key_configured,
                 missingResId = R.string.settings_s3_access_key_not_set,
             ),
-            icon = Icons.Outlined.Lock,
+            icon = LomoIcons.Lock,
             onClick = actions.openAccessKeyId,
         )
     }
@@ -162,7 +156,7 @@ private fun SettingsGroupScope.s3CredentialPreferences(state: S3SectionState, ac
                 configuredResId = R.string.settings_s3_access_key_configured,
                 missingResId = R.string.settings_s3_access_key_not_set,
             ),
-            icon = Icons.Outlined.Lock,
+            icon = LomoIcons.Lock,
             onClick = actions.openSecretAccessKey,
         )
     }
@@ -175,7 +169,7 @@ private fun SettingsGroupScope.s3CredentialPreferences(state: S3SectionState, ac
                 configuredResId = R.string.settings_s3_session_token_configured,
                 missingResId = R.string.settings_s3_session_token_not_set,
             ),
-            icon = Icons.Outlined.Lock,
+            icon = LomoIcons.Lock,
             onClick = actions.openSessionToken,
         )
     }
@@ -192,7 +186,7 @@ private fun SettingsGroupScope.s3EncryptionPreferences(
         PreferenceItem(
             title = stringResource(R.string.settings_s3_path_style),
             subtitle = labels.pathStyle,
-            icon = Icons.Outlined.Link,
+            icon = LomoIcons.Link,
             onClick = dialogs.openPathStyle,
         )
     }
@@ -200,7 +194,7 @@ private fun SettingsGroupScope.s3EncryptionPreferences(
         PreferenceItem(
             title = stringResource(R.string.settings_s3_encryption_mode),
             subtitle = labels.encryptionMode,
-            icon = Icons.Outlined.Lock,
+            icon = LomoIcons.Lock,
             onClick = dialogs.openEncryptionMode,
         )
     }
@@ -213,7 +207,7 @@ private fun SettingsGroupScope.s3EncryptionPreferences(
                 configuredResId = R.string.settings_s3_encryption_password_configured,
                 missingResId = R.string.settings_s3_encryption_password_not_set,
             ),
-            icon = Icons.Outlined.Lock,
+            icon = LomoIcons.Lock,
             enabled = state.encryptionMode != S3EncryptionMode.NONE,
             showChevron = state.encryptionMode != S3EncryptionMode.NONE,
             onClick = dialogs.openEncryptionPassword,
@@ -250,7 +244,7 @@ private fun SettingsGroupScope.s3RcloneCryptAdvancedPreferences(
                     configuredResId = R.string.settings_s3_encryption_password2_configured,
                     missingResId = R.string.settings_s3_encryption_password2_not_set,
                 ),
-                icon = Icons.Outlined.Lock,
+                icon = LomoIcons.Lock,
                 onClick = dialogs.openEncryptionPassword2,
             )
         }
@@ -258,7 +252,7 @@ private fun SettingsGroupScope.s3RcloneCryptAdvancedPreferences(
             PreferenceItem(
                 title = stringResource(R.string.settings_s3_rclone_filename_encryption),
                 subtitle = labels.rcloneFilenameEncryption,
-                icon = Icons.Outlined.DataObject,
+                icon = LomoIcons.DataObject,
                 onClick = dialogs.openRcloneFilenameEncryption,
             )
         }
@@ -268,7 +262,7 @@ private fun SettingsGroupScope.s3RcloneCryptAdvancedPreferences(
                     PreferenceItem(
                         title = stringResource(R.string.settings_s3_rclone_filename_encoding),
                         subtitle = labels.rcloneFilenameEncoding,
-                        icon = Icons.Outlined.DataObject,
+                        icon = LomoIcons.DataObject,
                         onClick = dialogs.openRcloneFilenameEncoding,
                     )
                 }
@@ -276,7 +270,7 @@ private fun SettingsGroupScope.s3RcloneCryptAdvancedPreferences(
                     SwitchPreferenceItem(
                         title = stringResource(R.string.settings_s3_rclone_directory_name_encryption),
                         subtitle = stringResource(R.string.settings_s3_rclone_directory_name_encryption_subtitle),
-                        icon = Icons.Outlined.Lock,
+                        icon = LomoIcons.Lock,
                         checked = state.rcloneDirectoryNameEncryption,
                         onCheckedChange = actions.toggleRcloneDirectoryNameEncryption,
                     )
@@ -288,7 +282,7 @@ private fun SettingsGroupScope.s3RcloneCryptAdvancedPreferences(
                     PreferenceItem(
                         title = stringResource(R.string.settings_s3_rclone_encrypted_suffix),
                         subtitle = s3EncryptedSuffixSubtitle(state.rcloneEncryptedSuffix),
-                        icon = Icons.Outlined.DataObject,
+                        icon = LomoIcons.DataObject,
                         onClick = dialogs.openRcloneEncryptedSuffix,
                     )
                 }
@@ -300,7 +294,7 @@ private fun SettingsGroupScope.s3RcloneCryptAdvancedPreferences(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_s3_rclone_data_encryption),
                 subtitle = stringResource(R.string.settings_s3_rclone_data_encryption_subtitle),
-                icon = Icons.Outlined.Lock,
+                icon = LomoIcons.Lock,
                 checked = state.rcloneDataEncryptionEnabled,
                 onCheckedChange = actions.toggleRcloneDataEncryptionEnabled,
             )

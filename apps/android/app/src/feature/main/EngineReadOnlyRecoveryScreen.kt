@@ -7,10 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -26,6 +23,8 @@ import com.lomo.app.R
 import com.lomo.ui.component.common.LomoButton
 import com.lomo.ui.component.common.LomoFilledTonalButton
 import com.lomo.ui.component.common.LomoOutlinedButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
@@ -70,8 +69,8 @@ fun EngineReadOnlyRecoveryScreen(
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Lock,
+                LomoIcon(
+                    icon = LomoIcons.Lock,
                     contentDescription = null,
                     modifier = Modifier.size(RecoveryTokens.IconSize),
                     tint = MaterialTheme.colorScheme.onSecondaryContainer,

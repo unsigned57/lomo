@@ -1,19 +1,13 @@
 package com.lomo.app.feature.settings
 
 import androidx.annotation.StringRes
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Autorenew
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material.icons.outlined.Timelapse
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroupScope
 import com.lomo.ui.component.settings.SwitchPreferenceItem
+import com.lomo.ui.icon.LomoIcons
 
 data class RemoteProviderSectionLabels(val syncInterval: String)
 
@@ -60,7 +54,7 @@ internal fun SettingsGroupScope.remoteProviderSection(
         SwitchPreferenceItem(
             title = stringResource(presentation.enableTitleResId),
             subtitle = stringResource(presentation.enableSubtitleResId),
-            icon = Icons.Outlined.Sync,
+            icon = LomoIcons.Sync,
             checked = providerSettings.enabled,
             onCheckedChange = actions.toggleEnabled,
         )
@@ -95,7 +89,7 @@ private fun SettingsGroupScope.remoteProviderBehaviorPreferences(
         SwitchPreferenceItem(
             title = stringResource(presentation.autoSyncTitleResId),
             subtitle = stringResource(presentation.autoSyncSubtitleResId),
-            icon = Icons.Outlined.Schedule,
+            icon = LomoIcons.Schedule,
             checked = providerSettings.autoSyncEnabled,
             onCheckedChange = actions.toggleAutoSync,
         )
@@ -108,7 +102,7 @@ private fun SettingsGroupScope.remoteProviderBehaviorPreferences(
             PreferenceItem(
                 title = stringResource(presentation.syncIntervalTitleResId),
                 subtitle = labels.syncInterval,
-                icon = Icons.Outlined.Timelapse,
+                icon = LomoIcons.Timelapse,
                 onClick = actions.openSyncInterval,
             )
         }
@@ -117,7 +111,7 @@ private fun SettingsGroupScope.remoteProviderBehaviorPreferences(
         SwitchPreferenceItem(
             title = stringResource(presentation.syncOnRefreshTitleResId),
             subtitle = stringResource(presentation.syncOnRefreshSubtitleResId),
-            icon = Icons.Outlined.Refresh,
+            icon = LomoIcons.Refresh,
             checked = providerSettings.syncOnRefreshEnabled,
             onCheckedChange = actions.toggleSyncOnRefresh,
         )
@@ -138,7 +132,7 @@ private fun SettingsGroupScope.remoteProviderActionPreferences(
                 state = providerSettings.syncState,
                 lastSyncTime = providerSettings.lastSyncTime,
             ),
-            icon = Icons.Outlined.Autorenew,
+            icon = LomoIcons.Autorenew,
             onClick = actions.syncNow,
         )
     }
@@ -150,7 +144,7 @@ private fun SettingsGroupScope.remoteProviderActionPreferences(
                 provider = providerSettings.provider,
                 state = providerSettings.connectionTestState,
             ),
-            icon = Icons.Outlined.Link,
+            icon = LomoIcons.Link,
             onClick = actions.testConnection,
         )
     }

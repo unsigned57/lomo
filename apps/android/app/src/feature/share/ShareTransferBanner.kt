@@ -9,10 +9,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -20,7 +16,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
@@ -29,6 +24,9 @@ import com.lomo.domain.model.ShareTransferState
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
@@ -40,7 +38,7 @@ private const val TRANSFER_BANNER_PROGRESS_ALPHA = 0.2f
 private data class TransferBannerState(
     val containerColor: Color,
     val contentColor: Color,
-    val icon: ImageVector?,
+    val icon: LomoIconSpec?,
     val text: String,
 )
 
@@ -136,7 +134,7 @@ private fun transferBannerState(
         TransferBannerState(
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
             contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            icon = Icons.Filled.CheckCircle,
+            icon = LomoIcons.CheckCircleFilled,
             text = stringResource(R.string.share_status_sent, state.deviceName),
         )
 
@@ -144,7 +142,7 @@ private fun transferBannerState(
         TransferBannerState(
             containerColor = MaterialTheme.colorScheme.errorContainer,
             contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            icon = Icons.Filled.Error,
+            icon = LomoIcons.ErrorFilled,
             text = ShareErrorPresenter.message(state.error, isTechnicalMessage),
         )
 
@@ -155,8 +153,8 @@ private fun transferBannerState(
 private fun TransferStateBannerHeader(bannerState: TransferBannerState) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (bannerState.icon != null) {
-            Icon(
-                imageVector = bannerState.icon,
+            LomoIcon(
+                icon = bannerState.icon,
                 contentDescription = null,
                 tint = bannerState.contentColor,
                 modifier = Modifier.size(TRANSFER_BANNER_ICON_SIZE),

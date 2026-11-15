@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.offset
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.LomoSheetTokens
 import com.lomo.ui.theme.LocalLomoMotion
 
 private const val INPUT_SHEET_BACK_SCALE_REDUCTION = 0.04f
@@ -95,7 +96,7 @@ private fun InputSheetSurface(
                 )
             }
         }
-    val surfaceColor = MaterialTheme.colorScheme.surfaceContainerLow
+    val surfaceColor = LomoSheetTokens.containerColor(MaterialTheme.colorScheme)
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter,

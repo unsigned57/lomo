@@ -15,17 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,9 +42,12 @@ import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.component.common.LomoModalBottomSheet
+import com.lomo.ui.component.common.LomoSheetTokens
 import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.markdown.MarkdownRenderer
-import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.ImmutableList
 import java.time.Instant
 import java.time.ZoneId
@@ -121,13 +119,9 @@ internal fun MemoVersionHistorySheet(
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
 
-    ModalBottomSheet(
+    LomoModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        shape = AppShapes.ExtraLargeIncreased,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 0.dp,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
         Column(
             modifier =
@@ -167,8 +161,8 @@ private fun MemoVersionHistoryHeader() {
             modifier = Modifier.size(44.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Rounded.History,
+                LomoIcon(
+                    icon = LomoIcons.History,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(22.dp),
@@ -287,7 +281,7 @@ private fun VersionTimelineItem(
         if (presentation.highlight == VersionHistoryCardHighlight.Current) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
+            LomoSheetTokens.tileSurfaceColor(MaterialTheme.colorScheme)
         }
     val topMetaColor =
         if (presentation.highlight == VersionHistoryCardHighlight.Current) {
@@ -339,7 +333,7 @@ private fun VersionTimelineItem(
                 Modifier
                     .fillMaxWidth()
                     .benchmarkAnchor(BenchmarkAnchorContract.versionHistoryRestore(version.revisionId)),
-                shape = MaterialTheme.shapes.large,
+                shape = LomoSheetTokens.TileShape,
                 colors = CardDefaults.cardColors(containerColor = containerColor),
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
@@ -367,7 +361,7 @@ private fun VersionTimelineItem(
                 Modifier
                     .fillMaxWidth()
                     .benchmarkAnchor(BenchmarkAnchorContract.versionHistoryCard(version.revisionId)),
-                shape = MaterialTheme.shapes.large,
+                shape = LomoSheetTokens.TileShape,
                 colors = CardDefaults.cardColors(containerColor = containerColor),
             ) {
                 content()
@@ -460,8 +454,8 @@ private fun VersionLifecycleBadge(lifecycleState: MemoRevisionLifecycleState) {
 private fun LoadMoreHistoryItem(isLoadingMore: Boolean, enabled: Boolean, onLoadMore: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = MaterialTheme.shapes.large,
+        color = LomoSheetTokens.tileSurfaceColor(MaterialTheme.colorScheme),
+        shape = LomoSheetTokens.TileShape,
     ) {
         Box(
             modifier =

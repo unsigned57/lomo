@@ -18,11 +18,11 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun MainVersionHistoryEffectHost(mainViewModel: MainViewModel) {
-    val versionHistoryState by mainViewModel.versionHistoryState.collectAsStateWithLifecycle()
-    val rootDirectory by mainViewModel.rootDirectory.collectAsStateWithLifecycle()
-    val imageDirectory by mainViewModel.imageDirectory.collectAsStateWithLifecycle()
-    val imageMap by mainViewModel.imageMap.collectAsStateWithLifecycle()
+internal fun MainVersionHistoryEffectHost(bindings: MainVersionHistoryEffectBindings) {
+    val versionHistoryState by bindings.versionHistoryStateFlow.collectAsStateWithLifecycle()
+    val rootDirectory by bindings.rootDirectoryFlow.collectAsStateWithLifecycle()
+    val imageDirectory by bindings.imageDirectoryFlow.collectAsStateWithLifecycle()
+    val imageMap by bindings.imageMapFlow.collectAsStateWithLifecycle()
     val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
 
     VersionHistoryOverlay(
@@ -30,9 +30,9 @@ internal fun MainVersionHistoryEffectHost(mainViewModel: MainViewModel) {
         rootPath = rootDirectory,
         imagePath = imageDirectory,
         imageMap = stableImageMap,
-        onDismiss = mainViewModel.dismissVersionHistory,
-        onLoadMore = mainViewModel.loadMoreVersionHistory,
-        onRestore = { memo, version -> mainViewModel.restoreVersion(memo, version) },
+        onDismiss = bindings.onDismiss,
+        onLoadMore = bindings.onLoadMore,
+        onRestore = bindings.onRestore,
     )
 }
 

@@ -152,7 +152,7 @@ private fun BoxScope.ScrollStateScrollbar(state: ScrollState) {
         isThumbDragged = interaction.isThumbDragged,
         isScrollInProgress = state.isScrollInProgress,
         recentlyScrolled = interaction.recentlyScrolled,
-        thumbFraction = thumbFraction,
+        thumbFraction = { thumbFraction },
         thumbExtentPx = thumbExtentPx,
         onThumbFractionChanged = { fraction ->
             dragScope.launch {
@@ -202,7 +202,7 @@ private fun BoxScope.LazyListScrollbar(
 ) {
     val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarTokens.ThumbHeight.toPx() }
     val dragScope = rememberCoroutineScope()
-    val lazyMetrics by produceState<LazyListScrollbarMetrics?>(
+    val lazyMetrics = produceState<LazyListScrollbarMetrics?>(
         initialValue = null,
         state,
         contentGeneration,
@@ -224,8 +224,7 @@ private fun BoxScope.LazyListScrollbar(
                 )
         }
     }
-    val canScroll = lazyMetrics != null
-    val thumbFraction = lazyMetrics?.scrollFraction ?: 0f
+    val canScroll by remember(lazyMetrics) { derivedStateOf { lazyMetrics.value != null } }
     val scrollRequestDispatcher =
         remember(state) {
             LazyListScrollRequestDispatcher { target ->
@@ -250,10 +249,10 @@ private fun BoxScope.LazyListScrollbar(
         isThumbDragged = interaction.isThumbDragged,
         isScrollInProgress = state.isScrollInProgress,
         recentlyScrolled = interaction.recentlyScrolled,
-        thumbFraction = thumbFraction,
+        thumbFraction = { lazyMetrics.value?.scrollFraction ?: 0f },
         thumbExtentPx = thumbExtentPx,
         onThumbFractionChanged = { fraction ->
-            val metrics = lazyMetrics ?: return@DraggableScrollbarOverlay
+            val metrics = lazyMetrics.value ?: return@DraggableScrollbarOverlay
             scrollRequestDispatcher.dispatch(metrics.targetForFraction(fraction))
         },
         onDragStateChanged = { interaction.isThumbDragged = it },

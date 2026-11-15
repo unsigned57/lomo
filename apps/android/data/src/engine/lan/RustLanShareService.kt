@@ -3,6 +3,7 @@ package com.lomo.data.engine.lan
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import androidx.core.net.toUri
 import com.lomo.data.engine.ManagedEngineSession
 import com.lomo.data.local.datastore.LomoLanSharePreferencesStore
 import com.lomo.domain.model.DiscoveredDevice
@@ -479,7 +480,7 @@ internal class RustLanShareService(
     }
 
     private fun prepareAttachment(index: Int, reference: String, rawUri: String): PreparedAttachment {
-        val uri = Uri.parse(rawUri)
+        val uri = rawUri.toUri()
         val digest = MessageDigest.getInstance("SHA-256")
         var size = 0L
         context.contentResolver.openInputStream(uri).required(uri).use { input ->

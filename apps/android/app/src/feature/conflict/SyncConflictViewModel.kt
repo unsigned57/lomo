@@ -224,6 +224,23 @@ class SyncConflictViewModel(
             }
         }
     }
+
+    internal val dialogController: SyncConflictDialogController =
+        SyncConflictDialogController(
+            state = state,
+            onFileChoiceChanged = ::setFileChoice,
+            onAllChoicesChanged = ::setAllChoices,
+            onReviewItemChoiceChanged = ::setReviewItemChoice,
+            onAllReviewItemChoicesChanged = ::setAllReviewItemChoices,
+            onAcceptSuggestions = ::acceptSuggestedChoices,
+            onAutoResolveSafeConflicts = this::autoResolveSafeConflicts,
+            onToggleExpanded = ::toggleExpandedFile,
+            onApply = ::applyResolution,
+            onDismiss = ::dismiss,
+            onShowConflictDialog = ::showConflictDialog,
+            onShowReviewDialog = ::showReviewDialog,
+            onShowRemoteSession = ::showRemoteConflictSession,
+        )
 }
 
 /** Safe auto-resolve entry; lives outside the ViewModel class for TooManyFunctions budget. */

@@ -125,6 +125,19 @@
     <string name="settings_font_selected_deleted">已删除所选字体，已切换回系统字体。</string>
     <string name="settings_font_selected_missing">所选字体文件缺失或无法读取，当前正在使用系统字体。</string>
     <string name="settings_font_legacy_name_state">早于字体名保留功能导入</string>
+    <string name="settings_font_variable_badge">可变字体</string>
+    <plurals name="settings_font_variable_axes_count">
+        <item quantity="other">%1$d 个可变轴</item>
+    </plurals>
+    <string name="settings_font_axes_title">可变字体轴</string>
+    <string name="settings_font_axes_reset">恢复默认</string>
+    <string name="settings_font_axis_default_hint">默认 %1$s</string>
+    <string name="settings_font_axis_wght">字重</string>
+    <string name="settings_font_axis_wdth">字宽</string>
+    <string name="settings_font_axis_opsz">视觉字号</string>
+    <string name="settings_font_axis_slnt">倾斜度</string>
+    <string name="settings_font_axis_ital">斜体</string>
+    <string name="settings_font_axis_grad">笔画粗细</string>
     <string name="settings_typography_font_size">字体大小</string>
     <string name="settings_typography_line_height">行间距</string>
     <string name="settings_typography_letter_spacing">字间距</string>
@@ -244,10 +257,52 @@
     <string name="back">返回</string>
 
     <!-- Widget -->
-    <string name="widget_description">查看最近备忘录并快速创建</string>
+    <string name="widget_quick_notes_label">速记与动态</string>
+    <string name="widget_description">快速记录文字或语音、搜索并浏览最近备忘录</string>
+    <string name="widget_tasks_label">待办清单</string>
+    <string name="widget_tasks_description">在桌面直接查看并勾选备忘录中的 Markdown 待办</string>
+    <string name="widget_insights_label">热力图与统计</string>
+    <string name="widget_insights_description">直观追踪连续写作天数、本周记录量与活动热力图</string>
+    <string name="widget_review_label">每日回顾</string>
+    <string name="widget_review_description">在桌面重温往期备忘录与灵感片段</string>
+    <string name="widget_action_new_memo">记一条</string>
+    <string name="widget_action_record">语音速记</string>
+    <string name="widget_action_search">搜索</string>
+    <string name="widget_pinned_badge">置顶</string>
+    <plurals name="widget_today_count_badge">
+        <item quantity="other">今日 +%1$d</item>
+    </plurals>
     <string name="widget_no_memos">暂无备忘录。点击 + 创建！</string>
-    <string name="widget_preview_recent_time">2 分钟前</string>
-    <string name="widget_preview_placeholder">最近的备忘录会显示在这里…</string>
+    <string name="widget_redacted_summary">解锁 Lomo 后查看桌面内容</string>
+    <string name="widget_tasks_title">待办</string>
+    <string name="widget_tasks_empty">待办已全部完成！可在备忘录中用 `- [ ]` 添加</string>
+    <string name="widget_tasks_redacted">解锁后查看待办清单</string>
+    <string name="widget_tasks_toggle_description">切换待办状态</string>
+    <string name="widget_insights_title">记录概览</string>
+    <string name="widget_insights_streak_days">连续 %1$d 天</string>
+    <string name="widget_insights_total_label">总计</string>
+    <string name="widget_insights_week_label">本周</string>
+    <string name="widget_insights_days_label">活跃</string>
+    <plurals name="widget_insights_heatmap_range">
+        <item quantity="other">近 %1$d 周</item>
+    </plurals>
+    <string name="widget_insights_redacted_value">—</string>
+    <string name="widget_insights_heatmap_description">写作热力图</string>
+    <string name="widget_review_title">灵感回顾</string>
+    <string name="widget_review_empty">多写几条备忘录后即可在此随机回顾</string>
+    <string name="widget_review_redacted">解锁后查看每日回顾</string>
+    <string name="widget_review_next">换一条</string>
+    <string name="widget_review_age_today">今天</string>
+    <string name="widget_review_age_yesterday">昨天</string>
+    <string name="widget_review_age_days_ago">%1$d 天前</string>
+    <string name="widget_review_open_all">全部回顾</string>
+    <string name="widget_sample_memo_first">用标签与 Markdown 清单快速记录灵感。</string>
+    <string name="widget_sample_memo_second">晨间散步随想与阅读摘录。</string>
+    <string name="widget_sample_task_first">整理本周重点笔记</string>
+    <string name="widget_sample_task_second">规划周末阅读书单</string>
+    <string name="widget_sample_review_quote">随时捕捉转瞬即逝的想法，让时间把零散碎片沉淀成清晰的脉络。</string>
+    <string name="widget_sample_tag_ideas">灵感</string>
+    <string name="widget_sample_tag_reading">阅读</string>
     <string name="tile_new_memo_label">新建备忘录</string>
     <string name="tile_start_recording_label">开始录音</string>
     <string name="tile_stop_recording_label">停止录音</string>
@@ -440,6 +495,7 @@
     <string name="trash_clear_confirm_title">清空回收站？</string>
     <string name="trash_clear_confirm_message">此操作会永久删除回收站中的所有备忘录。</string>
     <string name="action_copy">复制</string>
+    <string name="action_share_menu">分享</string>
     <string name="action_share">分享为图片</string>
     <string name="action_share_text">分享文本</string>
     <string name="action_lan_share">局域网发送</string>

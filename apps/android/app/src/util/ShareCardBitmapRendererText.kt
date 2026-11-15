@@ -9,6 +9,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 import android.util.TypedValue
 import androidx.core.graphics.withTranslation
+import com.lomo.app.feature.preferences.ShareCardTypefaces
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -34,38 +35,43 @@ internal fun shouldUseCenteredBody(input: ShareCardRenderInput, bodyLines: List<
     return !input.hasImages && hasNoHeader && hasShortBody
 }
 
+internal fun selectPreferredBoldTypeface(bodyTypefaces: ShareCardTypefaces?): Typeface? = bodyTypefaces?.bold
+
 internal fun createShareCardPaintSet(
     resources: Resources,
     palette: ShareCardPalette,
     bodyTextSizeSp: Float,
-    bodyTypeface: Typeface?,
     bodyLetterSpacing: Float,
+    bodyTypefaces: ShareCardTypefaces? = null,
 ): ShareCardPaintSet {
-    val bodyBase = bodyTypeface ?: Typeface.DEFAULT
+    val regularTypeface = bodyTypefaces?.regular ?: Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+    val boldTypeface =
+        selectPreferredBoldTypeface(bodyTypefaces)
+            ?: Typeface.create(regularTypeface, Typeface.BOLD)
     return ShareCardPaintSet(
         tagPaint =
         createTextPaint(
             color = palette.tagText,
             textSizePx = sp(resources, TAG_TEXT_SIZE_SP),
-            typeface = Typeface.create(bodyBase, Typeface.BOLD),
+            typeface = boldTypeface,
         ).apply { letterSpacing = TAG_LETTER_SPACING },
         titlePaint =
         createTextPaint(
             color = palette.secondaryText,
             textSizePx = sp(resources, TITLE_TEXT_SIZE_SP),
-            typeface = Typeface.create(bodyBase, Typeface.NORMAL),
+            typeface = regularTypeface,
         ).apply { letterSpacing = TITLE_LETTER_SPACING },
         headingPaint =
         createTextPaint(
             color = palette.bodyText,
             textSizePx = sp(resources, bodyTextSizeSp * HEADING_TEXT_SCALE),
-            typeface = Typeface.create(bodyBase, Typeface.BOLD),
+            typeface = boldTypeface,
         ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         paragraphPaint =
         createTextPaint(
             color = palette.bodyText,
             textSizePx = sp(resources, bodyTextSizeSp),
-            typeface = Typeface.create(bodyBase, Typeface.NORMAL),
+            typeface = regularTypeface,
         ).apply {
             letterSpacing = bodyLetterSpacing
         },
@@ -73,13 +79,13 @@ internal fun createShareCardPaintSet(
         createTextPaint(
             color = palette.bodyText,
             textSizePx = sp(resources, bodyTextSizeSp * BULLET_TEXT_SCALE),
-            typeface = Typeface.create(bodyBase, Typeface.BOLD),
+            typeface = boldTypeface,
         ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         quotePaint =
         createTextPaint(
             color = palette.secondaryText,
             textSizePx = sp(resources, bodyTextSizeSp * QUOTE_TEXT_SCALE),
-            typeface = Typeface.create(bodyBase, Typeface.NORMAL),
+            typeface = regularTypeface,
         ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         codePaint =
         createTextPaint(
@@ -97,9 +103,10 @@ internal fun createShareCardPaintSet(
         createTextPaint(
             color = palette.secondaryText,
             textSizePx = sp(resources, FOOTER_TEXT_SIZE_SP),
-            typeface = Typeface.create(bodyBase, Typeface.NORMAL),
+            typeface = regularTypeface,
         ).apply { letterSpacing = FOOTER_LETTER_SPACING },
         linkColor = palette.linkText,
+        bodyTypefaces = bodyTypefaces,
     )
 }
 

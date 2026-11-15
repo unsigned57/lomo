@@ -50,11 +50,11 @@ internal fun InputSheetDismissScrim(scrimAlpha: Float, enabled: Boolean = true, 
 }
 
 internal fun inputSheetVisibilityEnterTransition(motionScheme: MotionScheme): EnterTransition = fadeIn(
-    animationSpec = motionScheme.defaultEffectsSpec(),
+    animationSpec = motionScheme.fastEffectsSpec(),
 ) +
     slideInVertically(
         initialOffsetY = { height -> height / 3 },
-        animationSpec = motionScheme.defaultSpatialSpec(),
+        animationSpec = motionScheme.fastSpatialSpec(),
     )
 
 internal fun inputSheetVisibilityExitTransition(motionScheme: MotionScheme): ExitTransition = fadeOut(

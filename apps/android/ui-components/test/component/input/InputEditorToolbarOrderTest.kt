@@ -1,7 +1,6 @@
 package com.lomo.ui.component.input
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Image
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -32,6 +31,16 @@ import kotlinx.collections.immutable.persistentListOf
  *
  * Excludes:
  * - icon rendering, drag gestures, Android permission launcher behavior.
+ *
+ * Test Change Justification:
+ * Reason category: mechanical icon fixture migration to Material Symbols.
+ * Old behavior/assertion being replaced: only the fixture icon changes from Icons.Rounded.Image
+ * to LomoIcons.Image; no ordering or enablement assertion changes.
+ * Why old assertion is no longer correct: assertions remain correct; the old fixture icon type
+ * belongs to the removed material-icons dependency.
+ * Coverage preserved by: unchanged ordering, deduplication, completion, and enablement assertions.
+ * Why this is not fitting the test to the implementation: the fixture adapts to the shared icon
+ * descriptor API without changing the toolbar policy expected by the tests.
  */
 class InputEditorToolbarOrderTest : UiComponentsFunSpec() {
     init {
@@ -85,7 +94,7 @@ class InputEditorToolbarOrderTest : UiComponentsFunSpec() {
 
     private fun contractTool(id: String): InputToolbarTool = InputToolbarTool(
         id = InputToolbarActionId(id),
-        icon = Icons.Rounded.Image,
+        icon = LomoIcons.Image,
         contentDescriptionRes = android.R.string.ok,
         command = InputEditorCommand.Action(InputToolbarActionId(id)),
         enabled = true,

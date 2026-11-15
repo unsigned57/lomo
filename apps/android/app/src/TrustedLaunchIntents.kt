@@ -88,6 +88,11 @@ class TrustedLaunchIntents(private val context: Context, secretStore: TrustedLau
         source = ExternalAppCommandSource.Widget,
     )
 
+    fun trustedWidgetStartRecordingIntent(): Intent = trustedCommandIntent(
+        action = ExternalAppCommandAction.StartRecording,
+        source = ExternalAppCommandSource.Widget,
+    )
+
     internal fun extractTrustedExternalAppCommand(
         intent: Intent?,
         nowMillis: Long = System.currentTimeMillis(),

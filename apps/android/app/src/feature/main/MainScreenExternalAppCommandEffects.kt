@@ -21,12 +21,12 @@ internal fun ExternalAppCommandExecutionEffect(
     directoryGuideController: MainDirectoryGuideController,
     editorController: MemoEditorController,
     onRequestRecordAudioPermission: (ExternalAppCommand) -> Unit,
-    dependencies: MainScreenDependencies,
+    executionTarget: MainExternalCommandExecutionTarget,
     permissionRequestInFlightCommandId: String?,
 ) {
     LaunchedEffect(commands, readiness, permissionRequestInFlightCommandId) {
         val nowMillis = System.currentTimeMillis()
-        dependencies.mainViewModel.expireExternalAppCommands(nowMillis)
+        executionTarget.commandActions.onExpireExternalAppCommands(nowMillis)
         commands
             .asSequence()
             .filterNot { command -> command.isExpired(nowMillis) || command.status.isTerminal }
@@ -46,7 +46,7 @@ internal fun ExternalAppCommandExecutionEffect(
                     directoryGuideController = directoryGuideController,
                     editorController = editorController,
                     onRequestRecordAudioPermission = onRequestRecordAudioPermission,
-                    dependencies = dependencies,
+                    executionTarget = executionTarget,
                 )
             }
     }
@@ -59,10 +59,10 @@ private fun executeExternalAppCommandPlan(
     directoryGuideController: MainDirectoryGuideController,
     editorController: MemoEditorController,
     onRequestRecordAudioPermission: (ExternalAppCommand) -> Unit,
-    dependencies: MainScreenDependencies,
+    executionTarget: MainExternalCommandExecutionTarget,
 ) {
     plan.statusUpdate?.let { status ->
-        dependencies.mainViewModel.updateExternalAppCommandStatus(command.id, status)
+        executionTarget.commandActions.onUpdateExternalAppCommandStatus(command.id, status)
     }
     var terminalHandledByAsyncStep = false
     plan.steps.forEach { step ->
@@ -75,23 +75,23 @@ private fun executeExternalAppCommandPlan(
 
             ExternalAppCommandStep.RequestRecordAudioPermission -> onRequestRecordAudioPermission(command)
 
-            ExternalAppCommandStep.StartRecording -> dependencies.recordingViewModel.startRecording(
-                editorController.editingSession?.draftId ?: dependencies.editorViewModel.ownerDraftId,
+            ExternalAppCommandStep.StartRecording -> executionTarget.recordingActions.onStartRecording(
+                editorController.editingSession?.draftId ?: executionTarget.editorBindings.flows.getOwnerDraftId(),
             )
 
             ExternalAppCommandStep.StopRecording -> {
                 terminalHandledByAsyncStep = true
                 val insertRecording = editorController.captureMarkdownInsertion()
-                dependencies.recordingViewModel.stopRecording { markdown ->
+                executionTarget.recordingActions.onStopRecording { markdown ->
                     if (markdown != null) {
                         insertRecording(markdown)
-                        dependencies.editorViewModel.trackVoiceMarkdown(markdown)
-                        dependencies.mainViewModel.completeExternalAppCommand(
+                        executionTarget.editorBindings.actions.onTrackVoiceMarkdown(markdown)
+                        executionTarget.commandActions.onCompleteExternalAppCommand(
                             command.id,
                             ExternalAppCommandTerminalResult.Executed,
                         )
                     } else {
-                        dependencies.mainViewModel.completeExternalAppCommand(
+                        executionTarget.commandActions.onCompleteExternalAppCommand(
                             command.id,
                             ExternalAppCommandTerminalResult.Failed,
                         )
@@ -102,7 +102,7 @@ private fun executeExternalAppCommandPlan(
     }
     if (!terminalHandledByAsyncStep) {
         plan.terminalResult?.let { result ->
-            dependencies.mainViewModel.completeExternalAppCommand(command.id, result)
+            executionTarget.commandActions.onCompleteExternalAppCommand(command.id, result)
         }
     }
 }

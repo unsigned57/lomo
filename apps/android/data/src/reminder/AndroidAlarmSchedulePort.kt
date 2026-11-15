@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import androidx.core.net.toUri
 import timber.log.Timber
 
 /**
@@ -51,7 +52,7 @@ class AndroidAlarmManagerGateway(
         val intent =
             Intent(context, ReminderAlarmReceiver::class.java).apply {
                 action = ReminderIntents.ACTION_FIRE
-                data = Uri.parse("${ReminderIntents.ALARM_DATA_URI_PREFIX}${Uri.encode(occurrenceId)}")
+                data = "${ReminderIntents.ALARM_DATA_URI_PREFIX}${Uri.encode(occurrenceId)}".toUri()
                 putExtra(ReminderIntents.EXTRA_MEMO_ID, memoId)
                 putExtra(ReminderIntents.EXTRA_REMINDER_ID, reminderId)
                 putExtra(ReminderIntents.EXTRA_OCCURRENCE_ID, occurrenceId)

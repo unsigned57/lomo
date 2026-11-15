@@ -1,21 +1,5 @@
 package com.lomo.app.feature.settings
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.CalendarToday
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.Lightbulb
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.SaveAlt
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.SwapVert
-import androidx.compose.material.icons.outlined.Tag
-import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +11,7 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.component.settings.SwitchPreferenceItem
+import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.ImmutableMap
 
 @Composable
@@ -45,7 +30,7 @@ fun FormatsSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_filename_format),
                 subtitle = filenameFormat,
-                icon = Icons.Outlined.Description,
+                icon = LomoIcons.Description,
                 onClick = onOpenFilenameFormatDialog,
             )
         }
@@ -53,7 +38,7 @@ fun FormatsSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_timestamp_format),
                 subtitle = timestampFormat,
-                icon = Icons.Outlined.AccessTime,
+                icon = LomoIcons.Schedule,
                 onClick = onOpenTimestampFormatDialog,
             )
         }
@@ -61,7 +46,7 @@ fun FormatsSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_date_format),
                 subtitle = dateFormat,
-                icon = Icons.Outlined.CalendarToday,
+                icon = LomoIcons.CalendarToday,
                 onClick = onOpenDateFormatDialog,
             )
         }
@@ -69,7 +54,7 @@ fun FormatsSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_time_format),
                 subtitle = timeFormat,
-                icon = Icons.Outlined.Schedule,
+                icon = LomoIcons.Schedule,
                 onClick = onOpenTimeFormatDialog,
             )
         }
@@ -90,7 +75,7 @@ fun MigrationSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_migration_export_notes),
                 subtitle = stringResource(R.string.settings_migration_export_notes_subtitle),
-                icon = Icons.Outlined.Download,
+                icon = LomoIcons.Download,
                 enabled = !running,
                 onClick = onExportNotesArchive,
             )
@@ -99,7 +84,7 @@ fun MigrationSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_migration_import_notes),
                 subtitle = stringResource(R.string.settings_migration_import_notes_subtitle),
-                icon = Icons.Outlined.Description,
+                icon = LomoIcons.Description,
                 enabled = !running,
                 onClick = onImportNotesArchive,
             )
@@ -108,7 +93,7 @@ fun MigrationSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_migration_export_settings),
                 subtitle = stringResource(R.string.settings_migration_export_settings_subtitle),
-                icon = Icons.Outlined.Lock,
+                icon = LomoIcons.Lock,
                 enabled = !running,
                 onClick = onOpenExportSettingsPasswordDialog,
             )
@@ -117,7 +102,7 @@ fun MigrationSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_migration_import_settings),
                 subtitle = stringResource(R.string.settings_migration_import_settings_subtitle),
-                icon = Icons.Outlined.ContentCopy,
+                icon = LomoIcons.ContentCopy,
                 enabled = !running,
                 onClick = onOpenImportSettingsPasswordDialog,
             )
@@ -137,7 +122,7 @@ fun ShareCardSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_share_card_show_time),
                 subtitle = stringResource(R.string.settings_share_card_show_time_subtitle),
-                icon = Icons.Outlined.Schedule,
+                icon = LomoIcons.Schedule,
                 checked = state.showTime,
                 onCheckedChange = onToggleShowTime,
             )
@@ -146,7 +131,7 @@ fun ShareCardSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_share_card_show_brand),
                 subtitle = stringResource(R.string.settings_share_card_show_brand_subtitle),
-                icon = Icons.Outlined.Info,
+                icon = LomoIcons.Info,
                 checked = state.showBrand,
                 onCheckedChange = onToggleShowBrand,
             )
@@ -156,7 +141,7 @@ fun ShareCardSettingsSection(
                 PreferenceItem(
                     title = stringResource(R.string.settings_share_card_signature_text),
                     subtitle = state.signatureText.ifBlank { stringResource(R.string.app_name) },
-                    icon = Icons.Outlined.Tag,
+                    icon = LomoIcons.Tag,
                     onClick = onOpenSignatureDialog,
                 )
             }
@@ -176,7 +161,7 @@ fun SnapshotSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_memo_snapshots),
                 subtitle = stringResource(R.string.settings_memo_snapshots_subtitle),
-                icon = Icons.Outlined.History,
+                icon = LomoIcons.History,
                 checked = state.memoSnapshotsEnabled,
                 onCheckedChange = onToggleMemoSnapshots,
             )
@@ -185,7 +170,7 @@ fun SnapshotSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_memo_snapshot_keep_count),
                 subtitle = memoSnapshotKeepCountSummary(state.memoSnapshotMaxCount),
-                icon = Icons.Outlined.ContentCopy,
+                icon = LomoIcons.ContentCopy,
                 enabled = state.memoSnapshotsEnabled,
                 showChevron = state.memoSnapshotsEnabled,
                 onClick = onOpenMemoCountDialog,
@@ -195,7 +180,7 @@ fun SnapshotSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_memo_snapshot_keep_age),
                 subtitle = memoSnapshotKeepAgeSummary(state.memoSnapshotMaxAgeDays),
-                icon = Icons.Outlined.AccessTime,
+                icon = LomoIcons.Schedule,
                 enabled = state.memoSnapshotsEnabled,
                 showChevron = state.memoSnapshotsEnabled,
                 onClick = onOpenMemoAgeDialog,
@@ -227,7 +212,7 @@ fun InteractionSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_show_input_hints),
                 subtitle = stringResource(R.string.settings_show_input_hints_subtitle),
-                icon = Icons.Outlined.Lightbulb,
+                icon = LomoIcons.Lightbulb,
                 checked = state.showInputHints,
                 onCheckedChange = onToggleInputHints,
             )
@@ -236,7 +221,7 @@ fun InteractionSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_double_tap_edit),
                 subtitle = stringResource(R.string.settings_double_tap_edit_subtitle),
-                icon = Icons.Outlined.TouchApp,
+                icon = LomoIcons.TouchApp,
                 checked = state.doubleTapEditEnabled,
                 onCheckedChange = onToggleDoubleTapEdit,
             )
@@ -245,7 +230,7 @@ fun InteractionSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_free_text_copy),
                 subtitle = stringResource(R.string.settings_free_text_copy_subtitle),
-                icon = Icons.Outlined.ContentCopy,
+                icon = LomoIcons.ContentCopy,
                 checked = state.freeTextCopyEnabled,
                 onCheckedChange = onToggleFreeTextCopy,
             )
@@ -254,7 +239,7 @@ fun InteractionSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_quick_save_on_back),
                 subtitle = stringResource(R.string.settings_quick_save_on_back_subtitle),
-                icon = Icons.Outlined.SaveAlt,
+                icon = LomoIcons.Save,
                 checked = state.quickSaveOnBackEnabled,
                 onCheckedChange = onToggleQuickSaveOnBack,
             )
@@ -263,7 +248,7 @@ fun InteractionSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_auto_open_input_on_foreground),
                 subtitle = stringResource(R.string.settings_auto_open_input_on_foreground_subtitle),
-                icon = Icons.Outlined.Keyboard,
+                icon = LomoIcons.Keyboard,
                 checked = state.autoOpenInputOnForeground,
                 onCheckedChange = onToggleAutoOpenInputOnForeground,
             )
@@ -272,7 +257,7 @@ fun InteractionSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_scrollbar),
                 subtitle = stringResource(R.string.settings_scrollbar_subtitle),
-                icon = Icons.Outlined.SwapVert,
+                icon = LomoIcons.SwapVert,
                 checked = state.scrollbarEnabled,
                 onCheckedChange = onToggleScrollbar,
             )
@@ -297,7 +282,7 @@ fun AboutSettingsSection(
                 subtitle =
                 state.currentVersion.takeIf { it.isNotBlank() }
                     ?: stringResource(R.string.settings_current_version_unknown),
-                icon = Icons.Outlined.Info,
+                icon = LomoIcons.Info,
                 showChevron = false,
             )
         }
@@ -305,7 +290,7 @@ fun AboutSettingsSection(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_check_updates),
                 subtitle = stringResource(R.string.settings_check_updates_subtitle),
-                icon = Icons.Outlined.Schedule,
+                icon = LomoIcons.Schedule,
                 checked = systemState.checkUpdatesOnStartup,
                 onCheckedChange = onToggleCheckUpdatesOnStartup,
             )
@@ -316,7 +301,7 @@ fun AboutSettingsSection(
                 subtitle = manualUpdateSubtitle(state.manualUpdateState),
                 subtitleMinLines = manualUpdateSubtitleMinLines(state.manualUpdateState),
                 subtitleMaxLines = manualUpdateSubtitleMinLines(state.manualUpdateState),
-                icon = Icons.Outlined.Download,
+                icon = LomoIcons.Download,
                 enabled = state.manualUpdateState !is SettingsManualUpdateState.Checking,
                 onClick = onCheckUpdates,
             )
@@ -326,7 +311,7 @@ fun AboutSettingsSection(
                 PreferenceItem(
                     title = stringResource(R.string.settings_debug_update_preview),
                     subtitle = stringResource(R.string.settings_debug_update_preview_subtitle),
-                    icon = Icons.Outlined.Download,
+                    icon = LomoIcons.Download,
                     onClick = onPreviewDebugUpdate,
                 )
             }
@@ -334,7 +319,7 @@ fun AboutSettingsSection(
                 PreferenceItem(
                     title = stringResource(R.string.settings_debug_engine_diagnostics),
                     subtitle = stringResource(R.string.settings_debug_engine_diagnostics_subtitle),
-                    icon = Icons.Outlined.Info,
+                    icon = LomoIcons.Info,
                     onClick = { showEngineDiagnostics = true },
                 )
             }
@@ -343,7 +328,7 @@ fun AboutSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_github),
                 subtitle = stringResource(R.string.settings_github_subtitle),
-                icon = Icons.Outlined.Info,
+                icon = LomoIcons.Info,
                 onClick = onOpenGithub,
             )
         }
@@ -353,5 +338,4 @@ fun AboutSettingsSection(
     }
 }
 
-@Composable
 fun themeModeLabel(mode: ThemeMode, labels: ImmutableMap<ThemeMode, String>): String = labels[mode] ?: mode.value

@@ -23,12 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ManageSearch
-import androidx.compose.material.icons.rounded.FilterListOff
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.SearchOff
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,6 +46,8 @@ import com.lomo.domain.model.MemoSearchMode
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.text.LocalSearchHighlightQuery
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -98,7 +94,7 @@ internal fun SearchScreenContent(
         when (state) {
             SearchContentState.EmptyInitial ->
                 EmptyState(
-                    icon = Icons.Rounded.Search,
+                    icon = LomoIcons.Search,
                     title = stringResource(R.string.search_empty_initial_title),
                     description = stringResource(R.string.search_empty_initial_desc),
                     modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()),
@@ -186,7 +182,7 @@ private fun SearchNoResultsState(
         verticalArrangement = Arrangement.Center,
     ) {
         EmptyState(
-            icon = Icons.Rounded.SearchOff,
+            icon = LomoIcons.SearchOff,
             title = stringResource(R.string.search_no_results_title),
             description = stringResource(R.string.search_no_results_desc),
         )
@@ -203,8 +199,8 @@ private fun SearchNoResultsState(
                             onToggleSearchMode()
                         },
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ManageSearch,
+                        LomoIcon(
+                            icon = LomoIcons.ManageSearch,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )
@@ -219,8 +215,8 @@ private fun SearchNoResultsState(
                             onClearFilter()
                         },
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.FilterListOff,
+                        LomoIcon(
+                            icon = LomoIcons.FilterListOff,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )

@@ -18,6 +18,11 @@ data class WorkspaceMount(
                 authority != null &&
                 freshness.permitsReadsAt(authority.projectionRevision)
 
+    val admitsProjectionWrites: Boolean
+        get() =
+            admitsProjectionReads &&
+                freshness.permitsWrites()
+
     val admittedAuthority: WorkspaceAuthority?
         get() = authority.takeIf { admitsProjectionReads }
 

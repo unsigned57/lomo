@@ -17,31 +17,37 @@ import io.kotest.matchers.shouldBe
  * - Given a long-form preview, when a fresh focus token arrives, then focus is refused until editing resumes.
  *
  * Observable outcomes:
- * - shouldRequestInputSheetEditorFocus decision outcome across visible, settled, dismissing, and token states.
+ * - shouldRequestInputSheetEditorFocus decision outcome across visible, dismissing, preview, and token states.
+ * - Initial InputSheetSessionState visibility allows entry animation and IME focus to launch concurrently.
  *
  * TDD proof:
- * - Proves focus request gating and visibility lifecycle conditions.
+ * - RED: `./kotlin test --include-module=ui-components --include-classes='com.lomo.ui.component.input.InputSheetFocusStabilityTest'`
+ *   fails because `shouldRequestInputSheetEditorFocus` still takes `isSheetEntrySettled` (forcing IME
+ *   to wait until slide-in animation settles) and `InputSheetSessionState.isSheetVisible` starts false.
+ * - GREEN: passes after removing the `isSheetEntrySettled` gate and starting `isSheetVisible = true`.
  *
  * Excludes:
  * - Compose frame pacing, IME native platform interaction, and hardware keyboard state.
  *
  * Test Change Justification:
- * Reason category: domain contract change — the presentation state machine was removed.
- * Old behavior/assertion being replaced: focus gating read InputSheetPresentationState.prefersEditorFocus()
- *   with presentationState = CompactEdit.
- * Why old assertion is no longer correct: that type no longer exists; focus now follows whether the committed
- *   display mode shows editable text (editorAcceptsFocus).
- * Coverage preserved by: every existing scenario keeps its outcome with editorAcceptsFocus = true (CompactEdit's
- *   old answer); the new preview scenario covers the refusal that SwitchingToPreview/ExpandedPreview provided.
- * Why this is not fitting the test to the implementation: outcomes are accept/reject decisions for a fresh token.
+ * Reason category: remove animation-settle sequential blocking in IME popup path.
+ * Old behavior/assertion being replaced: `shouldRequestInputSheetEditorFocus` gated on
+ *   `isSheetEntrySettled = true`, delaying editor focus and IME show until enter animation ended.
+ * Why old assertion is no longer correct: the `isSheetEntrySettled` parameter is deleted so editor
+ *   focus and keyboard popup run concurrently with the sheet enter animation on first frame.
+ * Coverage preserved by: visible, duplicate-token, invisible, dismissing, and preview-mode gating
+ *   assertions are all retained verbatim minus the deleted parameter, plus immediate visibility init.
+ * Why this is not fitting the test to the implementation: asserts immediate entry concurrency
+ *   against the deleted settle bottleneck and preserves every guard condition.
  */
 class InputSheetFocusStabilityTest : UiComponentsFunSpec() {
     init {
-        test("given visible and settled sheet when fresh focus token arrives then focus is accepted") {
+        test(
+            "given visible sheet when fresh focus token arrives then focus is accepted immediately without settle wait",
+        ) {
             val shouldFocus =
                 shouldRequestInputSheetEditorFocus(
                     isSheetVisible = true,
-                    isSheetEntrySettled = true,
                     editorAcceptsFocus = true,
                     isRecording = false,
                     isDismissing = false,
@@ -52,11 +58,16 @@ class InputSheetFocusStabilityTest : UiComponentsFunSpec() {
             shouldFocus shouldBe true
         }
 
+        test(
+            "given fresh InputSheetSessionState then sheet starts visible for concurrent frame-0 enter and IME launch",
+        ) {
+            InputSheetSessionState(initialInputText = "").isSheetVisible shouldBe true
+        }
+
         test("given already handled focus token when checked then duplicate focus request is suppressed") {
             val shouldFocus =
                 shouldRequestInputSheetEditorFocus(
                     isSheetVisible = true,
-                    isSheetEntrySettled = true,
                     editorAcceptsFocus = true,
                     isRecording = false,
                     isDismissing = false,
@@ -70,7 +81,6 @@ class InputSheetFocusStabilityTest : UiComponentsFunSpec() {
         test("given invisible or dismissing sheet when checked then focus request is rejected") {
             shouldRequestInputSheetEditorFocus(
                 isSheetVisible = false,
-                isSheetEntrySettled = true,
                 editorAcceptsFocus = true,
                 isRecording = false,
                 isDismissing = false,
@@ -80,7 +90,6 @@ class InputSheetFocusStabilityTest : UiComponentsFunSpec() {
 
             shouldRequestInputSheetEditorFocus(
                 isSheetVisible = true,
-                isSheetEntrySettled = true,
                 editorAcceptsFocus = true,
                 isRecording = false,
                 isDismissing = true,
@@ -92,7 +101,6 @@ class InputSheetFocusStabilityTest : UiComponentsFunSpec() {
         test("given a long-form preview when a fresh focus token arrives then focus is refused") {
             shouldRequestInputSheetEditorFocus(
                 isSheetVisible = true,
-                isSheetEntrySettled = true,
                 editorAcceptsFocus = false,
                 isRecording = false,
                 isDismissing = false,

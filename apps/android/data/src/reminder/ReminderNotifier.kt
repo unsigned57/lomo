@@ -5,7 +5,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.core.app.NotificationCompat
+import androidx.core.net.toUri
 import com.lomo.data.resources.DataAndroidResources
 import com.lomo.domain.model.ReminderMarker
 import timber.log.Timber
@@ -139,10 +141,8 @@ class ReminderNotifier(private val context: Context, private val resources: Data
             Intent(context, ReminderActionReceiver::class.java).apply {
                 this.action = action
                 data =
-                    android.net.Uri.parse(
-                        "${ReminderIntents.ALARM_DATA_URI_PREFIX}action/" +
-                            "${android.net.Uri.encode(occurrenceId)}/$action",
-                    )
+                    "${ReminderIntents.ALARM_DATA_URI_PREFIX}action/${Uri.encode(occurrenceId)}/$action"
+                        .toUri()
                 putExtra(ReminderIntents.EXTRA_MEMO_ID, memoId)
                 putExtra(ReminderIntents.EXTRA_REMINDER_ID, reminderId)
                 putExtra(ReminderIntents.EXTRA_OCCURRENCE_ID, occurrenceId)

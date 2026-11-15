@@ -2,9 +2,6 @@ package com.lomo.app.feature.memo
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -28,6 +25,7 @@ import com.lomo.ui.component.input.InputEditorRecordingState
 import com.lomo.ui.component.input.InputEditorSurfaceState
 import com.lomo.ui.component.input.InputSheetCallbacks
 import com.lomo.ui.component.input.InputSheetState
+import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.toImmutableList
 import org.koin.compose.koinInject
 
@@ -369,7 +367,7 @@ private fun buildMemoEditorSheetState(
                                 dateFormat = session.dateFormat,
                                 timeFormat = session.timeFormat,
                             ),
-                            icon = Icons.Rounded.History,
+                            icon = LomoIcons.History,
                             command = InputEditorCommand.Action(MemoEditorToolbarActionIds.clearBackfill),
                             benchmarkTag = BenchmarkAnchorContract.INPUT_BACKFILL_BADGE,
                         ),
@@ -379,7 +377,7 @@ private fun buildMemoEditorSheetState(
                     add(
                         InputEditorActionBadge(
                             text = reminder.label,
-                            icon = Icons.Rounded.Notifications,
+                            icon = LomoIcons.Notifications,
                             command = InputEditorCommand.RemoveText(controller.inputValue.text, reminder.range),
                             benchmarkTag = BenchmarkAnchorContract.INPUT_REMINDER_BADGE,
                         ),

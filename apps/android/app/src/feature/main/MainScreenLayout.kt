@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.DrawerDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +52,7 @@ import com.lomo.ui.component.common.EnterAnimationRegistry
 import com.lomo.ui.component.common.LomoListItemMotionSpecs
 import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.navigation.SidebarDrawer
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.LocalLomoMotion
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -65,7 +65,7 @@ internal fun MainScreenNavigationRender(
     screenState: MainScreenUiSnapshot,
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
     hostState: MainScreenHostState,
-    viewModel: MainViewModel,
+    listBindings: MainListRenderBindings,
     actions: MainScreenActions,
     isRefreshing: Boolean,
     isMemoFilterSheetVisible: Boolean,
@@ -89,11 +89,11 @@ internal fun MainScreenNavigationRender(
         isMemoFilterSheetVisible = isMemoFilterSheetVisible,
         uiState = screenState.uiState,
         pagedUiMemos = pagedUiMemos,
-        exitAnimationRegistry = viewModel.exitAnimationRegistry,
-        enterAnimationRegistry = viewModel.enterAnimationRegistry,
+        exitAnimationRegistry = listBindings.exitAnimationRegistry,
+        enterAnimationRegistry = listBindings.enterAnimationRegistry,
         listState = hostState.listState,
         isRefreshing = isRefreshing,
-        onTodoClick = viewModel.updateMemo,
+        onTodoClick = listBindings.onUpdateMemo,
         dateFormat = screenState.dateFormat,
         timeFormat = screenState.timeFormat,
         onMemoDoubleClick = onOpenEditor,
@@ -101,15 +101,15 @@ internal fun MainScreenNavigationRender(
         freeTextCopyEnabled = screenState.freeTextCopyEnabled,
         scrollbarEnabled = screenState.scrollbarEnabled,
         onShowMemoMenu = onShowMemoMenu,
-        memoListFilterController = viewModel.memoListFilterController,
+        memoListFilterController = listBindings.memoListFilterController,
         onDismissMemoFilterSheet = onDismissMemoFilterSheet,
         onHeatmapDateLongPress = onHeatmapDateLongPress,
         fab = fab,
         onSidebarTagReorder = onSidebarTagReorder,
         onReminderClick = onReminderClick,
-        onRetryEngine = viewModel.retryEngineOpen,
-        onRebuildDerivedIndex = viewModel.rebuildDerivedIndex,
-        onExportDiagnostics = viewModel.exportRecoveryDiagnostics,
+        onRetryEngine = listBindings.onRetryEngineOpen,
+        onRebuildDerivedIndex = listBindings.onRebuildDerivedIndex,
+        onExportDiagnostics = listBindings.onExportRecoveryDiagnostics,
     )
 }
 
@@ -504,7 +504,7 @@ private fun MainReadyContent(
 
             MainReadyContentState.Error ->
                 com.lomo.ui.component.common.EmptyState(
-                    icon = androidx.compose.material.icons.Icons.Outlined.ErrorOutline,
+                    icon = LomoIcons.Error,
                     title =
                     androidx.compose.ui.res.stringResource(
                         com.lomo.app.R.string.memo_list_load_failed_title,

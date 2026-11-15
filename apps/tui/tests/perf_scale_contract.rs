@@ -1,11 +1,13 @@
 // Dependency upgrade — Test Change Justification:
-// Reason category: mechanical migration.
-// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
-// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
-// byte encoding, image geometry types and equality assertions that print failing collections.
-// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
-// Why this is not fitting the test to the implementation: observable behavior and golden vectors
-// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+// Reason category: dependency upgrade (ratatui-image 8.0.1 -> 11.1.0 / icy-sixel 0.5.1).
+// Old behavior/assertion being replaced: checked literal parameterless `"\x1bPq"` substring.
+// Why old assertion is no longer correct: `icy_sixel::sixel_encode` emits parameterized DEC VT340
+// DCS headers (`\x1bP<p1>;<p2>;0q`) instead of `\x1bPq`.
+// Coverage preserved by: checking `elapsed < FRAME_BUDGET` and valid Sixel DCS (`\x1bP[0-9;]*q`) +
+// ST (`\x1b\\`) terminator.
+// Why this is not fitting the test to the implementation: draw-path timing budget and Sixel framing
+// contract remain unchanged.
+// Production scope: apps/tui/src/graphics.rs
 //
 // adversarial-audit: per-keypress and per-open work must stay inside the visible
 // window; nothing below may scale with the number of LOADED cards, the total
@@ -656,7 +658,9 @@ mod tests {
             .symbol()
             .to_owned();
         assert!(
-            elapsed < FRAME_BUDGET && symbol.contains("\x1bPq"),
+            elapsed < FRAME_BUDGET
+                && crate::support::has_sixel_dcs(&symbol)
+                && symbol.ends_with("\x1b\\"),
             "the draw path writes the prepared sixel payload as one cell write, \
              not a per-pixel encode: {} bytes, median {elapsed:?} of {samples:?}",
             symbol.len()

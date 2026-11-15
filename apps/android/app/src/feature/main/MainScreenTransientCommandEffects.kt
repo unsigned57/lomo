@@ -17,6 +17,7 @@ import com.lomo.app.ExternalAppCommand
 import com.lomo.app.ExternalAppCommandTerminalResult
 import com.lomo.app.feature.common.PendingUiEvent
 import com.lomo.app.feature.memo.MemoEditorController
+import com.lomo.app.feature.memo.MemoEditorHostBindings
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.StateFlow
@@ -48,7 +49,10 @@ internal fun MainScreenForegroundAutoInputEffect(
 
 @Composable
 internal fun MainScreenForegroundEffects(
-    dependencies: MainScreenDependencies,
+    foregroundFlows: MainForegroundEffectFlows,
+    externalCommands: MainExternalCommandActions,
+    recordingBindings: MainRecordingBindings,
+    editorBindings: MemoEditorHostBindings,
     foregroundEntryId: Long,
     autoOpenInputOnForeground: Boolean,
     canOpenCreateMemo: Boolean,
@@ -56,14 +60,14 @@ internal fun MainScreenForegroundEffects(
     directoryGuideController: MainDirectoryGuideController,
     editorController: MemoEditorController,
 ) {
-    val uiState by dependencies.mainViewModel.uiState.collectAsStateWithLifecycle()
-    val sharedContentEvents by dependencies.mainViewModel.sharedContentEvents.collectAsStateWithLifecycle()
-    val pendingSharedImageEvents by dependencies.mainViewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
-    val appActionEvents by dependencies.mainViewModel.appActionEvents.collectAsStateWithLifecycle()
-    val externalAppCommands by dependencies.mainViewModel.externalAppCommands.collectAsStateWithLifecycle()
-    val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
-    val isRecording by dependencies.recordingViewModel.isRecording.collectAsStateWithLifecycle()
-    val recordingCaptureId by dependencies.recordingViewModel.recordingCaptureId.collectAsStateWithLifecycle()
+    val uiState by foregroundFlows.uiState.collectAsStateWithLifecycle()
+    val sharedContentEvents by foregroundFlows.sharedContentEvents.collectAsStateWithLifecycle()
+    val pendingSharedImageEvents by foregroundFlows.pendingSharedImageEvents.collectAsStateWithLifecycle()
+    val appActionEvents by foregroundFlows.appActionEvents.collectAsStateWithLifecycle()
+    val externalAppCommands by foregroundFlows.externalAppCommands.collectAsStateWithLifecycle()
+    val voiceDirectory by foregroundFlows.voiceDirectory.collectAsStateWithLifecycle()
+    val isRecording by recordingBindings.flows.isRecording.collectAsStateWithLifecycle()
+    val recordingCaptureId by recordingBindings.flows.recordingCaptureId.collectAsStateWithLifecycle()
 
     MainScreenForegroundAutoInputEffect(
         foregroundEntryId = foregroundEntryId,
@@ -77,18 +81,23 @@ internal fun MainScreenForegroundEffects(
         editorController = editorController,
         isRecording = isRecording,
         hasPendingNewMemoCreation = pendingNewMemoCreationEvent != null,
-        draftText = dependencies.editorViewModel.draftText,
+        draftText = editorBindings.flows.draftText,
     )
 
     MainScreenExternalAppCommandEffects(
-        dependencies = dependencies,
+        executionTarget =
+        MainExternalCommandExecutionTarget(
+            commandActions = externalCommands,
+            recordingActions = recordingBindings.actions,
+            editorBindings = editorBindings,
+        ),
         externalAppCommands = remember(externalAppCommands) { externalAppCommands.toImmutableList() },
         uiState = uiState,
         voiceDirectoryConfigured = voiceDirectory != null,
         canOpenCreateMemo = canOpenCreateMemo,
         isRecording = isRecording,
         recordingCaptureId = recordingCaptureId,
-        draftText = dependencies.editorViewModel.draftText,
+        draftText = editorBindings.flows.draftText,
         directoryGuideController = directoryGuideController,
         editorController = editorController,
     )
@@ -96,7 +105,7 @@ internal fun MainScreenForegroundEffects(
 
 @Composable
 internal fun MainScreenExternalAppCommandEffects(
-    dependencies: MainScreenDependencies,
+    executionTarget: MainExternalCommandExecutionTarget,
     externalAppCommands: ImmutableList<ExternalAppCommand>,
     uiState: MainViewModel.MainScreenState,
     voiceDirectoryConfigured: Boolean,
@@ -108,7 +117,7 @@ internal fun MainScreenExternalAppCommandEffects(
     editorController: MemoEditorController,
 ) {
     val context = LocalContext.current
-    val latestDependencies = rememberUpdatedState(dependencies)
+    val latestExecutionTarget = rememberUpdatedState(executionTarget)
     val latestEditorController = rememberUpdatedState(editorController)
     var pendingPermissionCommand by remember { mutableStateOf<ExternalAppCommand?>(null) }
     val recordAudioPermissionLauncher =
@@ -116,17 +125,18 @@ internal fun MainScreenExternalAppCommandEffects(
             val command = pendingPermissionCommand
             pendingPermissionCommand = null
             if (command != null) {
+                val target = latestExecutionTarget.value
                 if (isGranted) {
-                    latestDependencies.value.recordingViewModel.startRecording(
+                    target.recordingActions.onStartRecording(
                         latestEditorController.value.editingSession?.draftId
-                            ?: latestDependencies.value.editorViewModel.ownerDraftId,
+                            ?: target.editorBindings.flows.getOwnerDraftId(),
                     )
-                    latestDependencies.value.mainViewModel.completeExternalAppCommand(
+                    target.commandActions.onCompleteExternalAppCommand(
                         command.id,
                         ExternalAppCommandTerminalResult.Executed,
                     )
                 } else {
-                    latestDependencies.value.mainViewModel.completeExternalAppCommand(
+                    target.commandActions.onCompleteExternalAppCommand(
                         command.id,
                         ExternalAppCommandTerminalResult.Failed,
                     )
@@ -157,7 +167,7 @@ internal fun MainScreenExternalAppCommandEffects(
             pendingPermissionCommand = command
             recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         },
-        dependencies = latestDependencies.value,
+        executionTarget = latestExecutionTarget.value,
         permissionRequestInFlightCommandId = pendingPermissionCommand?.id,
     )
 }

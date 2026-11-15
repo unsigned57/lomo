@@ -9,9 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -25,6 +22,8 @@ import com.lomo.domain.model.ReminderMarker
 import com.lomo.ui.component.common.lomoCompactInteractiveHeight
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.reminder_done
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.stringResource
 import java.time.format.DateTimeFormatter
@@ -117,8 +116,8 @@ internal fun MemoCardReminderPills(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(MemoCardTokens.PinnedBadgeSpacing),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Notifications,
+                LomoIcon(
+                    icon = LomoIcons.Notifications,
                     contentDescription = null,
                     tint = colors.contentColor,
                     modifier = Modifier.size(MemoCardTokens.PinnedIconSize),

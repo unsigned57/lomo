@@ -172,6 +172,21 @@ pub fn ready_graphics(
     lomo_tui::graphics::GraphicsVerdict::Ready(lomo_tui::graphics::SharedPicker::new(picker))
 }
 
+/// Returns `true` when `symbol` contains a DEC Sixel DCS introducer (`\x1bP<params>q`),
+/// matching both parameterless (`\x1bPq`) and parameterized (`\x1bP9;1;0q`) headers.
+#[must_use]
+pub fn has_sixel_dcs(symbol: &str) -> bool {
+    let mut rest = symbol;
+    while let Some((_before, after_esc_p)) = rest.split_once("\x1bP") {
+        let trimmed = after_esc_p.trim_start_matches(|ch: char| ch.is_ascii_digit() || ch == ';');
+        if trimmed.starts_with('q') {
+            return true;
+        }
+        rest = after_esc_p;
+    }
+    false
+}
+
 /// # Errors
 /// Propagates fixture, session or expected-view failures.
 pub fn run_effect(

@@ -19,14 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.CompareArrows
-import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
-import androidx.compose.material.icons.outlined.CheckCircleOutline
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.SyncProblem
-import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +46,8 @@ import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.common.LomoButton
 import com.lomo.ui.component.common.LomoOutlinedButton
 import com.lomo.ui.component.common.LomoTextButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
@@ -214,12 +208,12 @@ internal fun SyncCenterConflictRow(item: RemoteSyncConflictPath, selected: Boole
                     modifier = Modifier.size(40.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector =
+                        LomoIcon(
+                            icon =
                             if (item.isBinary) {
-                                Icons.AutoMirrored.Outlined.InsertDriveFile
+                                LomoIcons.InsertDriveFile
                             } else {
-                                Icons.Outlined.Description
+                                LomoIcons.Description
                             },
                             contentDescription = null,
                             modifier = Modifier.size(SyncCenterConflictRowIconSize),
@@ -287,8 +281,8 @@ internal fun SyncCenterConflictDetailPane(
                     .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
                     .testTag("sync_center_detail_back"),
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                LomoIcon(
+                    icon = LomoIcons.ArrowBack,
                     contentDescription = null,
                     modifier = Modifier.size(SyncCenterDetailBackIconSize),
                 )
@@ -351,8 +345,8 @@ private fun AbsentConflictSession() {
                 modifier = Modifier.size(40.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Outlined.CheckCircleOutline,
+                    LomoIcon(
+                        icon = LomoIcons.CheckCircle,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
@@ -384,8 +378,8 @@ private fun ConflictSessionSummary(ready: SyncCenterLoadState.Ready) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.CompareArrows,
+                LomoIcon(
+                    icon = LomoIcons.CompareArrows,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -414,8 +408,8 @@ private fun ConflictSessionSummary(ready: SyncCenterLoadState.Ready) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.SyncProblem,
+                    LomoIcon(
+                        icon = LomoIcons.SyncProblem,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onErrorContainer,
@@ -441,8 +435,8 @@ private fun ConflictSessionSummary(ready: SyncCenterLoadState.Ready) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.CheckCircleOutline,
+                    LomoIcon(
+                        icon = LomoIcons.CheckCircle,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                     )
@@ -475,12 +469,12 @@ private fun ConflictDetailHeader(path: RemoteSyncConflictPath) {
                 modifier = Modifier.size(44.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector =
+                    LomoIcon(
+                        icon =
                         if (path.isBinary) {
-                            Icons.AutoMirrored.Outlined.InsertDriveFile
+                            LomoIcons.InsertDriveFile
                         } else {
-                            Icons.Outlined.Description
+                            LomoIcons.Description
                         },
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,

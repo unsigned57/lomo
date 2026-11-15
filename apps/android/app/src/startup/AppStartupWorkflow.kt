@@ -11,6 +11,7 @@ import com.lomo.app.theme.applyAppNightMode
 import com.lomo.app.theme.resolvePlatformNightMode
 import com.lomo.app.theme.toAppCompatNightMode
 import com.lomo.app.util.runSuspendCatching
+import com.lomo.app.widget.WidgetPreviewPublisher
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.SecuritySessionController
@@ -36,6 +37,7 @@ enum class StartupTaskId {
     THEME_APPLICATION,
     WORKSPACE_MAINTENANCE,
     DYNAMIC_SHORTCUTS,
+    WIDGET_PREVIEWS,
     STARTUP_UPDATE_CHECK,
 }
 
@@ -182,6 +184,20 @@ class DynamicShortcutStartupTask(private val dynamicShortcutPublisher: DynamicSh
 
     override suspend fun run(scope: StartupTaskScope) {
         dynamicShortcutPublisher.publishExternalEntryShortcuts()
+    }
+}
+
+class WidgetPreviewStartupTask(private val widgetPreviewPublisher: WidgetPreviewPublisher) : StartupTask {
+    override val definition: StartupTaskDefinition =
+        StartupTaskDefinition(
+            id = StartupTaskId.WIDGET_PREVIEWS,
+            order = STARTUP_ORDER_WIDGET_PREVIEWS,
+            idempotency = StartupTaskIdempotency.RUN_ONCE,
+            failurePolicy = StartupTaskFailurePolicy.BEST_EFFORT,
+        )
+
+    override suspend fun run(scope: StartupTaskScope) {
+        widgetPreviewPublisher.publishHomeScreenPreviewsIfNeeded()
     }
 }
 
@@ -347,4 +363,5 @@ private const val STARTUP_ORDER_SECURITY_SESSION_RESTORE = 10
 private const val STARTUP_ORDER_THEME_APPLICATION = 20
 private const val STARTUP_ORDER_WORKSPACE_MAINTENANCE = 30
 private const val STARTUP_ORDER_DYNAMIC_SHORTCUTS = 35
+private const val STARTUP_ORDER_WIDGET_PREVIEWS = 38
 private const val STARTUP_ORDER_UPDATE_CHECK = 40

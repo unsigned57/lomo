@@ -24,10 +24,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.icon.LomoIconSpec
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -182,7 +182,7 @@ private fun SettingsSegmentSurface(isFirst: Boolean, isLast: Boolean, content: @
 @Composable
 fun SwitchPreferenceItem(
     title: String,
-    icon: ImageVector,
+    icon: LomoIconSpec,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,

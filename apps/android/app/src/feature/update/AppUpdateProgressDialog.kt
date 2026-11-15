@@ -12,14 +12,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircleOutline
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -38,6 +33,8 @@ import com.lomo.app.R
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.common.LomoTextButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
@@ -173,8 +170,8 @@ private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presen
         }
 
         AppUpdateInstallState.Installing -> {
-            Icon(
-                imageVector = Icons.Outlined.InstallMobile,
+            LomoIcon(
+                icon = LomoIcons.InstallMobile,
                 contentDescription = null,
                 tint = progressAccentColor(presentation.tone),
                 modifier = Modifier.size(72.dp),
@@ -182,8 +179,8 @@ private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presen
         }
 
         AppUpdateInstallState.WaitingForInstallerResult -> {
-            Icon(
-                imageVector = Icons.Outlined.InstallMobile,
+            LomoIcon(
+                icon = LomoIcons.InstallMobile,
                 contentDescription = null,
                 tint = progressAccentColor(presentation.tone),
                 modifier = Modifier.size(72.dp),
@@ -191,8 +188,8 @@ private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presen
         }
 
         AppUpdateInstallState.Completed -> {
-            Icon(
-                imageVector = Icons.Outlined.CheckCircleOutline,
+            LomoIcon(
+                icon = LomoIcons.CheckCircle,
                 contentDescription = null,
                 tint = progressAccentColor(presentation.tone),
                 modifier = Modifier.size(72.dp),
@@ -200,8 +197,8 @@ private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presen
         }
 
         is AppUpdateInstallState.RequiresInstallPermission -> {
-            Icon(
-                imageVector = Icons.Outlined.InstallMobile,
+            LomoIcon(
+                icon = LomoIcons.InstallMobile,
                 contentDescription = null,
                 tint = progressAccentColor(presentation.tone),
                 modifier = Modifier.size(72.dp),
@@ -209,8 +206,8 @@ private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presen
         }
 
         is AppUpdateInstallState.Failed -> {
-            Icon(
-                imageVector = Icons.Outlined.ErrorOutline,
+            LomoIcon(
+                icon = LomoIcons.Error,
                 contentDescription = null,
                 tint = progressAccentColor(presentation.tone),
                 modifier = Modifier.size(72.dp),

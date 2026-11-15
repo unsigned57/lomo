@@ -285,6 +285,7 @@ class SettingsDisplayFeatureViewModel(
 
     /** Preview family for one stored font — resolved off-composition through the shared host. */
     val previewFontFamily: suspend (String) -> FontFamily = customFontHost::familyFor
+    val previewVariableFontFamily: suspend (String, Map<String, Float>) -> FontFamily = customFontHost::familyForPreview
 
     /**
      * Selected custom font health, re-evaluated whenever the selection or the stored font set
@@ -299,7 +300,7 @@ class SettingsDisplayFeatureViewModel(
         ) { preference, _ ->
             when {
                 preference !is FontPreference.UserImported -> CustomFontStatus.NONE_SELECTED
-                customFontHost.familyOrNull(preference.id) == null -> CustomFontStatus.MISSING
+                customFontHost.familyOrNull(preference) == null -> CustomFontStatus.MISSING
                 else -> CustomFontStatus.READY
             }
         }.stateIn(scope, appWhileSubscribed(), CustomFontStatus.NONE_SELECTED)

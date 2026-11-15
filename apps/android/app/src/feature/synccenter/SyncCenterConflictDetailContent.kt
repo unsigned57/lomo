@@ -7,13 +7,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.CompareArrows
-import androidx.compose.material.icons.outlined.CloudDownload
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -33,6 +27,8 @@ import com.lomo.app.R
 import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
 import com.lomo.domain.model.RemoteSyncConflictResolution
 import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
@@ -291,17 +287,17 @@ internal fun ResolutionKindChips(
                     .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
                     .testTag("sync_center_resolution_${path}_$kind"),
                 leadingContent = {
-                    Icon(
-                        imageVector =
+                    LomoIcon(
+                        icon =
                         when (kind) {
-                            RemoteSyncConflictResolution.KIND_KEEP_LOCAL -> Icons.Outlined.Description
+                            RemoteSyncConflictResolution.KIND_KEEP_LOCAL -> LomoIcons.Description
 
-                            RemoteSyncConflictResolution.KIND_KEEP_REMOTE -> Icons.Outlined.CloudDownload
+                            RemoteSyncConflictResolution.KIND_KEEP_REMOTE -> LomoIcons.CloudDownload
 
                             RemoteSyncConflictResolution.KIND_MERGED_BODY ->
-                                Icons.AutoMirrored.Outlined.CompareArrows
+                                LomoIcons.CompareArrows
 
-                            else -> Icons.Outlined.Schedule
+                            else -> LomoIcons.Schedule
                         },
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),

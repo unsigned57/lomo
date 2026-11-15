@@ -3,6 +3,9 @@ appId: com.lomo.app
 ---
 - longPressOn: '${LAN_PROBE}\s*'
 - tapOn:
+    id: "benchmark_memo_action_share_menu"
+- waitForAnimationToEnd
+- tapOn:
     id: "benchmark_memo_action_lan_share"
 - runFlow:
     when:

@@ -17,9 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.WifiFind
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +35,8 @@ import com.lomo.domain.model.ShareTransferState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.common.LomoButton
 import com.lomo.ui.component.common.LomoTextButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
 import kotlinx.collections.immutable.ImmutableList
@@ -182,8 +181,8 @@ private fun DeviceDiscoveryHeader(devices: ImmutableList<DiscoveredDevice>, show
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                Icons.Outlined.WifiFind,
+            LomoIcon(
+                LomoIcons.WifiFind,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(DEVICE_DISCOVERY_ICON_SIZE),
@@ -269,8 +268,8 @@ private fun DeviceDiscoveryPlaceholder(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            Icons.Outlined.WifiFind,
+        LomoIcon(
+            LomoIcons.WifiFind,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(SEARCH_PULSE_ICON_SIZE),

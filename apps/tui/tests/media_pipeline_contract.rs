@@ -1,11 +1,12 @@
 // Dependency upgrade — Test Change Justification:
-// Reason category: mechanical migration.
-// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
-// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
-// byte encoding, image geometry types and equality assertions that print failing collections.
-// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
-// Why this is not fitting the test to the implementation: observable behavior and golden vectors
-// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+// Reason category: dependency upgrade (ratatui-image 8.0.1 -> 11.1.0 / icy-sixel 0.5.1).
+// Old behavior/assertion being replaced: checked literal parameterless `"\x1bPq"` substring.
+// Why old assertion is no longer correct: `icy_sixel::sixel_encode` emits DEC VT340 DCS
+// parameters (`\x1bP<p1>;<p2>;0q`, e.g. `\x1bP9;1;0q`) before raster attributes.
+// Coverage preserved by: verifying a valid Sixel DCS introducer (`\x1bP[0-9;]*q`) and ST (`\x1b\\`).
+// Why this is not fitting the test to the implementation: DEC Sixel spec defines parameterized DCS
+// headers; protocol framing remains strictly checked.
+// Production scope: apps/tui/src/graphics.rs
 //
 // Behavior Contract:
 // Capability: external image URLs remain display destinations without entering local attachment paths.
@@ -382,10 +383,9 @@ mod tests {
         );
         assert!(image.area().width <= 30 && image.area().height <= 12);
         let symbol = first_cell_symbol(&image);
-        let prefix: String = symbol.chars().take(16).collect();
         assert!(
-            symbol.contains("\x1bPq"),
-            "the prepared sixel DCS lands in the buffer cell: {prefix}…"
+            crate::support::has_sixel_dcs(&symbol),
+            "the prepared sixel DCS lands in the buffer cell: {symbol:?}"
         );
         assert!(
             symbol.ends_with("\x1b\\"),

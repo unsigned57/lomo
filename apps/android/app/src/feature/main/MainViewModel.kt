@@ -744,6 +744,14 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
     }
 
     // processMemoContent moved to MemoUiMapper
+
+    internal val versionHistoryEffectBindings: MainVersionHistoryEffectBindings by lazy {
+        buildVersionHistoryEffectBindings()
+    }
+
+    internal val hostBindings: MainHostBindings by lazy {
+        buildMainHostBindings()
+    }
 }
 
 data class MemoUiModel(

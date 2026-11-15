@@ -191,6 +191,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val ACTION_EXTERNAL_APP_COMMAND = "com.lomo.app.ACTION_EXTERNAL_APP_COMMAND"
         const val ACTION_OPEN_MEMO = "com.lomo.app.ACTION_OPEN_MEMO"
+        const val ACTION_OPEN_DESTINATION = "com.lomo.app.ACTION_OPEN_DESTINATION"
+        const val EXTRA_WIDGET_DESTINATION = "com.lomo.app.extra.WIDGET_DESTINATION"
         private const val KEY_PENDING_LAUNCH_COMMANDS = "lomo.pendingLaunchCommands"
     }
 }
@@ -218,6 +220,12 @@ private fun MainActivityScreen(
             onRefreshSession = onRefreshSession,
         )
     val foregroundEntryId = rememberActivityForegroundEntryId()
+    var nextWidgetNavigationId by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableLongStateOf(0L)
+    }
+    var pendingWidgetNavigation by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<PendingWidgetNavigationRequest?>(null)
+    }
     ApplyRecentsObscure(obscure = session.obscuresRecents())
 
     MainActivityRoot(
@@ -227,6 +235,16 @@ private fun MainActivityScreen(
         foregroundEntryId = foregroundEntryId,
         pendingLaunchCommands = pendingLaunchCommands,
         onPendingLaunchCommandConsumed = onPendingLaunchCommandConsumed,
+        pendingWidgetNavigation = pendingWidgetNavigation,
+        onOpenWidgetDestination = { destination ->
+            nextWidgetNavigationId += 1L
+            pendingWidgetNavigation = PendingWidgetNavigationRequest(nextWidgetNavigationId, destination)
+        },
+        onConsumeWidgetNavigation = { requestId ->
+            if (pendingWidgetNavigation?.id == requestId) {
+                pendingWidgetNavigation = null
+            }
+        },
         audioPlayerController = audioPlayerController,
         shareServiceManager = shareServiceManager,
         currentUiMode = currentUiMode,
@@ -264,6 +282,9 @@ private fun MainActivityRoot(
     foregroundEntryId: Long,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandConsumed: (Long) -> Unit,
+    pendingWidgetNavigation: PendingWidgetNavigationRequest?,
+    onOpenWidgetDestination: (WidgetDestination) -> Unit,
+    onConsumeWidgetNavigation: (Long) -> Unit,
     audioPlayerController: AudioPlayerController,
     shareServiceManager: LanShareService,
     currentUiMode: Int,
@@ -296,6 +317,7 @@ private fun MainActivityRoot(
                 session = session,
                 pendingLaunchCommands = pendingLaunchCommands,
                 onPendingLaunchCommandConsumed = onPendingLaunchCommandConsumed,
+                onOpenWidgetDestination = onOpenWidgetDestination,
             )
             val motionScheme = com.lomo.ui.theme.LocalLomoMotion.current.layout
             AnimatedContent(
@@ -321,6 +343,8 @@ private fun MainActivityRoot(
                     UnlockedAppRoot(
                         foregroundEntryId = foregroundEntryId,
                         pendingLaunchCommands = pendingLaunchCommands,
+                        pendingWidgetNavigation = pendingWidgetNavigation,
+                        onConsumeWidgetNavigation = onConsumeWidgetNavigation,
                         audioPlayerController = audioPlayerController,
                         shareServiceManager = shareServiceManager,
                     )
@@ -334,6 +358,8 @@ private fun MainActivityRoot(
 private fun UnlockedAppRoot(
     foregroundEntryId: Long,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
+    pendingWidgetNavigation: PendingWidgetNavigationRequest?,
+    onConsumeWidgetNavigation: (Long) -> Unit,
     audioPlayerController: AudioPlayerController,
     shareServiceManager: LanShareService,
 ) {
@@ -346,7 +372,10 @@ private fun UnlockedAppRoot(
         LomoAppRoot(
             shareServiceManager = shareServiceManager,
             foregroundEntryId = foregroundEntryId,
-            suppressForegroundAutoInput = pendingLaunchCommands.isNotEmpty(),
+            suppressForegroundAutoInput =
+            pendingLaunchCommands.isNotEmpty() || pendingWidgetNavigation != null,
+            pendingWidgetNavigation = pendingWidgetNavigation,
+            onConsumeWidgetNavigation = onConsumeWidgetNavigation,
         )
     }
 }
@@ -356,6 +385,7 @@ private fun DispatchPendingLaunchCommands(
     session: SecuritySessionState,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandConsumed: (Long) -> Unit,
+    onOpenWidgetDestination: (WidgetDestination) -> Unit,
     viewModel: MainViewModel = activityKoinViewModel(),
 ) {
     if (pendingLaunchCommands.isEmpty()) {
@@ -385,6 +415,7 @@ private fun DispatchPendingLaunchCommands(
                         is PendingLaunchAction.SharedText -> viewModel.handleSharedText(action.text)
                         is PendingLaunchAction.SharedImage -> viewModel.handleSharedImage(action.uri)
                         is PendingLaunchAction.OpenMemo -> viewModel.requestOpenMemo(action.memoId)
+                        is PendingLaunchAction.OpenDestination -> onOpenWidgetDestination(action.destination)
                     }
                 }
             if (dispatched) {

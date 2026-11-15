@@ -1,13 +1,12 @@
 package com.lomo.app.feature.settings
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
+import com.lomo.ui.icon.LomoIcons
 
 @Composable
 fun HeatmapSettingsSection(thresholds: CalendarHeatmapThresholds, onOpenThresholdDialog: () -> Unit) {
@@ -16,7 +15,7 @@ fun HeatmapSettingsSection(thresholds: CalendarHeatmapThresholds, onOpenThreshol
             PreferenceItem(
                 title = stringResource(R.string.settings_calendar_heatmap_thresholds),
                 subtitle = calendarHeatmapThresholdSummary(thresholds),
-                icon = Icons.Outlined.CalendarToday,
+                icon = LomoIcons.CalendarToday,
                 onClick = onOpenThresholdDialog,
             )
         }

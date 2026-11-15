@@ -1,29 +1,16 @@
 package com.lomo.app.feature.review
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.FilterAlt
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -46,8 +32,11 @@ import com.lomo.app.feature.main.MainMemoSortButton
 import com.lomo.domain.model.DailyReviewOptions
 import com.lomo.domain.model.DailyReviewSort
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.ui.component.common.LomoModalBottomSheet
 import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.common.rememberModalSheetPresentation
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -63,6 +52,7 @@ internal fun DailyReviewOptionsSheet(
     onOptionsChange: (DailyReviewOptions) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val haptic = LocalAppHapticFeedback.current
     var sort by remember(options.sort) { mutableStateOf(options.sort) }
     var filter by remember(options.filter) { mutableStateOf(options.filter) }
     var dateTarget by remember { mutableStateOf<DatePickerTarget?>(null) }
@@ -85,12 +75,9 @@ internal fun DailyReviewOptionsSheet(
         }
     }
 
-    ModalBottomSheet(
+    LomoModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = presentation.sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = AppSpacing.ExtraSmall,
-        dragHandle = { DailyReviewFilterDragHandle() },
     ) {
         Column(
             modifier =
@@ -128,10 +115,22 @@ internal fun DailyReviewOptionsSheet(
             MainMemoDateRangeSection(
                 filter = filter,
                 hasDateFilter = filter.hasDateRange,
-                onOpenStartDatePicker = { dateTarget = DatePickerTarget.START },
-                onOpenEndDatePicker = { dateTarget = DatePickerTarget.END },
-                onClearStartDate = { commitChange(newFilter = filter.copy(startDate = null)) },
-                onClearEndDate = { commitChange(newFilter = filter.copy(endDate = null)) },
+                onOpenStartDatePicker = {
+                    haptic.medium()
+                    dateTarget = DatePickerTarget.START
+                },
+                onOpenEndDatePicker = {
+                    haptic.medium()
+                    dateTarget = DatePickerTarget.END
+                },
+                onClearStartDate = {
+                    haptic.medium()
+                    commitChange(newFilter = filter.copy(startDate = null))
+                },
+                onClearEndDate = {
+                    haptic.medium()
+                    commitChange(newFilter = filter.copy(endDate = null))
+                },
             )
             if (!datesValid) {
                 Surface(
@@ -159,19 +158,6 @@ internal fun DailyReviewOptionsSheet(
 }
 
 @Composable
-private fun DailyReviewFilterDragHandle() {
-    Box(
-        modifier =
-        Modifier
-            .padding(vertical = AppSpacing.Large)
-            .width(AppSpacing.ExtraLarge)
-            .size(width = AppSpacing.ExtraLarge, height = AppSpacing.ExtraSmall)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
-    )
-}
-
-@Composable
 private fun DailyReviewFilterHeader(isModified: Boolean, onReset: () -> Unit) {
     val haptic = LocalAppHapticFeedback.current
     Row(
@@ -184,10 +170,10 @@ private fun DailyReviewFilterHeader(isModified: Boolean, onReset: () -> Unit) {
     ) {
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(AppSpacing.MediumSmall),
+            shape = AppShapes.Medium,
         ) {
-            Icon(
-                imageVector = Icons.Rounded.FilterAlt,
+            LomoIcon(
+                icon = LomoIcons.FilterAlt,
                 contentDescription = null,
                 modifier = Modifier.padding(AppSpacing.Small),
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -238,9 +224,9 @@ private fun DailyReviewOrderChoices(sort: DailyReviewSort, onSelect: (DailyRevie
                 }
             val icon =
                 when (option) {
-                    DailyReviewSort.RECENT -> Icons.Rounded.Update
-                    DailyReviewSort.PAST -> Icons.Rounded.History
-                    DailyReviewSort.RANDOM -> Icons.Rounded.Shuffle
+                    DailyReviewSort.RECENT -> LomoIcons.Update
+                    DailyReviewSort.PAST -> LomoIcons.History
+                    DailyReviewSort.RANDOM -> LomoIcons.Shuffle
                 }
             MainMemoSortButton(
                 onClick = { onSelect(option) },

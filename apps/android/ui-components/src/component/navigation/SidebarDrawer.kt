@@ -18,16 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.outlined.Analytics
-import androidx.compose.material.icons.outlined.DateRange
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.Tag
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
@@ -44,7 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.CalendarHeatmapThresholds
@@ -59,6 +48,9 @@ import com.lomo.ui.generated.resources.sidebar_trash
 import com.lomo.ui.generated.resources.stat_day
 import com.lomo.ui.generated.resources.stat_memo
 import com.lomo.ui.generated.resources.stat_tag
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
@@ -238,7 +230,7 @@ private fun SidebarFooter(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             UtilityButton(
-                icon = if (isTrashSelected) Icons.Filled.Delete else Icons.Outlined.Delete,
+                icon = if (isTrashSelected) LomoIcons.DeleteFilled else LomoIcons.Delete,
                 label = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_trash),
                 isSelected = isTrashSelected,
                 anchorTag = trashAnchorTag,
@@ -254,7 +246,7 @@ private fun SidebarFooter(
                 modifier = Modifier.weight(1f),
             )
             UtilityButton(
-                icon = Icons.Rounded.Settings,
+                icon = LomoIcons.Settings,
                 label = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_settings),
                 isSelected = false,
                 anchorTag = settingsAnchorTag,
@@ -267,7 +259,7 @@ private fun SidebarFooter(
 
 @Composable
 private fun UtilityButton(
-    icon: ImageVector,
+    icon: LomoIconSpec,
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
@@ -305,7 +297,7 @@ private fun UtilityButton(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
+            LomoIcon(
                 icon,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
@@ -324,7 +316,7 @@ private fun UtilityButton(
 
 @Composable
 private fun NavigationItem(
-    icon: ImageVector,
+    icon: LomoIconSpec,
     label: String,
     badge: String? = null,
     isSelected: Boolean = false,
@@ -350,7 +342,7 @@ private fun NavigationItem(
                     },
                 )
             },
-            icon = { Icon(icon, null, modifier = Modifier.size(SidebarDrawerTokens.NavigationIconSize)) },
+            icon = { LomoIcon(icon, null, modifier = Modifier.size(SidebarDrawerTokens.NavigationIconSize)) },
             badge = badge?.let { { Text(it, style = MaterialTheme.typography.labelSmall) } },
             selected = isSelected,
             onClick = {
@@ -482,9 +474,9 @@ private fun LazyListScope.sidebarDestinations(
             ) {
                 NavigationItem(
                     icon = if (currentDestination == SidebarDestination.DailyReview) {
-                        Icons.Filled.DateRange
+                        LomoIcons.DateRangeFilled
                     } else {
-                        Icons.Outlined.DateRange
+                        LomoIcons.DateRange
                     },
                     label = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_daily_review),
                     isSelected = currentDestination == SidebarDestination.DailyReview,
@@ -492,14 +484,14 @@ private fun LazyListScope.sidebarDestinations(
                     anchorTag = dailyReviewAnchorTag,
                 )
                 NavigationItem(
-                    icon = Icons.Outlined.PhotoLibrary,
+                    icon = LomoIcons.PhotoLibrary,
                     label = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_gallery),
                     isSelected = currentDestination == SidebarDestination.Gallery,
                     onClick = onGalleryClick,
                     anchorTag = galleryAnchorTag,
                 )
                 NavigationItem(
-                    icon = Icons.Outlined.Analytics,
+                    icon = LomoIcons.Analytics,
                     label = org.jetbrains.compose.resources.stringResource(Res.string.sidebar_statistics),
                     isSelected = currentDestination == SidebarDestination.Statistics,
                     onClick = onStatisticsClick,

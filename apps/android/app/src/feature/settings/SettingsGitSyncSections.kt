@@ -1,16 +1,10 @@
 package com.lomo.app.feature.settings
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AccountTree
-import androidx.compose.material.icons.outlined.DeleteForever
-import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroupScope
+import com.lomo.ui.icon.LomoIcons
 
 internal fun SettingsGroupScope.gitSyncSettingsSection(
     state: GitSectionState,
@@ -40,7 +34,7 @@ internal fun SettingsGroupScope.gitSyncSettingsSection(
                 PreferenceItem(
                     title = stringResource(R.string.settings_git_reset_repo),
                     subtitle = stringResource(R.string.settings_git_reset_repo_subtitle),
-                    icon = Icons.Outlined.DeleteForever,
+                    icon = LomoIcons.DeleteForever,
                     onClick = dialogs.openReset,
                 )
             }
@@ -59,7 +53,7 @@ private fun SettingsGroupScope.gitSyncConnectionPreferences(
         PreferenceItem(
             title = stringResource(R.string.settings_git_remote_url),
             subtitle = state.remoteUrl.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.Link,
+            icon = LomoIcons.Link,
             onClick = onOpenRemoteUrlDialog,
         )
     }
@@ -67,7 +61,7 @@ private fun SettingsGroupScope.gitSyncConnectionPreferences(
         PreferenceItem(
             title = stringResource(R.string.settings_git_branch),
             subtitle = state.branch.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.AccountTree,
+            icon = LomoIcons.AccountTree,
             onClick = onOpenBranchDialog,
         )
     }
@@ -80,7 +74,7 @@ private fun SettingsGroupScope.gitSyncConnectionPreferences(
                 configuredResId = R.string.settings_git_pat_configured,
                 missingResId = R.string.settings_git_pat_not_set,
             ),
-            icon = Icons.Outlined.Lock,
+            icon = LomoIcons.Lock,
             onClick = onOpenPatDialog,
         )
     }
@@ -95,7 +89,7 @@ private fun SettingsGroupScope.gitSyncAuthorPreferences(
         PreferenceItem(
             title = stringResource(R.string.settings_git_author_name),
             subtitle = state.authorName.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.Person,
+            icon = LomoIcons.Person,
             onClick = onOpenAuthorNameDialog,
         )
     }
@@ -103,7 +97,7 @@ private fun SettingsGroupScope.gitSyncAuthorPreferences(
         PreferenceItem(
             title = stringResource(R.string.settings_git_author_email),
             subtitle = state.authorEmail.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.Email,
+            icon = LomoIcons.Email,
             onClick = onOpenAuthorEmailDialog,
         )
     }

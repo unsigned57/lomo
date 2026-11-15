@@ -17,10 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +41,8 @@ import com.lomo.ui.generated.resources.sync_conflict_collapse
 import com.lomo.ui.generated.resources.sync_conflict_expand
 import com.lomo.ui.generated.resources.sync_conflict_no_text_diffs
 import com.lomo.ui.generated.resources.sync_conflict_text_diff_too_large
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.toImmutableList
@@ -160,8 +158,8 @@ private fun HeaderExpandIcon(isBinary: Boolean, isExpanded: Boolean) {
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.size(32.dp),
         ) {
-            Icon(
-                imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            LomoIcon(
+                icon = if (isExpanded) LomoIcons.KeyboardArrowUp else LomoIcons.KeyboardArrowDown,
                 contentDescription = if (isExpanded) {
                     stringResource(Res.string.sync_conflict_collapse)
                 } else {

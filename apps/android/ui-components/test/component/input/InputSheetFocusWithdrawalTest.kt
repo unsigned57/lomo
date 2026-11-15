@@ -22,6 +22,14 @@ import kotlinx.coroutines.test.runTest
  * TDD proof: reported-bugs/focus-red.log shows a stale keyboard show after send;
  * focus-green.log verifies revocation and successful focus.
  * Excludes: Android IME rendering and animation duration.
+ * Test Change Justification:
+ * Reason category: additional observable-result coverage.
+ * Old behavior/assertion being replaced: none; keyboard events and completion remain asserted.
+ * Why old assertion is no longer correct: existing assertions remain correct but did not check
+ * the successful focus request's returned Boolean.
+ * Coverage preserved by: unchanged withdrawal/keyboard assertions plus the successful result check.
+ * Why this is not fitting the test to the implementation: successful focus must report success
+ * as well as display the keyboard; no existing failure or cancellation expectation is weakened.
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class InputSheetFocusWithdrawalTest : UiComponentsFunSpec() {
@@ -56,11 +64,15 @@ class InputSheetFocusWithdrawalTest : UiComponentsFunSpec() {
                 every { focus.requestFocus(any()) } returns true
                 val keyboard = mockk<SoftwareKeyboardController>()
                 every { keyboard.show() } answers { events += "show" }
-                val request = launch(frames) { requestEditorFocusAndKeyboard(focus, keyboard) { true } }
+                var shownResult: Boolean? = null
+                val request = launch(frames) {
+                    shownResult = requestEditorFocusAndKeyboard(focus, keyboard) { true }
+                }
                 runCurrent()
                 frames.sendFrame(1L)
                 runCurrent()
                 events shouldBe listOf("show")
+                shownResult shouldBe true
                 request.isCompleted shouldBe true
             }
         }

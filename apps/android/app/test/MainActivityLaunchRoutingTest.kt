@@ -485,16 +485,68 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                         PendingLaunchCommand(id = 3L, action = PendingLaunchAction.SharedText("hello")),
                         PendingLaunchCommand(id = 4L, action = PendingLaunchAction.SharedImage(imageUri)),
                         PendingLaunchCommand(id = 5L, action = PendingLaunchAction.OpenMemo("m-9")),
+                        PendingLaunchCommand(
+                            id = 6L,
+                            action = PendingLaunchAction.OpenDestination(WidgetDestination.STATISTICS),
+                        ),
                     )
 
-                val snapshot = pendingLaunchCommandsSnapshot(nextCommandId = 6L, commands = commands)
+                val snapshot = pendingLaunchCommandsSnapshot(nextCommandId = 7L, commands = commands)
                 val (nextId, restored) = snapshot.toPendingLaunchQueue()
 
-                nextId shouldBe 6L
+                nextId shouldBe 7L
                 restored shouldBe commands
             } finally {
                 io.mockk.unmockkStatic(android.net.Uri::class)
             }
+        }
+
+        test("extractPendingLaunchActions parses widget destination actions cleanly") {
+            WidgetDestination.entries.forEach { destination ->
+                val intent =
+                    TestIntent(
+                        actionValue = MainActivity.ACTION_OPEN_DESTINATION,
+                        stringExtras = mapOf(MainActivity.EXTRA_WIDGET_DESTINATION to destination.name),
+                    )
+
+                extractPendingLaunchActions(intent) shouldBe
+                    listOf(PendingLaunchAction.OpenDestination(destination))
+            }
+
+            val invalid =
+                TestIntent(
+                    actionValue = MainActivity.ACTION_OPEN_DESTINATION,
+                    stringExtras = mapOf(MainActivity.EXTRA_WIDGET_DESTINATION to "UNKNOWN_DEST"),
+                )
+            extractPendingLaunchActions(invalid) shouldBe emptyList()
+        }
+
+        test("entry flow gates widget destination behind app lock and root workspace") {
+            val command =
+                PendingLaunchCommand(
+                    id = 88L,
+                    action = PendingLaunchAction.OpenDestination(WidgetDestination.DAILY_REVIEW),
+                )
+
+            resolvePendingLaunchCommandEntryFlowState(
+                command = command,
+                readiness =
+                EntryFlowReadiness(
+                    appLock = EntryAppLockState.Locked,
+                    configuredCapabilities = setOf(EntryCapability.RootWorkspace),
+                    workspace = EntryWorkspaceState.Ready,
+                ),
+            ) shouldBe EntryFlowState.BlockedByAppLock(EntryFlowRequest.PendingCommand(command))
+
+            resolvePendingLaunchCommandEntryFlowState(
+                command = command,
+                readiness =
+                EntryFlowReadiness(
+                    appLock = EntryAppLockState.Unlocked,
+                    configuredCapabilities = setOf(EntryCapability.RootWorkspace),
+                    workspace = EntryWorkspaceState.Ready,
+                ),
+            ) shouldBe EntryFlowState.Ready(command = command)
         }
     }
 }

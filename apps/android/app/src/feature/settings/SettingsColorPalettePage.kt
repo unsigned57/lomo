@@ -22,15 +22,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -60,6 +56,8 @@ import com.lomo.app.R
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.ThemeMode
 import com.lomo.ui.component.common.LomoButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.colorSchemeFromSeed
 import com.lomo.ui.theme.withPureBlackSurfaces
@@ -338,8 +336,8 @@ private fun DynamicWallpaperCard(selected: Boolean, onSelect: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.AutoAwesome,
+            LomoIcon(
+                icon = LomoIcons.AutoAwesome,
                 contentDescription = null,
                 tint = if (selected) {
                     MaterialTheme.colorScheme.onPrimaryContainer
@@ -369,8 +367,8 @@ private fun DynamicWallpaperCard(selected: Boolean, onSelect: () -> Unit) {
                 )
             }
             if (selected) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
+                LomoIcon(
+                    icon = LomoIcons.Check,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
@@ -454,8 +452,8 @@ private fun CustomSeedCard(
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
+                LomoIcon(
+                    icon = LomoIcons.Check,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
@@ -505,8 +503,8 @@ private fun CustomSeedHeader(currentArgb: Int, active: Boolean, onSelect: (Int) 
             )
         }
         if (active) {
-            Icon(
-                imageVector = Icons.Filled.Check,
+            LomoIcon(
+                icon = LomoIcons.Check,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
             )
@@ -567,8 +565,8 @@ private fun CustomSeedHistory(colorHistory: ImmutableList<Int>, selectedSeed: In
                     contentAlignment = Alignment.Center,
                 ) {
                     if (historySelected) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
+                        LomoIcon(
+                            icon = LomoIcons.Check,
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.size(18.dp),

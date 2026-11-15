@@ -13,11 +13,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -60,6 +56,8 @@ import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.component.common.LomoPageIndicator
 import com.lomo.ui.component.common.WithDraggableScrollbar
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
@@ -109,25 +107,32 @@ fun DailyReviewScreen(
     val mainViewModel: com.lomo.app.feature.main.MainViewModel = com.lomo.app.util.activityKoinViewModel()
     val memoMenuCommandHandler =
         rememberDailyReviewMenuCommands(
-            appPreferences,
-            viewModel,
-            mainViewModel,
-            openFullMemoEditor,
-            lanShareEnabled,
-            onNavigateToShare,
-            onRequestFocusMemo,
-            onNavigateToMain,
+            appPreferences = appPreferences,
+            onDeleteMemo = viewModel::deleteMemo,
+            onVersionHistory = { selection -> mainViewModel.loadVersionHistory(selection.memo) },
+            openFullMemoEditor = openFullMemoEditor,
+            lanShareEnabled = lanShareEnabled,
+            onNavigateToShare = onNavigateToShare,
+            onRequestFocusMemo = onRequestFocusMemo,
+            onNavigateToMain = onNavigateToMain,
         )
 
     val editorSurface =
-        dailyReviewMemoEditorSurface(
-            imageDirectory = imageDirectory,
-            rootDirectory = rootDirectory,
-            imageMap = stableImageMap,
-            dateFormat = appPreferences.dateFormat,
-            timeFormat = appPreferences.timeFormat,
+        existingMemoEditorSurface(
+            session =
+            MemoEditorSessionState(
+                imageDirectory = imageDirectory,
+                ownerDraftId = viewModel.ownerDraftId,
+                rootPath = rootDirectory,
+                imageMap = stableImageMap,
+                dateFormat = appPreferences.dateFormat,
+                timeFormat = appPreferences.timeFormat,
+            ),
             toolbarToolOrder = appPreferences.inputToolbarToolOrder,
-            viewModel = viewModel,
+            onUpdateMemo = viewModel.editorSubmission::submit,
+            submissionState = viewModel.editorSubmission.state,
+            onSaveImages = viewModel::saveImages,
+            onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
         )
 
     MemoInteractionHost(
@@ -165,33 +170,10 @@ fun DailyReviewScreen(
             )
         }
     }
-    com.lomo.app.feature.main.MainVersionHistoryEffectHost(mainViewModel = mainViewModel)
+    com.lomo.app.feature.main.MainVersionHistoryEffectHost(
+        bindings = mainViewModel.versionHistoryEffectBindings,
+    )
 }
-
-private fun dailyReviewMemoEditorSurface(
-    imageDirectory: String?,
-    rootDirectory: String?,
-    imageMap: kotlinx.collections.immutable.ImmutableMap<String, android.net.Uri>,
-    dateFormat: String,
-    timeFormat: String,
-    toolbarToolOrder: ImmutableList<String>,
-    viewModel: DailyReviewViewModel,
-) = existingMemoEditorSurface(
-    session =
-    MemoEditorSessionState(
-        imageDirectory = imageDirectory,
-        ownerDraftId = viewModel.ownerDraftId,
-        rootPath = rootDirectory,
-        imageMap = imageMap,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
-    ),
-    toolbarToolOrder = toolbarToolOrder,
-    onUpdateMemo = viewModel.editorSubmission::submit,
-    submissionState = viewModel.editorSubmission.state,
-    onSaveImages = viewModel::saveImages,
-    onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -226,15 +208,18 @@ private fun DailyReviewScreenScaffold(
                             onBackClick()
                         },
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                        LomoIcon(
+                            LomoIcons.ArrowBack,
                             contentDescription = androidx.compose.ui.res.stringResource(R.string.back),
                         )
                     }
                 },
                 actions = {
                     LomoIconButton(
-                        onClick = onFilterClick,
+                        onClick = {
+                            haptic.medium()
+                            onFilterClick()
+                        },
                         enabled = filterEnabled,
                         colors =
                         androidx.compose.material3.IconButtonDefaults.iconButtonColors(
@@ -252,8 +237,8 @@ private fun DailyReviewScreenScaffold(
                             },
                         ),
                     ) {
-                        Icon(
-                            Icons.Rounded.FilterAlt,
+                        LomoIcon(
+                            LomoIcons.FilterAlt,
                             contentDescription = androidx.compose.ui.res.stringResource(R.string.review_options_title),
                         )
                     }
@@ -320,7 +305,7 @@ private fun DailyReviewScreenContent(
                     val memos = state.memos
                     if (memos.isEmpty()) {
                         EmptyState(
-                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            icon = LomoIcons.ArrowBack,
                             title = androidx.compose.ui.res.stringResource(
                                 if (state.options.filter.isActive) {
                                     R.string.review_no_matches_title
@@ -530,8 +515,8 @@ private fun rememberDailyReviewOptionsAction(
 @Composable
 private fun rememberDailyReviewMenuCommands(
     appPreferences: com.lomo.app.feature.preferences.AppPreferencesState,
-    viewModel: DailyReviewViewModel,
-    mainViewModel: com.lomo.app.feature.main.MainViewModel,
+    onDeleteMemo: (Memo, String?) -> Unit,
+    onVersionHistory: (MemoMenuSelection) -> Unit,
     openFullMemoEditor: (String) -> Unit,
     lanShareEnabled: Boolean,
     onNavigateToShare: (String, Long) -> Unit,
@@ -546,7 +531,7 @@ private fun rememberDailyReviewMenuCommands(
         customFontPath = appPreferences.customFontPath,
     ),
     onEditMemo = openFullMemoEditor,
-    onDeleteMemo = viewModel::deleteMemo,
+    onDeleteMemo = onDeleteMemo,
     onLanShare =
     if (lanShareEnabled) {
         { request -> onNavigateToShare(request.content, request.timestamp) }
@@ -561,5 +546,5 @@ private fun rememberDailyReviewMenuCommands(
             navigateToMain = onNavigateToMain,
         )
     },
-    onVersionHistory = { selection -> mainViewModel.loadVersionHistory(selection.memo) },
+    onVersionHistory = onVersionHistory,
 )

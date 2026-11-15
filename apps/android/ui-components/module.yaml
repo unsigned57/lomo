@@ -35,11 +35,13 @@ dependencies:
   - androidx.compose.ui:ui-tooling-preview:1.13.0-rc01
   - androidx.compose.material3:material3-android:1.5.0-rc01: exported
   - androidx.activity:activity-compose:1.13.0
-  - androidx.compose.material:material-icons-extended:1.7.8
   - io.coil-kt.coil3:coil-compose:3.6.3
   - io.coil-kt.coil3:coil-network-okhttp:3.6.3
+  - dev.tclement.fonticons:core:2.2.0
   - org.jetbrains.kotlinx:kotlinx-collections-immutable:0.5.2
   - sh.calvin.reorderable:reorderable:3.1.0
+  - dev.chrisbanes.haze:haze:2.1.0: exported
+  - dev.chrisbanes.haze:haze-blur:2.1.0
   - androidx.compose.ui:ui-tooling:1.13.0-rc01: runtime-only
   - androidx.compose.ui:ui-test-manifest:1.13.0-rc01: runtime-only
   - androidx.media3:media3-exoplayer:1.11.1

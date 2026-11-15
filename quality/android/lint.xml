@@ -55,7 +55,7 @@
     <issue id="ComposeCompositionLocalUsage" severity="error">
         <option
             name="allowed-composition-locals"
-            value="LocalAppHapticFeedback,LocalAudioPlayerManager,LocalBenchmarkAnchorConfig,LocalSharedTransitionScope,LocalAnimatedVisibilityScope,LocalSearchHighlightQuery,LocalTypographyScales,LocalLomoMotion,LocalMemoTextPressFeedback"
+            value="LocalAppHapticFeedback,LocalAudioPlayerManager,LocalBenchmarkAnchorConfig,LocalSharedTransitionScope,LocalAnimatedVisibilityScope,LocalSearchHighlightQuery,LocalTypographyScales,LocalLomoMotion,LocalLomoHazeState,LocalMemoTextPressFeedback,LocalLomoIconFontSet"
         />
     </issue>
     <issue id="ComposeModifierMissing" severity="error" />

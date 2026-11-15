@@ -108,6 +108,7 @@ class EngineReadinessWriteGateTest : DomainFunSpec() {
                 )
 
             mount.admitsProjectionReads shouldBe true
+            mount.admitsProjectionWrites shouldBe true
             mount.admittedAuthority shouldBe authority
         }
 
@@ -127,13 +128,25 @@ class EngineReadinessWriteGateTest : DomainFunSpec() {
                     authority = authority.copy(projectionRevision = 3uL),
                     freshness = ProjectionFreshness.Revalidating(3uL),
                 )
+            val mismatchedVerified =
+                WorkspaceMount(
+                    readiness = EngineReadiness.Ready,
+                    location = StorageLocation("/vault"),
+                    authority = authority.copy(projectionRevision = 3uL),
+                    freshness = ProjectionFreshness.Verified(2uL),
+                )
             val opening = WorkspaceMount.Opening
 
             unavailable.admitsProjectionReads shouldBe false
+            unavailable.admitsProjectionWrites shouldBe false
             unavailable.admittedAuthority shouldBe null
             revalidating.admitsProjectionReads shouldBe true
+            revalidating.admitsProjectionWrites shouldBe false
             revalidating.admittedAuthority shouldBe revalidating.authority
+            mismatchedVerified.admitsProjectionReads shouldBe false
+            mismatchedVerified.admitsProjectionWrites shouldBe false
             opening.admitsProjectionReads shouldBe false
+            opening.admitsProjectionWrites shouldBe false
             opening.admittedAuthority shouldBe null
         }
     }

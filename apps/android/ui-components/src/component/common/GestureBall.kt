@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -20,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
@@ -33,6 +31,8 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.QuickBallGesture
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
 import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableMap
@@ -41,7 +41,7 @@ import kotlinx.collections.immutable.ImmutableMap
 @Composable
 fun GestureBall(
     labels: ImmutableMap<QuickBallGesture, String>,
-    icons: ImmutableMap<QuickBallGesture, ImageVector>,
+    icons: ImmutableMap<QuickBallGesture, LomoIconSpec>,
     onGesture: (QuickBallGesture) -> Unit,
     modifier: Modifier = Modifier,
     appearanceFraction: Float = 1f,
@@ -135,7 +135,7 @@ fun GestureBall(
                     animationSpec = motion.fastEffectsSpec(),
                     label = "FabGestureIcon",
                 ) { gesture ->
-                    Icon(
+                    LomoIcon(
                         icons.getValue(gesture),
                         contentDescription = labels.getValue(QuickBallGesture.TAP),
                     )

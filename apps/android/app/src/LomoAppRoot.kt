@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -25,13 +26,21 @@ import com.lomo.app.navigation.LomoNavHost
 import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.LocalLomoHazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+
+private const val LOMO_APP_ROOT_HAZE_Z_INDEX = 0f
+private const val LOMO_APP_ROOT_HAZE_KEY = "lomo-app-root"
 
 @Composable
-fun LomoAppRoot(
+internal fun LomoAppRoot(
     shareServiceManager: LanShareService,
     modifier: Modifier = Modifier,
     foregroundEntryId: Long = 0L,
     suppressForegroundAutoInput: Boolean = false,
+    pendingWidgetNavigation: PendingWidgetNavigationRequest? = null,
+    onConsumeWidgetNavigation: (Long) -> Unit = {},
     appUpdateViewModel: AppUpdateViewModel = injectedKoinViewModel(),
 ) {
     val updateDialogState by appUpdateViewModel.dialogState.collectAsStateWithLifecycle()
@@ -40,45 +49,58 @@ fun LomoAppRoot(
     val pendingPairing by shareServiceManager.pendingPairing.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+    val appHazeState = rememberHazeState()
 
-    LomoAppUpdateDialog(
-        dialogState = updateDialogState,
-        onDismiss = appUpdateViewModel::dismissUpdateDialog,
-        onStartInAppUpdate = appUpdateViewModel::startInAppUpdate,
-        onOpenReleasePage = uriHandler::openUri,
-    )
-    LomoAppUpdateProgressDialog(
-        state = progressDialogState,
-        onCancel = appUpdateViewModel::cancelInAppUpdate,
-        onRetry = appUpdateViewModel::retryInAppUpdate,
-        onOpenInstallPermissionSettings = { context.openInstallPermissionSettings() },
-        onOpenReleasePage = uriHandler::openUri,
-        onDismiss = appUpdateViewModel::dismissProgressDialog,
-    )
-
-    Surface(
-        modifier = modifier.fillMaxSize().benchmarkAnchorRoot(BenchmarkAnchorContract.APP_ROOT),
-        color = MaterialTheme.colorScheme.background,
-    ) {
-        LomoNavHost(
-            navController = rememberNavController(),
-            foregroundEntryId = foregroundEntryId,
-            suppressForegroundAutoInput = suppressForegroundAutoInput,
+    CompositionLocalProvider(LocalLomoHazeState provides appHazeState) {
+        LomoAppUpdateDialog(
+            dialogState = updateDialogState,
+            onDismiss = appUpdateViewModel::dismissUpdateDialog,
+            onStartInAppUpdate = appUpdateViewModel::startInAppUpdate,
+            onOpenReleasePage = uriHandler::openUri,
         )
-        pendingPairing?.let { pairing ->
-            LanPairingConfirmationDialog(
-                request = pairing,
-                onConfirm = shareServiceManager::confirmPairing,
-                onDecline = shareServiceManager::declinePairing,
-            )
-        }
-        incomingBatches.forEach { batch ->
-            androidx.compose.runtime.key(batch.batchId) {
-                LanBatchApprovalDialog(
-                    batch = batch,
-                    onApprove = shareServiceManager::approveIncoming,
-                    onReject = shareServiceManager::rejectIncoming,
+        LomoAppUpdateProgressDialog(
+            state = progressDialogState,
+            onCancel = appUpdateViewModel::cancelInAppUpdate,
+            onRetry = appUpdateViewModel::retryInAppUpdate,
+            onOpenInstallPermissionSettings = { context.openInstallPermissionSettings() },
+            onOpenReleasePage = uriHandler::openUri,
+            onDismiss = appUpdateViewModel::dismissProgressDialog,
+        )
+
+        Surface(
+            modifier =
+            modifier
+                .fillMaxSize()
+                .hazeSource(
+                    state = appHazeState,
+                    zIndex = LOMO_APP_ROOT_HAZE_Z_INDEX,
+                    key = LOMO_APP_ROOT_HAZE_KEY,
                 )
+                .benchmarkAnchorRoot(BenchmarkAnchorContract.APP_ROOT),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            LomoNavHost(
+                navController = rememberNavController(),
+                foregroundEntryId = foregroundEntryId,
+                suppressForegroundAutoInput = suppressForegroundAutoInput,
+                pendingWidgetNavigation = pendingWidgetNavigation,
+                onConsumeWidgetNavigation = onConsumeWidgetNavigation,
+            )
+            pendingPairing?.let { pairing ->
+                LanPairingConfirmationDialog(
+                    request = pairing,
+                    onConfirm = shareServiceManager::confirmPairing,
+                    onDecline = shareServiceManager::declinePairing,
+                )
+            }
+            incomingBatches.forEach { batch ->
+                androidx.compose.runtime.key(batch.batchId) {
+                    LanBatchApprovalDialog(
+                        batch = batch,
+                        onApprove = shareServiceManager::approveIncoming,
+                        onReject = shareServiceManager::rejectIncoming,
+                    )
+                }
             }
         }
     }

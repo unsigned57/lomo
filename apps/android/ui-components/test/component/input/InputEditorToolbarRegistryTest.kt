@@ -1,8 +1,7 @@
 // architectural-boundary-check
 package com.lomo.ui.component.input
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Image
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -34,6 +33,16 @@ import kotlinx.collections.immutable.persistentListOf
  *
  * Excludes:
  * - Compose rendering, drag gesture mechanics, Android permission launcher behavior.
+ *
+ * Test Change Justification:
+ * Reason category: mechanical icon fixture migration to Material Symbols.
+ * Old behavior/assertion being replaced: only the fixture icon changes from Icons.Rounded.Image
+ * to LomoIcons.Image; no registry or architecture assertion changes.
+ * Why old assertion is no longer correct: assertions remain correct; the old fixture icon type
+ * belongs to the removed material-icons dependency.
+ * Coverage preserved by: unchanged action ordering, metadata, and feature-boundary assertions.
+ * Why this is not fitting the test to the implementation: the fixture follows the icon API while
+ * retaining the same independently specified toolbar behavior.
  */
 class InputEditorToolbarRegistryTest : UiComponentsFunSpec() {
     init {
@@ -108,7 +117,7 @@ class InputEditorToolbarRegistryTest : UiComponentsFunSpec() {
 
     private fun contractTool(id: String): InputToolbarTool = InputToolbarTool(
         id = InputToolbarActionId(id),
-        icon = Icons.Rounded.Image,
+        icon = LomoIcons.Image,
         contentDescriptionRes = android.R.string.ok,
         command = InputEditorCommand.Action(InputToolbarActionId(id)),
         enabled = true,

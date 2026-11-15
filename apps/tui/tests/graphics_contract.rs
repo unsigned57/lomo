@@ -1,11 +1,14 @@
 // Dependency upgrade — Test Change Justification:
-// Reason category: mechanical migration.
-// Old behavior/assertion being replaced: old dependency API spelling and boolean empty checks.
-// Why old assertion is no longer correct: updated APIs and Rust 1.99 diagnostics require explicit
-// byte encoding, image geometry types and equality assertions that print failing collections.
-// Coverage preserved by: the same scenarios, input bytes, expected values, ordering and failures.
-// Why this is not fitting the test to the implementation: observable behavior and golden vectors
-// are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
+// Reason category: dependency upgrade (ratatui-image 8.0.1 -> 11.1.0).
+// Old behavior/assertion being replaced: asserted uniform Halfblocks cell symbol == "▀".
+// Why old assertion is no longer correct: ratatui-image 11.1.0 (`halfblocks::primitive::pick_side`)
+// emits `' '` with equal `fg`/`bg` RGB colors when upper == lower pixel, reserving `'▀'`/`'▄'` for
+// cells whose upper and lower half-pixels differ.
+// Coverage preserved by: asserting both real RGB `fg`/`bg` on `' '` for the uniform fixture AND
+// `'▀'` with distinct upper/lower RGB colors on a vertically split two-tone fixture.
+// Why this is not fitting the test to the implementation: real pixel colors and halfblock splitting
+// semantics remain strictly verified rather than relaxed.
+// Production scope: apps/tui/src/graphics.rs
 //
 //! Behavior Contract
 //! Capability: attachment images decode and encode off the draw path on a probed
@@ -105,7 +108,7 @@ mod tests {
                     "kitty render must carry the APC transmit sequence: {symbol:?}"
                 ),
                 ProtocolType::Sixel => assert!(
-                    symbol.contains("\x1bP"),
+                    crate::support::has_sixel_dcs(symbol),
                     "sixel render must carry the DCS payload: {symbol:?}"
                 ),
                 ProtocolType::Iterm2 => assert!(
@@ -116,10 +119,29 @@ mod tests {
                     let cell = buffer
                         .cell((0, 0))
                         .expect("fixture and operation must succeed");
-                    assert_eq!(cell.symbol(), "▀");
-                    // The uniform orange fixture reaches the cell as a real
-                    // RGB color — pixels, not a placeholder glyph.
+                    // Under ratatui-image 11.1.0, uniform pixels emit `' '` with
+                    // identical upper/lower RGB colors rather than `'▀'`.
+                    assert_eq!(cell.symbol(), " ");
                     assert_eq!(cell.fg, Color::Rgb(255, 80, 20));
+                    assert_eq!(cell.bg, Color::Rgb(255, 80, 20));
+
+                    let mut split_rgba = [255, 80, 20, 255].repeat(16 * 8);
+                    split_rgba.extend([20, 80, 255, 255].repeat(16 * 8));
+                    let split_png = rgba_to_png(16, 16, &split_rgba).expect("two-tone png fixture");
+                    let split_image = prepare_image(
+                        &split_png,
+                        2,
+                        1,
+                        &picker(ProtocolType::Halfblocks),
+                        &CancelToken::live(),
+                    )
+                    .expect("two-tone halfblocks prepare");
+                    let split_buffer = rendered(&split_image);
+                    let split_cell = split_buffer.cell((0, 0)).expect("two-tone halfblock cell");
+                    assert_eq!(split_cell.symbol(), "▀");
+                    assert_ne!(split_cell.fg, split_cell.bg);
+                    assert!(matches!(split_cell.fg, Color::Rgb(r, _, b) if r > b));
+                    assert!(matches!(split_cell.bg, Color::Rgb(r, _, b) if b > r));
                 }
             }
         }

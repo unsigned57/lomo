@@ -102,21 +102,7 @@ fun SettingsScreen(
     var activeUpdateDialogState by remember { mutableStateOf<AppUpdateDialogState?>(null) }
     var lastShownUpdateDialogKey by remember { mutableStateOf<String?>(null) }
     val resources = settingsResources()
-    val features = remember(viewModel) {
-        SettingsFeatures(
-            storage = viewModel.storageFeature,
-            display = viewModel.displayFeature,
-            shareCard = viewModel.shareCardFeature,
-            snapshot = viewModel.snapshotFeature,
-            interaction = viewModel.interactionFeature,
-            system = viewModel.systemFeature,
-            migration = viewModel.migrationFeature,
-            lanShare = viewModel.lanShareFeature,
-            git = viewModel.gitFeature,
-            webDav = viewModel.webDavFeature,
-            s3 = viewModel.s3Feature,
-        )
-    }
+    val features = viewModel.features
     val currentVersion by features.system.currentVersion.collectAsStateWithLifecycle()
     val isDebuggable = AppBuildInfo.isDebuggable(appContext)
     val manualUpdateState by features.system.manualUpdateState.collectAsStateWithLifecycle()

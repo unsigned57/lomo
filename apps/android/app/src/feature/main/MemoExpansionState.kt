@@ -21,12 +21,33 @@ internal fun expandedRowSourceModel(
     expandRequested: Boolean,
 ): MemoUiModel = if (expandRequested) {
     when (expandEntry) {
-        is MemoExpandEntry.Expanded -> expandEntry.model
-        is MemoExpandEntry.Refreshing -> expandEntry.previous
+        is MemoExpandEntry.Expanded -> expandEntry.model.withLiveRowMetadata(previewModel)
+        is MemoExpandEntry.Refreshing -> expandEntry.previous.withLiveRowMetadata(previewModel)
         is MemoExpandEntry.Loading, is MemoExpandEntry.Failed, null -> previewModel
     }
 } else {
     previewModel
+}
+
+/**
+ * Row-level projection flags (`isPinned`, `isPending`, `isDeleted`) can move without advancing
+ * `contentRevision`, so an expanded snapshot always projects the live paging row's metadata.
+ */
+private fun MemoUiModel.withLiveRowMetadata(previewModel: MemoUiModel): MemoUiModel {
+    val liveMemo = previewModel.memo
+    if (memo.isPinned == liveMemo.isPinned &&
+        memo.isPending == liveMemo.isPending &&
+        memo.isDeleted == liveMemo.isDeleted
+    ) {
+        return this
+    }
+    return copy(
+        memo = memo.copy(
+            isPinned = liveMemo.isPinned,
+            isPending = liveMemo.isPending,
+            isDeleted = liveMemo.isDeleted,
+        ),
+    )
 }
 
 /**

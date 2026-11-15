@@ -33,8 +33,18 @@ import java.time.ZoneId
  * - Fails before the M3E D1 fix: the row presented the expanded Full model verbatim, so a
  *   200..600-char body expanded into a card whose footer hid the collapse toggle, whose body tap
  *   was inert, and whose collapsed row lost the re-expand pill once the expansion ended.
+ * - RED: `./kotlin test --include-module=app --include-classes='com.lomo.app.feature.main.MemoExpansionStateTest'` failed 3/9 tests (AssertionFailedError expected:<false> but was:<true> / expected:<true> but was:<false>) because expandedRowSourceModel returned the cached Full/Refreshing snapshot verbatim when pin/pending flags changed without advancing contentRevision; GREEN: same command + MemoRefreshContinuityTest passed 10/10 after projecting live preview flags onto expanded rows.
  *
  * Excludes: Compose rendering, LazyListState, the expand coordinator's paging fetches.
+ * Production scope: apps/android/app/src/feature/main/MemoExpansionState.kt
+ * Test Change Justification:
+ * Reason category: additional regression coverage for live row metadata.
+ * Old behavior/assertion being replaced: none; existing expansion and affordance assertions remain.
+ * Why old assertion is no longer correct: existing assertions remain correct but did not cover pin
+ * and pending changes while the full snapshot stays cached.
+ * Coverage preserved by: all existing cases plus expanded/refreshing snapshot metadata assertions.
+ * Why this is not fitting the test to the implementation: the displayed body must stay expanded
+ * while pin and pending indicators reflect the current preview publication.
  */
 class MemoExpansionStateTest : AppFunSpec() {
     init {
@@ -106,9 +116,100 @@ class MemoExpansionStateTest : AppFunSpec() {
 
             presented shouldBe preview
         }
+
+        test("actively expanded row reflects live unpin and pending metadata from preview model") {
+            val preview =
+                memoUiModel(
+                    shouldShowExpand = true,
+                    content = "preview body",
+                    contentKind = com.lomo.domain.model.MemoContentKind.Preview,
+                    isPinned = false,
+                    isPending = true,
+                )
+            val full =
+                memoUiModel(
+                    shouldShowExpand = false,
+                    content = "full body",
+                    contentKind = com.lomo.domain.model.MemoContentKind.Full,
+                    isPinned = true,
+                    isPending = false,
+                )
+
+            val presented =
+                expandedRowSourceModel(
+                    previewModel = preview,
+                    expandEntry = MemoExpandEntry.Expanded(model = full),
+                    expandRequested = true,
+                )
+
+            presented.memo.content shouldBe "full body"
+            presented.memo.contentKind shouldBe com.lomo.domain.model.MemoContentKind.Full
+            presented.memo.isPinned shouldBe false
+            presented.memo.isPending shouldBe true
+        }
+
+        test("actively expanded row reflects live pin metadata when pinned while expanded") {
+            val preview =
+                memoUiModel(
+                    shouldShowExpand = true,
+                    content = "preview body",
+                    contentKind = com.lomo.domain.model.MemoContentKind.Preview,
+                    isPinned = true,
+                )
+            val full =
+                memoUiModel(
+                    shouldShowExpand = false,
+                    content = "full body",
+                    contentKind = com.lomo.domain.model.MemoContentKind.Full,
+                    isPinned = false,
+                )
+
+            val presented =
+                expandedRowSourceModel(
+                    previewModel = preview,
+                    expandEntry = MemoExpandEntry.Expanded(model = full),
+                    expandRequested = true,
+                )
+
+            presented.memo.content shouldBe "full body"
+            presented.memo.isPinned shouldBe true
+        }
+
+        test("refreshing expanded row reflects live unpin metadata while keeping previous full body") {
+            val preview =
+                memoUiModel(
+                    shouldShowExpand = true,
+                    content = "new preview",
+                    contentKind = com.lomo.domain.model.MemoContentKind.Preview,
+                    isPinned = false,
+                )
+            val previous =
+                memoUiModel(
+                    shouldShowExpand = false,
+                    content = "old full body",
+                    contentKind = com.lomo.domain.model.MemoContentKind.Full,
+                    isPinned = true,
+                )
+
+            val presented =
+                expandedRowSourceModel(
+                    previewModel = preview,
+                    expandEntry = MemoExpandEntry.Refreshing(previous = previous),
+                    expandRequested = true,
+                )
+
+            presented.memo.content shouldBe "old full body"
+            presented.memo.isPinned shouldBe false
+        }
     }
 
-    private fun memoUiModel(shouldShowExpand: Boolean): MemoUiModel = MemoUiModel(
+    private fun memoUiModel(
+        shouldShowExpand: Boolean,
+        content: String = "full body",
+        contentKind: com.lomo.domain.model.MemoContentKind = com.lomo.domain.model.MemoContentKind.Full,
+        isPinned: Boolean = false,
+        isPending: Boolean = false,
+    ): MemoUiModel = MemoUiModel(
         memo =
         Memo(
             id = "memo-1",
@@ -117,12 +218,15 @@ class MemoExpansionStateTest : AppFunSpec() {
                 .atStartOfDay(ZoneId.systemDefault())
                 .toInstant()
                 .toEpochMilli(),
-            content = "full body",
-            rawContent = "full body",
+            content = content,
+            rawContent = content,
             dateKey = "2026_04_10",
             localDate = LocalDate.of(2026, 4, 10),
+            isPinned = isPinned,
+            isPending = isPending,
+            contentKind = contentKind,
         ),
-        processedContent = "full body",
+        processedContent = content,
         renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
         tags = persistentListOf(),
         shouldShowExpand = shouldShowExpand,

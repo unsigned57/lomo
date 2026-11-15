@@ -248,6 +248,28 @@ class MemoEditorViewModel(
         trackedStagedMedia.clear()
     }
 
+    internal val hostBindings: MemoEditorHostBindings =
+        MemoEditorHostBindings(
+            flows =
+            MemoEditorHostFlows(
+                draftText = draftText,
+                errorMessage = errorMessage,
+                submissionState = submissionState,
+                getOwnerDraftId = { draftId.value },
+            ),
+            submissions = submissions,
+            actions =
+            MemoEditorHostActions(
+                onSaveDraft = ::saveDraft,
+                onSaveImages = ::saveImages,
+                onSaveImage = ::saveImage,
+                onTrackVoiceMarkdown = ::trackVoiceMarkdown,
+                onDiscardInputs = ::discardInputs,
+                onReportError = ::reportError,
+                onClearError = ::clearError,
+            ),
+        )
+
     companion object {
         /** A submission still in flight past this budget is reported as stalled. */
         private const val SUBMISSION_STALL_THRESHOLD_MILLIS = 8_000L

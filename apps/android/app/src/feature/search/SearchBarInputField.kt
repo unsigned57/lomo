@@ -15,12 +15,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.FilterList
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -39,6 +33,8 @@ import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -88,10 +84,10 @@ internal fun SearchBarInputField(
                     haptic.medium()
                     onBack()
                 }) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back))
+                    LomoIcon(LomoIcons.ArrowBack, stringResource(R.string.back))
                 }
             } else {
-                Icon(Icons.Rounded.Search, null)
+                LomoIcon(LomoIcons.Search, null)
             }
         },
         trailingIcon = {
@@ -103,7 +99,10 @@ internal fun SearchBarInputField(
                     inputState.edit { replace(0, length, "") }
                     onQueryChanged("")
                 },
-                onOpenFilter = onOpenFilter,
+                onOpenFilter = {
+                    haptic.medium()
+                    onOpenFilter()
+                },
             )
         },
         shape = AppShapes.Full,
@@ -136,13 +135,13 @@ private fun SearchBarTrailingIconsContent(
                 onClick = onClear,
                 modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SEARCH_CLEAR),
             ) {
-                Icon(Icons.Rounded.Close, stringResource(R.string.cd_clear_search))
+                LomoIcon(LomoIcons.Close, stringResource(R.string.cd_clear_search))
             }
         }
         Box {
             LomoIconButton(onClick = onOpenFilter) {
-                Icon(
-                    imageVector = Icons.Rounded.FilterList,
+                LomoIcon(
+                    icon = LomoIcons.FilterList,
                     contentDescription =
                     stringResource(
                         if (isFilterActive) {

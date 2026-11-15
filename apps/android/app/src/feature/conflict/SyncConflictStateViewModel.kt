@@ -56,7 +56,22 @@ class SyncConflictStateViewModel(
 
     suspend fun loadRemoteOpenSession(workspaceRoot: String): RemoteSyncConflictDialogUseCase.OpenSession? =
         remoteSyncConflictDialogUseCase.loadOpenSession(workspaceRoot)
+
+    internal val hostBindings: SyncConflictStateHostBindings =
+        SyncConflictStateHostBindings(
+            syncStates = syncStates,
+            workspaceRoot = workspaceRoot,
+            loadRemoteOpenSession = ::loadRemoteOpenSession,
+        )
 }
+
+/** Non-ViewModel host bindings exposed by [SyncConflictStateViewModel]. */
+@androidx.compose.runtime.Stable
+internal data class SyncConflictStateHostBindings(
+    val syncStates: StateFlow<ImmutableMap<SyncBackendType, UnifiedSyncState>>,
+    val workspaceRoot: StateFlow<String?>,
+    val loadRemoteOpenSession: suspend (String) -> RemoteSyncConflictDialogUseCase.OpenSession?,
+)
 
 /** Providers that may still surface ReviewRequired (Sync Inbox independent of remote kernel). */
 internal val ReviewSyncProviders: ImmutableSet<SyncBackendType> =

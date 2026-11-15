@@ -9,16 +9,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
@@ -27,7 +27,7 @@ import com.lomo.ui.theme.AppSpacing
  * glyph badge on the top row, and the supporting label below.
  */
 @Composable
-fun StatCard(value: String, label: String, modifier: Modifier = Modifier, icon: ImageVector? = null) {
+fun StatCard(value: String, label: String, modifier: Modifier = Modifier, icon: LomoIconSpec? = null) {
     Surface(
         modifier = modifier,
         shape = AppShapes.LargeIncreased,
@@ -59,8 +59,8 @@ fun StatCard(value: String, label: String, modifier: Modifier = Modifier, icon: 
                         modifier = Modifier.size(StatCardTokens.BadgeSize),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = icon,
+                            LomoIcon(
+                                icon = icon,
                                 contentDescription = null,
                                 modifier = Modifier.size(StatCardTokens.IconSize),
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,

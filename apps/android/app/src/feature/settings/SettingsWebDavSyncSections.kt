@@ -1,14 +1,11 @@
 package com.lomo.app.feature.settings
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroupScope
+import com.lomo.ui.icon.LomoIcons
 
 data class WebDavSyncSectionLabels(val common: RemoteProviderSectionLabels, val provider: String)
 
@@ -59,7 +56,7 @@ private fun SettingsGroupScope.webDavAccountPreferences(
         PreferenceItem(
             title = stringResource(R.string.settings_webdav_provider),
             subtitle = providerLabel,
-            icon = Icons.Outlined.Link,
+            icon = LomoIcons.Link,
             onClick = onOpenProviderDialog,
         )
     }
@@ -72,7 +69,7 @@ private fun SettingsGroupScope.webDavAccountPreferences(
         PreferenceItem(
             title = stringResource(R.string.settings_webdav_username),
             subtitle = state.username.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.Person,
+            icon = LomoIcons.Person,
             onClick = onOpenUsernameDialog,
         )
     }
@@ -85,7 +82,7 @@ private fun SettingsGroupScope.webDavAccountPreferences(
                 configuredResId = R.string.settings_webdav_password_configured,
                 missingResId = R.string.settings_webdav_password_not_set,
             ),
-            icon = Icons.Outlined.Lock,
+            icon = LomoIcons.Lock,
             onClick = onOpenPasswordDialog,
         )
     }
@@ -102,7 +99,7 @@ private fun SettingsGroupScope.webDavEndpointSettings(
                 PreferenceItem(
                     title = stringResource(R.string.settings_webdav_base_url),
                     subtitle = state.baseUrl.ifBlank { stringResource(R.string.settings_not_set) },
-                    icon = Icons.Outlined.Link,
+                    icon = LomoIcons.Link,
                     onClick = onOpenBaseUrlDialog,
                 )
             }
@@ -115,7 +112,7 @@ private fun SettingsGroupScope.webDavEndpointSettings(
                 PreferenceItem(
                     title = stringResource(R.string.settings_webdav_endpoint_url),
                     subtitle = state.endpointUrl.ifBlank { stringResource(R.string.settings_not_set) },
-                    icon = Icons.Outlined.Link,
+                    icon = LomoIcons.Link,
                     onClick = onOpenEndpointUrlDialog,
                 )
             }

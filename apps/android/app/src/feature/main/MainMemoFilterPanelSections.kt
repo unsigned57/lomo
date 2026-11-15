@@ -10,24 +10,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.CheckBox
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.EditCalendar
-import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonShapes
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -35,8 +23,12 @@ import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
+import com.lomo.ui.component.common.LomoButtonDefaults
 import com.lomo.ui.component.common.LomoFilledTonalButton
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import java.time.LocalDate
@@ -206,8 +198,8 @@ internal fun MainMemoDateFieldContent(label: String, value: String, hasValue: Bo
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
     ) {
-        Icon(
-            imageVector = Icons.Rounded.CalendarMonth,
+        LomoIcon(
+            icon = LomoIcons.CalendarMonth,
             contentDescription = null,
             tint = colors.iconColor,
             modifier = Modifier.size(20.dp),
@@ -237,8 +229,8 @@ internal fun BoxScope.MainMemoDateFieldClearAction(onClear: () -> Unit) {
             .align(Alignment.TopEnd),
     ) {
         val colors = mainMemoDateFieldColors(hasValue = true, colorScheme = MaterialTheme.colorScheme)
-        Icon(
-            imageVector = Icons.Rounded.Close,
+        LomoIcon(
+            icon = LomoIcons.Close,
             contentDescription = stringResource(R.string.action_clear),
             modifier = Modifier.size(16.dp),
             tint = colors.clearActionColor,
@@ -246,9 +238,9 @@ internal fun BoxScope.MainMemoDateFieldClearAction(onClear: () -> Unit) {
     }
 }
 
-private fun sortOptionIcon(option: MemoSortOption): ImageVector = when (option) {
-    MemoSortOption.CREATED_TIME -> Icons.Rounded.EditCalendar
-    MemoSortOption.UPDATED_TIME -> Icons.Rounded.Update
+private fun sortOptionIcon(option: MemoSortOption): LomoIconSpec = when (option) {
+    MemoSortOption.CREATED_TIME -> LomoIcons.EditCalendar
+    MemoSortOption.UPDATED_TIME -> LomoIcons.Update
 }
 
 @Composable
@@ -264,21 +256,21 @@ internal fun MainMemoContentFlagsRow(
     ) {
         ContentFlagTile(
             modifier = Modifier.weight(1f),
-            icon = Icons.Rounded.CheckBox,
+            icon = LomoIcons.CheckBox,
             label = stringResource(R.string.main_filter_content_todo),
             value = filter.hasTodo,
             onValueChanged = onHasTodoChanged,
         )
         ContentFlagTile(
             modifier = Modifier.weight(1f),
-            icon = Icons.AutoMirrored.Rounded.InsertDriveFile,
+            icon = LomoIcons.InsertDriveFile,
             label = stringResource(R.string.main_filter_content_attachment),
             value = filter.hasAttachment,
             onValueChanged = onHasAttachmentChanged,
         )
         ContentFlagTile(
             modifier = Modifier.weight(1f),
-            icon = Icons.Rounded.Link,
+            icon = LomoIcons.Link,
             label = stringResource(R.string.main_filter_content_url),
             value = filter.hasUrl,
             onValueChanged = onHasUrlChanged,
@@ -288,7 +280,7 @@ internal fun MainMemoContentFlagsRow(
 
 @Composable
 private fun ContentFlagTile(
-    icon: ImageVector,
+    icon: LomoIconSpec,
     label: String,
     value: Boolean?,
     onValueChanged: (Boolean?) -> Unit,
@@ -320,7 +312,7 @@ private fun ContentFlagTile(
             onValueChanged(nextContentFlagState(value))
         },
         modifier = modifier,
-        shapes = ButtonShapes(RoundedCornerShape(16.dp), RoundedCornerShape(8.dp)),
+        shapes = LomoButtonDefaults.tileShapes(),
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = containerColor, contentColor = contentColor),
         contentPadding = PaddingValues(0.dp),
     ) {
@@ -329,8 +321,8 @@ private fun ContentFlagTile(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp).height(64.dp),
         ) {
-            Icon(
-                imageVector = icon,
+            LomoIcon(
+                icon = icon,
                 contentDescription = null,
                 tint = contentColor,
                 modifier = Modifier.size(24.dp),

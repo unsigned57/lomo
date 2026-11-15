@@ -10,10 +10,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Tag
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +37,8 @@ import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.cd_collapse
 import com.lomo.ui.generated.resources.cd_expand
 import com.lomo.ui.generated.resources.sidebar_tags
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -240,8 +238,8 @@ private fun SidebarTagRow(
                     ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Tag,
+                LomoIcon(
+                    icon = LomoIcons.Tag,
                     contentDescription = null,
                     tint = leadingAndTrailingTint,
                     modifier = Modifier.size(SidebarDrawerTokens.TagLeadingIconSize),
@@ -313,8 +311,8 @@ private fun TagTreeExpandButton(isExpanded: Boolean, onClick: () -> Unit) {
         onClick = rememberLightHapticClick(onClick),
         modifier = Modifier.size(IconButtonDefaults.smallContainerSize()),
     ) {
-        Icon(
-            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+        LomoIcon(
+            LomoIcons.KeyboardArrowRight,
             contentDescription =
             org.jetbrains.compose.resources.stringResource(
                 if (isExpanded) {

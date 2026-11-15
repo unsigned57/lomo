@@ -14,10 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.SettingsBackupRestore
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -31,6 +27,8 @@ import com.lomo.app.R
 import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
 import com.lomo.ui.component.common.LomoOutlinedButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
@@ -63,8 +61,8 @@ internal fun SyncCenterRecoveryShell(session: RemoteSyncSessionProgress, onCance
                         modifier = Modifier.size(40.dp),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Outlined.SettingsBackupRestore,
+                            LomoIcon(
+                                icon = LomoIcons.SettingsBackupRestore,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
@@ -86,8 +84,8 @@ internal fun SyncCenterRecoveryShell(session: RemoteSyncSessionProgress, onCance
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
                     ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Sync,
+                        LomoIcon(
+                            icon = LomoIcons.Sync,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.primary,
@@ -112,7 +110,7 @@ internal fun SyncCenterRecoveryShell(session: RemoteSyncSessionProgress, onCance
                             .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
                             .testTag("sync_center_recovery_cancel"),
                     ) {
-                        Icon(Icons.Outlined.Sync, contentDescription = null)
+                        LomoIcon(LomoIcons.Sync, contentDescription = null)
                         Spacer(Modifier.width(AppSpacing.Small))
                         Text(stringResource(R.string.sync_center_cancel_session))
                     }

@@ -51,7 +51,13 @@ internal fun MemoComposeParagraphText(
     val pressTarget = remember { MemoTextPressTarget() }
     val scope = selectionRegistrar
     val resolvedBlockKey = remember(blockKey) { blockKey ?: Any() }
-    val customTypeface = rememberResolvedPlatformTypeface(style)
+    val typefaceLookup = rememberMemoSpanTypefaceLookup(text, style)
+    val customTypeface =
+        typefaceLookup(
+            style.fontFamily,
+            style.fontWeight ?: FontWeight.Normal,
+            style.fontStyle ?: FontStyle.Normal,
+        )
     // Read scope.selection here (inside the composable) so the snapshot system propagates
     // changes to this paragraph block even when its own `rangeForBlock` would return null
     // (e.g. an out-of-selection paragraph whose only signal is the scope-level boolean).
@@ -73,6 +79,7 @@ internal fun MemoComposeParagraphText(
                 widthPx = constraints.maxWidth.toFloat(),
                 maxHeightPx = constraints.maxHeight,
                 customTypeface = customTypeface,
+                typefaceLookup = typefaceLookup,
             )
         val heightDp =
             with(LocalDensity.current) {
@@ -139,6 +146,7 @@ internal fun MemoComposeParagraphText(
                     selectionHighlightColor = selectionHighlightColor,
                     defaultLinkColor = defaultLinkColor,
                     customTypeface = customTypeface,
+                    typefaceResolver = typefaceLookup,
                 )
             }
         }
@@ -225,9 +233,13 @@ private fun rememberMemoComposeParagraphLayout(
     widthPx: Float,
     maxHeightPx: Int,
     customTypeface: android.graphics.Typeface?,
+    typefaceLookup: MemoSpanTypefaceResolver,
 ): MemoComposeParagraphLayout {
     val density = LocalDensity.current
-    val textPaint = remember(style, density, customTypeface) { style.toBaseTextPaint(density, customTypeface) }
+    val textPaint =
+        remember(style, density, customTypeface, typefaceLookup) {
+            style.toBaseTextPaint(density, customTypeface, typefaceLookup)
+        }
     val measurer = remember(textPaint) { AndroidMemoTextMeasurer(textPaint) }
     val engine = remember(measurer) { MemoTextLayoutEngine(measurer) }
     val lineMetrics = remember(style, density, textPaint) { style.resolveLineMetrics(density, textPaint) }
@@ -270,16 +282,24 @@ private fun rememberMemoComposeParagraphLayout(
 }
 
 @Composable
-private fun rememberResolvedPlatformTypeface(style: TextStyle): android.graphics.Typeface? {
+private fun rememberMemoSpanTypefaceLookup(text: AnnotatedString, style: TextStyle): MemoSpanTypefaceResolver {
     val resolver = LocalFontFamilyResolver.current
-    val resolvedTypeface =
-        resolver.resolve(
-            fontFamily = style.fontFamily,
-            fontWeight = style.fontWeight ?: FontWeight.Normal,
-            fontStyle = style.fontStyle ?: FontStyle.Normal,
-            fontSynthesis = style.fontSynthesis ?: FontSynthesis.All,
-        )
-    return resolvedTypeface.value as? android.graphics.Typeface
+    val fontSynthesis = style.fontSynthesis ?: FontSynthesis.All
+    val keys = remember(text, style) { collectMemoSpanTypefaceKeys(text, style) }
+    val resolvedTypefaces =
+        keys.associateWith { key ->
+            resolver.resolve(
+                fontFamily = key.fontFamily,
+                fontWeight = key.fontWeight,
+                fontStyle = key.fontStyle,
+                fontSynthesis = fontSynthesis,
+            ).value as? android.graphics.Typeface
+        }
+    return remember(resolvedTypefaces) {
+        { fontFamily, fontWeight, fontStyle ->
+            resolvedTypefaces[MemoSpanTypefaceKey(fontFamily, fontWeight, fontStyle)]
+        }
+    }
 }
 
 /** Interaction handlers for one memo paragraph's pointer input. */

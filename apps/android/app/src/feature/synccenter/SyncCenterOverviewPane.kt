@@ -14,17 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.CompareArrows
-import androidx.compose.material.icons.outlined.Cancel
-import androidx.compose.material.icons.outlined.CloudQueue
-import androidx.compose.material.icons.outlined.NotificationImportant
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material.icons.outlined.Timeline
-import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -33,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +35,9 @@ import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
 import com.lomo.ui.component.common.LomoButton
 import com.lomo.ui.component.common.LomoOutlinedButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
@@ -100,7 +92,7 @@ private fun SyncCenterCard(
 
 @Composable
 private fun SyncCenterCardHeading(
-    icon: ImageVector,
+    icon: LomoIconSpec,
     title: String,
     badgeColor: Color = MaterialTheme.colorScheme.primaryContainer,
     iconTint: Color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -117,8 +109,8 @@ private fun SyncCenterCardHeading(
             modifier = Modifier.size(36.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
+                LomoIcon(
+                    icon = icon,
                     contentDescription = null,
                     modifier = Modifier.size(SyncCenterCardIconSize),
                     tint = iconTint,
@@ -136,7 +128,7 @@ private fun SyncCenterCardHeading(
 
 @Composable
 private fun SyncCenterFactRow(
-    icon: ImageVector,
+    icon: LomoIconSpec,
     text: String,
     modifier: Modifier = Modifier,
     highlight: Boolean = false,
@@ -156,8 +148,8 @@ private fun SyncCenterFactRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
         ) {
-            Icon(
-                imageVector = icon,
+            LomoIcon(
+                icon = icon,
                 contentDescription = null,
                 modifier = Modifier.size(SyncCenterFactIconSize),
                 tint =
@@ -186,22 +178,22 @@ private fun SyncCenterFactRow(
 private fun SyncCenterConfigCard(config: RemoteSyncConfigSummary) {
     SyncCenterCard {
         SyncCenterCardHeading(
-            icon = Icons.Outlined.CloudQueue,
+            icon = LomoIcons.Cloud,
             title = stringResource(R.string.sync_center_config_heading),
         )
         SyncCenterFactRow(
-            icon = Icons.Outlined.Sync,
+            icon = LomoIcons.Sync,
             text = stringResource(R.string.sync_center_backend_label, config.backend.name),
         )
         SyncCenterFactRow(
-            icon = Icons.Outlined.NotificationImportant,
+            icon = LomoIcons.NotificationImportant,
             text = stringResource(R.string.sync_center_attention_count, config.attentionCount),
             highlight = config.attentionCount > 0,
             modifier = Modifier.testTag("sync_center_attention_count"),
         )
         val lastVerified = config.lastVerifiedAtEpochMillis
         SyncCenterFactRow(
-            icon = Icons.Outlined.Verified,
+            icon = LomoIcons.Verified,
             text =
             if (lastVerified == null) {
                 stringResource(R.string.sync_center_last_verified_never)
@@ -211,7 +203,7 @@ private fun SyncCenterConfigCard(config: RemoteSyncConfigSummary) {
         )
         config.schedulePolicyLabel?.let { policy ->
             SyncCenterFactRow(
-                icon = Icons.Outlined.Schedule,
+                icon = LomoIcons.Schedule,
                 text = stringResource(R.string.sync_center_schedule_policy, policy),
             )
         }
@@ -232,7 +224,7 @@ private fun SyncCenterSessionCard(session: RemoteSyncSessionProgress, onCancel: 
         },
     ) {
         SyncCenterCardHeading(
-            icon = Icons.Outlined.Timeline,
+            icon = LomoIcons.Timeline,
             title = stringResource(R.string.sync_center_session_heading),
             badgeColor =
             if (isFailed) {
@@ -248,7 +240,7 @@ private fun SyncCenterSessionCard(session: RemoteSyncSessionProgress, onCancel: 
             },
         )
         SyncCenterFactRow(
-            icon = Icons.Outlined.Sync,
+            icon = LomoIcons.Sync,
             text = stringResource(R.string.sync_center_session_phase, session.phase.name),
             modifier = Modifier.testTag("sync_center_session_phase"),
         )
@@ -294,7 +286,7 @@ private fun SyncCenterSessionCard(session: RemoteSyncSessionProgress, onCancel: 
                     .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
                     .testTag("sync_center_cancel_session"),
             ) {
-                Icon(Icons.Outlined.Cancel, contentDescription = null)
+                LomoIcon(LomoIcons.Cancel, contentDescription = null)
                 Spacer(Modifier.size(AppSpacing.Small))
                 Text(stringResource(R.string.sync_center_cancel_session))
             }
@@ -339,7 +331,7 @@ private fun SyncCenterConflictsCard(conflictPage: RemoteSyncConflictPage, onOpen
         },
     ) {
         SyncCenterCardHeading(
-            icon = Icons.AutoMirrored.Outlined.CompareArrows,
+            icon = LomoIcons.CompareArrows,
             title = stringResource(conflictStatus.first),
             badgeColor =
             if (hasActiveConflicts) {
@@ -381,7 +373,7 @@ private fun SyncCenterConflictsCard(conflictPage: RemoteSyncConflictPage, onOpen
                 .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
                 .testTag("sync_center_open_conflicts"),
         ) {
-            Icon(Icons.AutoMirrored.Outlined.CompareArrows, contentDescription = null)
+            LomoIcon(LomoIcons.CompareArrows, contentDescription = null)
             Spacer(Modifier.size(AppSpacing.Small))
             Text(stringResource(R.string.sync_center_open_conflicts))
         }

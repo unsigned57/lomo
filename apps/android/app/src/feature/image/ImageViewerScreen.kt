@@ -8,9 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
@@ -24,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.component.common.LomoPageIndicator
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import me.saket.telephoto.zoomable.EnabledZoomGestures
@@ -209,8 +208,8 @@ private fun BoxScope.ImageViewerCloseButton(onBackClick: () -> Unit) {
             .statusBarsPadding()
             .padding(IMAGE_VIEWER_CLOSE_BUTTON_PADDING),
     ) {
-        Icon(
-            imageVector = Icons.Rounded.Close,
+        LomoIcon(
+            icon = LomoIcons.Close,
             contentDescription = stringResource(R.string.cd_close),
             tint = Color.White,
         )

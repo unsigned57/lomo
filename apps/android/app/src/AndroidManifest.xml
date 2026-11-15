@@ -69,6 +69,13 @@
 
         </activity>
 
+        <activity
+            android:name=".widget.WidgetLaunchActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
@@ -101,11 +108,11 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- App Widget -->
+        <!-- App Widgets -->
         <receiver
             android:name=".widget.LomoWidgetReceiver"
             android:exported="true"
-            android:label="@string/app_name"
+            android:label="@string/widget_quick_notes_label"
             android:process=":widget">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -113,6 +120,45 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/lomo_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.LomoTasksWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_tasks_label"
+            android:process=":widget">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/lomo_tasks_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.LomoInsightsWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_insights_label"
+            android:process=":widget">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/lomo_insights_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.LomoReviewWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_review_label"
+            android:process=":widget">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/lomo_review_widget_info" />
         </receiver>
 
         <service
@@ -165,6 +211,13 @@
             android:name="com.lomo.data.recording.RecordingForegroundService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <service
+            android:name="androidx.glance.appwidget.GlanceRemoteViewsService"
+            android:exported="true"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:process=":widget"
+            tools:node="merge" />
     </application>
 
 </manifest>

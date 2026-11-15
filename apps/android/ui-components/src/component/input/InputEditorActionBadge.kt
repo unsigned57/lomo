@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -24,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.action_cancel
+import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
 import kotlinx.collections.immutable.ImmutableList
@@ -65,8 +65,8 @@ private fun InputEditorActionBadgePill(badge: InputEditorActionBadge, onEditorCo
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = badge.icon,
+            LomoIcon(
+                icon = badge.icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.size(InputSheetTokens.ActionBadgeIconSize),

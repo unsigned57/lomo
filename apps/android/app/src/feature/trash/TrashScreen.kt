@@ -8,17 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SnackbarHost
@@ -46,7 +38,6 @@ import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.main.MemoUiModel
-import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.app.presentation.markdown.MemoMarkdownMediaAdapter
 import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.domain.model.Memo
@@ -57,6 +48,7 @@ import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.component.common.LomoListExitPhase
 import com.lomo.ui.component.common.LomoListExitRenderEntry
 import com.lomo.ui.component.common.LomoListRenderWindow
+import com.lomo.ui.component.common.LomoModalBottomSheet
 import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.common.SkeletonMemoItem
 import com.lomo.ui.component.common.computeExitRenderKeyWindow
@@ -68,7 +60,8 @@ import com.lomo.ui.component.menu.ActionItemHaptic
 import com.lomo.ui.component.menu.ActionItemPlacement
 import com.lomo.ui.component.menu.ActionItemUi
 import com.lomo.ui.component.menu.MemoActionSheet
-import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -162,8 +155,6 @@ fun TrashScreen(
     TrashScreenDialogs(
         selectedMemo = selectedMemo,
         showClearTrashDialog = showClearTrashDialog,
-        dateFormat = appPreferences.dateFormat,
-        timeFormat = appPreferences.timeFormat,
         onDismissActionSheet = { selectedMemo = null },
         onRestoreMemo = { memo ->
             viewModel.restoreMemo(memo, trashAnchorAfter(overlayItems, memo.id)) { restored ->
@@ -225,8 +216,8 @@ private fun TrashScreenScaffold(
                             onBackClick()
                         },
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                        LomoIcon(
+                            LomoIcons.ArrowBack,
                             contentDescription = stringResource(R.string.back),
                         )
                     }
@@ -236,8 +227,8 @@ private fun TrashScreenScaffold(
                         enabled = hasItems,
                         onClick = onClearTrashClick,
                     ) {
-                        Icon(
-                            Icons.Rounded.DeleteSweep,
+                        LomoIcon(
+                            LomoIcons.DeleteSweep,
                             contentDescription = stringResource(R.string.cd_clear_trash),
                         )
                     }
@@ -304,7 +295,7 @@ private fun TrashScreenContent(
 private fun TrashEmptyState(modifier: Modifier = Modifier) {
     Box(modifier = modifier) {
         com.lomo.ui.component.common.EmptyState(
-            icon = Icons.Outlined.Delete,
+            icon = LomoIcons.Delete,
             title = stringResource(R.string.trash_empty_title),
             description = stringResource(R.string.trash_empty_desc),
         )
@@ -444,8 +435,6 @@ private fun TrashMemoCardItem(
 private fun TrashScreenDialogs(
     selectedMemo: Memo?,
     showClearTrashDialog: Boolean,
-    dateFormat: String,
-    timeFormat: String,
     onDismissActionSheet: () -> Unit,
     onRestoreMemo: (Memo) -> Unit,
     onDeletePermanently: (Memo) -> Unit,
@@ -453,9 +442,7 @@ private fun TrashScreenDialogs(
     onConfirmClearTrash: () -> Unit,
 ) {
     selectedMemo?.let { memo ->
-        val menuState = remember(memo, dateFormat, timeFormat) { memoMenuState(memo, dateFormat, timeFormat) }
         TrashActionSheet(
-            state = menuState,
             onDismiss = onDismissActionSheet,
             onRestore = { onRestoreMemo(memo) },
             onDeletePermanently = { onDeletePermanently(memo) },
@@ -491,27 +478,20 @@ private fun TrashClearDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TrashActionSheet(
-    state: MemoMenuState,
-    onDismiss: () -> Unit,
-    onRestore: () -> Unit,
-    onDeletePermanently: () -> Unit,
-) {
+private fun TrashActionSheet(onDismiss: () -> Unit, onRestore: () -> Unit, onDeletePermanently: () -> Unit) {
     val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
 
-    ModalBottomSheet(
+    LomoModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
         MemoActionSheet(
-            state = state,
             onDismiss = onDismiss,
             benchmarkRootTag = BenchmarkAnchorContract.MEMO_MENU_ROOT,
             actions =
             persistentListOf(
                 ActionItemUi(
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    icon = LomoIcons.RestoreFromTrash,
                     label = stringResource(R.string.action_restore),
                     benchmarkTag = BenchmarkAnchorContract.TRASH_ACTION_RESTORE,
                     onClick = onRestore,
@@ -520,7 +500,7 @@ private fun TrashActionSheet(
                     haptic = ActionItemHaptic.MEDIUM,
                 ),
                 ActionItemUi(
-                    icon = Icons.Default.DeleteForever,
+                    icon = LomoIcons.DeleteForever,
                     label = stringResource(R.string.action_delete_permanently),
                     benchmarkTag = BenchmarkAnchorContract.TRASH_ACTION_DELETE_PERMANENTLY,
                     onClick = onDeletePermanently,

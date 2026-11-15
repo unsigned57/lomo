@@ -21,6 +21,7 @@ internal fun DrawScope.drawMemoTextLayout(
     selectionHighlightColor: Color,
     defaultLinkColor: Color,
     customTypeface: android.graphics.Typeface? = null,
+    typefaceResolver: MemoSpanTypefaceResolver? = null,
 ) {
     drawMemoTextBackgrounds(
         annotatedText = annotatedText,
@@ -38,6 +39,7 @@ internal fun DrawScope.drawMemoTextLayout(
         baseLetterSpacingPx = baseLetterSpacingPx,
         defaultLinkColor = defaultLinkColor,
         customTypeface = customTypeface,
+        typefaceResolver = typefaceResolver,
     )
 }
 
@@ -107,6 +109,7 @@ private fun DrawScope.drawMemoTextGlyphs(
     baseLetterSpacingPx: Float,
     defaultLinkColor: Color,
     customTypeface: android.graphics.Typeface? = null,
+    typefaceResolver: MemoSpanTypefaceResolver? = null,
 ) {
     drawIntoCanvas { canvas ->
         layout.lines.forEach { line ->
@@ -119,6 +122,7 @@ private fun DrawScope.drawMemoTextGlyphs(
                         defaultLinkColor = defaultLinkColor,
                         density = this,
                         customTypeface = customTypeface,
+                        typefaceResolver = typefaceResolver,
                     )
                 canvas.nativeCanvas.drawText(
                     annotatedText.text,
@@ -137,6 +141,7 @@ private fun DrawScope.drawMemoTextGlyphs(
                         defaultLinkColor = defaultLinkColor,
                         density = this,
                         customTypeface = customTypeface,
+                        typefaceResolver = typefaceResolver,
                     )
                 canvas.nativeCanvas.drawText(
                     MEMO_TEXT_ELLIPSIS,

@@ -144,6 +144,7 @@ internal data class ShareCardPaintSet(
     val tablePaint: TextPaint,
     val footerPaint: TextPaint,
     val linkColor: Int,
+    val bodyTypefaces: com.lomo.app.feature.preferences.ShareCardTypefaces? = null,
 )
 
 internal data class ShareCardComposition(

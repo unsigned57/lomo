@@ -4,11 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -46,6 +42,8 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -111,7 +109,10 @@ fun GalleryScreen(
         onNavigateToShare = onNavigateToShare,
         onNavigateToMain = onNavigateToMain,
         lanShareEnabled = lanShareEnabled,
-        viewModel = viewModel,
+        onOpenMemo = viewModel.requestOpenMemo,
+        onDeleteMemo = viewModel.deleteMemo,
+        onRequestFocusMemo = viewModel.requestFocusMemoInDefaultMainList,
+        onLoadVersionHistory = { selection -> viewModel.loadVersionHistory(selection.memo) },
         shareCardShowTime = appPreferences.shareCardShowTime,
         shareCardShowSignature = appPreferences.shareCardShowBrand,
         shareCardSignatureText = appPreferences.shareCardSignatureText,
@@ -129,6 +130,9 @@ fun GalleryScreen(
         haptic = haptic,
         scrollBehavior = scrollBehavior,
         snackbarHostState = snackbarHostState,
+    )
+    com.lomo.app.feature.main.MainVersionHistoryEffectHost(
+        bindings = viewModel.versionHistoryEffectBindings,
     )
 }
 
@@ -182,7 +186,10 @@ private fun GalleryScreenMenuContent(
     onNavigateToShare: (String, Long) -> Unit,
     onNavigateToMain: () -> Unit,
     lanShareEnabled: Boolean,
-    viewModel: MainViewModel,
+    onOpenMemo: (String) -> Unit,
+    onDeleteMemo: (com.lomo.domain.model.Memo, String?) -> Unit,
+    onRequestFocusMemo: (String) -> Unit,
+    onLoadVersionHistory: (MemoMenuSelection) -> Unit,
     shareCardShowTime: Boolean,
     shareCardShowSignature: Boolean,
     shareCardSignatureText: String,
@@ -209,10 +216,10 @@ private fun GalleryScreenMenuContent(
                 customFontPath = customFontPath,
             ),
             onEditMemo = { memoId ->
-                viewModel.requestOpenMemo(memoId)
+                onOpenMemo(memoId)
                 onBackClick()
             },
-            onDeleteMemo = viewModel.deleteMemo,
+            onDeleteMemo = onDeleteMemo,
             onLanShare =
             if (lanShareEnabled) {
                 { request -> onNavigateToShare(request.content, request.timestamp) }
@@ -223,11 +230,11 @@ private fun GalleryScreenMenuContent(
             MemoMenuContextAction.Jump { state ->
                 handleMemoJumpToMain(
                     selection = state,
-                    requestFocusMemo = viewModel.requestFocusMemoInDefaultMainList,
+                    requestFocusMemo = onRequestFocusMemo,
                     navigateToMain = onNavigateToMain,
                 )
             },
-            onVersionHistory = { selection -> viewModel.loadVersionHistory(selection.memo) },
+            onVersionHistory = onLoadVersionHistory,
         )
 
     MemoMenuBinder(
@@ -253,7 +260,6 @@ private fun GalleryScreenMenuContent(
             )
         }
     }
-    com.lomo.app.feature.main.MainVersionHistoryEffectHost(mainViewModel = viewModel)
 }
 
 @Composable
@@ -320,8 +326,8 @@ private fun GalleryScreenScaffold(
                             onBackClick()
                         },
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        LomoIcon(
+                            icon = LomoIcons.ArrowBack,
                             contentDescription = stringResource(R.string.back),
                         )
                     }
@@ -407,7 +413,7 @@ private fun GalleryEmptyState(padding: PaddingValues) {
             .padding(padding),
     ) {
         EmptyState(
-            icon = Icons.Outlined.PhotoLibrary,
+            icon = LomoIcons.PhotoLibrary,
             title = stringResource(R.string.gallery_empty_title),
             description = stringResource(R.string.gallery_empty_desc),
         )

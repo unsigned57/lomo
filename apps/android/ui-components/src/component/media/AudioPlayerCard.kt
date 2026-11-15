@@ -14,12 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -38,6 +33,8 @@ import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.cd_audio_playback_failed
 import com.lomo.ui.generated.resources.cd_pause_audio
 import com.lomo.ui.generated.resources.cd_play_audio
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.media.AudioPlayerController
 import com.lomo.ui.media.LocalAudioPlayerManager
 import com.lomo.ui.theme.LocalLomoMotion
@@ -178,12 +175,12 @@ private fun PlaybackControlButton(
                 state = isPlaying to failed,
                 contentKey = { it },
             ) { (playing, error) ->
-                Icon(
-                    imageVector =
+                LomoIcon(
+                    icon =
                     when {
-                        error -> Icons.Rounded.ErrorOutline
-                        playing -> Icons.Rounded.Pause
-                        else -> Icons.Rounded.PlayArrow
+                        error -> LomoIcons.Error
+                        playing -> LomoIcons.Pause
+                        else -> LomoIcons.PlayArrow
                     },
                     contentDescription =
                     when {

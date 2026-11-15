@@ -2,14 +2,14 @@ package com.lomo.ui.component.settings
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
 import com.lomo.ui.theme.AppShapes
 
 /** Container edge of a settings row's leading icon (M3E compact badge proportion). */
@@ -26,7 +26,7 @@ private val LeadingIconGlyphSize = 20.dp
  * `surfaceContainerHighest` badge with `onSurfaceVariant` glyph.
  */
 @Composable
-internal fun SettingsLeadingIcon(icon: ImageVector, checked: Boolean) {
+internal fun SettingsLeadingIcon(icon: LomoIconSpec, checked: Boolean) {
     Surface(
         color =
         if (checked) {
@@ -40,8 +40,8 @@ internal fun SettingsLeadingIcon(icon: ImageVector, checked: Boolean) {
             modifier = Modifier.size(LeadingIconContainerSize),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = icon,
+            LomoIcon(
+                icon = icon,
                 contentDescription = null,
                 tint =
                 if (checked) {

@@ -2,6 +2,7 @@ package com.lomo.data.engine
 
 import android.net.Uri
 import android.provider.DocumentsContract
+import androidx.core.net.toUri
 import com.lomo.nativebridge.ActionOutcome
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.WorkspaceTarget
@@ -131,7 +132,7 @@ internal object PlatformActionEvidence {
     private const val FINGERPRINT_HEX_PREFIX_LENGTH = 48
 }
 
-internal fun String.toAndroidUri(): Uri = Uri.parse(this)
+internal fun String.toAndroidUri(): Uri = toUri()
 
 private fun String.sha256Hex(): String = toByteArray(Charsets.UTF_8).sha256Hex()
 

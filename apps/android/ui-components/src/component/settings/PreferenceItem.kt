@@ -2,9 +2,6 @@ package com.lomo.ui.component.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -13,10 +10,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.util.LocalAppHapticFeedback
 
 internal const val DISABLED_PREFERENCE_ALPHA = 0.56f
@@ -35,7 +34,7 @@ fun PreferenceItem(
     subtitle: String? = null,
     subtitleMinLines: Int = 1,
     subtitleMaxLines: Int = Int.MAX_VALUE,
-    icon: ImageVector? = null,
+    icon: LomoIconSpec? = null,
     enabled: Boolean = true,
     showChevron: Boolean = true,
     onClick: (() -> Unit)? = null,
@@ -59,8 +58,8 @@ fun PreferenceItem(
         trailingContent =
         if (showChevron && onClick != null) {
             {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                LomoIcon(
+                    icon = LomoIcons.KeyboardArrowRight,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -14,14 +14,15 @@ import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
 internal fun rememberSearchMemoMenuCommandHandler(
     uiState: SearchScreenUiSnapshot,
     editorController: MemoEditorController,
-    viewModel: SearchViewModel,
+    onReportError: (Throwable) -> Unit,
+    onDeleteMemo: (com.lomo.domain.model.Memo, String?) -> Unit,
     lanShareEnabled: Boolean,
     onNavigateToShare: (String, Long) -> Unit,
     onRequestFocusMemo: (String) -> Unit,
     onNavigateToMain: () -> Unit,
     onVersionHistory: ((MemoMenuSelection) -> Unit)? = null,
 ): MemoMenuCommandHandler {
-    val openFullMemoEditor = rememberFullMemoEditorOpener(editorController, viewModel::reportError)
+    val openFullMemoEditor = rememberFullMemoEditorOpener(editorController, onReportError)
     return rememberMemoMenuCommandHandler(
         presentationState =
         MemoMenuPresentationState(
@@ -31,7 +32,7 @@ internal fun rememberSearchMemoMenuCommandHandler(
             customFontPath = uiState.customFontPath,
         ),
         onEditMemo = openFullMemoEditor,
-        onDeleteMemo = viewModel::deleteMemo,
+        onDeleteMemo = onDeleteMemo,
         onLanShare =
         if (lanShareEnabled) {
             { request -> onNavigateToShare(request.content, request.timestamp) }

@@ -7,15 +7,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.MenuOpen
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.FilterList
-import androidx.compose.material.icons.rounded.Menu
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,13 +17,15 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
 
@@ -86,7 +81,7 @@ internal fun MainTopBar(
                     shrinkHorizontally(animationSpec = componentMotion.fastSpatialSpec()),
             ) {
                 MainTopBarIconButton(
-                    icon = Icons.Rounded.Close,
+                    icon = LomoIcons.Close,
                     contentDescription = stringResource(R.string.cd_clear_filter),
                     onClick = {
                         haptic.medium()
@@ -95,7 +90,7 @@ internal fun MainTopBar(
                 )
             }
             MainTopBarIconButton(
-                icon = Icons.Rounded.Search,
+                icon = LomoIcons.Search,
                 contentDescription = stringResource(R.string.cd_search),
                 modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_SEARCH_BUTTON),
                 onClick = {
@@ -104,7 +99,7 @@ internal fun MainTopBar(
                 },
             )
             MainTopBarIconButton(
-                icon = Icons.Rounded.FilterList,
+                icon = LomoIcons.FilterList,
                 contentDescription = stringResource(R.string.cd_filter),
                 isHighlighted = isFilterActive,
                 modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_FILTER_BUTTON),
@@ -126,7 +121,7 @@ internal fun MainTopBar(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MainTopBarIconButton(
-    icon: ImageVector,
+    icon: LomoIconSpec,
     contentDescription: String,
     modifier: Modifier = Modifier,
     isHighlighted: Boolean = false,
@@ -145,8 +140,8 @@ private fun MainTopBarIconButton(
         },
         modifier = modifier,
     ) {
-        Icon(
-            imageVector = icon,
+        LomoIcon(
+            icon = icon,
             contentDescription = contentDescription,
         )
     }
@@ -159,7 +154,7 @@ private fun MainSidebarToggle.contentDescriptionRes(): Int = when (this) {
     MainSidebarToggle.ExpandPane -> R.string.cd_expand_sidebar
 }
 
-private fun MainSidebarToggle.icon(): ImageVector = when (this) {
-    MainSidebarToggle.CollapsePane -> Icons.AutoMirrored.Rounded.MenuOpen
-    MainSidebarToggle.OpenDrawer, MainSidebarToggle.ExpandPane -> Icons.Rounded.Menu
+private fun MainSidebarToggle.icon(): LomoIconSpec = when (this) {
+    MainSidebarToggle.CollapsePane -> LomoIcons.MenuOpen
+    MainSidebarToggle.OpenDrawer, MainSidebarToggle.ExpandPane -> LomoIcons.Menu
 }

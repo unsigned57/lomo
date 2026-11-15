@@ -22,10 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.benchmark.benchmarkAnchor
@@ -48,6 +43,9 @@ import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.cd_collapse
 import com.lomo.ui.generated.resources.cd_expand
 import com.lomo.ui.generated.resources.cd_send
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.AppHapticFeedback
@@ -183,8 +181,8 @@ private fun InputToolbarPrimaryToolsRow(
                 },
                 enabled = enabled,
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Tune,
+                LomoIcon(
+                    icon = LomoIcons.Tune,
                     contentDescription =
                     org.jetbrains.compose.resources.stringResource(
                         if (isSecondaryTrayExpanded) {
@@ -246,8 +244,8 @@ private fun InputToolbarSecondaryTray(
                     modifier = Modifier.padding(InputSheetTokens.SecondaryTrayPillContentPadding),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        imageVector = tool.icon,
+                    LomoIcon(
+                        icon = tool.icon,
                         contentDescription = null,
                         tint = contentColor,
                         modifier = Modifier.size(InputSheetTokens.SecondaryTrayIconSize),
@@ -290,7 +288,7 @@ internal fun InputToolbarToolButton(
 
 @Composable
 private fun InputToolbarToolIconButton(
-    icon: ImageVector,
+    icon: LomoIconSpec,
     contentDescriptionRes: Int,
     enabled: Boolean,
     onClick: () -> Unit,
@@ -335,7 +333,7 @@ internal fun InputHeaderToolButton(
 
 @Composable
 internal fun InputHeaderIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: LomoIconSpec,
     contentDescription: String,
     enabled: Boolean,
     onClick: () -> Unit,
@@ -357,8 +355,8 @@ internal fun InputHeaderIconButton(
         },
         enabled = enabled,
     ) {
-        Icon(
-            imageVector = icon,
+        LomoIcon(
+            icon = icon,
             contentDescription = contentDescription,
             tint = tint,
             modifier = Modifier.size(InputSheetTokens.HeaderIconSize),
@@ -368,7 +366,7 @@ internal fun InputHeaderIconButton(
 
 @Composable
 internal fun InputToolbarIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: LomoIconSpec,
     contentDescription: String,
     enabled: Boolean,
     onClick: () -> Unit,
@@ -384,8 +382,8 @@ internal fun InputToolbarIconButton(
         },
         enabled = enabled,
     ) {
-        Icon(
-            imageVector = icon,
+        LomoIcon(
+            icon = icon,
             contentDescription = contentDescription,
             tint = tint,
             modifier = Modifier.size(20.dp),
@@ -455,8 +453,8 @@ private fun InputToolbarSubmitFab(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.Send,
+            LomoIcon(
+                icon = LomoIcons.Send,
                 contentDescription = org.jetbrains.compose.resources.stringResource(Res.string.cd_send),
                 modifier = Modifier.size(InputSheetTokens.ToolbarSubmitIconSize),
             )

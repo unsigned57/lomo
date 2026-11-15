@@ -17,17 +17,20 @@ package com.lomo.app.widget
  *   an unavailable state.
  * - Given an unavailable generation, when written and read, then the state is preserved with no
  *   items.
+ * - Given a redacted generation when written then no body text, task text, review text, or
+ *   stats counts reach the file.
+ * - Given a task/review/stats budget exceeded when written then validation rejects oversize state.
  *
  * Observable outcomes: typed WidgetGlanceSnapshot results from a real file.
  * TDD proof:
- * - Fails before the fix because the contract surface under test did not exist.
+ * - Fails before the fix because the schema v3 snapshot fields and validation do not exist.
  * Excludes: Glance layout, JNI, and widget process isolation wiring.
  * Test Change Justification:
  * - Reason category: product/domain contract changed.
- * - Old behavior/assertion being replaced: items-only snapshot schema where a missing file read as an empty vault.
- * - Why old assertion is no longer correct: schema v2 distinguishes Absent/Unavailable/Redacted/Ready, so absence and corruption are typed results rather than empty items.
- * - Coverage preserved by: round-trip, corruption, and availability cases on the typed snapshot API.
- * - Why this is not fitting the test to the implementation: typed availability is the required snapshot contract.
+ * - Old behavior/assertion being replaced: schema v2 snapshots only stored 3 memo previews without tasks, stats, or review cards.
+ * - Why old assertion is no longer correct: schema v3 supports multi-widget projections (recent memos with tags/pin, tasks, statistics heatmap, and daily review cards) with privacy redaction across all four widgets.
+ * - Coverage preserved by: round-trip, absent, corruption, unavailable, and redaction cases across the extended snapshot.
+ * - Why this is not fitting the test to the implementation: typed schema v3 fields and redaction guarantees are the widget security and multi-widget contract.
  */
 
 import com.lomo.app.testing.AppFunSpec
@@ -37,7 +40,7 @@ import kotlin.io.path.createTempDirectory
 
 class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
     init {
-        test("given snapshot items when written then a later read recovers the full generation") {
+        test("given schema v3 snapshot payloads when written then a later read recovers all widget sections") {
             val directory = createTempDirectory("widget-glance-snapshot").toFile()
             try {
                 val store = WidgetGlanceSnapshotStore(directory.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME))
@@ -47,11 +50,60 @@ class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
                             id = "memo-1",
                             timestampMillis = 1_000L,
                             previewText = "first",
+                            tags = listOf("work", "ideas"),
+                            isPinned = true,
                         ),
                         WidgetGlanceSnapshotItem(
                             id = "memo-2",
                             timestampMillis = 2_000L,
                             previewText = "second with unicode 笔记",
+                            tags = listOf("daily"),
+                            isPinned = false,
+                        ),
+                    )
+                val tasks =
+                    listOf(
+                        WidgetGlanceTaskItem(
+                            memoId = "memo-1",
+                            lineIndex = 2,
+                            done = false,
+                            text = "Ship widget redesign",
+                            dateKey = "2026-11-14",
+                        ),
+                        WidgetGlanceTaskItem(
+                            memoId = "memo-2",
+                            lineIndex = 0,
+                            done = true,
+                            text = "Review blur spec",
+                            dateKey = "2026-11-13",
+                        ),
+                    )
+                val stats =
+                    WidgetGlanceStats(
+                        totalMemos = 48,
+                        todayCount = 3,
+                        thisWeekCount = 14,
+                        currentStreak = 7,
+                        longestStreak = 12,
+                        activeDays = 30,
+                        asOfEpochDay = 20_406L,
+                        level1Max = 1,
+                        level2Max = 3,
+                        level3Max = 6,
+                        heatmapDays =
+                        listOf(
+                            WidgetGlanceHeatmapDay(epochDay = 20_405L, count = 2),
+                            WidgetGlanceHeatmapDay(epochDay = 20_406L, count = 3),
+                        ),
+                    )
+                val reviews =
+                    listOf(
+                        WidgetGlanceReviewItem(
+                            id = "memo-old-1",
+                            timestampMillis = 900L,
+                            previewText = "Older reflection worth revisiting",
+                            dateKey = "2026-08-01",
+                            tags = listOf("journal"),
                         ),
                     )
 
@@ -60,6 +112,9 @@ class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
                     projectionStamp = 42L,
                     availability = WidgetSnapshotAvailability.READY,
                     items = items,
+                    tasks = tasks,
+                    stats = stats,
+                    reviews = reviews,
                 )
 
                 store.read() shouldBe
@@ -68,6 +123,9 @@ class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
                         projectionStamp = 42L,
                         availability = WidgetSnapshotAvailability.READY,
                         items = items,
+                        tasks = tasks,
+                        stats = stats,
+                        reviews = reviews,
                     )
             } finally {
                 directory.deleteRecursively()
@@ -113,13 +171,16 @@ class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
                         projectionStamp = 7L,
                         availability = WidgetSnapshotAvailability.UNAVAILABLE,
                         items = emptyList(),
+                        tasks = emptyList(),
+                        stats = null,
+                        reviews = emptyList(),
                     )
             } finally {
                 directory.deleteRecursively()
             }
         }
 
-        test("given a redacted generation when written then no body text reaches the file") {
+        test("given a redacted generation when written then no body text, tasks, stats, or reviews reach the file") {
             val directory = createTempDirectory("widget-glance-redacted").toFile()
             try {
                 val file = directory.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME)
@@ -137,12 +198,47 @@ class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
                             previewText = "",
                         ),
                     ),
+                    tasks = emptyList(),
+                    stats = null,
+                    reviews = emptyList(),
                 )
 
                 val read = store.read() as WidgetGlanceSnapshot.Ready
                 read.availability shouldBe WidgetSnapshotAvailability.REDACTED
                 read.items.single().previewText shouldBe ""
+                read.items.single().tags shouldBe emptyList()
+                read.items.single().isPinned shouldBe false
+                read.tasks shouldBe emptyList()
+                read.stats shouldBe null
+                read.reviews shouldBe emptyList()
                 file.readText().contains("workspace-1") shouldBe true
+            } finally {
+                directory.deleteRecursively()
+            }
+        }
+
+        test("given non-empty task, stats, or review payload in redacted write then validation rejects leakage") {
+            val directory = createTempDirectory("widget-glance-redacted-reject").toFile()
+            try {
+                val store = WidgetGlanceSnapshotStore(directory.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME))
+                shouldThrow<IllegalArgumentException> {
+                    store.write(
+                        workspaceId = "workspace-1",
+                        projectionStamp = 9L,
+                        availability = WidgetSnapshotAvailability.REDACTED,
+                        items = emptyList(),
+                        tasks =
+                        listOf(
+                            WidgetGlanceTaskItem(
+                                memoId = "memo-1",
+                                lineIndex = 0,
+                                done = false,
+                                text = "secret task",
+                                dateKey = "2026-11-14",
+                            ),
+                        ),
+                    )
+                }
             } finally {
                 directory.deleteRecursively()
             }

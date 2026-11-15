@@ -2,18 +2,6 @@ package com.lomo.app.feature.memo
 
 import android.Manifest
 import android.net.Uri
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Label
-import androidx.compose.material.icons.automirrored.rounded.Redo
-import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.CheckBox
-import androidx.compose.material.icons.rounded.FormatUnderlined
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.rounded.PhotoCamera
 import com.lomo.app.R
 import com.lomo.domain.model.DraftId
 import com.lomo.ui.component.input.InputEditorCommand
@@ -21,6 +9,7 @@ import com.lomo.ui.component.input.InputToolbarActionId
 import com.lomo.ui.component.input.InputToolbarTool
 import com.lomo.ui.component.input.InputToolbarToolPlacement
 import com.lomo.ui.component.input.InputToolbarToolTintRole
+import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -212,28 +201,28 @@ private fun memoEditorToolbarTool(
         toolbarTool(
             actionId = actionId,
             contentDescriptionRes = R.string.cd_memo_editor_take_photo,
-            icon = Icons.Rounded.PhotoCamera,
+            icon = LomoIcons.PhotoCamera,
         )
 
     MemoEditorToolbarActionIds.image ->
         toolbarTool(
             actionId = actionId,
             contentDescriptionRes = R.string.cd_memo_editor_add_image,
-            icon = Icons.Rounded.Image,
+            icon = LomoIcons.Image,
         )
 
     MemoEditorToolbarActionIds.record ->
         toolbarTool(
             actionId = actionId,
             contentDescriptionRes = R.string.cd_memo_editor_add_voice_memo,
-            icon = Icons.Rounded.Mic,
+            icon = LomoIcons.Mic,
             requiredPermission = Manifest.permission.RECORD_AUDIO,
         )
 
     MemoEditorToolbarActionIds.tag ->
         InputToolbarTool(
             id = actionId,
-            icon = Icons.AutoMirrored.Rounded.Label,
+            icon = LomoIcons.Label,
             contentDescriptionRes = R.string.cd_memo_editor_add_tag,
             command = InputEditorCommand.ToggleTagSelector,
             enabled = true,
@@ -243,7 +232,7 @@ private fun memoEditorToolbarTool(
         toolbarTool(
             actionId = actionId,
             contentDescriptionRes = R.string.cd_memo_editor_backfill_memo,
-            icon = Icons.Rounded.History,
+            icon = LomoIcons.History,
             enabled = canBackfill,
             placement = InputToolbarToolPlacement.SecondaryTray,
         )
@@ -251,7 +240,7 @@ private fun memoEditorToolbarTool(
     MemoEditorToolbarActionIds.todo ->
         InputToolbarTool(
             id = actionId,
-            icon = Icons.Rounded.CheckBox,
+            icon = LomoIcons.CheckBox,
             contentDescriptionRes = R.string.cd_memo_editor_add_checkbox,
             command = InputEditorCommand.InsertTodo,
             enabled = true,
@@ -261,7 +250,7 @@ private fun memoEditorToolbarTool(
         toolbarTool(
             actionId = actionId,
             contentDescriptionRes = R.string.cd_memo_editor_add_reminder,
-            icon = Icons.Rounded.Notifications,
+            icon = LomoIcons.Notifications,
             placement = InputToolbarToolPlacement.SecondaryTray,
         )
 
@@ -269,14 +258,14 @@ private fun memoEditorToolbarTool(
         toolbarTool(
             actionId = actionId,
             contentDescriptionRes = R.string.memo_coordinates_title,
-            icon = Icons.Rounded.LocationOn,
+            icon = LomoIcons.LocationOn,
             placement = InputToolbarToolPlacement.SecondaryTray,
         )
 
     MemoEditorToolbarActionIds.underline ->
         InputToolbarTool(
             id = actionId,
-            icon = Icons.Rounded.FormatUnderlined,
+            icon = LomoIcons.FormatUnderlined,
             contentDescriptionRes = R.string.cd_memo_editor_add_underline,
             command = InputEditorCommand.InsertUnderline,
             enabled = true,
@@ -286,7 +275,7 @@ private fun memoEditorToolbarTool(
     MemoEditorToolbarActionIds.undo ->
         InputToolbarTool(
             id = actionId,
-            icon = Icons.AutoMirrored.Rounded.Undo,
+            icon = LomoIcons.Undo,
             contentDescriptionRes = R.string.cd_memo_editor_undo,
             command = InputEditorCommand.Undo,
             enabled = canUndo,
@@ -296,7 +285,7 @@ private fun memoEditorToolbarTool(
     MemoEditorToolbarActionIds.redo ->
         InputToolbarTool(
             id = actionId,
-            icon = Icons.AutoMirrored.Rounded.Redo,
+            icon = LomoIcons.Redo,
             contentDescriptionRes = R.string.cd_memo_editor_redo,
             command = InputEditorCommand.Redo,
             enabled = canRedo,
@@ -309,7 +298,7 @@ private fun memoEditorToolbarTool(
 private fun toolbarTool(
     actionId: InputToolbarActionId,
     contentDescriptionRes: Int,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: com.lomo.ui.icon.LomoIconSpec,
     enabled: Boolean = true,
     tintRole: InputToolbarToolTintRole = InputToolbarToolTintRole.Default,
     placement: InputToolbarToolPlacement = InputToolbarToolPlacement.Primary,

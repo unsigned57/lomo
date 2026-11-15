@@ -37,7 +37,7 @@ internal fun mainMemoDateFieldColors(hasValue: Boolean, colorScheme: ColorScheme
         )
     } else {
         MainMemoDateFieldColors(
-            containerColor = colorScheme.surfaceContainerLow,
+            containerColor = colorScheme.surfaceContainerHigh,
             iconColor = colorScheme.onSurfaceVariant,
             clearActionColor = colorScheme.onSurfaceVariant,
             labelColor = colorScheme.onSurfaceVariant,

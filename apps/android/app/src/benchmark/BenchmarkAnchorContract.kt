@@ -55,6 +55,7 @@ object BenchmarkAnchorContract {
     const val MEMO_MENU_ROOT = "benchmark_memo_menu_root"
     const val MEMO_ACTION_PIN = "benchmark_memo_action_pin"
     const val MEMO_ACTION_COPY = "benchmark_memo_action_copy"
+    const val MEMO_ACTION_SHARE_MENU = "benchmark_memo_action_share_menu"
     const val MEMO_ACTION_SHARE = "benchmark_memo_action_share"
     const val MEMO_ACTION_LAN_SHARE = "benchmark_memo_action_lan_share"
     const val MEMO_ACTION_HISTORY = "benchmark_memo_action_history"

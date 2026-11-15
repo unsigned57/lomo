@@ -23,15 +23,16 @@ internal suspend fun requestEditorFocusAndKeyboard(
     focusRequester: FocusRequester,
     keyboardController: SoftwareKeyboardController?,
     isActive: () -> Boolean,
-) {
+): Boolean {
     repeat(INPUT_SHEET_FOCUS_REQUEST_MAX_ATTEMPTS) {
-        if (!isActive()) return
+        if (!isActive()) return false
         val focused = focusRequester.requestFocus()
         withFrameNanos { }
-        if (!isActive()) return
+        if (!isActive()) return false
         if (focused) {
             keyboardController?.show()
-            return
+            return true
         }
     }
+    return false
 }

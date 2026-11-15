@@ -11,17 +11,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -48,6 +43,8 @@ import com.lomo.ui.generated.resources.sync_conflict_resolving
 import com.lomo.ui.generated.resources.sync_conflict_title_inbox_review
 import com.lomo.ui.generated.resources.sync_conflict_title_initial_preview
 import com.lomo.ui.generated.resources.sync_conflict_title_standard
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableMap
@@ -66,8 +63,8 @@ internal fun TopBar(source: SyncBackendType, isInitialImportPreview: Boolean, on
         },
         navigationIcon = {
             LomoIconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Default.Close,
+                LomoIcon(
+                    icon = LomoIcons.Close,
                     contentDescription = stringResource(Res.string.sync_conflict_close),
                 )
             }
@@ -247,8 +244,8 @@ private fun SuggestionButton(text: String, onClick: () -> Unit, primary: Boolean
         },
         shapes = ButtonShapes(AppShapes.Large, AppShapes.Medium),
     ) {
-        Icon(
-            imageVector = if (primary) Icons.Default.AutoAwesome else Icons.Default.DoneAll,
+        LomoIcon(
+            icon = if (primary) LomoIcons.AutoAwesome else LomoIcons.DoneAll,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
         )

@@ -14,20 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Notes
-import androidx.compose.material.icons.automirrored.rounded.ShortText
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.rounded.Analytics
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.NightsStay
-import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material.icons.rounded.Tag
-import androidx.compose.material.icons.rounded.TextFields
-import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -66,6 +53,8 @@ import com.lomo.ui.component.stats.PeriodReportCard
 import com.lomo.ui.component.stats.StatCard
 import com.lomo.ui.component.stats.TagDistributionChart
 import com.lomo.ui.component.stats.WeeklyHourHeatmap
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -151,7 +140,7 @@ fun StatisticsScreen(
 
                     is StatisticsScreenState.Error -> {
                         EmptyState(
-                            icon = Icons.Outlined.ErrorOutline,
+                            icon = LomoIcons.Error,
                             title = stringResource(R.string.stats_load_failed_title),
                             description = stringResource(R.string.stats_load_failed_description),
                             action = {
@@ -192,8 +181,8 @@ private fun StatisticsTopBar(
         },
         navigationIcon = {
             LomoIconButton(onClick = onBackClick) {
-                Icon(
-                    Icons.AutoMirrored.Rounded.ArrowBack,
+                LomoIcon(
+                    LomoIcons.ArrowBack,
                     contentDescription = stringResource(R.string.back),
                 )
             }
@@ -201,8 +190,8 @@ private fun StatisticsTopBar(
         actions = {
             if (isReady) {
                 LomoIconButton(onClick = onShareClick) {
-                    Icon(
-                        Icons.Rounded.Share,
+                    LomoIcon(
+                        LomoIcons.Share,
                         contentDescription = stringResource(R.string.stats_share_current_page),
                     )
                 }
@@ -283,19 +272,19 @@ private fun StatisticsOverviewSection(stats: MemoStatistics) {
             StatCard(
                 value = stats.totalMemos.toString(),
                 label = stringResource(R.string.stats_total_memos),
-                icon = Icons.AutoMirrored.Rounded.Notes,
+                icon = LomoIcons.Notes,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = formatStatisticsNumber(stats.totalWords),
                 label = stringResource(R.string.stats_total_words),
-                icon = Icons.AutoMirrored.Rounded.ShortText,
+                icon = LomoIcons.ShortText,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = stats.activeDays.toString(),
                 label = stringResource(R.string.stats_active_days),
-                icon = Icons.Rounded.CalendarMonth,
+                icon = LomoIcons.CalendarMonth,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -307,19 +296,19 @@ private fun StatisticsOverviewSection(stats: MemoStatistics) {
             StatCard(
                 value = "%.1f".format(Locale.US, stats.averageWordsPerMemo),
                 label = stringResource(R.string.stats_avg_words),
-                icon = Icons.Rounded.Analytics,
+                icon = LomoIcons.Analytics,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = stats.totalTags.toString(),
                 label = stringResource(R.string.stats_total_tags),
-                icon = Icons.Rounded.Tag,
+                icon = LomoIcons.Tag,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = formatStatisticsNumber(stats.totalCharacters),
                 label = stringResource(R.string.stats_total_chars),
-                icon = Icons.Rounded.TextFields,
+                icon = LomoIcons.TextFields,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -374,13 +363,13 @@ private fun StatisticsTimeSection(stats: MemoStatistics) {
             StatCard(
                 value = formatStatisticsDailyMemoTime(stats.earliestDailyMemoTime),
                 label = stringResource(R.string.stats_earliest_note_time),
-                icon = Icons.Rounded.WbSunny,
+                icon = LomoIcons.WbSunny,
                 modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = formatStatisticsDailyMemoTime(stats.latestDailyMemoTime),
                 label = stringResource(R.string.stats_latest_note_time),
-                icon = Icons.Rounded.NightsStay,
+                icon = LomoIcons.NightsStay,
                 modifier = Modifier.weight(1f),
             )
         }

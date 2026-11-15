@@ -12,13 +12,21 @@ import java.io.InputStream
  * @property nameState Whether [displayName] came from the preserved original name or from a
  *   legacy import whose original name was never recorded — the UI must present the migration
  *   state rather than pretend the id is a name.
+ * @property variableAxes OpenType `fvar` variation axes declared by this font, or empty if static.
  */
 data class CustomFontInfo(
     val id: String,
     val displayName: String,
     val sizeBytes: Long,
     val nameState: CustomFontNameState = CustomFontNameState.ORIGINAL,
-)
+    val variableAxes: List<FontVariationAxis> = emptyList(),
+) {
+    val visibleVariableAxes: List<FontVariationAxis>
+        get() = variableAxes.filterNot(FontVariationAxis::hidden)
+
+    val isVariableFont: Boolean
+        get() = visibleVariableAxes.isNotEmpty()
+}
 
 /** Provenance of a stored font's display name. */
 enum class CustomFontNameState {

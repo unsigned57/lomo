@@ -10,6 +10,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -26,6 +27,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.core.view.WindowCompat
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.ContrastLevel
+import com.lomo.ui.icon.LocalLomoIconFontSet
+import com.lomo.ui.icon.LomoIconDefaults
+import com.lomo.ui.icon.rememberLomoIconFontSet
+import dev.tclement.fonticons.LocalIconFont
+import dev.tclement.fonticons.LocalIconTintProvider
+import dev.tclement.fonticons.LocalIconWeight
 
 private const val FONT_WEIGHT_ADJUSTMENT_FALLBACK = 0
 
@@ -151,11 +158,17 @@ fun LomoTheme(
         }
     }
 
+    val iconFontSet = rememberLomoIconFontSet()
+
     // Apply the expressive motion scheme globally so that composables such as ModalBottomSheet
     // (memo menu) inherit the scheme directly and avoid a costly nested MaterialTheme on first use.
     CompositionLocalProvider(
         LocalTextSelectionColors provides memoTextSelectionColors(animatedColorScheme),
         LocalLomoMotion provides lomoMotion,
+        LocalLomoIconFontSet provides iconFontSet,
+        LocalIconFont provides iconFontSet.outlined,
+        LocalIconTintProvider provides LocalContentColor,
+        LocalIconWeight provides LomoIconDefaults.OutlinedWeight,
     ) {
         ProvideTypographyScales(typographyScales) {
             @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)

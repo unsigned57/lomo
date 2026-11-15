@@ -6,14 +6,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SheetValue
@@ -26,7 +22,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import com.lomo.app.R
 import com.lomo.domain.model.ThemeMode
+import com.lomo.ui.component.common.LomoModalBottomSheet
+import com.lomo.ui.component.common.LomoSheetTokens
 import com.lomo.ui.component.settings.SwitchPreferenceItem
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -50,7 +49,7 @@ internal fun ThemePreferenceDialog(
     val colorScheme = MaterialTheme.colorScheme
     val unselectedColors =
         ListItemDefaults.segmentedColors(
-            containerColor = colorScheme.surfaceContainerHigh,
+            containerColor = LomoSheetTokens.tileSurfaceColor(colorScheme),
             contentColor = colorScheme.onSurface,
         )
     val selectedColors =
@@ -66,12 +65,9 @@ internal fun ThemePreferenceDialog(
             enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
         )
 
-    ModalBottomSheet(
+    LomoModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        shape = AppShapes.ExtraLargeIncreased,
-        containerColor = colorScheme.surfaceContainerLow,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
         Column(
             modifier =
@@ -127,13 +123,13 @@ internal fun ThemePreferenceDialog(
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = colorScheme.surfaceContainerHigh,
+                color = LomoSheetTokens.tileSurfaceColor(colorScheme),
                 shape = AppShapes.LargeIncreased,
             ) {
                 SwitchPreferenceItem(
                     title = stringResource(R.string.settings_pure_black_dark),
                     subtitle = stringResource(R.string.settings_pure_black_dark_subtitle),
-                    icon = Icons.Outlined.DarkMode,
+                    icon = LomoIcons.DarkMode,
                     checked = pureBlackDark,
                     onCheckedChange = onTogglePureBlackDark,
                 )

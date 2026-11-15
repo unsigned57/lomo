@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.net.toUri
 import com.lomo.domain.model.SecuritySessionState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -13,12 +14,22 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 
+enum class WidgetDestination {
+    SEARCH,
+    DAILY_REVIEW,
+    STATISTICS,
+}
+
+internal data class PendingWidgetNavigationRequest(val id: Long, val destination: WidgetDestination)
+
 internal sealed interface PendingLaunchAction {
     data class SharedText(val text: String) : PendingLaunchAction
 
     data class SharedImage(val uri: Uri) : PendingLaunchAction
 
     data class OpenMemo(val memoId: String) : PendingLaunchAction
+
+    data class OpenDestination(val destination: WidgetDestination) : PendingLaunchAction
 }
 
 internal data class PendingLaunchCommand(val id: Long, val action: PendingLaunchAction)
@@ -164,6 +175,7 @@ internal fun resolvePendingLaunchCommandEntryFlowState(
 internal fun requiredEntryCapabilities(action: PendingLaunchAction?): Set<EntryCapability> = when (action) {
     null,
     is PendingLaunchAction.OpenMemo,
+    is PendingLaunchAction.OpenDestination,
     is PendingLaunchAction.SharedText,
     -> setOf(EntryCapability.RootWorkspace)
 
@@ -248,6 +260,8 @@ internal data class PendingLaunchCommandSnapshot(
 private const val SNAPSHOT_ACTION_SHARED_TEXT = "shared_text"
 private const val SNAPSHOT_ACTION_SHARED_IMAGE = "shared_image"
 private const val SNAPSHOT_ACTION_OPEN_MEMO = "open_memo"
+private const val SNAPSHOT_ACTION_OPEN_DESTINATION = "open_destination"
+private val WIDGET_DESTINATION_BY_NAME = WidgetDestination.entries.associateBy(WidgetDestination::name)
 
 internal fun pendingLaunchCommandsSnapshot(
     nextCommandId: Long,
@@ -277,6 +291,13 @@ internal fun pendingLaunchCommandsSnapshot(
                     action = SNAPSHOT_ACTION_OPEN_MEMO,
                     payload = action.memoId,
                 )
+
+            is PendingLaunchAction.OpenDestination ->
+                PendingLaunchCommandSnapshot.SnapshotPendingLaunchCommand(
+                    id = command.id,
+                    action = SNAPSHOT_ACTION_OPEN_DESTINATION,
+                    payload = action.destination.name,
+                )
         }
     },
 )
@@ -291,9 +312,16 @@ internal fun PendingLaunchCommandSnapshot.toPendingLaunchQueue(): Pair<Long, Lis
                     SNAPSHOT_ACTION_SHARED_TEXT -> PendingLaunchAction.SharedText(command.payload)
 
                     SNAPSHOT_ACTION_SHARED_IMAGE ->
-                        PendingLaunchAction.SharedImage(Uri.parse(command.payload))
+                        PendingLaunchAction.SharedImage(command.payload.toUri())
 
                     SNAPSHOT_ACTION_OPEN_MEMO -> PendingLaunchAction.OpenMemo(command.payload)
+
+                    SNAPSHOT_ACTION_OPEN_DESTINATION -> {
+                        val destination =
+                            WIDGET_DESTINATION_BY_NAME[command.payload]
+                                ?: return@mapNotNull null
+                        PendingLaunchAction.OpenDestination(destination)
+                    }
 
                     else -> return@mapNotNull null
                 }

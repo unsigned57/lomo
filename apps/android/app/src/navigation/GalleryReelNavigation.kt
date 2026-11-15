@@ -148,7 +148,9 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
                     onShowMenu = showMenu,
                 )
             }
-            com.lomo.app.feature.main.MainVersionHistoryEffectHost(mainViewModel = mainViewModel)
+            com.lomo.app.feature.main.MainVersionHistoryEffectHost(
+                bindings = mainViewModel.versionHistoryEffectBindings,
+            )
         }
     }
 }

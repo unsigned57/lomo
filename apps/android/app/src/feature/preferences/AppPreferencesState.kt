@@ -95,7 +95,7 @@ private suspend fun AppPreferenceSnapshot.resolveFontPreference(
     // The host is the only place that knows whether the bytes actually parse: a file that exists
     // but fails font construction is "unusable", which CustomFontStatus.MISSING covers — never
     // report READY while the rendered family silently degraded to SansSerif.
-    return FontResolution(preference, resolved, customFontHost.familyOrNull(preference.id))
+    return FontResolution(preference, resolved, customFontHost.familyOrNull(preference))
 }
 
 private fun AppPreferenceSnapshot.toAppPreferencesState(fontResolution: FontResolution): AppPreferencesState =

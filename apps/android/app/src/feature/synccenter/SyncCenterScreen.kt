@@ -15,18 +15,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.CompareArrows
-import androidx.compose.material.icons.outlined.Dashboard
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.SettingsBackupRestore
-import androidx.compose.material.icons.outlined.SyncProblem
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -39,7 +31,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -57,6 +48,9 @@ import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.LomoButton
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
@@ -222,8 +216,8 @@ private fun SyncCenterTopBar(
                     }
                     .testTag("sync_center_close"),
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                LomoIcon(
+                    icon = LomoIcons.ArrowBack,
                     contentDescription = stringResource(R.string.sync_center_close),
                 )
             }
@@ -239,8 +233,8 @@ private fun SyncCenterTopBar(
                     )
                     .testTag("sync_center_refresh"),
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Refresh,
+                LomoIcon(
+                    icon = LomoIcons.Refresh,
                     contentDescription = stringResource(R.string.sync_center_refresh),
                 )
             }
@@ -263,7 +257,7 @@ private fun SyncCenterPaneHost(
     when (load) {
         SyncCenterLoadState.Idle ->
             EmptyState(
-                icon = Icons.Outlined.SettingsBackupRestore,
+                icon = LomoIcons.SettingsBackupRestore,
                 title = stringResource(R.string.sync_center_idle_title),
                 description = stringResource(R.string.sync_center_idle_prompt),
                 modifier =
@@ -300,21 +294,21 @@ private fun SyncCenterNavTabs(pane: SyncCenterPane, onIntent: (SyncCenterIntent)
     val tabs =
         listOf(
             SyncCenterTab(
-                icon = Icons.Outlined.Dashboard,
+                icon = LomoIcons.Dashboard,
                 labelRes = R.string.sync_center_tab_overview,
                 selected = pane == SyncCenterPane.Overview,
                 testTag = "sync_center_tab_overview",
                 navigate = SyncCenterIntent.NavigateOverview,
             ),
             SyncCenterTab(
-                icon = Icons.AutoMirrored.Outlined.CompareArrows,
+                icon = LomoIcons.CompareArrows,
                 labelRes = R.string.sync_center_tab_conflicts,
                 selected = pane == SyncCenterPane.Conflicts || pane == SyncCenterPane.ConflictDetail,
                 testTag = BenchmarkAnchorContract.SYNC_CENTER_TAB_CONFLICTS,
                 navigate = SyncCenterIntent.NavigateConflicts,
             ),
             SyncCenterTab(
-                icon = Icons.Outlined.SettingsBackupRestore,
+                icon = LomoIcons.SettingsBackupRestore,
                 labelRes = R.string.sync_center_tab_recovery,
                 selected = pane == SyncCenterPane.Recovery,
                 testTag = "sync_center_tab_recovery",
@@ -354,8 +348,8 @@ private fun SyncCenterNavTabs(pane: SyncCenterPane, onIntent: (SyncCenterIntent)
                     // ButtonGroupScope.toggleableItem owns its own button; the pane anchor rides the
                     // icon slot, the same way the memo filter group anchors its sort options.
                     icon = {
-                        Icon(
-                            imageVector = tab.icon,
+                        LomoIcon(
+                            icon = tab.icon,
                             contentDescription = null,
                             modifier =
                             Modifier
@@ -371,7 +365,7 @@ private fun SyncCenterNavTabs(pane: SyncCenterPane, onIntent: (SyncCenterIntent)
 }
 
 private class SyncCenterTab(
-    val icon: ImageVector,
+    val icon: LomoIconSpec,
     val labelRes: Int,
     val selected: Boolean,
     val testTag: String,
@@ -452,8 +446,8 @@ private fun SyncCenterErrorPane(message: String, onRetry: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.SyncProblem,
+            LomoIcon(
+                icon = LomoIcons.SyncProblem,
                 contentDescription = null,
                 modifier = Modifier.size(SyncCenterErrorIconSize),
                 tint = MaterialTheme.colorScheme.onErrorContainer,
@@ -471,7 +465,7 @@ private fun SyncCenterErrorPane(message: String, onRetry: () -> Unit) {
                     .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
                     .testTag("sync_center_retry"),
             ) {
-                Icon(Icons.Outlined.Refresh, contentDescription = null)
+                LomoIcon(LomoIcons.Refresh, contentDescription = null)
                 Spacer(Modifier.size(AppSpacing.Small))
                 Text(stringResource(R.string.sync_center_retry))
             }

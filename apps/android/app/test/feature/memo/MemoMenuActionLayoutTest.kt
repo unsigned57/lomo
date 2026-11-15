@@ -9,38 +9,43 @@ import io.kotest.matchers.shouldBe
  * - Unit under test: memoMenuActionLayout.
  * - Owning layer: app/feature/memo menu composition.
  * - Priority tier: P1.
- * - Capability: every memo menu shows exactly three tiles (edit, copy, then the screen's context
- *   action) followed by a fixed list whose optional rows follow handler capabilities and whose
- *   delete row is always last.
+ * - Capability: every memo menu shows four compact tiles on top (edit, copy, screen context
+ *   action, share menu carrying share-image/share-text/optional-LAN sub-slots) followed by aligned
+ *   bottom capsules for optional version history and delete.
  *
  * Scenarios:
  * - Given the main-list pin context with LAN share and version history, when laid out, then the
- *   tiles are edit/copy/pin and the list is share image, share text, LAN, history, delete.
- * - Given a jump context without LAN share or version history, when laid out, then the tiles are
- *   edit/copy/jump and the list omits the unavailable rows.
+ *   tiles are edit/copy/pin/share-menu (with 3 sub-slots) and the capsules are history/delete.
+ * - Given a jump context without LAN share or version history, when laid out, then the share tile
+ *   carries only share-image and share-text sub-slots and the capsule tier contains only delete.
  *
- * Observable outcomes: ordered (action id, placement) slot lists.
+ * Observable outcomes: ordered MemoMenuActionSlot lists including nested subSlots.
  *
  * TDD proof:
- * - RED: `./kotlin test --include-module=app --include-classes='*MemoMenuActionLayoutTest'` failed
- *   against a placeholder layout returning no slots, because the fixed tile/list layout did not exist.
- * - GREEN: same command after memoMenuActionLayout derives the slots from the handler.
+ * - RED: `./kotlin test --include-module=app --include-classes='*MemoMenuActionLayoutTest'` fails
+ *   until MemoActionId.SHARE_MENU, MemoMenuActionSlot.subSlots, and the 4-tile + capsule layout
+ *   replace the old 3-tile + 5-row layout.
+ * - GREEN: same command after memoMenuActionLayout derives the 4-tile + capsule structure.
  *
  * Excludes: Compose rendering, labels, icons, click dispatch (MemoMenuCommandHandlerTest).
  *
  * Test Change Justification:
- * - Reason category: product feature removal (usage-based memo menu auto-reorder).
- * - Old behavior/assertion being replaced: MemoActionIdTest asserted storage-key parsing and the
- *   default persisted action order.
- * - Why old assertion is no longer correct: action ids are no longer persisted; storage keys and the
- *   default order existed only to rank tiles by usage, which never affected the rendered sheet.
- * - Coverage preserved by: this spec asserts the complete, fixed order and placement of every action.
- * - Why this is not fitting the test to the implementation: the assertions encode the product
- *   layout decided for the redesign, independent of how slots are produced.
+ * - Reason category: redesign of memo menu to restore 1.6.2-inspired 4-tile top bar, merge the
+ *   3 share options under a single Share popup tile, and place history + delete as bottom capsules.
+ * - Old behavior/assertion being replaced: 3-tile layout (edit/copy/context) followed by 3–5
+ *   ActionItemPlacement.Row list items.
+ * - Why old assertion is no longer correct: SHARE_IMAGE, SHARE_TEXT, and LAN_SHARE are now
+ *   grouped under SHARE_MENU instead of separate flat rows, and HISTORY/DELETE are capsules.
+ * - Coverage preserved by: still asserts complete ordered placement for both pin and jump
+ *   contexts and full conditional coverage of optional LAN share and version history capabilities.
+ * - Why this is not fitting the test to the implementation: encodes the exact user-specified
+ *   menu slot contract before modifying MemoActionId.kt.
  */
 class MemoMenuActionLayoutTest : AppFunSpec() {
     init {
-        test("given the pin context with every optional capability when laid out then pin is the third tile") {
+        test(
+            "given pin context with all capabilities then four tiles have share sub-slots and capsules pair history",
+        ) {
             val handler =
                 handler(
                     contextAction = MemoMenuContextAction.TogglePin { _, _ -> },
@@ -53,15 +58,24 @@ class MemoMenuActionLayoutTest : AppFunSpec() {
                     MemoMenuActionSlot(MemoActionId.EDIT, ActionItemPlacement.Tile),
                     MemoMenuActionSlot(MemoActionId.COPY, ActionItemPlacement.Tile),
                     MemoMenuActionSlot(MemoActionId.PIN, ActionItemPlacement.Tile),
-                    MemoMenuActionSlot(MemoActionId.SHARE_IMAGE, ActionItemPlacement.Row),
-                    MemoMenuActionSlot(MemoActionId.SHARE_TEXT, ActionItemPlacement.Row),
-                    MemoMenuActionSlot(MemoActionId.LAN_SHARE, ActionItemPlacement.Row),
-                    MemoMenuActionSlot(MemoActionId.HISTORY, ActionItemPlacement.Row),
-                    MemoMenuActionSlot(MemoActionId.DELETE, ActionItemPlacement.Row),
+                    MemoMenuActionSlot(
+                        id = MemoActionId.SHARE_MENU,
+                        placement = ActionItemPlacement.Tile,
+                        subSlots =
+                        listOf(
+                            MemoActionId.SHARE_IMAGE,
+                            MemoActionId.SHARE_TEXT,
+                            MemoActionId.LAN_SHARE,
+                        ),
+                    ),
+                    MemoMenuActionSlot(MemoActionId.HISTORY, ActionItemPlacement.Capsule),
+                    MemoMenuActionSlot(MemoActionId.DELETE, ActionItemPlacement.Capsule),
                 )
         }
 
-        test("given the jump context without optional capabilities when laid out then unavailable rows are absent") {
+        test(
+            "given jump context without optional capabilities then share omits LAN and capsule shows delete",
+        ) {
             val handler =
                 handler(
                     contextAction = MemoMenuContextAction.Jump { },
@@ -74,9 +88,12 @@ class MemoMenuActionLayoutTest : AppFunSpec() {
                     MemoMenuActionSlot(MemoActionId.EDIT, ActionItemPlacement.Tile),
                     MemoMenuActionSlot(MemoActionId.COPY, ActionItemPlacement.Tile),
                     MemoMenuActionSlot(MemoActionId.JUMP, ActionItemPlacement.Tile),
-                    MemoMenuActionSlot(MemoActionId.SHARE_IMAGE, ActionItemPlacement.Row),
-                    MemoMenuActionSlot(MemoActionId.SHARE_TEXT, ActionItemPlacement.Row),
-                    MemoMenuActionSlot(MemoActionId.DELETE, ActionItemPlacement.Row),
+                    MemoMenuActionSlot(
+                        id = MemoActionId.SHARE_MENU,
+                        placement = ActionItemPlacement.Tile,
+                        subSlots = listOf(MemoActionId.SHARE_IMAGE, MemoActionId.SHARE_TEXT),
+                    ),
+                    MemoMenuActionSlot(MemoActionId.DELETE, ActionItemPlacement.Capsule),
                 )
         }
     }

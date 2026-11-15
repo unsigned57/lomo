@@ -238,7 +238,6 @@ class ShareViewModel(
     }
 
     override fun onCleared() {
-        super.onCleared()
         runCatching {
             lanShareUiCoordinator.stopDiscovery()
             Timber.d("ShareViewModel cleared: discovery stopped")

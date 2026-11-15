@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -26,6 +24,7 @@ import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.toImmutableMap
 
@@ -278,7 +277,7 @@ internal fun InteractionSecuritySettingsPage(
                     com.lomo.ui.component.settings.PreferenceItem(
                         title = stringResource(R.string.quick_ball_title),
                         subtitle = stringResource(R.string.quick_ball_subtitle),
-                        icon = androidx.compose.material.icons.Icons.Outlined.TouchApp,
+                        icon = LomoIcons.TouchApp,
                         onClick = onOpenQuickBall,
                         modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_QUICK_BALL),
                     )

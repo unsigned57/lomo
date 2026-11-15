@@ -30,9 +30,6 @@ internal fun resolveDisplayedThumbOffsetPx(
     settledThumbOffsetPx: Float,
 ): Float = if (isThumbDragged) draggedThumbOffsetPx else settledThumbOffsetPx
 
-internal fun shouldSyncDraggedThumbOffsetFromExternal(visible: Boolean, isThumbDragged: Boolean): Boolean =
-    !visible || !isThumbDragged
-
 internal fun resolveThumbDragStartOffsetFromPress(
     pressY: Float,
     currentThumbOffsetPx: Float,

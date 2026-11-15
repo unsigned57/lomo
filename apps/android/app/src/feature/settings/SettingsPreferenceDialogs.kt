@@ -8,11 +8,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -33,6 +29,8 @@ import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.dialog.SelectionDialog
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 
@@ -377,8 +375,8 @@ private fun CalendarHeatmapBoundaryControl(label: String, value: String, onValue
         LomoIconButton(
             onClick = { onValueChange(stepCalendarHeatmapThresholdValue(value, delta = -1)) },
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Remove,
+            LomoIcon(
+                icon = LomoIcons.Remove,
                 contentDescription = stringResource(R.string.cd_heatmap_threshold_decrement),
             )
         }
@@ -392,8 +390,8 @@ private fun CalendarHeatmapBoundaryControl(label: String, value: String, onValue
         LomoIconButton(
             onClick = { onValueChange(stepCalendarHeatmapThresholdValue(value, delta = 1)) },
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Add,
+            LomoIcon(
+                icon = LomoIcons.Add,
                 contentDescription = stringResource(R.string.cd_heatmap_threshold_increment),
             )
         }

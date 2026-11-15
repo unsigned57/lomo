@@ -8,7 +8,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
-import com.lomo.app.feature.preferences.CustomFontHost
 import com.lomo.app.util.ShareUtils
 import com.lomo.app.util.rememberShareUtils
 import com.lomo.domain.model.Memo
@@ -133,9 +132,6 @@ fun rememberMemoMenuCommandHandler(
     val memoQueryRepository = koinInject<MemoQueryRepository>()
     val dispatcherProvider = koinInject<DispatcherProvider>()
     val copyFailedMessage = stringResource(R.string.memo_copy_failed)
-    // Platform typeface construction is owned by CustomFontHost; it resolves lazily inside the
-    // share coroutine (IO dispatcher, identity-cached) instead of blocking composition.
-    val customFontHost = org.koin.compose.koinInject<CustomFontHost>()
     val scope = rememberCoroutineScope()
     val editMemoState = rememberUpdatedState(onEditMemo)
     val deleteMemoState = rememberUpdatedState(onDeleteMemo)
@@ -151,7 +147,6 @@ fun rememberMemoMenuCommandHandler(
         memoQueryRepository,
         dispatcherProvider,
         copyFailedMessage,
-        customFontHost,
         scope,
         contextAction,
         hasLanShare,
@@ -169,8 +164,6 @@ fun rememberMemoMenuCommandHandler(
                         request = request,
                         context = context,
                         shareUtils = shareUtils,
-                        bodyTypeface =
-                        customFontHost.canvasTypefaceOrNull(presentationState.customFontPath),
                     )
                 }
             },
@@ -209,12 +202,7 @@ fun rememberMemoMenuCommandHandler(
     }
 }
 
-private suspend fun shareMemoAsImage(
-    request: MemoMenuShareCardRequest,
-    context: Context,
-    shareUtils: ShareUtils,
-    bodyTypeface: android.graphics.Typeface?,
-) {
+private suspend fun shareMemoAsImage(request: MemoMenuShareCardRequest, context: Context, shareUtils: ShareUtils) {
     shareUtils.shareMemoAsImage(
         context = context,
         content = request.content,
@@ -224,6 +212,5 @@ private suspend fun shareMemoAsImage(
         timestamp = request.timestamp,
         tags = request.tags,
         resolvedImagePaths = request.resolvedImagePaths,
-        bodyTypeface = bodyTypeface,
     )
 }

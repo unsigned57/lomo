@@ -10,6 +10,8 @@ import androidx.compose.runtime.Composable
 import androidx.core.content.FileProvider
 import com.lomo.app.R
 import com.lomo.app.feature.common.AppConfigStateProvider
+import com.lomo.app.feature.preferences.CustomFontHost
+import com.lomo.app.feature.preferences.ShareCardTypefaces
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.ThemeMode
@@ -34,6 +36,7 @@ class ShareUtils(
     private val shareCardBitmapRenderer: ShareCardBitmapRenderer,
     private val appConfigStateProvider: AppConfigStateProvider,
     private val dispatcherProvider: DispatcherProvider,
+    private val customFontHost: CustomFontHost,
 ) {
     private data class ShareImageConfig(
         val showTime: Boolean,
@@ -46,7 +49,7 @@ class ShareUtils(
         val themeMode: ThemeMode,
         val typographyScales: TypographyScales,
         val resolvedImagePaths: List<String>,
-        val bodyTypeface: android.graphics.Typeface?,
+        val bodyTypefaces: ShareCardTypefaces?,
     )
 
     suspend fun shareMemoAsImage(
@@ -59,10 +62,10 @@ class ShareUtils(
         timestamp: Long? = null,
         tags: List<String> = emptyList(),
         resolvedImagePaths: List<String> = emptyList(),
-        bodyTypeface: android.graphics.Typeface? = null,
     ) {
         try {
             val displayPreferences = appConfigStateProvider.appPreferences.value
+            val resolvedTypefaces = customFontHost.shareCardTypefacesOrNull(displayPreferences.fontPreference)
             val imageUri =
                 createShareImageUri(
                     context = context,
@@ -85,7 +88,7 @@ class ShareUtils(
                             paragraphSpacingScale = displayPreferences.typographyParagraphSpacingScale,
                         ),
                         resolvedImagePaths = resolvedImagePaths,
-                        bodyTypeface = bodyTypeface,
+                        bodyTypefaces = resolvedTypefaces,
                     ),
                 )
             withContext(dispatcherProvider.main) {
@@ -165,7 +168,7 @@ class ShareUtils(
                         themeMode = config.themeMode,
                         typographyScales = config.typographyScales,
                         resolvedImagePaths = config.resolvedImagePaths,
-                        bodyTypeface = config.bodyTypeface,
+                        bodyTypefaces = config.bodyTypefaces,
                     ),
                 )
             }

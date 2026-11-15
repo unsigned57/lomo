@@ -6,6 +6,7 @@ import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.CustomFontNameState
 import com.lomo.domain.model.CustomFontRejection
 import com.lomo.domain.model.CustomFontSource
+import com.lomo.domain.model.OpenTypeVariableFontParser
 import com.lomo.domain.repository.CustomFontStore
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
@@ -115,10 +116,9 @@ internal constructor(
                         return@withContext CustomFontImportResult.Rejected(CustomFontRejection.UNREADABLE)
                     }
                     val info =
-                        CustomFontInfo(
-                            id = target.name,
+                        buildCustomFontInfo(
+                            file = target,
                             displayName = displayName,
-                            sizeBytes = target.length(),
                             nameState = CustomFontNameState.ORIGINAL,
                         )
                     refreshState()
@@ -234,10 +234,9 @@ internal constructor(
         .sortedBy(File::lastModified)
         .map { file ->
             val legacy = UUID_FILE_NAME.matches(file.nameWithoutExtension)
-            CustomFontInfo(
-                id = file.name,
+            buildCustomFontInfo(
+                file = file,
                 displayName = file.nameWithoutExtension,
-                sizeBytes = file.length(),
                 nameState =
                 if (legacy) {
                     CustomFontNameState.LEGACY_IMPORT
@@ -246,6 +245,15 @@ internal constructor(
                 },
             )
         }
+
+    private fun buildCustomFontInfo(file: File, displayName: String, nameState: CustomFontNameState): CustomFontInfo =
+        CustomFontInfo(
+            id = file.name,
+            displayName = displayName,
+            sizeBytes = file.length(),
+            nameState = nameState,
+            variableAxes = OpenTypeVariableFontParser.parse(file),
+        )
 
     private fun refreshState() {
         state.value = scanFonts()

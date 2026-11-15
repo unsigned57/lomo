@@ -143,6 +143,21 @@ class SettingsViewModel(
             s3Coordinator = s3Coordinator,
         )
 
+    val features =
+        SettingsFeatures(
+            storage = storageFeature,
+            display = displayFeature,
+            shareCard = shareCardFeature,
+            snapshot = snapshotFeature,
+            interaction = interactionFeature,
+            system = systemFeature,
+            migration = migrationFeature,
+            lanShare = lanShareFeature,
+            git = gitFeature,
+            webDav = webDavFeature,
+            s3 = s3Feature,
+        )
+
     init {
         actionCoordinator.refreshPatConfigured()
         actionCoordinator.refreshWebDavPasswordConfigured()

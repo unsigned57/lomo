@@ -15,19 +15,68 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 internal const val WIDGET_GLANCE_SNAPSHOT_FILE_NAME = "widget-glance-snapshot.json"
-internal const val WIDGET_MEMO_LIMIT = 3
+internal const val WIDGET_MEMO_LIMIT = 15
+internal const val WIDGET_TASK_LIMIT = 12
+internal const val WIDGET_REVIEW_LIMIT = 8
+internal const val WIDGET_HEATMAP_DAY_LIMIT = 126
+internal const val WIDGET_TAG_LIMIT_PER_ITEM = 3
 private const val WIDGET_SNAPSHOT_BYTE_LIMIT = 64 * 1024
 private const val WIDGET_ITEM_ID_MAX_LENGTH = 512
 private const val WIDGET_PREVIEW_MAX_LENGTH = 4096
-internal const val WIDGET_SNAPSHOT_SCHEMA_VERSION = 2
+private const val WIDGET_TAG_MAX_LENGTH = 64
+private const val WIDGET_DATE_KEY_MAX_LENGTH = 64
+private const val WIDGET_HEATMAP_THRESHOLD_MAX = 99
+internal const val WIDGET_SNAPSHOT_SCHEMA_VERSION = 3
 
 @Serializable
-internal data class WidgetGlanceSnapshotItem(val id: String, val timestampMillis: Long, val previewText: String)
+internal data class WidgetGlanceSnapshotItem(
+    val id: String,
+    val timestampMillis: Long,
+    val previewText: String,
+    val tags: List<String> = emptyList(),
+    val isPinned: Boolean = false,
+)
+
+@Serializable
+internal data class WidgetGlanceTaskItem(
+    val memoId: String,
+    val lineIndex: Int,
+    val done: Boolean,
+    val text: String,
+    val dateKey: String,
+)
+
+@Serializable
+internal data class WidgetGlanceHeatmapDay(val epochDay: Long, val count: Int)
+
+@Serializable
+internal data class WidgetGlanceStats(
+    val totalMemos: Int,
+    val todayCount: Int,
+    val thisWeekCount: Int,
+    val currentStreak: Int,
+    val longestStreak: Int,
+    val activeDays: Int,
+    val asOfEpochDay: Long,
+    val level1Max: Int,
+    val level2Max: Int,
+    val level3Max: Int,
+    val heatmapDays: List<WidgetGlanceHeatmapDay> = emptyList(),
+)
+
+@Serializable
+internal data class WidgetGlanceReviewItem(
+    val id: String,
+    val timestampMillis: Long,
+    val previewText: String,
+    val dateKey: String,
+    val tags: List<String> = emptyList(),
+)
 
 /** Generation state of the persisted snapshot; each carries a different widget meaning. */
 @Serializable
 internal enum class WidgetSnapshotAvailability {
-    /** The writer had an admitted mount and privacy clearance; [WidgetGlanceSnapshotFile.items] render. */
+    /** The writer had an admitted mount and privacy clearance; all widget payloads render. */
     READY,
 
     /** The workspace could not be read (opening, preparing, recovery); never render as empty. */
@@ -43,6 +92,9 @@ internal data class WidgetGlanceSnapshotFile(
     val projectionStamp: Long,
     val availability: WidgetSnapshotAvailability,
     val items: List<WidgetGlanceSnapshotItem>,
+    val tasks: List<WidgetGlanceTaskItem> = emptyList(),
+    val stats: WidgetGlanceStats? = null,
+    val reviews: List<WidgetGlanceReviewItem> = emptyList(),
     val schemaVersion: Int = WIDGET_SNAPSHOT_SCHEMA_VERSION,
 )
 
@@ -60,6 +112,9 @@ internal sealed interface WidgetGlanceSnapshot {
         val projectionStamp: Long,
         val availability: WidgetSnapshotAvailability,
         val items: List<WidgetGlanceSnapshotItem>,
+        val tasks: List<WidgetGlanceTaskItem> = emptyList(),
+        val stats: WidgetGlanceStats? = null,
+        val reviews: List<WidgetGlanceReviewItem> = emptyList(),
     ) : WidgetGlanceSnapshot
 }
 
@@ -86,12 +141,21 @@ internal class WidgetGlanceSnapshotStore(
         require(decoded.schemaVersion == WIDGET_SNAPSHOT_SCHEMA_VERSION) {
             "Widget snapshot schema ${decoded.schemaVersion} is not $WIDGET_SNAPSHOT_SCHEMA_VERSION"
         }
-        validateItems(decoded.items)
+        validateGeneration(
+            availability = decoded.availability,
+            items = decoded.items,
+            tasks = decoded.tasks,
+            stats = decoded.stats,
+            reviews = decoded.reviews,
+        )
         return WidgetGlanceSnapshot.Ready(
             workspaceId = decoded.workspaceId,
             projectionStamp = decoded.projectionStamp,
             availability = decoded.availability,
             items = decoded.items,
+            tasks = decoded.tasks,
+            stats = decoded.stats,
+            reviews = decoded.reviews,
         )
     }
 
@@ -121,8 +185,17 @@ internal class WidgetGlanceSnapshotStore(
         projectionStamp: Long,
         availability: WidgetSnapshotAvailability,
         items: List<WidgetGlanceSnapshotItem>,
+        tasks: List<WidgetGlanceTaskItem> = emptyList(),
+        stats: WidgetGlanceStats? = null,
+        reviews: List<WidgetGlanceReviewItem> = emptyList(),
     ) = withContext(ioDispatcher) {
-        validateItems(items)
+        validateGeneration(
+            availability = availability,
+            items = items,
+            tasks = tasks,
+            stats = stats,
+            reviews = reviews,
+        )
         val bytes =
             snapshotJson
                 .encodeToString(
@@ -131,6 +204,9 @@ internal class WidgetGlanceSnapshotStore(
                         projectionStamp = projectionStamp,
                         availability = availability,
                         items = items,
+                        tasks = tasks,
+                        stats = stats,
+                        reviews = reviews,
                     ),
                 ).toByteArray()
         require(bytes.size <= WIDGET_SNAPSHOT_BYTE_LIMIT) {
@@ -157,16 +233,100 @@ internal class WidgetGlanceSnapshotStore(
         Unit
     }
 
+    private fun validateGeneration(
+        availability: WidgetSnapshotAvailability,
+        items: List<WidgetGlanceSnapshotItem>,
+        tasks: List<WidgetGlanceTaskItem>,
+        stats: WidgetGlanceStats?,
+        reviews: List<WidgetGlanceReviewItem>,
+    ) {
+        validateItems(items)
+        validateTasks(tasks)
+        if (stats != null) {
+            validateStats(stats)
+        }
+        validateReviews(reviews)
+        when (availability) {
+            WidgetSnapshotAvailability.UNAVAILABLE ->
+                require(items.isEmpty() && tasks.isEmpty() && stats == null && reviews.isEmpty()) {
+                    "Unavailable widget snapshot must not carry memo content"
+                }
+
+            WidgetSnapshotAvailability.REDACTED ->
+                require(
+                    items.all { it.previewText.isEmpty() && it.tags.isEmpty() && !it.isPinned } &&
+                        tasks.isEmpty() &&
+                        stats == null &&
+                        reviews.isEmpty(),
+                ) {
+                    "Redacted widget snapshot must not leak memo previews, tasks, stats, or reviews"
+                }
+
+            WidgetSnapshotAvailability.READY -> Unit
+        }
+    }
+
     private fun validateItems(items: List<WidgetGlanceSnapshotItem>) {
         require(items.size <= WIDGET_MEMO_LIMIT) { "Widget snapshot exceeds its item budget" }
         require(
-            items.all {
-                it.id.isNotBlank() &&
-                    it.id.length <= WIDGET_ITEM_ID_MAX_LENGTH &&
-                    it.previewText.length <= WIDGET_PREVIEW_MAX_LENGTH
+            items.all { item ->
+                item.id.isNotBlank() &&
+                    item.id.length <= WIDGET_ITEM_ID_MAX_LENGTH &&
+                    item.previewText.length <= WIDGET_PREVIEW_MAX_LENGTH &&
+                    item.tags.size <= WIDGET_TAG_LIMIT_PER_ITEM &&
+                    item.tags.all { tag -> tag.isNotBlank() && tag.length <= WIDGET_TAG_MAX_LENGTH }
             },
         ) {
-            "Widget snapshot has invalid identity or oversized preview"
+            "Widget snapshot has invalid item identity, tag, or oversized preview"
+        }
+    }
+
+    private fun validateTasks(tasks: List<WidgetGlanceTaskItem>) {
+        require(tasks.size <= WIDGET_TASK_LIMIT) { "Widget snapshot exceeds its task budget" }
+        require(
+            tasks.all { task ->
+                task.memoId.isNotBlank() &&
+                    task.memoId.length <= WIDGET_ITEM_ID_MAX_LENGTH &&
+                    task.lineIndex >= 0 &&
+                    task.text.length <= WIDGET_PREVIEW_MAX_LENGTH &&
+                    task.dateKey.length <= WIDGET_DATE_KEY_MAX_LENGTH
+            },
+        ) {
+            "Widget snapshot has invalid task metadata or oversized body"
+        }
+    }
+
+    private fun validateStats(stats: WidgetGlanceStats) {
+        require(
+            stats.totalMemos >= 0 &&
+                stats.todayCount >= 0 &&
+                stats.thisWeekCount >= 0 &&
+                stats.currentStreak >= 0 &&
+                stats.longestStreak >= 0 &&
+                stats.activeDays >= 0 &&
+                stats.level1Max in 1..WIDGET_HEATMAP_THRESHOLD_MAX &&
+                stats.level2Max in (stats.level1Max + 1)..WIDGET_HEATMAP_THRESHOLD_MAX &&
+                stats.level3Max in (stats.level2Max + 1)..WIDGET_HEATMAP_THRESHOLD_MAX &&
+                stats.heatmapDays.size <= WIDGET_HEATMAP_DAY_LIMIT &&
+                stats.heatmapDays.all { it.count >= 0 },
+        ) {
+            "Widget snapshot has invalid statistics or heatmap bounds"
+        }
+    }
+
+    private fun validateReviews(reviews: List<WidgetGlanceReviewItem>) {
+        require(reviews.size <= WIDGET_REVIEW_LIMIT) { "Widget snapshot exceeds its review budget" }
+        require(
+            reviews.all { review ->
+                review.id.isNotBlank() &&
+                    review.id.length <= WIDGET_ITEM_ID_MAX_LENGTH &&
+                    review.previewText.length <= WIDGET_PREVIEW_MAX_LENGTH &&
+                    review.dateKey.length <= WIDGET_DATE_KEY_MAX_LENGTH &&
+                    review.tags.size <= WIDGET_TAG_LIMIT_PER_ITEM &&
+                    review.tags.all { tag -> tag.isNotBlank() && tag.length <= WIDGET_TAG_MAX_LENGTH }
+            },
+        ) {
+            "Widget snapshot has invalid review item"
         }
     }
 }

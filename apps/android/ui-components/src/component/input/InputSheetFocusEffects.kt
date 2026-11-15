@@ -7,7 +7,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.SoftwareKeyboardController
 
@@ -17,7 +16,6 @@ internal const val INPUT_SHEET_FOCUS_RELEASE_MAX_ATTEMPTS = 5
 @Composable
 internal fun InputSheetVisibilityEffects(focusRequestToken: Long, onSheetVisibleChange: (Boolean) -> Unit) {
     LaunchedEffect(focusRequestToken) {
-        withFrameNanos { }
         onSheetVisibleChange(true)
     }
 }
@@ -57,7 +55,6 @@ internal fun InputSheetFocusRequestEffects(state: InputSheetFocusRequestState) {
 
     LaunchedEffect(
         state.sessionState.isSheetVisible,
-        state.sessionState.isSheetEntrySettled,
         state.editorAcceptsFocus,
         state.isRecording,
         state.sessionState.isDismissing,
@@ -66,7 +63,6 @@ internal fun InputSheetFocusRequestEffects(state: InputSheetFocusRequestState) {
         if (
             !shouldRequestInputSheetEditorFocus(
                 isSheetVisible = state.sessionState.isSheetVisible,
-                isSheetEntrySettled = state.sessionState.isSheetEntrySettled,
                 editorAcceptsFocus = state.editorAcceptsFocus,
                 isRecording = state.isRecording,
                 isDismissing = state.sessionState.isDismissing,
@@ -76,30 +72,33 @@ internal fun InputSheetFocusRequestEffects(state: InputSheetFocusRequestState) {
         ) {
             return@LaunchedEffect
         }
-        requestEditorFocusAndKeyboard(
-            focusRequester = state.focusRequester,
-            keyboardController = state.keyboardController,
-            isActive = {
-                val latest = currentState
-                latest.focusRequestToken == state.focusRequestToken &&
-                    latest.sessionState.isSheetVisible && !latest.sessionState.isDismissing && !latest.isRecording &&
-                    latest.editorAcceptsFocus
-            },
-        )
-        lastHandledFocusRequestToken = state.focusRequestToken
+        val shown =
+            requestEditorFocusAndKeyboard(
+                focusRequester = state.focusRequester,
+                keyboardController = state.keyboardController,
+                isActive = {
+                    val latest = currentState
+                    latest.focusRequestToken == state.focusRequestToken &&
+                        latest.sessionState.isSheetVisible &&
+                        !latest.sessionState.isDismissing &&
+                        !latest.isRecording &&
+                        latest.editorAcceptsFocus
+                },
+            )
+        if (shown) {
+            lastHandledFocusRequestToken = state.focusRequestToken
+        }
     }
 }
 
 internal fun shouldRequestInputSheetEditorFocus(
     isSheetVisible: Boolean,
-    isSheetEntrySettled: Boolean,
     editorAcceptsFocus: Boolean,
     isRecording: Boolean,
     isDismissing: Boolean,
     focusRequestToken: Long,
     lastHandledFocusRequestToken: Long,
 ): Boolean = isSheetVisible &&
-    isSheetEntrySettled &&
     editorAcceptsFocus &&
     !isRecording &&
     !isDismissing &&

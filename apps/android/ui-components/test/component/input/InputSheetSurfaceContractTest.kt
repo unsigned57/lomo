@@ -1,10 +1,9 @@
 // architectural-boundary-check
 package com.lomo.ui.component.input
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Image
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.ui.component.markdown.MarkdownRenderState
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactly
@@ -152,7 +151,7 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
 
     private fun contractTool(id: String): InputToolbarTool = InputToolbarTool(
         id = InputToolbarActionId(id),
-        icon = Icons.Rounded.Image,
+        icon = LomoIcons.Image,
         contentDescriptionRes = android.R.string.ok,
         command = InputEditorCommand.Action(InputToolbarActionId(id)),
         enabled = true,

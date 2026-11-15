@@ -14,6 +14,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.toRoute
 import androidx.paging.compose.collectAsLazyPagingItems
+import com.lomo.app.PendingWidgetNavigationRequest
+import com.lomo.app.WidgetDestination
 import com.lomo.app.feature.gallery.GalleryReelMode
 import com.lomo.app.feature.gallery.GalleryReelRequest
 import com.lomo.app.feature.gallery.GalleryReelScreen
@@ -44,10 +46,12 @@ private const val MAIN_ROUTE_NAME = NavRouteSerialNames.MAIN
  * Extracted from MainActivity to improve maintainability.
  */
 @Composable
-fun LomoNavHost(
+internal fun LomoNavHost(
     navController: NavHostController,
     foregroundEntryId: Long = 0L,
     suppressForegroundAutoInput: Boolean = false,
+    pendingWidgetNavigation: PendingWidgetNavigationRequest? = null,
+    onConsumeWidgetNavigation: (Long) -> Unit = {},
 ) {
     val lanShareAvailabilityViewModel: LanShareAvailabilityViewModel = activityKoinViewModel()
     val lanShareEnabled by lanShareAvailabilityViewModel.lanShareEnabled.collectAsStateWithLifecycle()
@@ -75,6 +79,20 @@ fun LomoNavHost(
             )
         evaluatedForegroundEntryId = nextState.evaluatedForegroundEntryId
         mainForegroundEntryId = nextState.mainForegroundEntryId
+    }
+
+    LaunchedEffect(pendingWidgetNavigation) {
+        val request = pendingWidgetNavigation ?: return@LaunchedEffect
+        val route =
+            when (request.destination) {
+                WidgetDestination.SEARCH -> NavRoute.Search
+                WidgetDestination.DAILY_REVIEW -> NavRoute.DailyReview
+                WidgetDestination.STATISTICS -> NavRoute.Statistics
+            }
+        navController.navigate(route) {
+            launchSingleTop = true
+        }
+        onConsumeWidgetNavigation(request.id)
     }
 
     LomoNavigationGraph(

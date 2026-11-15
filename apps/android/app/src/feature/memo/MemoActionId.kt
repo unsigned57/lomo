@@ -1,16 +1,7 @@
 package com.lomo.app.feature.memo
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.TextSnippet
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
@@ -19,7 +10,10 @@ import com.lomo.ui.component.menu.ActionItemHaptic
 import com.lomo.ui.component.menu.ActionItemPlacement
 import com.lomo.ui.component.menu.ActionItemUi
 import com.lomo.ui.component.menu.MemoMenuActionLifecycle
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 
 enum class MemoActionId {
@@ -27,6 +21,7 @@ enum class MemoActionId {
     COPY,
     PIN,
     JUMP,
+    SHARE_MENU,
     SHARE_IMAGE,
     SHARE_TEXT,
     LAN_SHARE,
@@ -34,24 +29,36 @@ enum class MemoActionId {
     DELETE,
 }
 
-internal data class MemoMenuActionSlot(val id: MemoActionId, val placement: ActionItemPlacement)
+internal data class MemoMenuActionSlot(
+    val id: MemoActionId,
+    val placement: ActionItemPlacement,
+    val subSlots: List<MemoActionId> = emptyList(),
+)
 
-/** Fixed memo menu layout: edit, copy and the screen's context action as tiles, then the list. */
+/**
+ * Fixed memo menu layout: four compact top tiles (edit, copy, screen context action, and grouped
+ * share actions) followed by aligned bottom capsules for optional history and delete.
+ */
 internal fun memoMenuActionLayout(handler: MemoMenuCommandHandler): List<MemoMenuActionSlot> = buildList {
     val contextActionId =
         when (handler.contextAction) {
             is MemoMenuContextAction.TogglePin -> MemoActionId.PIN
             is MemoMenuContextAction.Jump -> MemoActionId.JUMP
         }
-    listOf(MemoActionId.EDIT, MemoActionId.COPY, contextActionId)
-        .forEach { id -> add(MemoMenuActionSlot(id, ActionItemPlacement.Tile)) }
-    listOfNotNull(
-        MemoActionId.SHARE_IMAGE,
-        MemoActionId.SHARE_TEXT,
-        MemoActionId.LAN_SHARE.takeIf { handler.hasLanShare },
-        MemoActionId.HISTORY.takeIf { handler.hasVersionHistory },
-        MemoActionId.DELETE,
-    ).forEach { id -> add(MemoMenuActionSlot(id, ActionItemPlacement.Row)) }
+    val shareSubSlots =
+        listOfNotNull(
+            MemoActionId.SHARE_IMAGE,
+            MemoActionId.SHARE_TEXT,
+            MemoActionId.LAN_SHARE.takeIf { handler.hasLanShare },
+        )
+    add(MemoMenuActionSlot(MemoActionId.EDIT, ActionItemPlacement.Tile))
+    add(MemoMenuActionSlot(MemoActionId.COPY, ActionItemPlacement.Tile))
+    add(MemoMenuActionSlot(contextActionId, ActionItemPlacement.Tile))
+    add(MemoMenuActionSlot(MemoActionId.SHARE_MENU, ActionItemPlacement.Tile, subSlots = shareSubSlots))
+    if (handler.hasVersionHistory) {
+        add(MemoMenuActionSlot(MemoActionId.HISTORY, ActionItemPlacement.Capsule))
+    }
+    add(MemoMenuActionSlot(MemoActionId.DELETE, ActionItemPlacement.Capsule))
 }
 
 @Composable
@@ -77,8 +84,10 @@ internal fun rememberMemoMenuActions(
 }
 
 @Composable
+@ReadOnlyComposable
 private fun rememberMemoMenuActionLabels(isPinned: Boolean): MemoMenuActionLabels = MemoMenuActionLabels(
     copy = stringResource(R.string.action_copy),
+    shareMenu = stringResource(R.string.action_share_menu),
     shareImage = stringResource(R.string.action_share),
     shareText = stringResource(R.string.action_share_text),
     lanShare = stringResource(R.string.action_lan_share),
@@ -97,8 +106,40 @@ private fun memoMenuActionItem(
     lifecycle: MemoMenuActionLifecycle,
     commandHandler: MemoMenuCommandHandler,
 ): ActionItemUi {
-    fun item(
-        icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val subActions =
+        slot.subSlots
+            .map { subId ->
+                memoMenuLeafItem(
+                    actionId = subId,
+                    placement = ActionItemPlacement.Capsule,
+                    selection = selection,
+                    labels = labels,
+                    lifecycle = lifecycle,
+                    commandHandler = commandHandler,
+                )
+            }.toImmutableList()
+    return memoMenuLeafItem(
+        actionId = slot.id,
+        placement = slot.placement,
+        selection = selection,
+        labels = labels,
+        lifecycle = lifecycle,
+        commandHandler = commandHandler,
+        subActions = subActions,
+    )
+}
+
+private fun memoMenuLeafItem(
+    actionId: MemoActionId,
+    placement: ActionItemPlacement,
+    selection: MemoMenuSelection,
+    labels: MemoMenuActionLabels,
+    lifecycle: MemoMenuActionLifecycle,
+    commandHandler: MemoMenuCommandHandler,
+    subActions: ImmutableList<ActionItemUi> = persistentListOf(),
+): ActionItemUi {
+    fun buildItem(
+        icon: LomoIconSpec,
         label: String,
         onClick: () -> Unit,
         isDestructive: Boolean = false,
@@ -108,64 +149,105 @@ private fun memoMenuActionItem(
         icon = icon,
         label = label,
         onClick = onClick,
-        placement = slot.placement,
-        benchmarkTag = benchmarkMemoActionAnchor(slot.id),
+        placement = placement,
+        benchmarkTag = benchmarkMemoActionAnchor(actionId),
         isDestructive = isDestructive,
         isHighlighted = isHighlighted,
         dismissAfterClick = false,
         haptic = haptic,
+        subActions = subActions,
     )
-    return when (slot.id) {
+
+    return when (actionId) {
         MemoActionId.EDIT ->
-            item(Icons.Outlined.Edit, labels.edit, { lifecycle.hideAndConsume { commandHandler.edit(selection) } })
+            buildItem(
+                LomoIcons.EditSquare,
+                labels.edit,
+                {
+                    lifecycle.hideAndConsume {
+                        commandHandler.edit(selection)
+                    }
+                },
+            )
 
         MemoActionId.COPY ->
-            item(
-                Icons.Outlined.ContentCopy,
+            buildItem(
+                LomoIcons.ContentCopy,
                 labels.copy,
                 { lifecycle.hideAndConsume { commandHandler.copy(selection, labels.clipboardLabel) } },
             )
 
         MemoActionId.PIN ->
-            item(
-                Icons.Outlined.PushPin,
+            buildItem(
+                if (selection.memo.isPinned) LomoIcons.KeepFilled else LomoIcons.Keep,
                 labels.pin,
                 { lifecycle.consume { commandHandler.runContextAction(selection) } },
                 isHighlighted = selection.memo.isPinned,
             )
 
         MemoActionId.JUMP ->
-            item(
-                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            buildItem(
+                LomoIcons.ArrowOutward,
                 labels.jump,
                 { lifecycle.consume { commandHandler.runContextAction(selection) } },
             )
 
+        MemoActionId.SHARE_MENU ->
+            buildItem(LomoIcons.Share, labels.shareMenu, {})
+
         MemoActionId.SHARE_IMAGE ->
-            item(Icons.Outlined.Image, labels.shareImage, { lifecycle.consume { commandHandler.shareCard(selection) } })
+            buildItem(
+                LomoIcons.Image,
+                labels.shareImage,
+                {
+                    lifecycle.consume {
+                        commandHandler.shareCard(selection)
+                    }
+                },
+            )
 
         MemoActionId.SHARE_TEXT ->
-            item(
-                Icons.AutoMirrored.Outlined.TextSnippet,
+            buildItem(
+                LomoIcons.Article,
                 labels.shareText,
-                { lifecycle.consume { commandHandler.shareText(selection) } },
+                {
+                    lifecycle.consume {
+                        commandHandler.shareText(selection)
+                    }
+                },
             )
 
         MemoActionId.LAN_SHARE ->
-            item(Icons.Outlined.Wifi, labels.lanShare, { lifecycle.consume { commandHandler.lanShare(selection) } })
+            buildItem(
+                LomoIcons.Devices,
+                labels.lanShare,
+                {
+                    lifecycle.consume {
+                        commandHandler.lanShare(selection)
+                    }
+                },
+            )
 
         MemoActionId.HISTORY ->
-            item(
-                Icons.Outlined.History,
+            buildItem(
+                LomoIcons.History,
                 labels.history,
-                { lifecycle.consume { commandHandler.versionHistory(selection) } },
+                {
+                    lifecycle.consume {
+                        commandHandler.versionHistory(selection)
+                    }
+                },
             )
 
         MemoActionId.DELETE ->
-            item(
-                Icons.Outlined.Delete,
+            buildItem(
+                LomoIcons.Delete,
                 labels.delete,
-                { lifecycle.hideAndConsume { commandHandler.delete(selection) } },
+                {
+                    lifecycle.hideAndConsume {
+                        commandHandler.delete(selection)
+                    }
+                },
                 isDestructive = true,
                 haptic = ActionItemHaptic.HEAVY,
             )
@@ -174,6 +256,7 @@ private fun memoMenuActionItem(
 
 private fun benchmarkMemoActionAnchor(actionId: MemoActionId): String? = when (actionId) {
     MemoActionId.COPY -> BenchmarkAnchorContract.MEMO_ACTION_COPY
+    MemoActionId.SHARE_MENU -> BenchmarkAnchorContract.MEMO_ACTION_SHARE_MENU
     MemoActionId.SHARE_IMAGE -> BenchmarkAnchorContract.MEMO_ACTION_SHARE
     MemoActionId.PIN -> BenchmarkAnchorContract.MEMO_ACTION_PIN
     MemoActionId.HISTORY -> BenchmarkAnchorContract.MEMO_ACTION_HISTORY
@@ -185,6 +268,7 @@ private fun benchmarkMemoActionAnchor(actionId: MemoActionId): String? = when (a
 
 private data class MemoMenuActionLabels(
     val copy: String,
+    val shareMenu: String,
     val shareImage: String,
     val shareText: String,
     val lanShare: String,

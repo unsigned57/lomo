@@ -119,4 +119,5 @@
     <string name="memo_card_pending">saving…</string>
     <!-- Page Indicator -->
     <string name="cd_page_indicator">Page %1$d of %2$d</string>
+    <string name="cd_close_action_group">Close options</string>
 </resources>

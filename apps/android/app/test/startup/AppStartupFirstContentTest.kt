@@ -1,11 +1,14 @@
 /*
- * Dependency upgrade Test Change Justification:
- * Reason category: mechanical migration.
- * Old behavior/assertion being replaced: explicit Unit expressions in success callbacks.
- * Why old assertion is no longer correct: Kotlin 2.4 diagnoses these expressions as unused.
- * Coverage preserved by: the same success callbacks, side effects, state and expected values.
- * Why this is not fitting the test to the implementation: only redundant expression syntax
- * changes; failure and success assertions remain unchanged.
+ * Test Change Justification:
+ * Reason category: mechanical migration + deferred startup task addition (WIDGET_PREVIEWS).
+ * Old behavior/assertion being replaced: explicit Unit expressions in success callbacks; zipped
+ * five StartupTaskId entries.
+ * Why old assertion is no longer correct: Kotlin 2.4 diagnoses these expressions as unused, and
+ * StartupTaskId now includes WIDGET_PREVIEWS for post-first-frame API 35 preview publishing.
+ * Coverage preserved by: the same success callbacks, side effects, state, first-frame defer
+ * guarantees and expected values across all StartupTaskId entries.
+ * Why this is not fitting the test to the implementation: validates that WIDGET_PREVIEWS also
+ * waits for onFirstFrameDrawn before constructing or executing.
  */
 package com.lomo.app.startup
 
@@ -87,12 +90,14 @@ class AppStartupFirstContentTest : AppFunSpec() {
         val theme = mockk<ThemeApplicationStartupTask>()
         val maintenance = mockk<WorkspaceMaintenanceStartupTask>()
         val shortcuts = mockk<DynamicShortcutStartupTask>()
+        val widgetPreviews = mockk<WidgetPreviewStartupTask>()
         val update = mockk<StartupUpdateCheckTask>()
         listOf<StartupTask>(
             security,
             theme,
             maintenance,
             shortcuts,
+            widgetPreviews,
             update,
         ).zip(StartupTaskId.entries).forEach { (task, id) ->
             every { task.definition } returns StartupTaskDefinition(
@@ -107,7 +112,7 @@ class AppStartupFirstContentTest : AppFunSpec() {
         }
         return AppStartupCoordinator(scope, security, theme) {
             effects += "constructed"
-            listOf(maintenance, shortcuts, update)
+            listOf(maintenance, shortcuts, widgetPreviews, update)
         }
     }
 }

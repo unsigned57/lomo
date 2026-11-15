@@ -51,6 +51,12 @@ internal fun extractPendingLaunchActions(intent: Intent?): List<PendingLaunchAct
                 ?.let { memoId -> listOf(PendingLaunchAction.OpenMemo(memoId)) }
                 .orEmpty()
 
+        MainActivity.ACTION_OPEN_DESTINATION ->
+            intent.getStringExtra(MainActivity.EXTRA_WIDGET_DESTINATION)
+                ?.let { raw -> WidgetDestination.entries.firstOrNull { it.name == raw } }
+                ?.let { destination -> listOf(PendingLaunchAction.OpenDestination(destination)) }
+                .orEmpty()
+
         else -> emptyList()
     }
 }

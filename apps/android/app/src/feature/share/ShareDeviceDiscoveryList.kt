@@ -15,13 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.PhoneAndroid
-import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +29,8 @@ import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.common.lomoListItemMotion
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
@@ -103,8 +100,8 @@ private fun DeviceCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Icon(
-                if (device.trusted) Icons.Outlined.Lock else Icons.Outlined.Wifi,
+            LomoIcon(
+                if (device.trusted) LomoIcons.Lock else LomoIcons.Wifi,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.size(DEVICE_CARD_TRAILING_ICON_SIZE),
@@ -128,8 +125,8 @@ private fun DeviceCardAvatar() {
             shape = CircleShape,
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    Icons.Outlined.PhoneAndroid,
+                LomoIcon(
+                    LomoIcons.PhoneAndroid,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(DEVICE_CARD_AVATAR_ICON_SIZE),

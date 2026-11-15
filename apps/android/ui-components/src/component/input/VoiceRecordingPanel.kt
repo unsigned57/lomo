@@ -12,10 +12,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,10 +21,13 @@ import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.component.common.LomoFilledIconButton
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.component.common.LomoSheetDragHandle
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.cd_cancel_recording
 import com.lomo.ui.generated.resources.cd_stop_recording
 import com.lomo.ui.generated.resources.recording_in_progress
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
@@ -61,6 +60,7 @@ fun VoiceRecordingPanel(
             .padding(bottom = AppSpacing.Small),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        LomoSheetDragHandle()
         Text(
             text =
             org.jetbrains.compose.resources.stringResource(Res.string.recording_in_progress),
@@ -123,8 +123,8 @@ private fun VoiceRecordingControls(callbacks: VoiceRecordingPanelCallbacks) {
             onClick = callbacks.onCancel,
             modifier = Modifier.size(InputSheetTokens.RecordingCancelButtonSize),
         ) {
-            Icon(
-                Icons.Rounded.Close,
+            LomoIcon(
+                LomoIcons.Close,
                 contentDescription =
                 org.jetbrains.compose.resources.stringResource(
                     Res.string.cd_cancel_recording,
@@ -142,8 +142,8 @@ private fun VoiceRecordingControls(callbacks: VoiceRecordingPanelCallbacks) {
                 containerColor = MaterialTheme.colorScheme.primary,
             ),
         ) {
-            Icon(
-                Icons.Rounded.Stop,
+            LomoIcon(
+                LomoIcons.Stop,
                 contentDescription =
                 org.jetbrains.compose.resources.stringResource(
                     Res.string.cd_stop_recording,

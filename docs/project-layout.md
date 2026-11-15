@@ -26,12 +26,16 @@ Gradle、Cargo、Kotlin 和 XDG 依赖缓存继续复用调用者的标准目录
 | 配置 | 位置与加载方式 |
 | --- | --- |
 | Rust 格式与 Clippy 规则 | 根目录 `.rustfmt.toml`、`.clippy.toml`，由工具自动发现 |
+| 共享编辑器格式 | 根目录 `.editorconfig`，提交到 Git，由编辑器自动发现 |
 | Cargo 编译输出 | `.cargo/config.toml` 声明 `target/cargo`，xtask 读取同一声明 |
 | 机器专用编译设置 | `.cargo/local.toml`，由共享配置可选包含，被 Git 忽略 |
 | 工具版本 | `quality/tools.toml`，由 xtask 读取 |
 | Rust 依赖审计 | `quality/rust/deny.toml`，由门禁显式传给 cargo-deny |
 | Android Lint | `quality/android/lint.xml`，由 Lint 检查脚本显式加载 |
 | Android 本地 SDK 配置 | `apps/android/local.properties`，仅保留在本机 |
+
+本地 SDK、IDE 状态、凭据和 AI 工具目录由 `.gitignore` 排除，不归入源码；保留工具要求的
+原位目录。`.config/` 仅提交共享的 `nextest.toml`，`.cargo/` 仅提交 `config.toml`。
 
 ## 去哪里找编译好的包
 
@@ -87,6 +91,9 @@ Android 基准测量工具的 Gradle 输出位置由其构建配置声明。`jni
 ## 日常归档与清理
 
 新报告放在 `reports/<工具或任务>/`，命令 stdout JSON 与 stderr 日志分别保存。
+散落的历史手工报告归入 `reports/manual/<归档任务>/`，保留移动清单；仍由工具读取的
+`reports/device-perf-engine-baseline.v2.json` 保持原位。Arch 本地打包生成的安装包归入
+`target/lomo/artifacts/tui/dist/arch/`，打包配方留在 `apps/tui/packaging/arch/`。
 构建摘要放在 `build/`，临时解包和运行数据放在 `tmp/`，成品目录不接收日志或中间文件。
 旧报告是历史证据，其中记录的旧绝对路径不代表当前查找规则。
 

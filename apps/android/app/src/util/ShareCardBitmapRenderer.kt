@@ -2,8 +2,8 @@ package com.lomo.app.util
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Typeface
 import com.lomo.app.R
+import com.lomo.app.feature.preferences.ShareCardTypefaces
 import com.lomo.app.presentation.sharecard.ShareCardDisplayFormatter
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.ContrastLevel
@@ -28,7 +28,7 @@ data class ShareCardRenderOptions(
     val themeMode: ThemeMode,
     val typographyScales: TypographyScales = TypographyScales(),
     val resolvedImagePaths: List<String> = emptyList(),
-    val bodyTypeface: Typeface? = null,
+    val bodyTypefaces: ShareCardTypefaces? = null,
 )
 
 class ShareCardBitmapRenderer(
@@ -48,7 +48,6 @@ class ShareCardBitmapRenderer(
         val contrastLevel = options.contrastLevel
         val themeMode = options.themeMode
         val resolvedImagePaths = options.resolvedImagePaths
-        val bodyTypeface = options.bodyTypeface
         // Same body bytes as the list/card path. Do not invent Markdown link structure via
         // pre-owner regex before renderMarkdown.
         val document = markdownWorkspaceRepository.renderMarkdown(content)
@@ -98,8 +97,8 @@ class ShareCardBitmapRenderer(
                 bodyTextSizeSp =
                 bodyTextSizeSp(measuredRenderInput.textLengthWithoutMarkers) *
                     options.typographyScales.fontSizeScale,
-                bodyTypeface = bodyTypeface,
                 bodyLetterSpacing = readingStyle.letterSpacing.value / readingStyle.fontSize.value,
+                bodyTypefaces = options.bodyTypefaces,
             )
         val loadedImages =
             loadShareImages(

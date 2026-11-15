@@ -34,12 +34,16 @@ import com.lomo.app.startup.SecuritySessionRestoreTask
 import com.lomo.app.startup.StartupUpdateCheckTask
 import com.lomo.app.startup.ThemeApplicationStartupTask
 import com.lomo.app.startup.ThemeSideEffect
+import com.lomo.app.startup.WidgetPreviewStartupTask
 import com.lomo.app.startup.WorkspaceMaintenanceStartupTask
 import com.lomo.app.util.ShareCardBitmapRenderer
 import com.lomo.app.util.ShareUtils
+import com.lomo.app.widget.AndroidWidgetPreviewPublisher
 import com.lomo.app.widget.WIDGET_GLANCE_SNAPSHOT_FILE_NAME
 import com.lomo.app.widget.WidgetGlanceSnapshotStore
+import com.lomo.app.widget.WidgetPreviewPublisher
 import com.lomo.app.widget.WidgetProjectionBinder
+import com.lomo.app.widget.WidgetSnapshotSources
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.media.AudioPlayerController
@@ -52,11 +56,13 @@ val appModule = module {
     single<AudioPlayerController> { get<AudioPlayerManager>() }
     single<DispatcherProvider> { DefaultDispatcherProvider() }
     single<DynamicShortcutPublisher> { get<AndroidDynamicShortcutPublisher>() }
+    single<WidgetPreviewPublisher> { get<AndroidWidgetPreviewPublisher>() }
     single<ExternalAppCommandStore> { get<AndroidExternalAppCommandStore>() }
 
     // App core classes
     single { AudioPlayerManager(androidContext(), get()) }
     single { AndroidDynamicShortcutPublisher(androidContext(), get()) }
+    single { AndroidWidgetPreviewPublisher(androidContext(), get()) }
     single { AndroidExternalAppCommandStore(androidContext()) }
     single { AppShutdownCoordinator(get(), get()) }
     single { TrustedLaunchSecretStore.create(androidContext()) }
@@ -68,6 +74,7 @@ val appModule = module {
             listOf(
                 get<WorkspaceMaintenanceStartupTask>(),
                 get<DynamicShortcutStartupTask>(),
+                get<WidgetPreviewStartupTask>(),
                 get<StartupUpdateCheckTask>(),
             )
         }
@@ -75,6 +82,7 @@ val appModule = module {
     single { SecuritySessionRestoreTask(get()) }
     single { StartupUpdateCheckTask(get()) }
     single { DynamicShortcutStartupTask(get()) }
+    single { WidgetPreviewStartupTask(get()) }
     single { WorkspaceMaintenanceStartupTask(get()) }
     single { ThemeApplicationStartupTask(get(), get()) }
     single { ThemeSideEffect(androidContext()) }
@@ -132,9 +140,18 @@ val appModule = module {
         )
     }
     single {
+        WidgetSnapshotSources(
+            listQueryRepository = get(),
+            taskRepository = get(),
+            statisticsUseCase = get(),
+            dailyReviewQueryUseCase = get(),
+            appConfigRepository = get(),
+        )
+    }
+    single {
         WidgetProjectionBinder(
             scope = get(named("AppScope")),
-            listQueryRepository = get(),
+            sources = get(),
             appWidgetRepository = get(),
             snapshotStore = get(),
             engineReadiness = get(),
@@ -145,5 +162,5 @@ val appModule = module {
     // Sharing helpers
     single { ShareCardDisplayFormatter() }
     single { ShareCardBitmapRenderer(get(), get(), get()) }
-    single { ShareUtils(get(), get(), get(), get()) }
+    single { ShareUtils(get(), get(), get(), get(), get()) }
 }

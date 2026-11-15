@@ -16,6 +16,8 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.memo.MemoEditorSessionState
+import com.lomo.app.feature.memo.existingMemoEditorSurface
 import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.app.util.injectedKoinViewModel
 import kotlinx.collections.immutable.toImmutableMap
@@ -35,7 +37,7 @@ fun SearchScreen(
     viewModel: SearchViewModel = injectedKoinViewModel(),
 ) {
     val pagedItems = viewModel.pagedUiMemos.collectAsLazyPagingItems()
-    val uiState = collectSearchScreenUiSnapshot(viewModel, pagedItems)
+    val uiState = collectSearchScreenUiSnapshot(viewModel.snapshotBindings, pagedItems)
     val inputState = rememberTextFieldState(initialText = uiState.query)
     val inputScroll = rememberScrollState()
     LaunchedEffect(uiState.query) {
@@ -65,14 +67,31 @@ fun SearchScreen(
         rememberSearchMemoMenuCommandHandler(
             uiState = uiState,
             editorController = editorController,
-            viewModel = viewModel,
+            onReportError = viewModel::reportError,
+            onDeleteMemo = viewModel::deleteMemo,
             lanShareEnabled = lanShareEnabled,
             onNavigateToShare = onNavigateToShare,
             onRequestFocusMemo = onRequestFocusMemo,
             onNavigateToMain = onNavigateToMain,
             onVersionHistory = { selection -> mainViewModel.loadVersionHistory(selection.memo) },
         )
-    val editorSurface = searchMemoEditorSurface(uiState = uiState, viewModel = viewModel)
+    val editorSurface =
+        existingMemoEditorSurface(
+            session =
+            MemoEditorSessionState(
+                imageDirectory = uiState.imageDirectory,
+                ownerDraftId = viewModel.ownerDraftId,
+                rootPath = uiState.rootDirectory,
+                imageMap = uiState.imageMap,
+                dateFormat = uiState.dateFormat,
+                timeFormat = uiState.timeFormat,
+            ),
+            toolbarToolOrder = uiState.inputToolbarToolOrder,
+            onUpdateMemo = viewModel::submitMemoUpdate,
+            submissionState = viewModel.editorSubmissionState,
+            onSaveImages = viewModel::saveImages,
+            onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
+        )
 
     SearchBars(
         inputState = inputState,
@@ -86,24 +105,24 @@ fun SearchScreen(
         snackbarHostState = snackbarHostState,
         searchResultListState = searchResultListState,
         onCollapse = collapseSearch,
-        commands = remember(viewModel) { viewModel.screenCommands() },
+        commands = viewModel.screenCommands,
     )
 }
 
 @Composable
 private fun collectSearchScreenUiSnapshot(
-    viewModel: SearchViewModel,
+    snapshotBindings: SearchUiSnapshotBindings,
     pagedItems: LazyPagingItems<MemoUiModel>,
 ): SearchScreenUiSnapshot {
-    val query by viewModel.searchQuery.collectAsStateWithLifecycle()
-    val searchMode by viewModel.searchMode.collectAsStateWithLifecycle()
-    val searchFilter by viewModel.searchFilter.collectAsStateWithLifecycle()
-    val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
-    val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
-    val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
-    val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
-    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
-    val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
+    val query by snapshotBindings.query.searchQuery.collectAsStateWithLifecycle()
+    val searchMode by snapshotBindings.query.searchMode.collectAsStateWithLifecycle()
+    val searchFilter by snapshotBindings.query.searchFilter.collectAsStateWithLifecycle()
+    val appPreferences by snapshotBindings.media.appPreferences.collectAsStateWithLifecycle()
+    val rootDirectory by snapshotBindings.media.rootDirectory.collectAsStateWithLifecycle()
+    val imageDirectory by snapshotBindings.media.imageDirectory.collectAsStateWithLifecycle()
+    val imageMap by snapshotBindings.media.imageMap.collectAsStateWithLifecycle()
+    val errorMessage by snapshotBindings.media.errorMessage.collectAsStateWithLifecycle()
+    val isSearching by snapshotBindings.query.isSearching.collectAsStateWithLifecycle()
 
     val showLoading = isSearching || pagedItems.loadState.refresh is LoadState.Loading
 

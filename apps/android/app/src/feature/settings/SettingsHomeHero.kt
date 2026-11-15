@@ -16,12 +16,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CloudDone
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
@@ -91,8 +89,8 @@ private fun SettingsHomeHeroActiveContent(state: SettingsHomeHeroState.Active, o
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.CloudDone,
+            LomoIcon(
+                icon = LomoIcons.CloudDone,
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -125,8 +123,8 @@ private fun SettingsHomeHeroActiveContent(state: SettingsHomeHeroState.Active, o
             enabled = !state.isCurrentlySyncing,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Refresh,
+            LomoIcon(
+                icon = LomoIcons.Refresh,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
             )

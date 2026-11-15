@@ -23,16 +23,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.FontDownload
-import androidx.compose.material.icons.outlined.UploadFile
-import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -62,6 +55,8 @@ import com.lomo.domain.model.CustomFontSource
 import com.lomo.domain.model.FontPreference
 import com.lomo.ui.component.common.LomoFilledTonalButton
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import java.util.Locale
@@ -79,6 +74,14 @@ internal fun FontSettingsPage(
     val selectedDeletedMessage = stringResource(R.string.settings_font_selected_deleted)
     val customFontStatus by displayFeature.customFontStatus
         .collectAsStateWithLifecycle()
+    val selectedPreference = uiState.fontPreference as? FontPreference.UserImported
+    val axesEditor = rememberVariableFontAxesEditorState(
+        selectedPreference = selectedPreference,
+        availableCustomFonts = uiState.availableCustomFonts,
+        customFontStatus = customFontStatus,
+        onUpdateFontPreference = displayFeature::updateFontPreference,
+        onPreviewVariableFontFamily = displayFeature.previewVariableFontFamily,
+    )
 
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -107,7 +110,8 @@ internal fun FontSettingsPage(
                 ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
-            FontPreviewCard()
+            FontPreviewCard(previewFontFamily = axesEditor.livePreviewFontFamily)
+            VariableFontAxesSection(editor = axesEditor)
             // A selected font whose file went missing or no longer parses is an explicit
             // problem state — surface it, never silently pretend the selection still works.
             if (customFontStatus == CustomFontStatus.MISSING) {
@@ -133,15 +137,16 @@ internal fun FontSettingsPage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 uiState.availableCustomFonts.forEach { info ->
-                    val selected =
-                        (uiState.fontPreference as? FontPreference.UserImported)?.id == info.id
+                    val selected = selectedPreference?.id == info.id
                     CustomFontRow(
                         info = info,
                         selected = selected,
                         previewFontFamily = displayFeature.previewFontFamily,
                         onSelect = {
-                            haptic.medium()
-                            displayFeature.updateFontPreference(FontPreference.UserImported(info.id))
+                            if (!selected) {
+                                haptic.medium()
+                                displayFeature.updateFontPreference(FontPreference.UserImported(info.id))
+                            }
                         },
                         onDelete = {
                             displayFeature.deleteCustomFont(info.id) { deletion ->
@@ -176,8 +181,8 @@ private fun CustomFontMissingBanner() {
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Warning,
+            LomoIcon(
+                icon = LomoIcons.Warning,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onErrorContainer,
             )
@@ -207,8 +212,8 @@ private fun CustomFontEmptyState() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(
-                imageVector = Icons.Outlined.FontDownload,
+            LomoIcon(
+                icon = LomoIcons.FontDownload,
                 contentDescription = null,
                 modifier = Modifier.size(40.dp),
                 tint = MaterialTheme.colorScheme.primary,
@@ -231,7 +236,7 @@ private fun CustomFontEmptyState() {
 }
 
 @Composable
-private fun FontPreviewCard() {
+private fun FontPreviewCard(previewFontFamily: FontFamily? = null) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = com.lomo.ui.theme.AppShapes.LargeIncreased,
@@ -251,16 +256,19 @@ private fun FontPreviewCard() {
                     style = MaterialTheme.typography.titleLargeEmphasized,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
+                    fontFamily = previewFontFamily,
                 )
                 Text(
                     text = stringResource(R.string.settings_font_preview_sample),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = previewFontFamily,
                 )
                 Text(
                     text = stringResource(R.string.settings_font_preview_alphabet_sample),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = previewFontFamily,
                 )
             }
         }
@@ -324,8 +332,8 @@ private fun SystemFontCard(selected: Boolean, onSelect: () -> Unit) {
                 )
             }
             if (selected) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
+                LomoIcon(
+                    icon = LomoIcons.Check,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
@@ -340,8 +348,8 @@ private fun ImportFontButton(onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Icon(
-            imageVector = Icons.Outlined.UploadFile,
+        LomoIcon(
+            icon = LomoIcons.UploadFile,
             contentDescription = null,
         )
         Spacer(modifier = Modifier.width(8.dp))
@@ -362,6 +370,10 @@ private fun CustomFontRow(
     val customFontFamily by produceState<FontFamily>(FontFamily.SansSerif, info.id) {
         value = previewFontFamily(info.id)
     }
+    val primaryColor =
+        if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val secondaryColor =
+        if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
     Card(
         modifier = Modifier
@@ -378,16 +390,13 @@ private fun CustomFontRow(
         ),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.tertiaryContainer),
+                modifier = Modifier.size(
+                    40.dp,
+                ).clip(CircleShape).background(MaterialTheme.colorScheme.tertiaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -403,11 +412,7 @@ private fun CustomFontRow(
                 Text(
                     text = info.displayName,
                     style = MaterialTheme.typography.titleSmall,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
+                    color = primaryColor,
                     fontFamily = customFontFamily,
                 )
                 if (info.nameState == CustomFontNameState.LEGACY_IMPORT) {
@@ -417,33 +422,33 @@ private fun CustomFontRow(
                         color = MaterialTheme.colorScheme.tertiary,
                     )
                 }
-                Text(
-                    text = formatBytes(info.sizeBytes),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = formatBytes(info.sizeBytes),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = secondaryColor,
+                    )
+                    if (info.isVariableFont) {
+                        VariableFontBadge(axisCount = info.visibleVariableAxes.size, selected = selected)
+                    }
+                }
             }
             if (selected) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
+                LomoIcon(
+                    icon = LomoIcons.Check,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
             }
             LomoIconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Outlined.Delete,
+                LomoIcon(
+                    icon = LomoIcons.Delete,
                     contentDescription = stringResource(R.string.settings_font_delete),
-                    tint = if (selected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    tint = secondaryColor,
                 )
             }
         }

@@ -25,16 +25,25 @@
  *   and repository fetching.
  * Test Change Justification:
  * - Reason category: product/domain contract changed.
- * - Old behavior/assertion being replaced: widget presentation re-rendered markdown at composition time.
- * - Why old assertion is no longer correct: the snapshot carries Rust plain-text previews and the host must not re-render markdown.
- * - Coverage preserved by: the added literal-content presentation case.
- * - Why this is not fitting the test to the implementation: snapshot-only presentation is the widget privacy contract.
+ * - Old behavior/assertion being replaced: widget presentation tested static row truncation
+ *   (`widgetVisibleItemCount`) capped to 1..4 static rows.
+ * - Why old assertion is no longer correct: Quick Notes and Tasks widgets now render scrollable
+ *   Glance `LazyColumn` feeds over the snapshot slice instead of slicing to static non-scrollable
+ *   `Column` limits, and require collision-safe non-negative stable item IDs outside Glance's
+ *   reserved ID range plus a fuller recent memo feed budget (`WIDGET_MEMO_LIMIT`).
+ * - Coverage preserved by: deterministic memo row formatting and plain-text fidelity tests remain,
+ *   while list presentation now verifies stable non-reserved `LazyColumn` item IDs, expanded memo
+ *   feed budget, and narrow-tall `QuickNotesLayoutMode` selection.
+ * - Why this is not fitting the test to the implementation: asserts stable ID monotonicity/bounds,
+ *   domain feed capacity, and non-compact mode selection required by Glance `LazyColumn`.
  */
 package com.lomo.app.widget
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
+import io.kotest.matchers.comparables.shouldBeGreaterThanOrEqualTo
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 class LomoWidgetPresentationTest : AppFunSpec() {
     init {
@@ -102,16 +111,24 @@ class LomoWidgetPresentationTest : AppFunSpec() {
             presentation.previewText shouldBe "# heading stays literal"
         }
 
-        test("given a compact host height when rows are counted then a single row is emitted") {
-            widgetVisibleItemCount(heightDp = 110, itemCount = 3) shouldBe 1
+        test("given list keys when stableWidgetListItemId resolves then IDs are positive, stable, and unique") {
+            val first = stableWidgetListItemId("memo-1")
+            val repeat = stableWidgetListItemId("memo-1")
+            val second = stableWidgetListItemId("memo-2")
+
+            first shouldBe repeat
+            first shouldNotBe second
+            first shouldBeGreaterThanOrEqualTo 0L
+            second shouldBeGreaterThanOrEqualTo 0L
         }
 
-        test("given a full host height when rows are counted then the snapshot budget is emitted") {
-            widgetVisibleItemCount(heightDp = 180, itemCount = 3) shouldBe 3
+        test("given scrollable quick notes feed then snapshot budget exposes at least 15 recent memos") {
+            WIDGET_MEMO_LIMIT shouldBeGreaterThanOrEqualTo 15
         }
 
-        test("given fewer items than the budget when rows are counted then the item count wins") {
-            widgetVisibleItemCount(heightDp = 180, itemCount = 2) shouldBe 2
+        test("given a 3-column phone width with medium height then quick notes resolves expandable feed mode") {
+            resolveQuickNotesLayoutMode(widthDp = 180, heightDp = 180) shouldBe QuickNotesLayoutMode.MEDIUM_CARD
+            resolveQuickNotesLayoutMode(widthDp = 180, heightDp = 240) shouldBe QuickNotesLayoutMode.EXPANDED_FEED
         }
     }
 }

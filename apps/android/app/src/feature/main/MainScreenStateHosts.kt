@@ -28,14 +28,16 @@ import com.lomo.app.feature.conflict.RemoteSyncConflictPollHost
 import com.lomo.app.feature.conflict.ReviewSyncProviders
 import com.lomo.app.feature.conflict.SyncConflictDialogController
 import com.lomo.app.feature.conflict.SyncConflictStateHost
-import com.lomo.app.feature.conflict.autoResolveSafeConflicts
+import com.lomo.app.feature.conflict.SyncConflictStateHostBindings
 import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.memo.MemoEditorHostBindings
 import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -69,14 +71,16 @@ private val MainMemoListStateSaver =
     )
 
 @Composable
-internal fun collectMainScreenUiSnapshot(dependencies: MainScreenDependencies): MainScreenUiSnapshot {
-    val searchQuery by dependencies.sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
-    val memoListFilter by dependencies.mainViewModel.memoListFilter.collectAsStateWithLifecycle()
-    val sidebarUiState by dependencies.sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
-    val appPreferences by dependencies.mainViewModel.appPreferences.collectAsStateWithLifecycle()
-    val uiState by dependencies.mainViewModel.uiState.collectAsStateWithLifecycle()
-    val pendingNewMemoCreationEvents by
-        dependencies.mainViewModel.pendingNewMemoCreationEvents.collectAsStateWithLifecycle()
+internal fun collectMainScreenUiSnapshot(
+    sidebarBindings: MainSidebarBindings,
+    mainFlows: MainUiSnapshotFlows,
+): MainScreenUiSnapshot {
+    val searchQuery by sidebarBindings.searchQuery.collectAsStateWithLifecycle()
+    val memoListFilter by mainFlows.memoListFilter.collectAsStateWithLifecycle()
+    val sidebarUiState by sidebarBindings.sidebarUiState.collectAsStateWithLifecycle()
+    val appPreferences by mainFlows.appPreferences.collectAsStateWithLifecycle()
+    val uiState by mainFlows.uiState.collectAsStateWithLifecycle()
+    val pendingNewMemoCreationEvents by mainFlows.pendingNewMemoCreationEvents.collectAsStateWithLifecycle()
     val pendingNewMemoCreationEvent = pendingNewMemoCreationEvents.lastOrNull()
 
     return MainScreenUiSnapshot(
@@ -139,7 +143,7 @@ internal fun rememberMainScreenHostState(): MainScreenHostState {
 @Composable
 internal fun MainScreenDraftAutosaveEffect(
     editorController: com.lomo.app.feature.memo.MemoEditorController,
-    dependencies: MainScreenDependencies,
+    onSaveDraft: (String) -> Unit,
 ) {
     LaunchedEffect(editorController) {
         snapshotFlow {
@@ -152,32 +156,17 @@ internal fun MainScreenDraftAutosaveEffect(
             .distinctUntilChanged()
             .filter { state -> state.editingMemoId == null && state.isVisible }
             .map { state -> state.text }
-            .collect { text -> dependencies.editorViewModel.saveDraft(text) }
+            .collect { text -> onSaveDraft(text) }
     }
 }
 
 @Composable
-internal fun MainScreenConflictHost(dependencies: MainScreenDependencies) {
-    val syncStates by dependencies.conflictStateViewModel.syncStates.collectAsStateWithLifecycle()
-    val workspaceRoot by dependencies.conflictStateViewModel.workspaceRoot.collectAsStateWithLifecycle()
-    val conflictController =
-        remember(dependencies.conflictViewModel) {
-            SyncConflictDialogController(
-                state = dependencies.conflictViewModel.state,
-                onFileChoiceChanged = dependencies.conflictViewModel::setFileChoice,
-                onAllChoicesChanged = dependencies.conflictViewModel::setAllChoices,
-                onReviewItemChoiceChanged = dependencies.conflictViewModel::setReviewItemChoice,
-                onAllReviewItemChoicesChanged = dependencies.conflictViewModel::setAllReviewItemChoices,
-                onAcceptSuggestions = dependencies.conflictViewModel::acceptSuggestedChoices,
-                onAutoResolveSafeConflicts = dependencies.conflictViewModel::autoResolveSafeConflicts,
-                onToggleExpanded = dependencies.conflictViewModel::toggleExpandedFile,
-                onApply = dependencies.conflictViewModel::applyResolution,
-                onDismiss = dependencies.conflictViewModel::dismiss,
-                onShowConflictDialog = dependencies.conflictViewModel::showConflictDialog,
-                onShowReviewDialog = dependencies.conflictViewModel::showReviewDialog,
-                onShowRemoteSession = dependencies.conflictViewModel::showRemoteConflictSession,
-            )
-        }
+internal fun MainScreenConflictHost(
+    conflictController: SyncConflictDialogController,
+    stateBindings: SyncConflictStateHostBindings,
+) {
+    val syncStates by stateBindings.syncStates.collectAsStateWithLifecycle()
+    val workspaceRoot by stateBindings.workspaceRoot.collectAsStateWithLifecycle()
     com.lomo.app.feature.conflict.SyncConflictDialogHost(controller = conflictController)
     // Sync Inbox review only via provider state; remote conflicts via Rust poll.
     SyncConflictStateHost(
@@ -188,7 +177,7 @@ internal fun MainScreenConflictHost(dependencies: MainScreenDependencies) {
     RemoteSyncConflictPollHost(
         workspaceRoot = workspaceRoot,
         onShowRemoteSession = conflictController.onShowRemoteSession,
-        loadSession = dependencies.conflictStateViewModel::loadRemoteOpenSession,
+        loadSession = stateBindings.loadRemoteOpenSession,
     )
 }
 
@@ -197,7 +186,10 @@ internal fun MainScreenContentHost(
     screenState: MainScreenUiSnapshot,
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
     hostState: MainScreenHostState,
-    dependencies: MainScreenDependencies,
+    contentBindings: MainContentHostBindings,
+    sidebarBindings: MainSidebarBindings,
+    editorBindings: MemoEditorHostBindings,
+    recordingBindings: MainRecordingBindings,
     unknownErrorMessage: String,
     isRefreshing: Boolean,
     onNavigateToSettings: () -> Unit,
@@ -217,7 +209,10 @@ internal fun MainScreenContentHost(
         }
 
     MainScreenInteractionBindings(
-        dependencies = dependencies,
+        versionMediaFlows = contentBindings.versionMediaFlows,
+        memoInteractions = contentBindings.memoInteractions,
+        editorBindings = editorBindings,
+        recordingBindings = recordingBindings,
         editorController = hostState.editorController,
         directoryGuideController = hostState.directoryGuideController,
         scope = hostState.scope,
@@ -240,7 +235,10 @@ internal fun MainScreenContentHost(
             screenState = screenState,
             pagedUiMemos = pagedUiMemos,
             hostState = hostState,
-            dependencies = dependencies,
+            contentBindings = contentBindings,
+            onSidebarTagReorder = sidebarBindings.onUpdateTagOrder,
+            draftTextFlow = editorBindings.flows.draftText,
+            isRecordingFlow = recordingBindings.flows.isRecording,
             isRefreshing = isRefreshing,
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToTrash = onNavigateToTrash,
@@ -260,7 +258,7 @@ internal fun MainScreenContentHost(
         actions =
         MainDirectoryGuideActions(
             onConfirmCreate = { type ->
-                dependencies.mainViewModel.createDefaultDirectories(
+                contentBindings.navigationActions.onCreateDefaultDirectories(
                     type == DirectorySetupType.Image,
                     type == DirectorySetupType.Voice,
                 )
@@ -277,7 +275,10 @@ private fun MainScreenNavigationContent(
     screenState: MainScreenUiSnapshot,
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
     hostState: MainScreenHostState,
-    dependencies: MainScreenDependencies,
+    contentBindings: MainContentHostBindings,
+    onSidebarTagReorder: (List<String>) -> Unit,
+    draftTextFlow: StateFlow<String>,
+    isRecordingFlow: StateFlow<Boolean>,
     isRefreshing: Boolean,
     onNavigateToSettings: () -> Unit,
     onNavigateToTrash: () -> Unit,
@@ -293,11 +294,14 @@ private fun MainScreenNavigationContent(
     var isMemoFilterSheetVisible by rememberSaveable { mutableStateOf(false) }
     val busyMessage = stringResource(R.string.quick_ball_busy)
     val recordingFailureMessage = stringResource(R.string.quick_ball_record_failed)
-    val clearMainFilters = rememberClearMainFiltersAction(dependencies)
-    val onHeatmapDateLongPress = rememberMainScreenHeatmapLongPressAction(dependencies, hostState)
+    val onHeatmapDateLongPress =
+        rememberMainScreenHeatmapLongPressAction(
+            onFilterMemosByDate = contentBindings.navigationActions.onFilterMemosByDate,
+            hostState = hostState,
+        )
     val onScrollToTop = rememberMainScreenScrollToTopAction(hostState)
     MainScreenSessionRestoreEffect(
-        dependencies = dependencies,
+        sessionRestore = contentBindings.sessionRestore,
         listState = hostState.listState,
     )
 
@@ -328,29 +332,29 @@ private fun MainScreenNavigationContent(
         onNavigateToDailyReview = onNavigateToDailyReview,
         onNavigateToGallery = onNavigateToGallery,
         onNavigateToStatistics = onNavigateToStatistics,
-        onClearMainFilters = clearMainFilters,
+        onClearMainFilters = contentBindings.navigationActions.onClearMemoFilter,
         onOpenMemoFilterPanel = { isMemoFilterSheetVisible = true },
         onOpenCreateMemo = {
-            hostState.editorController.openForCreate(dependencies.editorViewModel.draftText.value)
+            hostState.editorController.openForCreate(draftTextFlow.value)
         },
         onOpenLongText = {
-            hostState.editorController.openForCreate(dependencies.editorViewModel.draftText.value)
+            hostState.editorController.openForCreate(draftTextFlow.value)
             hostState.editorController.setExpanded(true)
         },
         onStartRecording = {
-            if (dependencies.recordingViewModel.isRecording.value) {
+            if (isRecordingFlow.value) {
                 hostState.editorController.ensureVisible()
             } else {
-                dependencies.mainViewModel.requestQuickBallRecording(recordingFailureMessage)
+                contentBindings.navigationActions.onRequestQuickBallRecording(recordingFailureMessage)
             }
         },
-        onRefreshMemos = dependencies.mainViewModel.refresh,
+        onRefreshMemos = contentBindings.navigationActions.onRefreshMemos,
     ) { actions ->
         MainScreenNavigationRender(
             screenState = screenState,
             pagedUiMemos = pagedUiMemos,
             hostState = hostState,
-            viewModel = dependencies.mainViewModel,
+            listBindings = contentBindings.listRender,
             actions = actions,
             isRefreshing = isRefreshing,
             isMemoFilterSheetVisible = isMemoFilterSheetVisible,
@@ -367,9 +371,9 @@ private fun MainScreenNavigationContent(
                 )
             },
             onShowMemoMenu = onShowMemoMenu,
-            onReminderClick = dependencies.mainViewModel.markReminderDone,
+            onReminderClick = contentBindings.navigationActions.onMarkReminderDone,
             onOpenEditor = onOpenEditor,
-            onSidebarTagReorder = dependencies.sidebarViewModel::updateTagOrder,
+            onSidebarTagReorder = onSidebarTagReorder,
         )
     }
 }
@@ -383,25 +387,25 @@ private fun MainScreenNavigationContent(
  * A snapshot bound to a different workspace resets instead of showing the stale page.
  */
 @Composable
-internal fun MainScreenSessionRestoreEffect(dependencies: MainScreenDependencies, listState: LazyListState) {
+internal fun MainScreenSessionRestoreEffect(sessionRestore: MainSessionRestoreBindings, listState: LazyListState) {
     // This effect is the only reader and writer of the durable snapshot, so it owns the state.
     val sessionSnapshot =
         rememberSaveable(stateSaver = mainListSessionSnapshotSaver) {
             mutableStateOf(MainListSessionSnapshot.Empty)
         }
-    val mount by dependencies.mainViewModel.mount.collectAsStateWithLifecycle()
+    val mount by sessionRestore.mount.collectAsStateWithLifecycle()
     val workspacePath = mount.location?.raw
-    val searchQuery by dependencies.mainViewModel.searchQuery.collectAsStateWithLifecycle()
-    val memoListFilter by dependencies.mainViewModel.memoListFilter.collectAsStateWithLifecycle()
+    val searchQuery by sessionRestore.searchQuery.collectAsStateWithLifecycle()
+    val memoListFilter by sessionRestore.memoListFilter.collectAsStateWithLifecycle()
     var restoreSettled by remember { mutableStateOf(false) }
 
     LaunchedEffect(workspacePath) {
         val path = workspacePath ?: return@LaunchedEffect
         when (val action = resolveMainListSessionRestore(sessionSnapshot.value, path)) {
             is MainListSessionRestoreAction.Apply -> {
-                dependencies.mainViewModel.restoreMainListSession(
-                    query = action.snapshot.searchQuery,
-                    filter = action.snapshot.filter,
+                sessionRestore.onRestoreMainListSession(
+                    action.snapshot.searchQuery,
+                    action.snapshot.filter,
                 )
                 if (action.snapshot.anchorIndex != 0 || action.snapshot.anchorOffset != 0) {
                     listState.scrollToItem(
@@ -476,20 +480,12 @@ private fun MainScreenFilterScrollEffect(
 }
 
 @Composable
-private fun rememberClearMainFiltersAction(dependencies: MainScreenDependencies): () -> Unit =
-    remember(dependencies.mainViewModel) {
-        {
-            dependencies.mainViewModel.clearMemoFilter()
-        }
-    }
-
-@Composable
 private fun rememberMainScreenHeatmapLongPressAction(
-    dependencies: MainScreenDependencies,
+    onFilterMemosByDate: (LocalDate) -> Unit,
     hostState: MainScreenHostState,
-): (LocalDate) -> Unit = remember(dependencies.mainViewModel, hostState) {
+): (LocalDate) -> Unit = remember(onFilterMemosByDate, hostState) {
     { date ->
-        dependencies.mainViewModel.filterMemosByDate(date)
+        onFilterMemosByDate(date)
         hostState.scope.launch { hostState.sidebar.closeOverlay() }
     }
 }

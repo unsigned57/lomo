@@ -20,18 +20,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Restore
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.RadioButtonChecked
-import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -76,6 +67,8 @@ import com.lomo.ui.component.common.GestureBall
 import com.lomo.ui.component.common.LomoFilledTonalButton
 import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.settings.SettingsGroup
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
@@ -209,8 +202,8 @@ private fun QuickBallSettingsBody(
                 .heightIn(min = 52.dp)
                 .benchmarkAnchor(BenchmarkAnchorContract.QUICK_BALL_RESET),
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Restore,
+            LomoIcon(
+                icon = LomoIcons.SettingsBackupRestore,
                 contentDescription = null,
                 modifier = Modifier.padding(end = AppSpacing.Small),
             )
@@ -241,8 +234,8 @@ private fun QuickBallHelpBanner() {
                 modifier = Modifier.size(32.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
+                    LomoIcon(
+                        icon = LomoIcons.Info,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.size(18.dp),
@@ -308,8 +301,8 @@ private fun QuickBallGestureBindingRow(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Icon(
-                            imageVector = action.icon(),
+                        LomoIcon(
+                            icon = action.icon(),
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint =
@@ -320,8 +313,8 @@ private fun QuickBallGestureBindingRow(
                             },
                         )
                         if (isLocked) {
-                            Icon(
-                                imageVector = Icons.Rounded.Lock,
+                            LomoIcon(
+                                icon = LomoIcons.Lock,
                                 contentDescription = null,
                                 modifier = Modifier.size(12.dp),
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
@@ -330,8 +323,8 @@ private fun QuickBallGestureBindingRow(
                     }
                 }
                 if (onClick != null) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    LomoIcon(
+                        icon = LomoIcons.KeyboardArrowRight,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -429,8 +422,8 @@ private fun QuickBallCompassDirectionPill(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (!alignEnd) {
-                Icon(
-                    imageVector = action.icon(),
+                LomoIcon(
+                    icon = action.icon(),
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint =
@@ -460,8 +453,8 @@ private fun QuickBallCompassDirectionPill(
                 overflow = TextOverflow.Ellipsis,
             )
             if (alignEnd) {
-                Icon(
-                    imageVector = action.icon(),
+                LomoIcon(
+                    icon = action.icon(),
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint =
@@ -491,8 +484,8 @@ private fun QuickBallBindingGestureIcon(gesture: QuickBallGesture, isActiveActio
         modifier = Modifier.size(36.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = gesture.icon(),
+            LomoIcon(
+                icon = gesture.icon(),
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
                 tint =
@@ -543,8 +536,8 @@ private fun QuickBallPreviewStatus(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.CheckCircle,
+                        LomoIcon(
+                            icon = LomoIcons.CheckCircle,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -662,8 +655,8 @@ private fun QuickBallPreviewBindings(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.TouchApp,
+                LomoIcon(
+                    icon = LomoIcons.TouchApp,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -691,8 +684,8 @@ private fun QuickBallPreviewBindings(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.RadioButtonChecked,
+                LomoIcon(
+                    icon = LomoIcons.RadioButtonChecked,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.primary,

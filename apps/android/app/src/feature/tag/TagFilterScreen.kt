@@ -9,12 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -39,10 +34,12 @@ import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardList
+import com.lomo.app.feature.memo.MemoEditorSessionState
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.app.feature.memo.MemoMenuContextAction
 import com.lomo.app.feature.memo.MemoMenuPresentationState
 import com.lomo.app.feature.memo.MemoMenuSelection
+import com.lomo.app.feature.memo.existingMemoEditorSurface
 import com.lomo.app.feature.memo.handleMemoJumpToMain
 import com.lomo.app.feature.memo.rememberAutoSaveCommittedNotifier
 import com.lomo.app.feature.memo.rememberFullMemoEditorOpener
@@ -55,6 +52,8 @@ import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.component.common.LomoStateContent
 import com.lomo.ui.component.common.LomoTextButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.toImmutableMap
@@ -145,13 +144,23 @@ fun TagFilterScreen(
             onVersionHistory = { selection -> mainViewModel.loadVersionHistory(selection.memo) },
         )
 
-    val editorSurface = tagMemoEditorSurface(
-        viewModel,
-        rootDirectory,
-        imageDirectory,
-        stableImageMap,
-        appPreferences,
-    )
+    val editorSurface =
+        existingMemoEditorSurface(
+            session =
+            MemoEditorSessionState(
+                imageDirectory = imageDirectory,
+                ownerDraftId = viewModel.ownerDraftId,
+                rootPath = rootDirectory,
+                imageMap = stableImageMap,
+                dateFormat = appPreferences.dateFormat,
+                timeFormat = appPreferences.timeFormat,
+            ),
+            toolbarToolOrder = appPreferences.inputToolbarToolOrder,
+            onUpdateMemo = viewModel::submitMemoUpdate,
+            submissionState = viewModel.editorSubmissionState,
+            onSaveImages = viewModel::saveImages,
+            onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
+        )
 
     MemoInteractionHost(
         menuCommandHandler = memoMenuCommandHandler,
@@ -185,7 +194,9 @@ fun TagFilterScreen(
             )
         }
     }
-    com.lomo.app.feature.main.MainVersionHistoryEffectHost(mainViewModel = mainViewModel)
+    com.lomo.app.feature.main.MainVersionHistoryEffectHost(
+        bindings = mainViewModel.versionHistoryEffectBindings,
+    )
 }
 
 @Composable
@@ -229,8 +240,8 @@ private fun TagFilterScreenScaffold(
                             onBackClick()
                         },
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                        LomoIcon(
+                            LomoIcons.ArrowBack,
                             contentDescription = stringResource(R.string.back),
                         )
                     }
@@ -256,8 +267,8 @@ private fun TagFilterTitle(tagName: String) {
             modifier = Modifier.size(TAG_FILTER_ICON_BADGE_SIZE),
         ) {
             Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
-                Icon(
-                    Icons.Outlined.Tag,
+                LomoIcon(
+                    LomoIcons.Tag,
                     contentDescription = null,
                     modifier = Modifier.size(TAG_FILTER_ICON_SIZE),
                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -304,7 +315,7 @@ private fun TagFilterScreenContent(
 
                 TagFilterContentState.Error ->
                     EmptyState(
-                        icon = Icons.Outlined.ErrorOutline,
+                        icon = LomoIcons.Error,
                         title = stringResource(R.string.memo_list_load_failed_title),
                         description = stringResource(R.string.memo_list_load_failed_description),
                         action = {
@@ -316,7 +327,7 @@ private fun TagFilterScreenContent(
 
                 TagFilterContentState.Empty ->
                     EmptyState(
-                        icon = Icons.Outlined.Tag,
+                        icon = LomoIcons.Tag,
                         title = stringResource(R.string.empty_no_tag_matches_title, tagName),
                         description = stringResource(R.string.empty_no_tag_matches_subtitle),
                     )

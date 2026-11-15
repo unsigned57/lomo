@@ -45,6 +45,23 @@ class TrustedLaunchIntentsTest : AppFunSpec() {
             accepted.command.id shouldBe fixture.payload.commandId
         }
 
+        test("given a widget start-recording signed command when extracted then action is StartRecording from Widget") {
+            val fixture = signedWidgetCommand(action = ExternalAppCommandAction.StartRecording)
+
+            val extraction =
+                fixture.workingIntents.extractTrustedExternalAppCommand(
+                    intent = fixture.intent,
+                    nowMillis = fixture.nowMillis,
+                )
+
+            val accepted = extraction.shouldBeInstanceOf<TrustedLaunchCommandExtraction.Accepted>()
+            accepted.command.action shouldBe ExternalAppCommandAction.StartRecording
+            accepted.command.source shouldBe ExternalAppCommandSource.Widget
+            val startRecordingFactory: (TrustedLaunchIntents) -> Intent =
+                TrustedLaunchIntents::trustedWidgetStartRecordingIntent
+            startRecordingFactory.hashCode() // compiles only once trustedWidgetStartRecordingIntent exists
+        }
+
         test("given a signed stop command bound to a capture when extracted then the payload round-trips") {
             val fixture = signedStopCommand(captureId = "recording-42")
 
@@ -93,13 +110,15 @@ class TrustedLaunchIntentsTest : AppFunSpec() {
     }
 }
 
-private fun signedWidgetCommand(): SignedWidgetCommandFixture {
+private fun signedWidgetCommand(
+    action: ExternalAppCommandAction = ExternalAppCommandAction.CreateMemo,
+): SignedWidgetCommandFixture {
     val context = mockk<Context>()
     val nowMillis = 1_700_000_000_000L
     val payload =
         TrustedLaunchSignaturePayload(
             commandId = "command-1",
-            action = ExternalAppCommandAction.CreateMemo,
+            action = action,
             source = ExternalAppCommandSource.Widget,
             createdAtMillis = nowMillis,
             expiresAtMillis = nowMillis + EXTERNAL_APP_COMMAND_TTL_MILLIS,

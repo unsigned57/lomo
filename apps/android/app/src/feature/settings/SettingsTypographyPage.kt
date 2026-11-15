@@ -11,13 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -38,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.ui.component.common.LomoFilledTonalIconButton
 import com.lomo.ui.component.common.lomoCompactInteractiveHeight
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.TypographyScales
@@ -241,8 +239,8 @@ private fun TypographyScaleAdjustmentRow(
                 .lomoCompactInteractiveHeight(36.dp)
                 .size(36.dp),
         ) {
-            Icon(
-                imageVector = Icons.Default.Remove,
+            LomoIcon(
+                icon = LomoIcons.Remove,
                 contentDescription = decrementContentDescription,
                 modifier = Modifier.size(18.dp),
             )
@@ -269,8 +267,8 @@ private fun TypographyScaleAdjustmentRow(
                 .lomoCompactInteractiveHeight(36.dp)
                 .size(36.dp),
         ) {
-            Icon(
-                imageVector = Icons.Default.Add,
+            LomoIcon(
+                icon = LomoIcons.Add,
                 contentDescription = incrementContentDescription,
                 modifier = Modifier.size(18.dp),
             )

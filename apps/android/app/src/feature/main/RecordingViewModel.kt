@@ -46,4 +46,23 @@ class RecordingViewModel(private val recordingSessionUseCase: RecordingSessionUs
     fun clearError() {
         recordingSessionUseCase.clearError()
     }
+
+    internal val hostBindings: MainRecordingBindings =
+        MainRecordingBindings(
+            flows =
+            MainRecordingFlows(
+                isRecording = isRecording,
+                recordingDuration = recordingDuration,
+                recordingAmplitude = recordingAmplitude,
+                recordingCaptureId = recordingCaptureId,
+                errorMessage = errorMessage,
+            ),
+            actions =
+            MainRecordingActions(
+                onStartRecording = ::startRecording,
+                onStopRecording = ::stopRecording,
+                onCancelRecording = ::cancelRecording,
+                onClearError = ::clearError,
+            ),
+        )
 }

@@ -5,19 +5,25 @@ import io.kotest.matchers.floats.plusOrMinus
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
- * - Unit under test: draggable scrollbar interaction policy helpers.
- * - Behavior focus: dragging should keep the thumb on its local drag position instead of snapping
- *   back to externally recomputed scroll fractions, external thumb sync should stay disabled
- *   while a drag is active, and pointer events should be claimed by the scrollbar only when the
- *   initial touch falls inside its end-aligned touch zone.
- * - Observable outcomes: chosen displayed thumb offset, Boolean external-sync policy, and
- *   point-in-touch-zone classification.
- * - Red phase: Fails before the fix because the thumb is still drawn from the external scroll
- *   fraction during drag, which causes visible jump-back and makes dragging feel broken; and
- *   because there is no policy yet to decide whether a press near the right edge belongs to the
- *   scrollbar or to the underlying memo card.
- * - Excludes: Compose pointer input dispatch, LazyList measurement accuracy, and fade animation.
+ * Behavior Contract:
+ * Capability: local dragging takes precedence over external scroll position; owner: ui-components; P1.
+ * Scenarios:
+ * - Given a drag, when external position changes, then the displayed offset remains local.
+ * - Given no drag, when resolving the offset, then the settled animation position is displayed.
+ * - Given a pointer, when testing the end touch zone, then only coordinates inside it are accepted.
+ * Observable outcomes: displayed offset and touch-zone membership.
+ * TDD proof: Regression preservation - scrollbar suite passed before and after refactor;
+ * evidence: reports/manual/home-scroll/recomposition-green.log and scrollbar-regression.log.
+ * Test Change Justification:
+ * Reason category: behavior-preserving refactor.
+ * Old behavior/assertion being replaced: idle drag-offset synchronization Boolean helper assertions.
+ * Why old assertion is no longer correct: idle mirroring is removed; drag starts at the displayed
+ * offset in the existing pointer path, so there is no external-sync operation to enable or disable.
+ * Coverage preserved by: local/settled precedence below, DraggableScrollbarPressMappingTest,
+ * ScrollbarRecompositionTest and device scroll/drag checks.
+ * Why this is not fitting the test to the implementation: user-visible offset and hit-testing
+ * assertions are unchanged; only assertions for a deleted redundant operation are removed.
+ * Excludes: Android pointer dispatch and physical-device frame deadlines.
  */
 class DraggableScrollbarInteractionPolicyTest : UiComponentsFunSpec() {
     init {
@@ -30,9 +36,7 @@ class DraggableScrollbarInteractionPolicyTest : UiComponentsFunSpec() {
                 )
                 ) shouldBe ((132f) plusOrMinus (0.001f))
         }
-    }
 
-    init {
         test("idle state displays settled thumb offset") {
             (
                 resolveDisplayedThumbOffsetPx(
@@ -42,31 +46,7 @@ class DraggableScrollbarInteractionPolicyTest : UiComponentsFunSpec() {
                 )
                 ) shouldBe ((84f) plusOrMinus (0.001f))
         }
-    }
 
-    init {
-        test("external sync stays disabled while drag is active") {
-            (
-                shouldSyncDraggedThumbOffsetFromExternal(
-                    visible = true,
-                    isThumbDragged = true,
-                )
-                ) shouldBe false
-        }
-    }
-
-    init {
-        test("external sync resumes after drag ends") {
-            (
-                shouldSyncDraggedThumbOffsetFromExternal(
-                    visible = true,
-                    isThumbDragged = false,
-                )
-                ) shouldBe true
-        }
-    }
-
-    init {
         test("point inside end-aligned touch zone is detected") {
             (
                 isPointInScrollbarTouchZone(
@@ -76,9 +56,7 @@ class DraggableScrollbarInteractionPolicyTest : UiComponentsFunSpec() {
                 )
                 ) shouldBe true
         }
-    }
 
-    init {
         test("point on touch-zone start boundary is included") {
             (
                 isPointInScrollbarTouchZone(
@@ -88,9 +66,7 @@ class DraggableScrollbarInteractionPolicyTest : UiComponentsFunSpec() {
                 )
                 ) shouldBe true
         }
-    }
 
-    init {
         test("point left of touch zone is rejected so memo cards keep gestures") {
             (
                 isPointInScrollbarTouchZone(
@@ -100,9 +76,7 @@ class DraggableScrollbarInteractionPolicyTest : UiComponentsFunSpec() {
                 )
                 ) shouldBe false
         }
-    }
 
-    init {
         test("negative pointer x is rejected") {
             (
                 isPointInScrollbarTouchZone(
@@ -112,9 +86,7 @@ class DraggableScrollbarInteractionPolicyTest : UiComponentsFunSpec() {
                 )
                 ) shouldBe false
         }
-    }
 
-    init {
         test("zero canvas width yields no touch zone so all presses are rejected") {
             (
                 isPointInScrollbarTouchZone(
@@ -124,9 +96,7 @@ class DraggableScrollbarInteractionPolicyTest : UiComponentsFunSpec() {
                 )
                 ) shouldBe false
         }
-    }
 
-    init {
         test("touch target wider than canvas falls back to whole canvas") {
             (
                 isPointInScrollbarTouchZone(

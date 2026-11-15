@@ -2,7 +2,6 @@ package com.lomo.app.feature.quickball
 
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,48 +9,22 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Article
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Block
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.FilterList
-import androidx.compose.material.icons.rounded.FilterListOff
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.PhotoLibrary
-import androidx.compose.material.icons.rounded.RadioButtonChecked
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -61,8 +34,14 @@ import com.lomo.app.R
 import com.lomo.domain.model.QuickBallAction
 import com.lomo.domain.model.QuickBallConfig
 import com.lomo.domain.model.QuickBallGesture
+import com.lomo.ui.component.common.LomoButtonDefaults
 import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.component.common.LomoModalBottomSheet
+import com.lomo.ui.component.common.LomoSheetTokens
 import com.lomo.ui.component.common.rememberModalSheetPresentation
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
@@ -107,30 +86,30 @@ internal fun quickBallLabels(config: QuickBallConfig): ImmutableMap<QuickBallGes
         }
     }.toImmutableMap()
 
-internal fun QuickBallAction.icon(): ImageVector = when (this) {
-    QuickBallAction.NEW_MEMO -> Icons.Rounded.Add
-    QuickBallAction.RECORD -> Icons.Rounded.Mic
-    QuickBallAction.LONG_TEXT -> Icons.AutoMirrored.Rounded.Article
-    QuickBallAction.SCROLL_TOP -> Icons.Rounded.KeyboardArrowUp
-    QuickBallAction.SEARCH -> Icons.Rounded.Search
-    QuickBallAction.FILTER -> Icons.Rounded.FilterList
-    QuickBallAction.CLEAR_FILTER -> Icons.Rounded.FilterListOff
-    QuickBallAction.ACTION_MENU -> Icons.Rounded.MoreHoriz
-    QuickBallAction.DAILY_REVIEW -> Icons.Rounded.History
-    QuickBallAction.GALLERY -> Icons.Rounded.PhotoLibrary
-    QuickBallAction.NONE -> Icons.Rounded.Block
+internal fun QuickBallAction.icon(): LomoIconSpec = when (this) {
+    QuickBallAction.NEW_MEMO -> LomoIcons.Add
+    QuickBallAction.RECORD -> LomoIcons.Mic
+    QuickBallAction.LONG_TEXT -> LomoIcons.Article
+    QuickBallAction.SCROLL_TOP -> LomoIcons.KeyboardArrowUp
+    QuickBallAction.SEARCH -> LomoIcons.Search
+    QuickBallAction.FILTER -> LomoIcons.FilterList
+    QuickBallAction.CLEAR_FILTER -> LomoIcons.FilterListOff
+    QuickBallAction.ACTION_MENU -> LomoIcons.MoreHoriz
+    QuickBallAction.DAILY_REVIEW -> LomoIcons.History
+    QuickBallAction.GALLERY -> LomoIcons.PhotoLibrary
+    QuickBallAction.NONE -> LomoIcons.Block
 }
 
-internal fun QuickBallGesture.icon(): ImageVector = when (this) {
-    QuickBallGesture.TAP -> Icons.Rounded.TouchApp
-    QuickBallGesture.LONG_PRESS -> Icons.Rounded.RadioButtonChecked
-    QuickBallGesture.UP -> Icons.Rounded.KeyboardArrowUp
-    QuickBallGesture.DOWN -> Icons.Rounded.KeyboardArrowDown
-    QuickBallGesture.LEFT -> Icons.AutoMirrored.Rounded.KeyboardArrowLeft
-    QuickBallGesture.RIGHT -> Icons.AutoMirrored.Rounded.KeyboardArrowRight
+internal fun QuickBallGesture.icon(): LomoIconSpec = when (this) {
+    QuickBallGesture.TAP -> LomoIcons.TouchApp
+    QuickBallGesture.LONG_PRESS -> LomoIcons.RadioButtonChecked
+    QuickBallGesture.UP -> LomoIcons.KeyboardArrowUp
+    QuickBallGesture.DOWN -> LomoIcons.KeyboardArrowDown
+    QuickBallGesture.LEFT -> LomoIcons.KeyboardArrowLeft
+    QuickBallGesture.RIGHT -> LomoIcons.KeyboardArrowRight
 }
 
-internal fun quickBallIcons(config: QuickBallConfig): ImmutableMap<QuickBallGesture, ImageVector> =
+internal fun quickBallIcons(config: QuickBallConfig): ImmutableMap<QuickBallGesture, LomoIconSpec> =
     QuickBallGesture.entries.associateWith { config.action(it).icon() }.toImmutableMap()
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -147,13 +126,9 @@ internal fun QuickBallActionSheet(
     val positiveActions = actions.filter { it != QuickBallAction.NONE }
     val disableAction = actions.firstOrNull { it == QuickBallAction.NONE }
 
-    ModalBottomSheet(
+    LomoModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = presentation.sheetState,
-        shape = AppShapes.ExtraLargeIncreased,
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = AppSpacing.ExtraSmall,
-        dragHandle = { QuickBallSheetDragHandle() },
     ) {
         Column(
             modifier =
@@ -212,19 +187,6 @@ internal fun QuickBallActionSheet(
     }
 }
 
-@Composable
-private fun QuickBallSheetDragHandle() {
-    Box(
-        modifier =
-        Modifier
-            .padding(vertical = AppSpacing.Large)
-            .width(AppSpacing.ExtraLarge)
-            .size(width = AppSpacing.ExtraLarge, height = AppSpacing.ExtraSmall)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
-    )
-}
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun QuickBallSheetHeader(title: String, selectedAction: QuickBallAction?) {
@@ -238,10 +200,10 @@ private fun QuickBallSheetHeader(title: String, selectedAction: QuickBallAction?
     ) {
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(AppSpacing.MediumSmall),
+            shape = AppShapes.Medium,
         ) {
-            Icon(
-                imageVector = Icons.Rounded.TouchApp,
+            LomoIcon(
+                icon = LomoIcons.TouchApp,
                 contentDescription = null,
                 modifier = Modifier.padding(AppSpacing.Small),
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -263,8 +225,8 @@ private fun QuickBallSheetHeader(title: String, selectedAction: QuickBallAction?
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Icon(
-                        imageVector = selectedAction.icon(),
+                    LomoIcon(
+                        icon = selectedAction.icon(),
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -298,8 +260,7 @@ private fun QuickBallActionTile(
         when {
             selected && isDestructiveNeutral -> colorScheme.errorContainer
             selected -> colorScheme.secondaryContainer
-            isDestructiveNeutral -> colorScheme.surfaceContainerLow
-            else -> colorScheme.surfaceContainerHigh
+            else -> LomoSheetTokens.tileSurfaceColor(colorScheme)
         },
         animationSpec = componentMotion.fastEffectsSpec(),
         label = "QuickBallTileContainer",
@@ -329,7 +290,7 @@ private fun QuickBallActionTile(
     LomoFilledTonalButton(
         onClick = onClick,
         modifier = modifier.heightIn(min = 64.dp),
-        shapes = ButtonShapes(AppShapes.LargeIncreased, RoundedCornerShape(12.dp)),
+        shapes = LomoButtonDefaults.tileShapes(),
         colors =
         ButtonDefaults.filledTonalButtonColors(
             containerColor = containerColor,
@@ -343,13 +304,13 @@ private fun QuickBallActionTile(
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
         ) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = AppShapes.Medium,
                 color = badgeColor,
                 modifier = Modifier.size(36.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = action.icon(),
+                    LomoIcon(
+                        icon = action.icon(),
                         contentDescription = null,
                         tint = contentColor,
                         modifier = Modifier.size(20.dp),
@@ -372,8 +333,8 @@ private fun QuickBallActionTile(
                     modifier = Modifier.size(24.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.Check,
+                        LomoIcon(
+                            icon = LomoIcons.Check,
                             contentDescription = stringResource(R.string.quick_ball_selected),
                             tint = contentColor,
                             modifier = Modifier.size(14.dp),

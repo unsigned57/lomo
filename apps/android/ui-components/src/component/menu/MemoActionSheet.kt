@@ -1,19 +1,23 @@
 package com.lomo.ui.component.menu
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.geometry.Offset
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.icon.LomoIconSpec
 import com.lomo.ui.util.AppHapticFeedback
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 enum class ActionItemHaptic {
     NONE,
@@ -23,18 +27,15 @@ enum class ActionItemHaptic {
 
 /** Visual tier of an action inside the shared action sheet. */
 enum class ActionItemPlacement {
-    /** Side-by-side filled capsules for short, decision-style sheets. */
+    /** Side-by-side filled capsules for aligned secondary/decision actions. */
     Capsule,
 
-    /** Large icon-over-label tile in the top row; at most [ActionSheetTokens.MaxTileCount]. */
+    /** Compact icon-over-label tile in the top row; at most [ActionSheetTokens.MaxTileCount]. */
     Tile,
-
-    /** Borderless list row; destructive rows are rendered last behind a divider. */
-    Row,
 }
 
 data class ActionItemUi(
-    val icon: ImageVector,
+    val icon: LomoIconSpec,
     val label: String,
     val onClick: () -> Unit,
     val placement: ActionItemPlacement,
@@ -43,14 +44,10 @@ data class ActionItemUi(
     val isHighlighted: Boolean = false,
     val dismissAfterClick: Boolean = true,
     val haptic: ActionItemHaptic = ActionItemHaptic.MEDIUM,
+    val subActions: ImmutableList<ActionItemUi> = persistentListOf(),
 )
 
-internal data class ActionSheetPlan(
-    val capsules: List<ActionItemUi>,
-    val tiles: List<ActionItemUi>,
-    val rows: List<ActionItemUi>,
-    val destructiveRows: List<ActionItemUi>,
-)
+internal data class ActionSheetPlan(val capsules: List<ActionItemUi>, val tiles: List<ActionItemUi>)
 
 internal fun planActionSheet(actions: List<ActionItemUi>): ActionSheetPlan {
     val byPlacement = actions.groupBy(ActionItemUi::placement)
@@ -59,27 +56,39 @@ internal fun planActionSheet(actions: List<ActionItemUi>): ActionSheetPlan {
         "Action sheet supports at most ${ActionSheetTokens.MaxTileCount} tiles, got ${tiles.size}: " +
             tiles.joinToString(transform = ActionItemUi::label)
     }
-    val (destructiveRows, rows) = byPlacement[ActionItemPlacement.Row].orEmpty().partition(ActionItemUi::isDestructive)
     return ActionSheetPlan(
         capsules = byPlacement[ActionItemPlacement.Capsule].orEmpty(),
         tiles = tiles,
-        rows = rows,
-        destructiveRows = destructiveRows,
     )
 }
 
 @Composable
 fun MemoActionSheet(
-    state: MemoMenuState,
     actions: ImmutableList<ActionItemUi>,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    state: MemoMenuState? = null,
     benchmarkRootTag: String? = null,
 ) {
     val haptic = LocalAppHapticFeedback.current
     val plan = remember(actions) { planActionSheet(actions) }
-    val perform: (ActionItemUi) -> Unit = { action -> action.perform(haptic, onDismiss) }
-
+    val radialState = remember { RadialOverlayVisibilityState<String>() }
+    val tileCentersInScreen = remember { mutableStateMapOf<String, Offset>() }
+    val expandedParent =
+        remember(plan, radialState.activeGroup) {
+            radialState.activeGroup?.let { label ->
+                plan.tiles.firstOrNull { tile -> tile.label == label && tile.subActions.isNotEmpty() }
+            }
+        }
+    val perform: (ActionItemUi) -> Unit = { action ->
+        if (action.subActions.isNotEmpty()) {
+            haptic.medium()
+            radialState.open(action.label)
+        } else {
+            radialState.completeImmediately()
+            action.perform(haptic, onDismiss)
+        }
+    }
     Column(
         modifier =
         modifier
@@ -88,52 +97,55 @@ fun MemoActionSheet(
             .padding(horizontal = ActionSheetTokens.ContentHorizontalPadding)
             .padding(bottom = ActionSheetTokens.ContentBottomPadding),
     ) {
-        if (plan.capsules.isNotEmpty()) {
-            ActionCapsuleRow(actions = plan.capsules, onPerform = perform)
-        }
         if (plan.tiles.isNotEmpty()) {
-            ActionTileRow(actions = plan.tiles, onPerform = perform)
-        }
-        if (plan.rows.isNotEmpty() || plan.destructiveRows.isNotEmpty()) {
-            if (plan.capsules.isNotEmpty() || plan.tiles.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(ActionSheetTokens.SectionSpacing))
-            }
-            ActionRowList(
-                rows = plan.rows,
-                destructiveRows = plan.destructiveRows,
+            ActionTileRow(
+                actions = plan.tiles,
+                onTileCenterMeasured = { label, center -> tileCentersInScreen[label] = center },
                 onPerform = perform,
             )
         }
-        MemoMetaRow(
-            state = state,
-            modifier = Modifier.padding(top = ActionSheetTokens.SectionSpacing),
+        if (plan.capsules.isNotEmpty()) {
+            if (plan.tiles.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(ActionSheetTokens.SectionSpacing))
+            }
+            ActionCapsuleRow(actions = plan.capsules, onPerform = perform)
+        }
+        if (state != null && state.createdTime.isNotBlank()) {
+            if (plan.tiles.isNotEmpty() || plan.capsules.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(ActionSheetTokens.SectionSpacing))
+            }
+            MemoInfoCard(state = state)
+        }
+    }
+
+    if (expandedParent != null) {
+        RadialSubActionOverlay(
+            subActions = expandedParent.subActions,
+            visible = radialState.targetVisible,
+            canInteract = radialState.canInteract,
+            originInScreen = tileCentersInScreen[expandedParent.label],
+            onSelectSubAction = { subAction ->
+                radialState.completeImmediately()
+                subAction.perform(haptic, onDismiss)
+            },
+            onDismiss = {
+                if (radialState.requestDismiss() != null) {
+                    haptic.medium()
+                }
+            },
+            onDismissSettled = radialState::settleActiveDismiss,
         )
     }
 }
 
-private fun ActionItemUi.perform(haptic: AppHapticFeedback, onDismiss: () -> Unit) {
-    when (this.haptic) {
+private fun ActionItemUi.perform(feedback: AppHapticFeedback, onDismiss: () -> Unit) {
+    when (haptic) {
         ActionItemHaptic.NONE -> Unit
-        ActionItemHaptic.MEDIUM -> haptic.medium()
-        ActionItemHaptic.HEAVY -> haptic.heavy()
+        ActionItemHaptic.MEDIUM -> feedback.medium()
+        ActionItemHaptic.HEAVY -> feedback.heavy()
+    }
+    if (dismissAfterClick) {
+        onDismiss()
     }
     onClick()
-    if (dismissAfterClick) onDismiss()
-}
-
-@Composable
-private fun ActionRowList(
-    rows: List<ActionItemUi>,
-    destructiveRows: List<ActionItemUi>,
-    onPerform: (ActionItemUi) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.Top) {
-        rows.forEach { action -> ActionListRow(action = action, onClick = { onPerform(action) }) }
-        if (destructiveRows.isNotEmpty()) {
-            if (rows.isNotEmpty()) {
-                ActionRowDivider()
-            }
-            destructiveRows.forEach { action -> ActionListRow(action = action, onClick = { onPerform(action) }) }
-        }
-    }
 }

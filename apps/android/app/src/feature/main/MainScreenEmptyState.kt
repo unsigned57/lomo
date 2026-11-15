@@ -1,12 +1,10 @@
 package com.lomo.app.feature.main
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.NoteAdd
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.vector.ImageVector
 import com.lomo.ui.component.common.LomoButton
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.util.LocalAppHapticFeedback
 
 /**
@@ -49,7 +47,7 @@ private fun MainEmptyStateSettingsAction(onSettings: () -> Unit) {
 private fun resolveMainEmptyStateContent(searchQuery: String, hasDirectory: Boolean): MainEmptyStateContent = when {
     !hasDirectory -> {
         MainEmptyStateContent(
-            icon = Icons.AutoMirrored.Rounded.NoteAdd,
+            icon = LomoIcons.NoteAdd,
             title =
             androidx.compose.ui.res
                 .stringResource(com.lomo.app.R.string.empty_no_directory_title),
@@ -61,7 +59,7 @@ private fun resolveMainEmptyStateContent(searchQuery: String, hasDirectory: Bool
 
     searchQuery.isNotBlank() -> {
         MainEmptyStateContent(
-            icon = Icons.Rounded.Search,
+            icon = LomoIcons.Search,
             title =
             androidx.compose.ui.res
                 .stringResource(com.lomo.app.R.string.empty_no_matches_title),
@@ -73,7 +71,7 @@ private fun resolveMainEmptyStateContent(searchQuery: String, hasDirectory: Bool
 
     else -> {
         MainEmptyStateContent(
-            icon = Icons.AutoMirrored.Rounded.NoteAdd,
+            icon = LomoIcons.NoteAdd,
             title =
             androidx.compose.ui.res
                 .stringResource(com.lomo.app.R.string.empty_no_memos_title),
@@ -84,4 +82,4 @@ private fun resolveMainEmptyStateContent(searchQuery: String, hasDirectory: Bool
     }
 }
 
-private data class MainEmptyStateContent(val icon: ImageVector, val title: String, val subtitle: String)
+private data class MainEmptyStateContent(val icon: LomoIconSpec, val title: String, val subtitle: String)

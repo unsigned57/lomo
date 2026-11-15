@@ -10,6 +10,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
@@ -26,13 +27,50 @@ internal class AndroidMemoTextMeasurer(private val paint: TextPaint) : MemoTextM
     override fun measureText(text: String, start: Int, end: Int): Float = paint.measureText(text, start, end)
 }
 
-internal fun TextStyle.toBaseTextPaint(density: Density, customTypeface: Typeface? = null): TextPaint =
-    TextPaint(Paint.ANTI_ALIAS_FLAG).also { paint ->
-        paint.color = color.toArgb()
-        paint.textSize = resolveFontSizePx(density)
-        paint.typeface = resolvePlatformTypeface(customTypeface)
-        paint.letterSpacing = 0f
+internal data class MemoSpanTypefaceKey(
+    val fontFamily: FontFamily?,
+    val fontWeight: FontWeight,
+    val fontStyle: FontStyle,
+)
+
+internal typealias MemoSpanTypefaceResolver =
+    (fontFamily: FontFamily?, weight: FontWeight, style: FontStyle) -> Typeface?
+
+internal fun collectMemoSpanTypefaceKeys(
+    annotatedText: AnnotatedString,
+    baseStyle: TextStyle,
+): Set<MemoSpanTypefaceKey> = buildSet {
+    val baseWeight = baseStyle.fontWeight ?: FontWeight.Normal
+    val baseFontStyle = baseStyle.fontStyle ?: FontStyle.Normal
+    add(
+        MemoSpanTypefaceKey(
+            fontFamily = baseStyle.fontFamily,
+            fontWeight = baseWeight,
+            fontStyle = baseFontStyle,
+        ),
+    )
+    annotatedText.spanStyles.forEach { range ->
+        val span = range.item
+        add(
+            MemoSpanTypefaceKey(
+                fontFamily = span.fontFamily ?: baseStyle.fontFamily,
+                fontWeight = span.fontWeight ?: baseWeight,
+                fontStyle = span.fontStyle ?: baseFontStyle,
+            ),
+        )
     }
+}
+
+internal fun TextStyle.toBaseTextPaint(
+    density: Density,
+    customTypeface: Typeface? = null,
+    typefaceResolver: MemoSpanTypefaceResolver? = null,
+): TextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).also { paint ->
+    paint.color = color.toArgb()
+    paint.textSize = resolveFontSizePx(density)
+    paint.typeface = resolvePlatformTypeface(customTypeface, typefaceResolver)
+    paint.letterSpacing = 0f
+}
 
 internal fun TextStyle.toGlyphTextPaint(
     annotatedText: AnnotatedString,
@@ -40,13 +78,14 @@ internal fun TextStyle.toGlyphTextPaint(
     defaultLinkColor: Color,
     density: Density,
     customTypeface: Typeface? = null,
+    typefaceResolver: MemoSpanTypefaceResolver? = null,
 ): TextPaint {
     val spanStyle = annotatedText.resolveSpanStyle(offset)
     val linkStyle = annotatedText.resolveLinkVisualStyle(offset, defaultLinkColor)
     return TextPaint(Paint.ANTI_ALIAS_FLAG).also { paint ->
         paint.color = resolveGlyphColor(spanStyle, linkStyle).toArgb()
         paint.textSize = resolveFontSizePx(density)
-        paint.typeface = resolveTypeface(spanStyle, customTypeface)
+        paint.typeface = resolveMemoTypeface(spanStyle, customTypeface, typefaceResolver)
         paint.isUnderlineText =
             linkStyle?.isUnderlineText == true ||
             spanStyle.textDecoration?.contains(TextDecoration.Underline) == true
@@ -81,22 +120,10 @@ internal fun TextStyle.resolveMemoLetterSpacingPx(density: Density): Float = wit
     }
 }
 
-internal fun TextStyle.resolvePlatformTypeface(customTypeface: Typeface? = null): Typeface {
-    val italic = fontStyle == FontStyle.Italic
-    val weight = fontWeight?.weight ?: Typeface.NORMAL
-
-    val baseTypeface = if (fontFamily == FontFamily.Monospace) {
-        Typeface.MONOSPACE
-    } else {
-        customTypeface ?: Typeface.SANS_SERIF
-    }
-
-    return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-        Typeface.create(baseTypeface, weight, italic)
-    } else {
-        Typeface.create(baseTypeface, resolveMemoTypefaceStyle(weight, italic))
-    }
-}
+internal fun TextStyle.resolvePlatformTypeface(
+    customTypeface: Typeface? = null,
+    typefaceResolver: MemoSpanTypefaceResolver? = null,
+): Typeface = resolveMemoTypeface(SpanStyle(), customTypeface, typefaceResolver)
 
 internal fun resolveMemoTypefaceStyle(weight: Int, italic: Boolean): Int = when {
     weight >= BOLD_WEIGHT_THRESHOLD && italic -> Typeface.BOLD_ITALIC
@@ -113,12 +140,18 @@ internal fun TextStyle.resolveFontSizePx(density: Density): Float = with(density
     }
 }
 
-private fun TextStyle.resolveTypeface(spanStyle: SpanStyle, customTypeface: Typeface? = null): Typeface {
+internal fun TextStyle.resolveMemoTypeface(
+    spanStyle: SpanStyle,
+    customTypeface: Typeface? = null,
+    typefaceResolver: MemoSpanTypefaceResolver? = null,
+): Typeface {
     val resolvedFontFamily = spanStyle.fontFamily ?: fontFamily
-    val resolvedFontStyle = spanStyle.fontStyle ?: fontStyle
-    val resolvedFontWeight = spanStyle.fontWeight ?: fontWeight
+    val resolvedFontStyle = spanStyle.fontStyle ?: fontStyle ?: FontStyle.Normal
+    val resolvedFontWeight = spanStyle.fontWeight ?: fontWeight ?: FontWeight.Normal
+    typefaceResolver?.invoke(resolvedFontFamily, resolvedFontWeight, resolvedFontStyle)?.let { return it }
+
     val italic = resolvedFontStyle == FontStyle.Italic
-    val weight = resolvedFontWeight?.weight ?: Typeface.NORMAL
+    val weight = resolvedFontWeight.weight
 
     val baseTypeface = if (resolvedFontFamily == FontFamily.Monospace) {
         Typeface.MONOSPACE

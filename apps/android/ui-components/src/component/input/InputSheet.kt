@@ -129,7 +129,6 @@ fun InputSheet(
     val visibilityState = remember { MutableTransitionState(false) }
     visibilityState.targetState = sessionState.isSheetVisible
     LaunchedEffect(visibilityState.isIdle, visibilityState.currentState, sessionState.isDismissing) {
-        sessionState.isSheetEntrySettled = visibilityState.isIdle && visibilityState.currentState
         if (sessionState.isDismissing && visibilityState.isIdle && !visibilityState.currentState) {
             callbacks.onDismiss()
         }
@@ -177,7 +176,7 @@ private fun InputSheetSessionContent(
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
     val dismissSheet =
-        rememberDismissSheetAction(
+        createDismissSheetAction(
             isDismissing = sessionState.isDismissing,
             onDismissingChange = { sessionState.isDismissing = it },
             onSheetVisibleChange = { sessionState.isSheetVisible = it },
@@ -271,8 +270,7 @@ internal class InputSheetSessionState(val initialInputText: String) {
     var pendingSubmissionTriggerText by mutableStateOf<String?>(null)
     var submissionLockSourceText by mutableStateOf<String?>(null)
     var showDiscardDialog by mutableStateOf(false)
-    var isSheetVisible by mutableStateOf(false)
-    var isSheetEntrySettled by mutableStateOf(false)
+    var isSheetVisible by mutableStateOf(true)
     var isDismissing by mutableStateOf(false)
 
     fun clearSubmissionLock() {
@@ -410,8 +408,7 @@ private fun rememberInputTextChangeHandler(
         }
     }
 
-@Composable
-private fun rememberDismissSheetAction(
+private fun createDismissSheetAction(
     isDismissing: Boolean,
     onDismissingChange: (Boolean) -> Unit,
     onSheetVisibleChange: (Boolean) -> Unit,

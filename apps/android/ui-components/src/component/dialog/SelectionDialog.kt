@@ -7,12 +7,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
@@ -20,7 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.component.common.LomoModalBottomSheet
+import com.lomo.ui.component.common.LomoSheetTokens
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 
@@ -44,7 +43,7 @@ fun <T> SelectionDialog(
     val colorScheme = MaterialTheme.colorScheme
     val unselectedColors =
         ListItemDefaults.segmentedColors(
-            containerColor = colorScheme.surfaceContainerHigh,
+            containerColor = LomoSheetTokens.tileSurfaceColor(colorScheme),
             contentColor = colorScheme.onSurface,
         )
     val selectedColors =
@@ -53,12 +52,9 @@ fun <T> SelectionDialog(
             contentColor = colorScheme.onSecondaryContainer,
             leadingContentColor = colorScheme.onSecondaryContainer,
         )
-    ModalBottomSheet(
+    LomoModalBottomSheet(
         onDismissRequest = onDismiss,
         modifier = modifier,
-        shape = AppShapes.ExtraLargeIncreased,
-        containerColor = colorScheme.surfaceContainerLow,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
         Column(
             modifier =

@@ -11,11 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -44,6 +40,8 @@ import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
 import com.lomo.ui.component.picker.ExpressivePickerStep
 import com.lomo.ui.component.picker.ExpressiveSteppedPickerDialog
 import com.lomo.ui.component.picker.ExpressiveTimePickerSurface
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.persistentListOf
@@ -254,7 +252,7 @@ private fun RepeatStepper(value: Int, onValueChanged: (Int) -> Unit) {
                 onClick = { onValueChanged((value - 1).coerceAtLeast(REMINDER_REPEAT_MIN)) },
                 enabled = value > REMINDER_REPEAT_MIN,
             ) {
-                Icon(Icons.Rounded.Remove, contentDescription = null)
+                LomoIcon(LomoIcons.Remove, contentDescription = null)
             }
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -275,7 +273,7 @@ private fun RepeatStepper(value: Int, onValueChanged: (Int) -> Unit) {
                 onClick = { onValueChanged((value + 1).coerceAtMost(REMINDER_REPEAT_MAX)) },
                 enabled = value < REMINDER_REPEAT_MAX,
             ) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
+                LomoIcon(LomoIcons.Add, contentDescription = null)
             }
         }
         Text(

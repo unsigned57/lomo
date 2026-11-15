@@ -24,11 +24,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -63,6 +58,8 @@ import com.lomo.ui.generated.resources.cd_expand
 import com.lomo.ui.generated.resources.cd_more_options
 import com.lomo.ui.generated.resources.memo_card_pending
 import com.lomo.ui.generated.resources.memo_pinned_badge
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
 import kotlinx.collections.immutable.ImmutableList
@@ -292,7 +289,6 @@ private fun MemoCardPendingBadge() {
     }
 }
 
-@Composable
 private fun Modifier.rememberMemoCardInteractionModifier(
     allowFreeTextCopy: Boolean,
     cardInteractionSource: MutableInteractionSource,
@@ -388,8 +384,8 @@ private fun MemoCardHeaderActions(
                     horizontalArrangement = Arrangement.spacedBy(MemoCardTokens.PinnedBadgeSpacing),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.PushPin,
+                    LomoIcon(
+                        icon = LomoIcons.KeepFilled,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onTertiaryContainer,
                         modifier = Modifier.size(MemoCardTokens.PinnedIconSize),
@@ -416,8 +412,8 @@ private fun MemoCardHeaderActions(
                         .size(menuButtonSize)
                         .then(modifier),
                 ) {
-                    Icon(
-                        Icons.Rounded.MoreVert,
+                    LomoIcon(
+                        LomoIcons.MoreVert,
                         contentDescription = stringResource(Res.string.cd_more_options),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
@@ -562,8 +558,8 @@ private fun MemoCardExpandToggle(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            Icon(
-                imageVector = Icons.Rounded.KeyboardArrowDown,
+            LomoIcon(
+                icon = LomoIcons.KeyboardArrowDown,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier =

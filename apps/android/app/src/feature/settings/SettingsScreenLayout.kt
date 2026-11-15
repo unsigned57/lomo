@@ -19,14 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material.icons.outlined.Vibration
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
@@ -55,6 +48,8 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.LomoIconButton
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 
@@ -144,8 +139,8 @@ private fun SettingsTopBar(onBackClick: () -> Unit, scrollBehavior: TopAppBarScr
                 },
                 modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_BACK_BUTTON),
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                LomoIcon(
+                    icon = LomoIcons.ArrowBack,
                     contentDescription = stringResource(R.string.back),
                 )
             }
@@ -270,7 +265,7 @@ private fun SettingsCategoryEntriesGroup(dialogState: SettingsDialogState) {
                 title = stringResource(R.string.settings_category_sync_backup),
                 subtitle = stringResource(R.string.settings_category_sync_backup_subtitle),
                 modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_SYNC_BACKUP),
-                icon = Icons.Outlined.Sync,
+                icon = LomoIcons.Sync,
                 onClick = { dialogState.activeSubPage = SettingsSubPage.SYNC_BACKUP },
             )
         }
@@ -278,7 +273,7 @@ private fun SettingsCategoryEntriesGroup(dialogState: SettingsDialogState) {
             PreferenceItem(
                 title = stringResource(R.string.settings_category_storage_formats),
                 subtitle = stringResource(R.string.settings_category_storage_formats_subtitle),
-                icon = Icons.Outlined.FolderOpen,
+                icon = LomoIcons.FolderOpen,
                 onClick = { dialogState.activeSubPage = SettingsSubPage.STORAGE_FORMATS },
             )
         }
@@ -287,7 +282,7 @@ private fun SettingsCategoryEntriesGroup(dialogState: SettingsDialogState) {
                 title = stringResource(R.string.settings_category_interaction_security),
                 subtitle = stringResource(R.string.settings_category_interaction_security_subtitle),
                 modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_INTERACTION_SECURITY),
-                icon = Icons.Outlined.Vibration,
+                icon = LomoIcons.Vibration,
                 onClick = { dialogState.activeSubPage = SettingsSubPage.INTERACTION_SECURITY },
             )
         }
@@ -295,7 +290,7 @@ private fun SettingsCategoryEntriesGroup(dialogState: SettingsDialogState) {
             PreferenceItem(
                 title = stringResource(R.string.settings_category_about),
                 subtitle = stringResource(R.string.settings_category_about_subtitle),
-                icon = Icons.Outlined.Info,
+                icon = LomoIcons.Info,
                 onClick = { dialogState.activeSubPage = SettingsSubPage.ABOUT },
             )
         }

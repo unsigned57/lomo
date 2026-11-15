@@ -326,6 +326,18 @@ class SearchViewModel(dependencies: SearchViewModelDependencies) : ViewModel() {
             appConfigUiCoordinator.updateInputToolbarToolOrder(toolIds)
         }
     }
+
+    internal val snapshotBindings: SearchUiSnapshotBindings by lazy { buildSnapshotBindings() }
+
+    internal val screenCommands =
+        SearchScreenCommands(
+            onQueryChanged = ::onSearchQueryChanged,
+            onToggleSearchMode = ::onToggleSearchMode,
+            onTodoClick = ::toggleTodo,
+            onEditorOpenFailure = ::reportError,
+            exitAnimationRegistry = exitAnimationRegistry,
+            filterController = searchFilterController,
+        )
 }
 
 fun SearchViewModel.saveImage(

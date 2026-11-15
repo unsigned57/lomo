@@ -1,8 +1,8 @@
 package com.lomo.ui.component.input
 
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.TextFieldValue
 import com.lomo.ui.component.markdown.MarkdownRenderState
+import com.lomo.ui.icon.LomoIconSpec
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -56,7 +56,7 @@ enum class InputToolbarToolPlacement {
 
 data class InputToolbarTool(
     val id: InputToolbarActionId,
-    val icon: ImageVector,
+    val icon: LomoIconSpec,
     val contentDescriptionRes: Int,
     val command: InputEditorCommand,
     val enabled: Boolean,
@@ -144,7 +144,7 @@ class InputToolbarRegistry private constructor(private val state: InputToolbarRe
 
 data class InputEditorActionBadge(
     val text: String,
-    val icon: ImageVector,
+    val icon: LomoIconSpec,
     val command: InputEditorCommand,
     val benchmarkTag: String? = null,
 )

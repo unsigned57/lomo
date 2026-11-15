@@ -6,10 +6,12 @@ import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextPaint
 import android.text.style.ForegroundColorSpan
+import android.text.style.MetricAffectingSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.text.style.UnderlineSpan
+import com.lomo.app.feature.preferences.ShareCardTypefaces
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -58,7 +60,7 @@ internal fun createQuoteRenderLine(
     val quoteStyle = resolveShareCardQuoteLayoutStyle(spec)
     val layout =
         buildStaticLayout(
-            text = bodyLine.withoutQuoteTextPrefix().toStyledText(paintSet.linkColor),
+            text = bodyLine.withoutQuoteTextPrefix().toStyledText(paintSet.linkColor, paintSet.bodyTypefaces),
             paint = paintSet.quotePaint,
             width = quoteStyle.textWidth,
             lineSpacingMultiplier = spec.bodyLineSpacingMultiplier,
@@ -72,6 +74,7 @@ internal fun createTextRenderLine(
     spec: ShareCardLayoutSpec,
     shouldUseCenteredBody: Boolean = false,
     linkColor: Int? = null,
+    bodyTypefaces: ShareCardTypefaces? = null,
 ): ShareCardRenderLine {
     val paragraphLayoutPolicy =
         resolveShareCardParagraphLayoutPolicy(
@@ -80,7 +83,7 @@ internal fun createTextRenderLine(
         )
     val layout =
         buildStaticLayout(
-            text = bodyLine.toStyledText(linkColor),
+            text = bodyLine.toStyledText(linkColor, bodyTypefaces),
             paint = paint,
             width = spec.contentWidth,
             paragraphLayoutPolicy = paragraphLayoutPolicy,
@@ -114,16 +117,121 @@ internal fun createImageRenderLine(
     )
 }
 
-private fun ShareBodyLine.toStyledText(linkColor: Int? = null): CharSequence {
+internal data class ShareCardInlineFontRun(
+    val start: Int,
+    val end: Int,
+    val typeface: Typeface?,
+    val fallbackStyle: Int?,
+)
+
+internal fun resolveShareCardInlineFontRuns(
+    textLength: Int,
+    inlineStyles: List<ShareInlineStyleRange>,
+    bodyTypefaces: ShareCardTypefaces?,
+): List<ShareCardInlineFontRun> {
+    if (textLength <= 0 || inlineStyles.isEmpty()) return emptyList()
+    val boldRanges = mutableListOf<IntRange>()
+    val italicRanges = mutableListOf<IntRange>()
+    val boundaries = sortedSetOf<Int>()
+    for (range in inlineStyles) {
+        val start = range.start.coerceAtLeast(0)
+        val end = range.end.coerceAtMost(textLength)
+        if (start < end) {
+            when (range.kind) {
+                ShareInlineStyleKind.Bold -> {
+                    boldRanges += start..end
+                    boundaries += start
+                    boundaries += end
+                }
+
+                ShareInlineStyleKind.Italic -> {
+                    italicRanges += start..end
+                    boundaries += start
+                    boundaries += end
+                }
+
+                else -> Unit
+            }
+        }
+    }
+    if (boundaries.size < 2) return emptyList()
+    val rawRuns = mutableListOf<ShareCardInlineFontRun>()
+    boundaries.toList().zipWithNext { segStart, segEnd ->
+        val style = if (segStart < segEnd) {
+            val hasBold = boldRanges.any { segStart >= it.first && segEnd <= it.last }
+            val hasItalic = italicRanges.any { segStart >= it.first && segEnd <= it.last }
+            resolveSegmentFontStyle(hasBold, hasItalic, bodyTypefaces)
+        } else {
+            null
+        }
+        if (style != null) {
+            val (typeface, fallbackStyle) = style
+            val prev = rawRuns.lastOrNull()
+            if (prev != null && prev.end == segStart && prev.typeface === typeface &&
+                prev.fallbackStyle == fallbackStyle
+            ) {
+                rawRuns[rawRuns.lastIndex] = prev.copy(end = segEnd)
+            } else {
+                rawRuns += ShareCardInlineFontRun(segStart, segEnd, typeface, fallbackStyle)
+            }
+        }
+    }
+    return rawRuns
+}
+
+private fun resolveSegmentFontStyle(
+    hasBold: Boolean,
+    hasItalic: Boolean,
+    bodyTypefaces: ShareCardTypefaces?,
+): Pair<Typeface?, Int?>? = when {
+    hasBold && hasItalic ->
+        when {
+            bodyTypefaces?.boldItalic != null -> bodyTypefaces.boldItalic to null
+            bodyTypefaces?.bold != null -> bodyTypefaces.bold to Typeface.ITALIC
+            bodyTypefaces?.italic != null -> bodyTypefaces.italic to Typeface.BOLD
+            else -> null to Typeface.BOLD_ITALIC
+        }
+
+    hasBold ->
+        if (bodyTypefaces?.bold != null) bodyTypefaces.bold to null else null to Typeface.BOLD
+
+    hasItalic ->
+        if (bodyTypefaces?.italic != null) bodyTypefaces.italic to null else null to Typeface.ITALIC
+
+    else -> null
+}
+
+private class ShareCardTypefaceSpan(private val targetTypeface: Typeface) : MetricAffectingSpan() {
+    override fun updateDrawState(tp: TextPaint) {
+        tp.typeface = targetTypeface
+    }
+
+    override fun updateMeasureState(textPaint: TextPaint) {
+        textPaint.typeface = targetTypeface
+    }
+}
+
+private fun ShareBodyLine.toStyledText(
+    linkColor: Int? = null,
+    bodyTypefaces: ShareCardTypefaces? = null,
+): CharSequence {
     if (inlineStyles.isEmpty()) return text
 
     val styled = SpannableString(text)
+    resolveShareCardInlineFontRuns(text.length, inlineStyles, bodyTypefaces).forEach { run ->
+        run.typeface?.let { typeface ->
+            styled.setSpan(ShareCardTypefaceSpan(typeface), run.start, run.end)
+        }
+        run.fallbackStyle?.let { fallbackStyle ->
+            styled.setSpan(StyleSpan(fallbackStyle), run.start, run.end)
+        }
+    }
     inlineStyles.forEach { range ->
         if (range.start >= range.end || range.start < 0 || range.end > text.length) return@forEach
         when (range.kind) {
-            ShareInlineStyleKind.Bold -> styled.setSpan(StyleSpan(Typeface.BOLD), range.start, range.end)
-
-            ShareInlineStyleKind.Italic -> styled.setSpan(StyleSpan(Typeface.ITALIC), range.start, range.end)
+            ShareInlineStyleKind.Bold,
+            ShareInlineStyleKind.Italic,
+            -> Unit
 
             ShareInlineStyleKind.Strikethrough -> styled.setSpan(StrikethroughSpan(), range.start, range.end)
 

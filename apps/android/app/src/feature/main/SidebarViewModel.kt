@@ -61,4 +61,11 @@ class SidebarViewModel(
     fun updateTagOrder(order: List<String>) {
         viewModelScope.launch { appConfigCoordinator.updateSidebarTagOrder(order) }
     }
+
+    internal val hostBindings: MainSidebarBindings =
+        MainSidebarBindings(
+            searchQuery = searchQuery,
+            sidebarUiState = sidebarUiState,
+            onUpdateTagOrder = ::updateTagOrder,
+        )
 }

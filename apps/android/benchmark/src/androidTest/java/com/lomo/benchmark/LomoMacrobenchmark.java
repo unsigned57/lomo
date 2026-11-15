@@ -181,6 +181,7 @@ public class LomoMacrobenchmark {
     private static final String SORT_SELECTED_UPDATED_TIME = "benchmark_sort_selected_updated_time";
     private static final String MEMO_ACTION_PIN = "benchmark_memo_action_pin";
     private static final String MEMO_ACTION_COPY = "benchmark_memo_action_copy";
+    private static final String MEMO_ACTION_SHARE_MENU = "benchmark_memo_action_share_menu";
     private static final String MEMO_ACTION_SHARE = "benchmark_memo_action_share";
     private static final String MEMO_ACTION_LAN_SHARE = "benchmark_memo_action_lan_share";
     private static final String MEMO_ACTION_HISTORY = "benchmark_memo_action_history";
@@ -1457,8 +1458,9 @@ public class LomoMacrobenchmark {
                 scope -> {
                     launchTarget(scope, StartupMode.WARM, LaunchSurface.MAIN);
                     UiDevice device = scope.getDevice();
-                    menuActionExpecting(
+                    menuSubActionExpecting(
                             device,
+                            MEMO_ACTION_SHARE_MENU,
                             MEMO_ACTION_SHARE,
                             By.pkg(INTENT_RESOLVER_PACKAGE),
                             "system Sharesheet — share dispatch");
@@ -1590,8 +1592,9 @@ public class LomoMacrobenchmark {
                 scope -> {
                     launchTarget(scope, StartupMode.WARM, LaunchSurface.MAIN);
                     UiDevice device = scope.getDevice();
-                    menuActionExpecting(
+                    menuSubActionExpecting(
                             device,
+                            MEMO_ACTION_SHARE_MENU,
                             MEMO_ACTION_LAN_SHARE,
                             By.res(LAN_SHARE_ROOT),
                             "LAN share page root");
@@ -2233,6 +2236,36 @@ public class LomoMacrobenchmark {
                                 + "; " + describeMatches(device, MEMO_MENU_BUTTON_ID));
             }
             // A residual open sheet would mask the retry's fresh open — dismiss it.
+            if (device.findObject(By.res(MEMO_MENU_ROOT)) != null) {
+                device.pressBack();
+            }
+        }
+    }
+
+    /** Same retry contract for grouped radial sub-actions opened from a parent menu tile. */
+    private static void menuSubActionExpecting(
+            UiDevice device,
+            String parentActionAnchor,
+            String subActionAnchor,
+            BySelector outcomePresent,
+            String label) {
+        long deadline = SystemClock.uptimeMillis() + SEED_DEADLINE_MS;
+        while (true) {
+            openTopMemoMenu(device, true);
+            if (clickMenuAction(device, parentActionAnchor)
+                    && clickMenuAction(device, subActionAnchor)
+                    && device.wait(Until.findObject(outcomePresent), WAIT_MS) != null) {
+                return;
+            }
+            if (SystemClock.uptimeMillis() >= deadline) {
+                throw new IllegalStateException(
+                        label + " never appeared after " + parentActionAnchor + " -> " + subActionAnchor
+                                + "; " + describeMatches(device, MEMO_MENU_BUTTON_ID));
+            }
+            // Dismiss radial popup first if still open, then dismiss residual sheet.
+            if (device.findObject(By.res(subActionAnchor)) != null) {
+                device.pressBack();
+            }
             if (device.findObject(By.res(MEMO_MENU_ROOT)) != null) {
                 device.pressBack();
             }

@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.memo.MemoEditorCapabilities
 import com.lomo.app.feature.memo.MemoEditorCommandHandler
+import com.lomo.app.feature.memo.MemoEditorHostBindings
 import com.lomo.app.feature.memo.MemoEditorOperations
 import com.lomo.app.feature.memo.MemoEditorSessionState
 import com.lomo.app.feature.memo.MemoEditorSurface
@@ -17,7 +18,9 @@ import kotlinx.collections.immutable.ImmutableMap
 
 @Composable
 internal fun rememberMainMemoEditorSurface(
-    dependencies: MainScreenDependencies,
+    editorBindings: MemoEditorHostBindings,
+    recordingBindings: MainRecordingBindings,
+    onUpdateInputToolbarToolOrder: (List<String>) -> Unit,
     interactionCallbacks: MainScreenInteractionCallbacks,
     imageDirectory: String?,
     rootDirectory: String?,
@@ -31,13 +34,13 @@ internal fun rememberMainMemoEditorSurface(
     isRecording: Boolean,
     onImageDirectoryMissing: () -> Unit,
 ): MemoEditorSurface {
-    val recordingDuration by dependencies.recordingViewModel.recordingDuration.collectAsStateWithLifecycle()
-    val recordingAmplitude by dependencies.recordingViewModel.recordingAmplitude.collectAsStateWithLifecycle()
+    val recordingDuration by recordingBindings.flows.recordingDuration.collectAsStateWithLifecycle()
+    val recordingAmplitude by recordingBindings.flows.recordingAmplitude.collectAsStateWithLifecycle()
     return MemoEditorSurface(
         session =
         MemoEditorSessionState(
             imageDirectory = imageDirectory,
-            ownerDraftId = dependencies.editorViewModel.ownerDraftId,
+            ownerDraftId = editorBindings.flows.getOwnerDraftId(),
             rootPath = rootDirectory,
             imageMap = imageMap,
             availableTags = availableTags,
@@ -56,14 +59,18 @@ internal fun rememberMainMemoEditorSurface(
             toolbarActions = memoEditorToolbarTools(recording = true),
             toolbarToolOrder = inputToolbarToolOrder,
         ),
-        commands = mainMemoEditorCommands(dependencies, interactionCallbacks),
+        commands =
+        mainMemoEditorCommands(
+            onCancelRecording = recordingBindings.actions.onCancelRecording,
+            interactionCallbacks = interactionCallbacks,
+        ),
         operations =
         MemoEditorOperations(
-            onSaveImages = dependencies.editorViewModel::saveImages,
+            onSaveImages = editorBindings.actions.onSaveImages,
             onSubmit = { submissionId, session, content, timestampMillis ->
                 if (session != null) {
-                    dependencies.editorViewModel.submissions.update(submissionId, session, content)
-                    dependencies.editorViewModel.submissions.await(submissionId)
+                    editorBindings.submissions.update(submissionId, session, content)
+                    editorBindings.submissions.await(submissionId)
                 } else {
                     val accepted =
                         interactionCallbacks.onCreateMemo(
@@ -72,33 +79,33 @@ internal fun rememberMainMemoEditorSurface(
                             timestampMillis,
                         )
                     if (!accepted) {
-                        dependencies.editorViewModel.submissions.reject(
+                        editorBindings.submissions.reject(
                             submissionId,
                             IllegalStateException("Another memo creation is already pending"),
                         )
                         false
                     } else {
-                        dependencies.editorViewModel.submissions.await(submissionId)
+                        editorBindings.submissions.await(submissionId)
                     }
                 }
             },
-            submissionState = dependencies.editorViewModel.submissionState,
-            onDismiss = dependencies.editorViewModel::discardInputs,
+            submissionState = editorBindings.flows.submissionState,
+            onDismiss = editorBindings.actions.onDiscardInputs,
             onToolbarOrderChanged = { tools ->
-                dependencies.mainViewModel.updateInputToolbarToolOrder(tools.map { tool -> tool.persistedId })
+                onUpdateInputToolbarToolOrder(tools.map { tool -> tool.persistedId })
             },
         ),
     )
 }
 
 private fun mainMemoEditorCommands(
-    dependencies: MainScreenDependencies,
+    onCancelRecording: () -> Unit,
     interactionCallbacks: MainScreenInteractionCallbacks,
 ): MemoEditorCommandHandler = MemoEditorCommandHandler { command ->
     when (command) {
         InputEditorCommand.StopRecording -> interactionCallbacks.onStopRecording()
 
-        InputEditorCommand.CancelRecording -> dependencies.recordingViewModel.cancelRecording()
+        InputEditorCommand.CancelRecording -> onCancelRecording()
 
         is InputEditorCommand.Action ->
             when (command.id) {

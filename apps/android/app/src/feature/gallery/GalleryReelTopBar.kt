@@ -7,10 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -19,11 +15,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.icon.LomoIconSpec
+import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.HazeState
@@ -57,14 +55,14 @@ internal fun GalleryReelTopBar(
     ) {
         GalleryReelTopBarPillButton(
             hazeState = hazeState,
-            imageVector = Icons.Rounded.Close,
+            icon = LomoIcons.Close,
             contentDescription = stringResource(R.string.gallery_reel_close),
             onClick = onClose,
         )
         if (onShowMenu != null) {
             GalleryReelTopBarPillButton(
                 hazeState = hazeState,
-                imageVector = Icons.Rounded.MoreVert,
+                icon = LomoIcons.MoreVert,
                 contentDescription = stringResource(R.string.cd_more_options),
                 onClick = onShowMenu,
             )
@@ -77,7 +75,7 @@ internal fun GalleryReelTopBar(
 @Composable
 private fun GalleryReelTopBarPillButton(
     hazeState: HazeState,
-    imageVector: ImageVector,
+    icon: LomoIconSpec,
     contentDescription: String,
     onClick: () -> Unit,
 ) {
@@ -103,8 +101,8 @@ private fun GalleryReelTopBarPillButton(
             ),
             modifier = Modifier.size(GALLERY_REEL_TOP_BAR_TOUCH_SIZE),
         ) {
-            Icon(
-                imageVector = imageVector,
+            LomoIcon(
+                icon = icon,
                 contentDescription = contentDescription,
                 modifier = Modifier.size(GALLERY_REEL_TOP_BAR_ICON_SIZE),
             )

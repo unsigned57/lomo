@@ -104,10 +104,10 @@ private fun MemoMenuBottomSheetHost(current: MemoMenuState, params: MemoMenuBott
             )
         }
     MemoMenuBottomSheet(
-        state = current,
         presentation = params.presentation,
         onDismissRequest = params.clearActiveState,
         actions = params.actions(current, lifecycle),
+        state = current,
         benchmarkRootTag = params.benchmarkRootTag,
     )
 }

@@ -1,9 +1,5 @@
 package com.lomo.app.feature.settings
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Inbox
-import androidx.compose.material.icons.outlined.SyncProblem
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -14,6 +10,7 @@ import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.component.settings.SettingsGroupScope
 import com.lomo.ui.component.settings.SwitchPreferenceItem
+import com.lomo.ui.icon.LomoIcons
 
 @Composable
 fun SyncSettingsSection(
@@ -32,7 +29,7 @@ fun SyncSettingsSection(
                 PreferenceItem(
                     title = stringResource(R.string.sync_center_title),
                     subtitle = stringResource(R.string.sync_center_open_conflicts),
-                    icon = Icons.Outlined.SyncProblem,
+                    icon = LomoIcons.SyncProblem,
                     onClick = onOpenSyncCenter,
                     modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_SYNC_CENTER),
                 )
@@ -62,7 +59,7 @@ private fun SettingsGroupScope.syncInboxSettingsSection(
         SwitchPreferenceItem(
             title = stringResource(R.string.settings_sync_inbox_enabled),
             subtitle = stringResource(R.string.settings_sync_inbox_enabled_subtitle),
-            icon = Icons.Outlined.Inbox,
+            icon = LomoIcons.Inbox,
             checked = state.syncInboxEnabled,
             onCheckedChange = onToggleEnabled,
         )
@@ -76,7 +73,7 @@ private fun SettingsGroupScope.syncInboxSettingsSection(
             PreferenceItem(
                 title = stringResource(R.string.settings_sync_inbox_directory),
                 subtitle = state.syncInboxDirectory.subtitle(notSetLabel),
-                icon = Icons.Outlined.FolderOpen,
+                icon = LomoIcons.FolderOpen,
                 enabled = policy.headerInteractive,
                 onClick = onSelectDirectory,
             )

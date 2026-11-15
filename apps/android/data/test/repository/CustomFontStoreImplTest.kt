@@ -39,13 +39,29 @@ import java.util.UUID
  *   info carries the legacy-import name state rather than an invented display name.
  * - Given a rejected import, when fonts are scanned afterwards, then no temp or partial file
  *   is left behind.
+ * - Given a variable font with OpenType `fvar` + `name` tables, when imported and scanned, then
+ *   [CustomFontInfo.variableAxes] captures its axes and bounds without losing metadata.
  *
  * Observable outcomes: CustomFontImportResult branches, on-disk file names, name states,
- * absence of leftover artifacts.
+ * variable-axis metadata, absence of leftover artifacts.
  *
  * TDD proof:
- * - Fails before the fix because the contract surface under test did not exist.
+ * - Fails before the fix because the contract surface under test did not exist; the variable-axis
+ *   scenario fails until CustomFontStoreImpl invokes OpenTypeVariableFontParser on import/scan.
  * Excludes: platform Typeface rasterization, Compose FontFamily construction, UI toasts.
+ *
+ * Production scope: apps/android/data/src/repository/CustomFontStoreImpl.kt
+ *
+ * Test Change Justification:
+ * - Reason category: additive variable-font capability on CustomFontStoreImpl.
+ * - Old behavior/assertion being replaced: existing test cases tested static font import and
+ *   scanning without asserting variable-axis extraction (all 13 existing assertions kept intact).
+ * - Why old assertion is no longer correct: CustomFontInfo gained variableAxes extracted from
+ *   OpenType `fvar` + `name` tables, so a new variable-font import/scan test case is required.
+ * - Coverage preserved by: all 13 existing static import, validation, legacy UUID scan, and
+ *   deletion assertions remain unmodified alongside the new variable-axis test.
+ * - Why this is not fitting the test to the implementation: asserts the real OpenType `fvar`
+ *   standard axis bounds and labels decoded through CustomFontStoreImpl import and scan.
  */
 class CustomFontStoreImplTest : DataFunSpec() {
     init {
@@ -238,7 +254,58 @@ class CustomFontStoreImplTest : DataFunSpec() {
                 rejected.reason shouldBe CustomFontRejection.UNSUPPORTED_TYPE
             }
         }
+
+        test("given a variable font stream when imported and scanned then variable axes are populated") {
+            runTest {
+                val dir = newFontRoot()
+                val store = newStore(dir)
+                val variableTtf = buildMinimalVariableTtf()
+
+                val imported =
+                    store
+                        .importFont(streamOf(variableTtf), "VariableCJK.ttf")
+                        .shouldBeInstanceOf<CustomFontImportResult.Imported>()
+
+                imported.info.isVariableFont shouldBe true
+                imported.info.visibleVariableAxes.map { it.tag to it.defaultValue } shouldBe listOf("wght" to 400f)
+
+                val rescanned = newStore(dir).observeFonts().first()
+                rescanned.shouldHaveSize(1)
+                rescanned[0].isVariableFont shouldBe true
+                rescanned[0].visibleVariableAxes.map { it.minValue to it.maxValue } shouldBe listOf(100f to 900f)
+            }
+        }
     }
+}
+
+private fun buildMinimalVariableTtf(): ByteArray {
+    val fvar =
+        byteArrayOf(
+            0x00, 0x01, 0x00, 0x00, // version 1.0
+            0x00, 0x10, 0x00, 0x02, // axesArrayOffset = 16, reserved = 2
+            0x00, 0x01, 0x00, 0x14, // axisCount = 1, axisSize = 20
+            0x00, 0x00, 0x00, 0x04, // instanceCount = 0, instanceSize = 4
+            'w'.code.toByte(), 'g'.code.toByte(), 'h'.code.toByte(), 't'.code.toByte(),
+            0x00, 0x64, 0x00, 0x00, // min 100.0
+            0x01, 0x90.toByte(), 0x00, 0x00, // default 400.0
+            0x03, 0x84.toByte(), 0x00, 0x00, // max 900.0
+            0x00, 0x00, // flags = 0
+            0x01, 0x00, // nameId = 256
+        )
+    val headerSize = 12 + 16
+    val out = java.io.ByteArrayOutputStream()
+    val dos = java.io.DataOutputStream(out)
+    dos.writeInt(0x00010000)
+    dos.writeShort(1)
+    dos.writeShort(16)
+    dos.writeShort(0)
+    dos.writeShort(0)
+    dos.writeBytes("fvar")
+    dos.writeInt(0)
+    dos.writeInt(headerSize)
+    dos.writeInt(fvar.size)
+    dos.write(fvar)
+    return out.toByteArray()
 }
 
 private fun streamOf(bytes: ByteArray): CustomFontSource = CustomFontSource { bytes.inputStream() }
