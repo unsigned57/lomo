@@ -22,6 +22,13 @@ import java.nio.file.Files
 
 /*
  * Behavior Contract:
+ * Scenarios:
+ * - Given pending note or attachment candidates, when grants are pruned, then live candidate grants survive
+ *   and orphan grants are released.
+ * - Given a path or URI root update, when configuration is observed, then the selected location and display
+ *   name persist.
+ * - Given directory creation failure, when configuration creates a directory, then the filesystem failure is
+ *   surfaced.
  * TDD proof (candidate grant pinning): target/lomo/reports/manual/directory-selection/transaction-red.log
  * exposes unjournaled media changes; verification-green.log covers both notes and attachment candidate grants.
  * Test Change Justification:
@@ -31,7 +38,7 @@ import java.nio.file.Files
  * Coverage preserved by: all existing grant sets and stored-location assertions are retained; pending media grant coverage is added.
  * Why this is not fitting the test to the implementation: Android may revoke a released grant, so uncommitted candidates remain live resources.
  * - Unit under test: FileWorkspaceConfigSourceDelegate
- * - Behavior focus: root path or URI persistence, root-flow precedence, display-name mapping, and directory creation failure policy.
+ * - Capability: root path or URI persistence, root-flow precedence, display-name mapping, and directory creation failure policy.
  * - Observable outcomes: persisted root values in a real preference store, observed root values,
  *   created filesystem directories, and thrown IOException messages.
  * - Given a pending note-root transition, when an independent image folder is configured,

@@ -38,6 +38,17 @@ import kotlin.io.path.writeText
  *
  * Excludes:
  * - Runtime coroutine scheduling and Android lifecycle owners.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for CoroutineSafetyRules.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including registers NoSwallowedCancellationInSuspend,
+ * NoUnboundedFlowSharing, and NoUnmanagedCoroutineScope in rule set; NoSwallowedCancellationInSuspend: flags
+ * catch(e: Exception) in suspend function without rethrow.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class CoroutineSafetyRulesTest :
     FunSpec({

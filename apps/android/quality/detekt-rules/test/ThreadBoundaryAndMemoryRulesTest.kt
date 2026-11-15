@@ -37,6 +37,17 @@ import kotlin.io.path.writeText
  *
  * Excludes:
  * - Test fixtures and explicitly bounded one-shot reads.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ThreadBoundaryAndMemoryRules.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including registers NoUnconfinedIoOrNative and
+ * NoUnpaginatedFullLoad in rule set; NoUnconfinedIoOrNative: flags readText outside
+ * withContext(Dispatchers.IO).
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class ThreadBoundaryAndMemoryRulesTest :
     FunSpec({

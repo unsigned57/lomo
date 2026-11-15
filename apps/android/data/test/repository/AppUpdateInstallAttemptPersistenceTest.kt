@@ -42,6 +42,17 @@ import java.nio.file.Files
  *
  * Excludes:
  * - GitHub release discovery, HTTP streaming internals, Android PackageManager archive parsing, FileProvider URI permissions, and actual PackageInstaller UI.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and an equivalent Unit-returning throwing installer fixture.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given missing install permission when repository
+ * is recreated then permission-waiting attempt metadata is restored; given verified apk when installer wait
+ * starts then verified metadata is persisted before terminal completion.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class AppUpdateInstallAttemptPersistenceTest : DataFunSpec() {
     init {

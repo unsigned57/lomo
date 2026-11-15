@@ -31,6 +31,17 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Compose rendering, DataStore implementation, and settings dialog text input mechanics.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for CalendarHeatmapThresholds.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given defaults when inspected then previous
+ * calendar heatmap ranges are preserved; given valid storage text when parsed then exact boundaries are
+ * recovered.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class CalendarHeatmapThresholdsTest :
     FunSpec({

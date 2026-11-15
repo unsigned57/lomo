@@ -22,6 +22,16 @@ package com.lomo.data.repository
  * TDD proof:
  * - Fails before the fix because the facade surface under test does not exist.
  * Excludes: real WorkManager admission (instrumented), JNI (native contract tests own it).
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for GitRemoteSyncFacade.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including sync with no active backend returns NotConfigured
+ * not success; sync without a Direct workspace root returns DirectPathRequired.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 
 import android.content.Context

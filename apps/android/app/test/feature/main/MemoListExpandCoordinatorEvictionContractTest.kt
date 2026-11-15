@@ -44,6 +44,17 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Compose effects and pixel rendering of loading/failure affordances.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for MemoListExpandCoordinatorEvictionContract.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including an over-budget expanded row that is still
+ * requested must not drop into a spinner-only void; content changed under an identical observed revision
+ * republishes a fresh snapshot.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MemoListExpandCoordinatorEvictionContractTest :
     FunSpec({

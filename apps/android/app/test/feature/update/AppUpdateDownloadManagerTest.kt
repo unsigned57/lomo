@@ -18,10 +18,20 @@ package com.lomo.app.feature.update
  * - Progress dialog state values, fake repository download attempt count, and fake repository cancellation count.
  *
  * TDD proof:
- * - Not applicable - test-only contract migration; no production change.
+ * - Regression preservation - app host verification passed 952 tests, including the existing progress, preparing, permission, duplicate-start, and cancellation scenarios. The outgoing test delta is formatting only.
  *
  * Excludes:
  * - Compose rendering, debug simulation, update release transport, APK verification, and platform installer UI.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for AppUpdateDownloadManager.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including startInAppUpdate exposes progress states from the
+ * download use case; startInAppUpdate publishes preparing immediately before the download flow advances.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 import android.content.Context
 import com.lomo.app.testing.AppFunSpec

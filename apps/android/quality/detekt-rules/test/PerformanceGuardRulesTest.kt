@@ -38,6 +38,17 @@ import kotlin.io.path.writeText
  *
  * Excludes:
  * - Measured hot-path benchmarks and approved indexed lookups.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for PerformanceGuardRules.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including registers NoLoopBoundaryIo,
+ * NoNestedCollectionScan, and NoFullRebuildInLocalMutation in rule set; NoLoopBoundaryIo: flags calling
+ * port.getMemo inside for loop.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class PerformanceGuardRulesTest :
     FunSpec({

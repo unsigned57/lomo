@@ -28,6 +28,17 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Wire enum mapping (data layer), native classifier calls, and UI rendering.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for MarkdownMediaClassParity.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given the domain media vocabulary when enumerated
+ * then it is exactly the owner set; given one attachment per owner class when analysis projects then lanes
+ * keep only their class.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MarkdownMediaClassParityTest : DomainFunSpec() {
     init {

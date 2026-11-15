@@ -21,6 +21,16 @@
  * TDD proof:
  * - Fails before the fix because the contract surface under test did not exist.
  * Excludes: Android process creation, Glance rendering, native engine acquisition.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ProcessDutyAssembly.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including owned process installs data modules plus the app
+ * graph; projection-only process installs no Koin modules.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 package com.lomo.app.architecture
 

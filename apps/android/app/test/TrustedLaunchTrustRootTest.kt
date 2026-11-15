@@ -17,6 +17,17 @@
  * TDD proof: RED same command, 3 failed: `hmacKey.contains() expected true was false`; leftover
  * plaintext `"bbbb…"`; expected `TrustedLaunchTrustRootUnavailable` but no exception. GREEN 5 passed.
  * Excludes: live AndroidKeyStore TEE persistence, Auto Backup XML (T22), widget process scheduling.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for TrustedLaunchTrustRoot.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given hex install secret when first hmac runs then
+ * ascii bytes are imported and plaintext is cleared; given hex install secret when used as hmac key then
+ * ascii bytes differ from decoded 32-byte material.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 
 package com.lomo.app

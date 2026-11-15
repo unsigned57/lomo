@@ -35,6 +35,17 @@ import kotlinx.collections.immutable.toImmutableList
  * Excludes:
  * - Coil request execution, bounds decoding, LazyColumn composition, and the entry gate
  *   (GalleryScreenDisplayStateTest owns display-state gating).
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for GalleryImagePreheatPlanner.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given a deep layout when a viewport window is
+ * planned then only visible plus lookahead bands contribute; given more in-window urls than the bound when
+ * planned then requests are capped.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class GalleryImagePreheatPlannerTest : AppFunSpec() {
     init {

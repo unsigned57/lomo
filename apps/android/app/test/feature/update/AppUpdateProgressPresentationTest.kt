@@ -5,16 +5,30 @@ import com.lomo.domain.model.AppUpdateInstallState
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
+ * Scenarios:
+ * - Given downloading progress, when presentation is resolved, then emphasized determinate progress is shown.
+ * - Given preparing or failed installation, when presentation is resolved, then indeterminate or error
+ *   presentation matches the runtime state.
  * - Unit under test: update progress presentation mapping for the app-layer in-app update dialog.
- * - Behavior focus: install states must project into a readable dialog hierarchy with explicit stage
+ * - Capability: install states must project into a readable dialog hierarchy with explicit stage
  *   titles, correct progress emphasis, and state-appropriate supporting text.
  * - Observable outcomes: resolved presentation title, tone, determinate-progress visibility, exposed
  *   percent value, and whether supporting text comes from default copy or the runtime state message.
- * - Red phase: Fails before the fix because the dialog encodes its presentation directly in Compose,
+ * - TDD proof: Fails before the fix because the dialog encodes its presentation directly in Compose,
  *   exposes no contract for readable stage hierarchy, and therefore cannot guarantee that download,
  *   permission, and failure states map to distinct readable treatments.
  * - Excludes: Compose drawing, backdrop shader rendering, downloader transport, and package installer UI.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for AppUpdateProgressPresentation.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including downloading state resolves emphasized determinate
+ * progress presentation; preparing state keeps indeterminate structure and hides percent.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class AppUpdateProgressPresentationTest : AppFunSpec() {
     init {

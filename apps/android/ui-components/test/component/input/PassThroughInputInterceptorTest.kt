@@ -6,12 +6,25 @@ import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
+ * Scenarios:
+ * - Given text ending in two or three line breaks, when input is intercepted, then the exact text and
+ *   selection remain editable content.
  * - Unit under test: pass-through input interceptor policy.
- * - Behavior focus: editor text changes must remain editable content, even when users enter double or triple trailing line breaks.
+ * - Capability: editor text changes must remain editable content, even when users enter double or triple trailing line breaks.
  * - Observable outcomes: interception result stays as UpdateValue with the exact edited text.
- * - Red phase: Fails before the fix because the editor still uses line-break-based quick-send interception instead of preserving trailing line breaks.
+ * - TDD proof: Fails before the fix because the editor still uses line-break-based quick-send interception instead of preserving trailing line breaks.
  * - Excludes: IME delivery, submit button wiring, and Compose host lifecycle.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for PassThroughInputInterceptor.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including double trailing line breaks remain editable
+ * content; triple trailing line breaks remain editable content.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class PassThroughInputInterceptorTest : UiComponentsFunSpec() {
     init {

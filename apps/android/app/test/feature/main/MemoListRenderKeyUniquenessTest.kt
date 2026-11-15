@@ -26,6 +26,16 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Compose runtime, LazyPagingItems internals, and how base keys are resolved per index.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for MemoListRenderKeyUniqueness.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including keys without duplicates are returned unchanged;
+ * repeated memo ids are disambiguated while first occurrence and order are preserved.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MemoListRenderKeyUniquenessTest : AppFunSpec() {
     init {

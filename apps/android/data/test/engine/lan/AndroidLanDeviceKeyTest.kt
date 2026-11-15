@@ -16,6 +16,16 @@ package com.lomo.data.engine.lan
  * Observable outcomes: canonical public bytes and explicit boundary rejection.
  * TDD proof: RED because the Keystore P-256 adapter and canonical encoder did not exist.
  * Excludes: AndroidKeyStore device persistence and biometric policy.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for AndroidLanDeviceKey.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given a P-256 public key when exported then Rust
+ * receives one canonical point; given a foreign curve when exported then the platform boundary rejects it.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 
 import com.lomo.data.testing.DataFunSpec

@@ -19,6 +19,10 @@ import java.nio.file.Files
 
 /*
  * Behavior Contract:
+ * Scenarios:
+ * - Given no configured root, when backends are resolved, then Markdown and workspace backends are absent.
+ * - Given Direct or SAF root configuration, when the backend is resolved repeatedly or configuration changes,
+ *   then backend type, priority, and cache lifetime match the selected root.
  * Test Change Justification:
  * Reason category: remove settings re-reads and the redundant URI marker from scan resolution.
  * Old behavior/assertion being replaced: the resolver read the latest settings and exposed an extra nullable URI marker.
@@ -27,7 +31,7 @@ import java.nio.file.Files
  * Why this is not fitting the test to the implementation: the selected location must survive without a second mutable configuration read.
  * TDD proof: Regression preservation - transaction-green-first.log and verification-green.log in target/lomo/reports/manual/directory-selection/.
  * - Unit under test: FileStorageBackendResolver
- * - Behavior focus: root-backend selection, cache invalidation on root changes, and typed media-root precedence.
+ * - Capability: root-backend selection, cache invalidation on root changes, and typed media-root precedence.
  * - Observable outcomes: resolved backend types, returned configured SAF uri markers, nullability for
  *   missing roots, and cache reuse vs refresh, against a real preference store.
  * - TDD proof: Fails before the fix because the resolver does not expose an explicit WorkspaceVfs

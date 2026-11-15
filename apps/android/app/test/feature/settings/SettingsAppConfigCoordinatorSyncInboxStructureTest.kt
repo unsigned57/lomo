@@ -19,13 +19,26 @@ import kotlinx.coroutines.test.runTest
 /*
  * Behavior Contract:
  * - Capability: Settings app config coordination and sync-inbox subdirectory creation structure.
- * - Scenarios:
- *   - Given a newly selected sync-inbox root, coordinator applies the location to the repository and creates the required sync-inbox subdirectories immediately.
+ * Scenarios:
+ * - Given a selected sync-inbox directory or URI, when the coordinator applies it, then the repository stores
+ *   the selected location and ensures the required directory structure.
+ *
  * - Observable outcomes:
  *   - AppConfigRepository applied locations for SYNC_INBOX.
  *   - SyncInboxRepository ensureDirectoryStructure invocation count.
  * - TDD proof: Ensures coordinator applies storage area updates and runs directory structural setup.
  * - Excludes: DataStore persistence internals, Compose UI.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for
+ * SettingsAppConfigCoordinatorSyncInboxStructure.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including updating sync inbox location ensures the required
+ * directory structure.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class SettingsAppConfigCoordinatorSyncInboxStructureTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()

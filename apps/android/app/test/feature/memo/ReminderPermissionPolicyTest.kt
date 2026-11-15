@@ -27,6 +27,17 @@
  *
  * Excludes:
  * - Compose launcher wiring, Android system permission dialogs, Toast rendering, and localized copy.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ReminderPermissionPolicy.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given pre Android 13 when notification permissions
+ * are requested then no runtime grant is required; given Android 13 or newer when notification permissions
+ * are requested then catalog supplies POST_NOTIFICATIONS.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 
 package com.lomo.app.feature.memo

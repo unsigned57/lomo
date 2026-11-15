@@ -31,6 +31,17 @@ import io.kotest.matchers.types.shouldBeInstanceOf
  *
  * Excludes:
  * - Android PackageManager archive parsing flags, certificate byte extraction, FileProvider URI generation, and actual PackageInstaller UI.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for AppUpdateDownloadedApkMetadataVerification.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given wrong package metadata when verifying
+ * downloaded apk then install is rejected; given wrong version name metadata when verifying downloaded apk
+ * then install is rejected.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class AppUpdateDownloadedApkMetadataVerificationTest : DataFunSpec() {
     init {

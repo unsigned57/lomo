@@ -35,6 +35,17 @@ import java.time.LocalDate
  *
  * Excludes:
  * - File IO, repository refresh orchestration, attachment existence checks, sync transport behavior, and UI rendering.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for StorageFormatCompatibilityFixture.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given external daily note filenames when parsed
+ * then supported local dates are recovered; given extensionless daily note stems when parsed as filenames
+ * then they are rejected.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class StorageFormatCompatibilityFixtureTest : DomainFunSpec() {
     init {

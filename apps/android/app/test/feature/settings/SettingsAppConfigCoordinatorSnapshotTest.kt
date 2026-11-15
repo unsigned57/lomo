@@ -14,14 +14,27 @@ import kotlinx.coroutines.test.runTest
 /*
  * Behavior Contract:
  * - Capability: Settings app config coordination and memo snapshot settings.
- * - Scenarios:
- *   - Given emitted memo snapshot preference values, coordinator state flows expose them correctly.
- *   - Given disabling memo snapshots, coordinator turns off snapshotting.
+ * Scenarios:
+ * - Given repository snapshot preferences, when coordinator flows are observed, then enabled state, maximum
+ *   count, and maximum age match the repository.
+ * - Given snapshot recording is disabled, when the toggle is applied, then the backing repository disables
+ *   snapshot recording.
+ *
  * - Observable outcomes:
  *   - Coordinator StateFlow values (memoSnapshotsEnabled, memoSnapshotMaxCount, memoSnapshotMaxAgeDays).
  *   - Backing repository state (snapshotsEnabled).
  * - TDD proof: Ensures coordinator exposes state flow and forwards the toggle accurately.
  * - Excludes: DataStore persistence internals, Compose rendering, day-file snapshot UI.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for SettingsAppConfigCoordinatorSnapshot.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including memo snapshot flows expose repository values;
+ * disabling memo snapshots turns off recording.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class SettingsAppConfigCoordinatorSnapshotTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()

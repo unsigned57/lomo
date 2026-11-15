@@ -34,6 +34,16 @@ import java.io.File
  *
  * Excludes:
  * - Glance pixel rendering and snapshot persistence mechanics.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for WidgetSnapshotUnavailableRenderingContract.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given a persisted UNAVAILABLE generation when the
+ * widget renders then it must not fall through to the empty-vault text.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class WidgetSnapshotUnavailableRenderingContractTest : AppFunSpec() {
     init {

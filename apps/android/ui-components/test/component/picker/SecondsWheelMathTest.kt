@@ -17,6 +17,20 @@
  *   and `SecondsWheelMath.clamp` — proves the wheel will not wrap 60 → 0 and that
  *   snap rounding matches the visual "closest item" expectation.
  * - Excludes: Compose runtime, gesture inertia, LazyListState internals.
+ * TDD proof: Regression preservation - the initial full-worktree host verification passed the unchanged app,
+ * data, domain, rule, and UI suites. This edit restores metadata only; no new behavior or historical RED run
+ * is claimed.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for SecondsWheelMath.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given snapped list at index 12 with zero offset
+ * when centered second requested then it returns 12; given offset greater than half item height when centered
+ * second requested then it rounds up.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 package com.lomo.ui.component.picker
 

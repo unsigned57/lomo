@@ -20,6 +20,16 @@ package com.lomo.data.local.datastore
  * - RED: no branch key existed — the branch was an implicit code constant.
  *
  * Excludes: Keystore credential migration (owned by GitEndpointSecurityMigration).
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for GitSyncPreferenceMigration.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including existing git remote without a branch receives the
+ * explicit default; a stored branch is never overwritten.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 
 import androidx.datastore.preferences.core.emptyPreferences

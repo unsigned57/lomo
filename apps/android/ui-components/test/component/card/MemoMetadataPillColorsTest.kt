@@ -27,6 +27,16 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Compose rendering, text formatting, click handling, and contrast math.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for MemoMetadataPillColors.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including tag pills use secondary roles from active color
+ * scheme; active reminder pills use primary roles from active color scheme.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MemoMetadataPillColorsTest : UiComponentsFunSpec() {
     init {

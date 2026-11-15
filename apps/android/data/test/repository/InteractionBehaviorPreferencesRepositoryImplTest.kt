@@ -32,6 +32,17 @@ import java.nio.file.Files
  *   the new flow and setter assertions could not compile.
  *
  * - Excludes: DataStore serialization behavior and higher-level settings aggregation.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and replacing the fully qualified TestScope receiver with its
+ * imported name.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including all interaction behavior preference flows are
+ * exposed from datastore; all interaction behavior preference setters delegate to datastore updates.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class InteractionBehaviorPreferencesRepositoryImplTest : DataFunSpec() {
     init {

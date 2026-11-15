@@ -5,11 +5,16 @@ import io.kotest.matchers.shouldBe
 import kotlin.math.abs
 
 /*
- * Test Contract:
+ * Behavior Contract:
+ * Scenarios:
+ * - Given portrait, square, and landscape inputs, when the mosaic is planned, then aspect boundaries and
+ *   aspect-biased tile shapes are retained.
+ * - Given mixed or trailing images, when rows are packed, then sealed rows retain readable tiles and every
+ *   memo identity remains represented.
  * - Unit under test: GalleryGridLayout planner.
- * - Behavior focus: aspect classification boundaries, organic mosaic rect planning, and local lookahead integrity.
+ * - Capability: aspect classification boundaries, organic mosaic rect planning, and local lookahead integrity.
  * - Observable outcomes: planned aspect kind, selected first image URL, tile rect spans, sealed-row occupancy, memo ID set.
- * - Red phase: Fails before the fix because the planner forces later images into unreadably narrow fallback tiles
+ * - TDD proof: Fails before the fix because the planner forces later images into unreadably narrow fallback tiles
  *   and keeps extreme-aspect images in small containers that visibly crop content.
  * - Excludes: Compose custom-layout measurement, image decoding, pager gestures, shared-transition animation.
  *

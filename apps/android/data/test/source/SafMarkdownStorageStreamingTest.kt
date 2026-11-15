@@ -35,6 +35,17 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Android provider cursor mechanics, recursive SAF path resolution, and direct file storage.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for SafMarkdownStorageStreaming.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given unavailable saf root when main metadata
+ * streams then empty state is emitted without list fallback; given unavailable saf trash when trash metadata
+ * streams then empty state is emitted without list fallback.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class SafMarkdownStorageStreamingTest : DataFunSpec() {
     init {

@@ -8,12 +8,26 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
+ * Scenarios:
+ * - Given an unspecified Markdown text color, when style is resolved, then the visible theme fallback is
+ *   used.
+ * - Given explicit color and decoration, when style is resolved, then both explicit properties are preserved.
  * - Unit under test: markdown paragraph text style resolution.
- * - Behavior focus: markdown text handed to MemoParagraphText must resolve Color.Unspecified to a visible fallback color while preserving explicit color and text decoration.
+ * - Capability: markdown text handed to MemoParagraphText must resolve Color.Unspecified to a visible fallback color while preserving explicit color and text decoration.
  * - Observable outcomes: resolved style color and retained text decoration.
- * - Red phase: Fails before the fix because the modern markdown renderer forwards Color.Unspecified into TextView-backed paragraph rendering, making memo text and unchecked todo labels disappear.
+ * - TDD proof: Fails before the fix because the modern markdown renderer forwards Color.Unspecified into TextView-backed paragraph rendering, making memo text and unchecked todo labels disappear.
  * - Excludes: Compose tree rendering, Android TextView internals, and markdown AST parsing.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for MarkdownTextStyleResolver.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including unspecified markdown text color falls back to
+ * visible theme color; explicit markdown text color and decoration stay unchanged.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MarkdownTextStyleResolverTest : UiComponentsFunSpec() {
     init {

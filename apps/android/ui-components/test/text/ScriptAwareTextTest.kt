@@ -7,6 +7,17 @@ package com.lomo.ui.text
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure or assertion failure on proportional alignment
  * Excludes: none
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ScriptAwareText.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including normalize display text keeps markdown markers and
+ * technical tokens while spacing mixed prose; normalize display text covers slash in chinese prose but
+ * preserves urls.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 
 import android.text.Layout

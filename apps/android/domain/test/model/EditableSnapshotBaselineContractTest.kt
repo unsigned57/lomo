@@ -42,6 +42,16 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Editor session lifecycle, draft media leases and UI admission (covered by app-layer specs).
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for EditableSnapshotBaselineContract.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including a genuine Preview memo is rejected as an edit
+ * baseline; copy(contentKind = Full) upgrades a Preview past the edit-baseline gate.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class EditableSnapshotBaselineContractTest : DomainFunSpec() {
     private fun previewMemo(): Memo = Memo(

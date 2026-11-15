@@ -10,14 +10,29 @@ import java.time.ZonedDateTime
 import java.util.TimeZone
 
 /*
- * Test Contract:
+ * Behavior Contract:
+ * Scenarios:
+ * - Given a selected calendar date and a negative-offset device zone, when picker millis round-trip, then the
+ *   UTC-anchored date does not shift.
+ * - Given selected seconds, when the backfill date and time are converted or formatted, then the selected
+ *   seconds are retained.
  * - Unit under test: Memo backfill DatePicker date conversion helpers.
- * - Behavior focus: Material DatePicker UTC date millis must round-trip to the selected local date without
+ * - Capability: Material DatePicker UTC date millis must round-trip to the selected local date without
  *   being shifted by the device default time zone.
  * - Observable outcomes: converted epoch millis and LocalDate values.
- * - Red phase: Fails before the fix because the helper contract is missing and the existing private
+ * - TDD proof: Fails before the fix because the helper contract is missing and the existing private
  *   conversion reads DatePicker UTC dates through the system default zone.
  * - Excludes: Compose dialog rendering, TimePicker UI behavior, and memo persistence.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for MemoBackfillDatePickerConversion.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including date picker millis are anchored to utc date
+ * instead of device time zone; date picker selected date does not shift back one day in negative offsets.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MemoBackfillDatePickerConversionTest : AppFunSpec() {
     private lateinit var originalTimeZone: TimeZone

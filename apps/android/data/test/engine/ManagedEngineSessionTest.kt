@@ -16,6 +16,8 @@ package com.lomo.data.engine
 
 /*
  * Behavior Contract:
+ * Excludes: Real Android lifecycle delivery and native engine implementation; these scenarios exercise the
+ * session adapter.
  * Test Change Justification:
  * Reason category: explicit activation input adaptation.
  * Old behavior/assertion being replaced: root-only activations implicitly read attachment candidates from a journal.

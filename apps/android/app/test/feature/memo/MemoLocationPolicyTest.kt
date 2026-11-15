@@ -6,11 +6,14 @@
  * - Capability: derive coordinate provider selection, recency validation, and failure messages directly.
  *
  * Scenarios:
- * - Given permissions and enabled providers, candidate providers include fused, gps, and network as permitted.
- * - Given a platform without the public fused provider, an enabled "fused" name is not a candidate.
- * - Given location timestamps, evaluate fresh cache vs fallback window vs stale expiry.
- * - Given permission grant results, aggregation determines whether coordinate acquisition may proceed.
- * - Given failure states, messageResource maps each failure to its corresponding string resource.
+ * - Given enabled providers and fine or coarse permissions, when candidates are resolved, then only permitted
+ *   platform providers are selected.
+ * - Given a platform without the public fused provider, when candidate names include fused, then that name is
+ *   excluded.
+ * - Given location timestamps or permission results, when eligibility is evaluated, then freshness, fallback,
+ *   expiry, and permission boundaries are enforced.
+ * - Given a location failure, when its message is resolved, then the corresponding string resource is
+ *   returned.
  *
  * Observable outcomes:
  * - candidate provider lists, freshness and fallback booleans, permission grant decisions, resource ids.

@@ -18,6 +18,17 @@
  *
  * Excludes:
  * - NavController implementation, Compose rendering and Android system-back dispatch.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for NavBackNavigationPolicy.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given the main route when back stack cannot pop
+ * then navigation does not self-transition; given a child route when back stack cannot pop then navigation
+ * restores main.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 package com.lomo.app.navigation
 

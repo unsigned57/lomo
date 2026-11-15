@@ -64,6 +64,17 @@
  * Excludes:
  * - Compose LazyColumn rendering, TalkBack runtime behavior, platform haptic
  *   implementation, and Android framework resource lookup.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for SecondsPickerPresentationPolicy.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given single digit second and root locale when
+ * display text requested then two ASCII digits are returned; given Arabic Egypt locale when display text
+ * requested then localized two digit text is returned.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 package com.lomo.ui.component.picker
 

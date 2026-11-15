@@ -37,6 +37,17 @@ import java.nio.file.Files
  * TDD proof:
  * - Fails before the fix because the contract surface under test did not exist.
  * Excludes: scheduler/work execution, UI presentation.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for SyncBackendPreferencesContract.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given a stored backend type when enabled flows are
+ * read then only that backend is enabled; given a backend write when preferences are inspected then no flag
+ * keys are persisted.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class SyncBackendPreferencesContractTest : DataFunSpec() {
     init {

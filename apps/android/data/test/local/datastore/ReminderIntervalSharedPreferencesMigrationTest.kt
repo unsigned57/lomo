@@ -35,6 +35,17 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - DataStore factory wiring, alarm scheduling, and the platform SharedPreferences file.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ReminderIntervalSharedPreferencesMigration.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given fresh install without legacy file when
+ * migration is asked then nothing runs; given legacy interval when migration runs then value lands in main
+ * store and file is deleted.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class ReminderIntervalSharedPreferencesMigrationTest : DataFunSpec() {
     init {

@@ -14,14 +14,26 @@ import kotlinx.coroutines.test.runTest
 /*
  * Behavior Contract:
  * - Capability: Settings app config coordination and share-card settings signature text updates.
- * - Scenarios:
- *   - Given initial signature text, coordinator exposes signature text value.
- *   - Given signature text updates, coordinator writes value through to repository.
+ * Scenarios:
+ * - Given repository signature text, when coordinator state is observed, then the same text is exposed.
+ * - Given a signature update, when the coordinator applies it, then the backing repository stores that exact
+ *   text.
+ *
  * - Observable outcomes:
  *   - Coordinator shareCardSignatureText StateFlow values.
  *   - Backing repository signature text.
  * - TDD proof: Ensures coordinator exposes state flow and forwards signature text updates directly.
  * - Excludes: DataStore persistence internals, UI rendering, and bitmap rendering.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for SettingsAppConfigCoordinatorShareCard.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including share card settings expose signature text; share
+ * card settings forward signature text updates.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class SettingsAppConfigCoordinatorShareCardTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()

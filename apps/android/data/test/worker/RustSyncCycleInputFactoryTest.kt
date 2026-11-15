@@ -25,6 +25,16 @@ package com.lomo.data.worker
  * - RED: git input construction hard-coded branch "main" and accepted poisoned endpoints.
  *
  * Excludes: WorkManager enqueue; Rust-side plan (covered by FFI contracts).
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for RustSyncCycleInputFactory.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including persisted git branch reaches the work request; git
+ * remote with userinfo fails closed.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory

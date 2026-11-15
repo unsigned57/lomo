@@ -5,9 +5,13 @@ import io.kotest.matchers.floats.plusOrMinus
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
+ * Scenarios:
+ * - Given scrollable content, when visibility is resolved at rest, then the scrollbar remains available.
+ * - Given non-scrollable content or different content lengths, when scrollbar policy is resolved, then it
+ *   hides appropriately while the fixed thumb-size policy is retained.
  * - Unit under test: draggable scrollbar policy helpers (pixel-based fraction math + boundary clamp).
- * - Behavior focus: interactive scrollbars should always be reachable for scrollable content
+ * - Capability: interactive scrollbars should always be reachable for scrollable content
  *   (visible at rest with a faint idle thumb), keep a fixed thumb size, map between scroll
  *   position and thumb fraction round-trip-consistently for both ScrollState-like and
  *   LazyListState-like containers, and pin the thumb to the rail extremes when the list cannot
@@ -15,12 +19,22 @@ import io.kotest.matchers.shouldBe
  *   even when paging is still about to extend the dataset).
  * - Observable outcomes: Boolean visibility decisions, fixed thumb extent, drag-to-scroll mapping
  *   outputs, and boundary-clamped fraction.
- * - Red phase: Fails before the fix because forward and inverse Lazy-list mappings used different
+ * - TDD proof: Fails before the fix because forward and inverse Lazy-list mappings used different
  *   "scrollable item span" denominators (`totalCount-1` vs `totalCount-visibleCount`) so dragging
  *   to fraction=1 left the list short of its real bottom; and because paging append grew
  *   totalItemsCount mid-scroll, retroactively dragging the thumb backward to ~0.66 even though
  *   the user had just flung the list to its rendered bottom.
  * - Excludes: Compose pointer input wiring, animation timing, and platform EditText scrollbars.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for DraggableScrollbarPolicy.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including shows scrollbar for scrollable content at rest;
+ * hides scrollbar when content cannot scroll.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class DraggableScrollbarPolicyTest : UiComponentsFunSpec() {
     init {

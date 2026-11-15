@@ -31,6 +31,17 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Paging transforms, Compose rendering, and dispatcher lanes (covered by ViewModel suites).
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for MemoUiMapperCacheGovernance.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given rows cached by one list when a disjoint list
+ * maps then the first rows still hit; given more memos than the cache bound when all are mapped then the
+ * oldest entries are evicted.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MemoUiMapperCacheGovernanceTest : AppFunSpec() {
     init {

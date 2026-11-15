@@ -39,6 +39,16 @@ import kotlin.io.path.writeText
  * TDD proof: the delegated try/finally and narrow catch initially produce false findings, while
  * a comment mentioning cancellation hides an actual swallowed exception from the text search.
  * Excludes: Android runtime, generated bindings and whole-program type resolution.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for PipelineSafetyRules.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including registers NoSwallowedCancellationInPagingSource in
+ * rule set; flags PagingSource.load when CancellationException is swallowed into LoadResult.Error.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class PipelineSafetyRulesTest :
     FunSpec({

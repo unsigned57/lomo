@@ -31,6 +31,20 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Compose dialog rendering, Git provider error-detail dialog presentation, and sync engine state production.
+ * TDD proof: Regression preservation - the initial full-worktree host verification passed the unchanged app,
+ * data, domain, rule, and UI suites. This edit restores metadata only; no new behavior or historical RED run
+ * is claimed.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for SyncConflictStateHandler.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given provider conflict or review state when
+ * consumed then matching dialog callback is invoked; given non-conflict or unmounted provider state when
+ * consumed then no dialog callback is invoked.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class SyncConflictStateHandlerTest : AppFunSpec() {
     init {

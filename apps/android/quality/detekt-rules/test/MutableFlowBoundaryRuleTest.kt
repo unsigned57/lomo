@@ -23,6 +23,16 @@ import kotlin.io.path.writeText
  * TDD proof: before registration these scenarios fail because no rule protects state holders;
  * historical RED/GREEN evidence: audit/03-客户端与工程门禁修复计划.md#history-evidence.
  * Excludes: local variables, Compose rendering state, cross-file inferred return types.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for MutableFlowBoundaryRule.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including a state holder cannot expose an inferred mutable
+ * flow; a constructor property cannot expose a mutable flow.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MutableFlowBoundaryRuleTest :
     FunSpec({

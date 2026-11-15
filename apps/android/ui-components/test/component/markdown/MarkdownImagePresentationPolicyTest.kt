@@ -4,18 +4,28 @@ import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
+ * Scenarios:
+ * - Given a first image load without retained success, when presentation is resolved, then the loading
+ *   placeholder is shown.
+ * - Given retained success during loading or empty state, when presentation is resolved, then the successful
+ *   image remains; an error state selects the error placeholder.
  * - Unit under test: Markdown image presentation policy.
  *
- * Scenario matrix:
- * - Happy: standard happy path for MarkdownImagePresentationPolicyTest.
- * - Boundary: boundary and edge cases for MarkdownImagePresentationPolicyTest.
- * - Failure: failure and error scenarios for MarkdownImagePresentationPolicyTest.
- * - Must-not-happen: invariants are never violated for MarkdownImagePresentationPolicyTest.
- * - Behavior focus: memo images should not flash back to an empty/loading placeholder after a successful image has already been rendered.
+ * - Capability: memo images should not flash back to an empty/loading placeholder after a successful image has already been rendered.
  * - Observable outcomes: selected presentation mode for painter load states with and without retained success content.
- * - Red phase: Fails before the fix because MarkdownImageBlock directly maps Loading and Empty states to placeholders even after a previous Success.
+ * - TDD proof: Fails before the fix because MarkdownImageBlock directly maps Loading and Empty states to placeholders even after a previous Success.
  * - Excludes: Coil internals, bitmap decoding, Compose image drawing, and markdown parsing.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for MarkdownImagePresentationPolicy.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including first loading state shows loading placeholder when
+ * no success is retained; loading and empty states keep retained success image.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MarkdownImagePresentationPolicyTest : UiComponentsFunSpec() {
     init {

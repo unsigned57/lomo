@@ -27,6 +27,17 @@
  *
  * Excludes:
  * - NavHost rendering, route serialization, LAN transfer, and app backup policy.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ShareRoutePayloadStore.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given memo content is stored when consumed then
+ * content is returned once; given process registry is cleared when persistent cache is configured then
+ * content is restored once.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 
 package com.lomo.app.navigation

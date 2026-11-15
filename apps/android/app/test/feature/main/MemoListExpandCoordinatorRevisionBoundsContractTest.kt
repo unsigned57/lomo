@@ -40,6 +40,18 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Compose effects and the previewRevisions feed; the coordinator is driven directly.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for
+ * MemoListExpandCoordinatorRevisionBoundsContract.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including a terminal Failed under an unresolved request
+ * never auto-resurrects on repeat syncs; a resolved request whose loaded snapshot is unversioned reloads once
+ * per sync — linear, not a hot loop.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class MemoListExpandCoordinatorRevisionBoundsContractTest :
     FunSpec({

@@ -38,6 +38,18 @@ import java.io.File
  * Excludes:
  * - Engine internals and notification rendering; engine readiness itself is covered by
  *   domain/data session specs.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ReminderReceiverEngineStartContract.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given a broadcast-spawned process when the alarm
+ * receiver runs then it explicitly requests the engine before engine-backed reads; given a broadcast-spawned
+ * process when the reminder action receiver runs then it explicitly requests the engine before snooze or done
+ * mutations.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class ReminderReceiverEngineStartContractTest : DataFunSpec() {
     init {

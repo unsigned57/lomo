@@ -20,6 +20,17 @@ import java.util.concurrent.TimeUnit
  * TDD proof: RED replaces the first pending command with the second at capacity and accepts zero;
  * GREEN: ./kotlin test --include-module=app --include-classes='com.lomo.app.feature.common.UiEventQueueCoordinatorTest'.
  * Excludes: durable command delivery across process death and Compose rendering.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for UiEventQueueCoordinator.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given a full queue when enqueueing then the
+ * unacknowledged command is retained; given an invalid capacity when creating a queue then construction
+ * fails.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class UiEventQueueCoordinatorTest :
     FunSpec({

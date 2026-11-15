@@ -42,6 +42,17 @@ import java.time.LocalDateTime
  *
  * Excludes:
  * - JNI token construction (lomo-workspace tests), DataStore I/O, and dialog rendering.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ReminderValueDomainParity.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given the recurrence wire enum when enumerated
+ * then domain names and order match; given each recurrence variant when mapped both ways then the mapping is
+ * total.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class ReminderValueDomainParityTest : DataFunSpec() {
     init {

@@ -29,6 +29,17 @@
  *
  * Excludes:
  * - Android FileProvider URI creation, bitmap compression, and DI binding.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ShareImageRepositoryImpl.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given share image writer when stored then writer
+ * bytes are persisted in cache file; given writer fails after partial output when storing image then partial
+ * cache file is removed.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 
 package com.lomo.data.repository

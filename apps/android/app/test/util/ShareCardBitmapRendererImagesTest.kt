@@ -22,6 +22,17 @@
  * Excludes:
  * - Android BitmapFactory behavior, actual PNG/JPEG bytes, ContentResolver I/O,
  *   filesystem permissions, and share sheet dispatch.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for ShareCardBitmapRendererImages.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including given remote image paths when resolving decode
+ * source then share card skips network image loading; given only remote image slots when loading share images
+ * then no bitmap is loaded.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 package com.lomo.app.util
 

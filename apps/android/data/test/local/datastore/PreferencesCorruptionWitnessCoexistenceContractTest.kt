@@ -58,6 +58,18 @@ import java.nio.file.Files
  * - These pin post-fix invariants: a merge-not-replace DataStore, an ack that cleared the
  *   witness, or a restore that wiped non-catalog keys would each fail one scenario.
  * Excludes: UI rendering of the notice, inter-process file locking, Android Keystore.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for
+ * PreferencesCorruptionWitnessCoexistenceContract.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including second corruption after an acknowledged notice re-
+ * derives the notice on restart; deliberate post-corruption opt-outs (lock=false, backend=none) win over the
+ * witness on restart.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class PreferencesCorruptionWitnessCoexistenceContractTest : DataFunSpec() {
     init {

@@ -44,6 +44,17 @@ import javax.crypto.spec.SecretKeySpec
  *
  * Excludes:
  * - Credential storage, DataStore persistence and device-measured KDF work factors.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for SettingsExchangeEnvelopeContract.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including envelope metadata outside the pinned profile is
+ * rejected before key derivation; version 2 envelope metadata is AEAD-bound: ciphertext forged without AAD
+ * fails the tag.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class SettingsExchangeEnvelopeContractTest : DataFunSpec() {
     init {

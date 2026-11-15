@@ -53,6 +53,16 @@ import java.nio.file.Files
  *
  * Excludes:
  * - BiometricPrompt presentation, Keystore binding and the corruption notice UI.
+ *
+ * Test Change Justification:
+ * Reason category: Mechanical formatting and import alignment for SecuritySessionCorruptionContract.
+ * Old behavior/assertion being replaced: None; existing scenario bodies and expected results are retained.
+ * Why old assertion is no longer correct: Existing assertions remain correct. Layout, imports, and equivalent
+ * fixture declaration syntax do not change their behavior.
+ * Coverage preserved by: The existing scenarios, including corrupted preferences file surfaces as Unreadable,
+ * not the user's opt-out; corrupted preferences file must deny credential reads as a storage failure.
+ * Why this is not fitting the test to the implementation: No expected result is relaxed or replaced; the
+ * original behavior locks remain executable.
  */
 class SecuritySessionCorruptionContractTest : DataFunSpec() {
     init {
