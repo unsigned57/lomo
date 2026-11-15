@@ -116,11 +116,9 @@ internal fun DailyReviewOptionsSheet(
                 filter = filter,
                 hasDateFilter = filter.hasDateRange,
                 onOpenStartDatePicker = {
-                    haptic.medium()
                     dateTarget = DatePickerTarget.START
                 },
                 onOpenEndDatePicker = {
-                    haptic.medium()
                     dateTarget = DatePickerTarget.END
                 },
                 onClearStartDate = {
