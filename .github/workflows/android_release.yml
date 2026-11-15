@@ -21,6 +21,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Validate release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: test -s "docs/releases/$RELEASE_TAG.md"
       - name: Set up JDK 27
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
@@ -41,7 +46,7 @@ jobs:
             target/cargo
             target/lomo/build
             ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
-          key: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}
+          key: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -49,7 +54,12 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          set -euo pipefail
+          umask 077
           test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
           # The toolchain owns release signing (settings.android.signing in
           # apps/android/app/module.yaml): it reads keystore.properties in the module
           # directory and resolves a relative storeFile from there.
@@ -62,19 +72,19 @@ jobs:
             printf 'keyPassword=%s\n' "$KEY_PASSWORD"
           } > apps/android/app/keystore.properties
       - name: Bootstrap pinned toolchain
-        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Run full gate
         env:
           # Tag pushes create a ref (no previous tip); the test-contract diff is taken from the
           # default branch merge-base instead of a guessed parent commit.
           MEANINGFUL_TEST_DIFF_BASE: ${{ github.event.before }}
           MEANINGFUL_TEST_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci
+        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci
       - name: Build, validate, and verify release APKs
         run: |
           for abi in arm64-v8a armeabi-v7a x86_64 x86 all; do
             echo "Building release APK for $abi..."
-            RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- build android release "$abi"
+            cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- build android release "$abi"
           done
       - name: Upload release APKs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -84,10 +94,24 @@ jobs:
             target/lomo/artifacts/android/release/Lomo-*.apk
             target/lomo/artifacts/android/release/lomo-v*-vc*.apk
           if-no-files-found: error
+      - name: Validate release tag matches the universal APK
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          shopt -s nullglob
+          apks=(target/lomo/artifacts/android/release/lomo-"$RELEASE_TAG"-vc*.apk)
+          test "${#apks[@]}" -eq 1
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
+          name: Lomo ${{ github.ref_name }}
+          body_path: docs/releases/${{ github.ref_name }}.md
+          draft: false
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
           files: |
             target/lomo/artifacts/android/release/Lomo-*.apk
             target/lomo/artifacts/android/release/lomo-v*-vc*.apk

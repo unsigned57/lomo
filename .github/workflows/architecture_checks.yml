@@ -69,6 +69,7 @@ jobs:
               - 'Justfile'
               - '.githooks/**'
               - '.github/workflows/**'
+              - '.editorconfig'
               - 'quality/**'
               - 'AGENTS.md'
               - 'ARCHITECTURE.md'
@@ -130,11 +131,11 @@ jobs:
             ~/.cache/lomo/cargo-tools
             target/cargo
             target/lomo/build
-          key: rust-host-1.99-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'rust-toolchain.toml') }}
+          key: rust-host-1.99-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml') }}
       - name: Bootstrap pinned Rust tools
-        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
+        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
       - name: Run Rust host gate (no coverage)
-        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-rust fast
+        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-rust fast
 
   native:
     needs: changes
@@ -159,11 +160,11 @@ jobs:
             target/cargo
             target/lomo/build
             ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
-          key: native-1.99-ndk30-${{ matrix.abi }}-release-ci-${{ hashFiles('Cargo.lock', 'quality/tools.toml') }}
+          key: native-1.99-ndk30-${{ matrix.abi }}-release-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml') }}
       - name: Bootstrap pinned native toolchain
-        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Build and verify ${{ matrix.abi }} (release-ci)
-        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-native release-ci ${{ matrix.abi }}
+        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-native release-ci ${{ matrix.abi }}
       - name: Upload native libraries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -204,7 +205,7 @@ jobs:
             target/cargo
             target/lomo/build
             ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
-          key: android-1.99-ndk30-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}
+          key: android-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}
       - name: Download arm64-v8a
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -226,12 +227,12 @@ jobs:
           name: native-x86
           path: apps/android/app/jniLibs/x86
       - name: Bootstrap pinned toolchain
-        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Run Android and Kotlin gate (no coverage)
         env:
           MEANINGFUL_TEST_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           MEANINGFUL_TEST_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-android fast
+        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-android fast
       - name: Upload debug APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
