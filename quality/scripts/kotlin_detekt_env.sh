@@ -234,6 +234,7 @@ lomo_detekt_run() {
     -jar "$cli_jar"
     "${plugin_args[@]}"
     --base-path "$(lomo_detekt_repo_root)"
+    --parallel
   )
   java "${java_args[@]}" "$@"
 }

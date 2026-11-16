@@ -33,11 +33,17 @@
 //!   then runtime-only is included and compile-only/test edges are excluded.
 //! - Given an app resource change, when Android Lint is scheduled, then analysis inputs cover
 //!   every packaged product module lint analyzes (data included), not only the changed owner.
+//! - Given a long task holding one resource and an independent dependency chain on another,
+//!   when executing, then the chain starts and finishes while the long task is still running
+//!   (no wave barrier); tasks sharing a resource still never overlap.
 //!
 //!
 //! Observable outcomes: task sets, dependency ordering, declared outputs and result states.
 //! TDD proof: `verification_cli_contract` RED rejected dev; this matrix additionally observes RED
 //! for missing declared generation outputs before completing the scheduler.
+//! `cargo test -p lomo-xtask --test verification_plan_contract --locked
+//! independent_chain_runs_while_long_task_holds_another_resource`; RED under the wave scheduler
+//! reports `long-lint` Failed because the chain could not start until the whole wave finished.
 //! Excludes: performance timing, compiler implementation and Android device execution.
 
 #[cfg(test)]
@@ -45,13 +51,15 @@ mod tests {
     use anyhow::{Context, Result, ensure};
     use lomo_xtask::verification::{
         Artifact, ChangeInventory, ChangeSource, CommandRunner, ImpactGraph, PlanMode,
-        RequiredTool, Task, TaskAction, TaskOutcome, TaskStatus, VerificationPlan, execute,
+        RequiredTool, Resource, Task, TaskAction, TaskOutcome, TaskStatus, VerificationPlan,
+        execute,
     };
     use std::{
         collections::{BTreeMap, BTreeSet},
         path::{Path, PathBuf},
         process::Command,
-        sync::Mutex,
+        sync::{Condvar, Mutex},
+        time::Duration,
     };
 
     fn graph() -> Result<ImpactGraph> {
@@ -525,6 +533,119 @@ mod tests {
                 .context("report")?
                 .status
                 == TaskStatus::Failed
+        );
+        Ok(())
+    }
+
+    /// Controlled ordering: `long-lint` may only finish after `chain-tail` has run. A wave
+    /// scheduler joins `long-lint` before it can start `chain-tail`, so the long task never sees
+    /// the signal and reports the stall instead of hanging the suite.
+    struct OrderedRunner {
+        chain_done: Mutex<bool>,
+        signal: Condvar,
+        active: Mutex<BTreeSet<Resource>>,
+        overlap: Mutex<Vec<String>>,
+    }
+
+    impl OrderedRunner {
+        fn lock<T>(mutex: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
+            mutex
+                .lock()
+                .map_err(|error| anyhow::anyhow!(error.to_string()))
+        }
+    }
+
+    impl CommandRunner for OrderedRunner {
+        fn input_digest(&self, _task: &Task) -> Result<String> {
+            Ok("initial".to_owned())
+        }
+        fn run(&self, task: &Task) -> Result<TaskOutcome> {
+            {
+                let mut active = Self::lock(&self.active)?;
+                if !active.is_disjoint(&task.resources) {
+                    Self::lock(&self.overlap)?.push(task.id.clone());
+                }
+                active.extend(task.resources.iter().cloned());
+            }
+            let outcome = match task.id.as_str() {
+                "long-lint" => {
+                    let chain_ran = *self
+                        .signal
+                        .wait_timeout_while(
+                            Self::lock(&self.chain_done)?,
+                            Duration::from_secs(10),
+                            |done| !*done,
+                        )
+                        .map_err(|error| anyhow::anyhow!(error.to_string()))?
+                        .0;
+                    if chain_ran {
+                        TaskOutcome::Success { tests: None }
+                    } else {
+                        TaskOutcome::Failure("independent chain never ran".to_owned())
+                    }
+                }
+                "chain-tail" => {
+                    *Self::lock(&self.chain_done)? = true;
+                    self.signal.notify_all();
+                    TaskOutcome::Success { tests: None }
+                }
+                _ => TaskOutcome::Success { tests: None },
+            };
+            Self::lock(&self.active)?.retain(|resource| !task.resources.contains(resource));
+            Ok(outcome)
+        }
+        fn verify_outputs(&self, _task: &Task) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn independent_chain_runs_while_long_task_holds_another_resource() -> Result<()> {
+        let task = |id: &str, resource: Resource, dependencies: &[&str]| Task {
+            id: id.to_owned(),
+            action: TaskAction::ShellContracts,
+            dependencies: dependencies
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
+            inputs: BTreeSet::new(),
+            outputs: BTreeSet::new(),
+            tools: BTreeSet::new(),
+            resources: BTreeSet::from([resource]),
+            reason: "ordering fixture".to_owned(),
+        };
+        let plan = VerificationPlan {
+            scope: None,
+            complete_worktree: true,
+            excluded_owners: BTreeSet::new(),
+            tasks: vec![
+                task("long-lint", Resource::KotlinBuild, &[]),
+                task("chain-head", Resource::Cargo, &[]),
+                task("chain-mid", Resource::Cargo, &["chain-head"]),
+                task("chain-tail", Resource::Cargo, &["chain-mid"]),
+            ],
+        };
+        let runner = OrderedRunner {
+            chain_done: Mutex::new(false),
+            signal: Condvar::new(),
+            active: Mutex::new(BTreeSet::new()),
+            overlap: Mutex::new(Vec::new()),
+        };
+        let reports = execute(&plan, &runner)?;
+        let statuses: Vec<_> = reports
+            .iter()
+            .map(|report| (report.id.as_str(), &report.status, report.detail.as_str()))
+            .collect();
+        ensure!(
+            reports
+                .iter()
+                .all(|report| report.status == TaskStatus::Passed),
+            "every task must pass without waiting for an unrelated wave: {statuses:?}"
+        );
+        let overlap = OrderedRunner::lock(&runner.overlap)?.clone();
+        ensure!(
+            overlap.is_empty(),
+            "tasks sharing a resource overlapped: {overlap:?}"
         );
         Ok(())
     }

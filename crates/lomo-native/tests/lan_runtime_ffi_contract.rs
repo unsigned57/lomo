@@ -356,6 +356,19 @@ mod tests {
         );
     }
 
+    /// Test Change Justification:
+    /// Reason category: deterministic ordering for a CI-observed test race.
+    /// Old behavior/assertion being replaced: drain a successful local-confirm observation after
+    /// the journal was deleted and the initiator's remote confirmation was sent.
+    /// Why old assertion is no longer correct: the sticky storage failure can already be visible
+    /// by then; a success after fault injection is not part of the service contract.
+    /// Coverage preserved by: observe local success first, inject the same real filesystem fault,
+    /// then require the journal-write failure from both the current and stale-generation waiter.
+    /// Why this is not fitting the test to the implementation: the prior assertion raced with the
+    /// exact failure the test requires, as CI run 43712494734 demonstrates. No error is accepted
+    /// as success and no production behavior changes.
+    /// TDD proof: that CI run fails at "the local confirm observation settles" with
+    /// `lan_journal_write_failed`; GREEN is the same test after ordering the fault boundary.
     #[test]
     fn an_inbound_storage_fault_is_a_sticky_failure_for_every_waiter() {
         let (_root_a, engine_a, key_a, _id_a) = lan_engine("Phone");
@@ -403,6 +416,13 @@ mod tests {
             )
             .test_ok("tablet confirms locally and awaits the initiator signature");
 
+        // Observe local confirmation before injecting the storage fault. Once the remote
+        // confirmation arrives the pump may fail immediately; no successful observation is
+        // guaranteed after that point.
+        let settled = engine_b
+            .await_lan_inbox(inbox_b.generation, 10_000)
+            .test_ok("the local confirm observation settles before fault injection");
+
         fs::remove_dir_all(root_b.path().join("control"))
             .test_ok("the responder journal root is deleted");
         engine_a
@@ -413,17 +433,13 @@ mod tests {
             )
             .test_ok("the initiator confirm still sends");
 
-        // The responder's own confirm advanced its generation before the inbound confirm hit the
-        // deleted journal: drain that legitimate observation, then every waiter sees the fault.
-        let settled = engine_b
-            .await_lan_inbox(inbox_b.generation, 10_000)
-            .test_ok("the local confirm observation settles");
         let first = engine_b
             .await_lan_inbox(settled.generation, 10_000)
             .test_err("the storage fault is a pump failure");
         let second = engine_b
             .await_lan_inbox(0, 10_000)
             .test_err("a second waiter observes the same failure");
+        assert_eq!(first.code(), "lan_journal_write_failed");
         assert_eq!(first.code(), second.code());
     }
 

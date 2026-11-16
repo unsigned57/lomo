@@ -46,14 +46,25 @@ pub fn format(workspace: &Workspace, mode: FormatMode) -> Result<()> {
 pub use crate::verification::ChangeSource;
 
 pub fn preflight(workspace: &Workspace, source: &ChangeSource) -> Result<serde_json::Value> {
-    crate::cache::run_cache(workspace, crate::cache::CacheMode::Prune)?;
-    crate::verification::run(
+    let ChangeSource::Push { remote } = source else {
+        bail!("preflight requires a push change source");
+    };
+    let base = crate::verification::push_base(&workspace.root, remote)?;
+    let mut contracts = policy_script(workspace, "quality/scripts/check_meaningful_tests.sh");
+    if let Some(base) = &base {
+        contracts.env("MEANINGFUL_TEST_DIFF_BASE", base);
+    } else {
+        contracts.arg("--all");
+    }
+    run(&mut contracts)?;
+    let verification = crate::verification::run(
         workspace,
         source,
         None,
-        crate::verification::PlanMode::Dev,
+        crate::verification::PlanMode::Preflight,
         false,
-    )
+    )?;
+    Ok(serde_json::json!({"policy_only": true, "base": base, "verification": verification}))
 }
 
 pub fn check(workspace: &Workspace) -> Result<serde_json::Value> {
@@ -66,12 +77,14 @@ pub fn check(workspace: &Workspace) -> Result<serde_json::Value> {
     )
 }
 
+/// The merge/release gate: the complete `check` graph, then only the delivery evidence the
+/// graph does not produce. Coverage reruns tests with instrumentation; static checks run once.
 pub fn ci(workspace: &Workspace) -> Result<serde_json::Value> {
     tools::ensure_quality(workspace)?;
     let verification = check(workspace)?;
-    rust_full_gate(workspace, CoverageMode::On)?;
+    rust_delivery_gate(workspace, CoverageMode::On)?;
     native::generate_all(workspace, NativeProfile::Release)?;
-    kotlin_gate(workspace, CoverageMode::On)?;
+    kotlin_delivery_gate(workspace, CoverageMode::On)?;
     let apk = crate::android::validate_built_apk(
         workspace,
         &workspace.kotlin_build,
@@ -88,13 +101,20 @@ pub fn rust_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     rust_full_gate(workspace, coverage)
 }
 
+pub fn rust_delivery_ci(workspace: &Workspace) -> Result<()> {
+    tools::ensure_quality(workspace)?;
+    rust_delivery_gate(workspace, CoverageMode::On)
+}
+
 pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     tools::ensure_quality(workspace)?;
     native::generate_bindings(workspace)?;
     // android_ci consumes whatever is currently packaged; treat as shipping-class so size
     // honesty fails closed if Dev unstripped artifacts remain in app/jniLibs.
     native::verify_native_tree(workspace, &native::Abi::ALL, NativeProfile::Release)?;
-    kotlin_gate(workspace, coverage)?;
+    // Static Kotlin analysis, lint and shell contracts belong to the `check` graph, which CI
+    // runs as its own job; this job owns only the packaged delivery evidence.
+    kotlin_delivery_gate(workspace, coverage)?;
     let apk = crate::android::validate_built_apk(
         workspace,
         &workspace.kotlin_build,
@@ -108,8 +128,12 @@ pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     Ok(())
 }
 
-fn rust_fast_gate(workspace: &Workspace) -> Result<()> {
-    format(workspace, FormatMode::Check)?;
+/// Rust format, lint, documentation, tests and unused-dependency checks: the Rust half of the
+/// `check` graph for jobs that do not run the graph.
+fn rust_static_and_tests(workspace: &Workspace) -> Result<()> {
+    let mut format = cargo(workspace);
+    format.args(["fmt", "--all", "--", "--check"]);
+    run(&mut format)?;
     let mut clippy = cargo(workspace);
     clippy.args([
         "clippy",
@@ -133,8 +157,15 @@ fn rust_fast_gate(workspace: &Workspace) -> Result<()> {
         "--locked",
     ]);
     run(&mut docs)?;
-    rust_tests(workspace)?;
-    workspace_property_fuzz(workspace)?;
+    let mut nextest = cargo(workspace);
+    nextest.args([
+        "nextest",
+        "run",
+        "--workspace",
+        "--all-features",
+        "--locked",
+    ]);
+    run(&mut nextest)?;
     let mut machete = repository_command(workspace, workspace.tool_bin().join("cargo-machete"));
     machete.current_dir(&workspace.rust).arg(".");
     run(&mut machete)
@@ -159,7 +190,17 @@ fn workspace_property_fuzz(workspace: &Workspace) -> Result<()> {
 }
 
 fn rust_full_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
-    rust_fast_gate(workspace)?;
+    rust_static_and_tests(workspace)?;
+    rust_delivery_gate(workspace, coverage)
+}
+
+/// Delivery-only Rust evidence outside the `check` graph: doctests, the seeded workspace
+/// property fuzz, cargo-deny and (when requested) the line-coverage floor.
+fn rust_delivery_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
+    let mut doctests = cargo(workspace);
+    doctests.args(["test", "--workspace", "--doc", "--all-features", "--locked"]);
+    run(&mut doctests)?;
+    workspace_property_fuzz(workspace)?;
     let mut deny = cargo(workspace);
     deny.args(["deny", "--config", "quality/rust/deny.toml", "check"]);
     run(&mut deny)?;
@@ -185,22 +226,6 @@ fn rust_full_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     run(&mut coverage_cmd)
 }
 
-fn rust_tests(workspace: &Workspace) -> Result<()> {
-    let mut nextest = cargo(workspace);
-    nextest.args([
-        "nextest",
-        "run",
-        "--workspace",
-        "--all-features",
-        "--locked",
-    ]);
-    run(&mut nextest)?;
-
-    let mut docs = cargo(workspace);
-    docs.args(["test", "--workspace", "--doc", "--all-features", "--locked"]);
-    run(&mut docs)
-}
-
 /// Prepares the full Kotlin workspace build used by CI.
 ///
 /// # Errors
@@ -218,23 +243,24 @@ pub fn kotlin_build_command(workspace: &Workspace) -> Result<std::process::Comma
     Ok(build)
 }
 
-fn kotlin_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
+/// Delivery-only Kotlin evidence outside the `check` graph: the packaged workspace build, the
+/// meaningful-test range check and host tests (instrumented when coverage is requested).
+fn kotlin_delivery_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
+    kotlin_build(workspace)?;
+    kotlin_delivery_checks(workspace, coverage)
+}
+
+fn kotlin_build(workspace: &Workspace) -> Result<()> {
     let mut model = kotlin(workspace)?;
     model.args(["show", "modules"]);
     run(&mut model)?;
 
     let mut build = kotlin_build_command(workspace)?;
-    run(&mut build)?;
+    run(&mut build)
+}
 
-    for script in [
-        "quality/scripts/kotlin_detekt_check.sh",
-        "quality/scripts/kotlin_test_style_check.sh",
-    ] {
-        run_policy(workspace, script)?;
-    }
-    run_lint_policy(workspace)?;
+fn kotlin_delivery_checks(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     run_policy(workspace, "quality/scripts/check_meaningful_tests.sh")?;
-    run_shell_contracts(workspace)?;
     if coverage == CoverageMode::On {
         run_policy(workspace, "quality/scripts/kotlin_coverage_check.sh")
     } else {
@@ -291,12 +317,21 @@ pub fn run_shell_contracts(workspace: &Workspace) -> Result<()> {
         "quality/scripts/test/android_runtime_input_contract_test.sh",
         "quality/scripts/test/android_runtime_dependency_boundary_contract_test.sh",
         "quality/scripts/test/kotlin_quality_check_contract_test.sh",
+    ] {
+        run_policy(workspace, script)
+            .with_context(|| format!("shell contract failed: {script}"))?;
+    }
+    Ok(())
+}
+
+pub fn run_quick_contracts(workspace: &Workspace) -> Result<()> {
+    for script in [
         "quality/scripts/test/check_meaningful_tests_smoke_test.sh",
         "quality/scripts/test/check_string_resource_parity_smoke_test.sh",
         "quality/scripts/check_string_resource_parity.sh",
     ] {
         run_policy(workspace, script)
-            .with_context(|| format!("shell contract failed: {script}"))?;
+            .with_context(|| format!("quick contract failed: {script}"))?;
     }
     Ok(())
 }

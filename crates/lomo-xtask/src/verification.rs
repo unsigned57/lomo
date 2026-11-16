@@ -92,7 +92,7 @@ impl ChangeInventory {
 ///
 /// # Errors
 /// Returns an error for an invalid remote name or an unreadable repository.
-fn push_base(root: &Path, remote: &str) -> Result<Option<String>> {
+pub(crate) fn push_base(root: &Path, remote: &str) -> Result<Option<String>> {
     ensure!(
         !remote.starts_with('-') && !remote.contains(char::is_whitespace),
         "invalid remote name"
@@ -163,6 +163,7 @@ pub enum PlanMode {
     Dev,
     Check,
     Tests,
+    Preflight,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
@@ -206,12 +207,14 @@ pub enum TaskAction {
     Bindings,
     KotlinRules,
     KotlinFormat,
+    KotlinTestStyle,
     KotlinLight { modules: BTreeSet<String> },
     AnalysisInput { modules: BTreeSet<String> },
     KotlinFull { modules: BTreeSet<String> },
     KotlinTests { module: String },
     AndroidLint,
     ShellContracts,
+    QuickContracts,
     UseCaseReachability,
     KotlinToolchainCheck,
     BaselineProfile,
@@ -325,6 +328,13 @@ impl VerificationPlan {
             .cloned()
             .collect();
         if mode != PlanMode::Tests {
+            plan.add_policy_tasks(&rust, &kotlin);
+        }
+        if mode == PlanMode::Preflight {
+            plan.finish(graph)?;
+            return Ok(plan);
+        }
+        if mode != PlanMode::Tests {
             plan.tasks.push(
                 Task::new(
                     "architecture",
@@ -351,9 +361,44 @@ impl VerificationPlan {
         // can be in scope. A workflow change selects every owner, so it is covered too.
         let toolchain_scope = !kotlin.is_empty() || selected.contains("lomo-xtask");
         plan.add_evidence_tasks(&product_modules, toolchain_scope, mode);
-        plan.assign_artifacts(graph);
-        plan.validate()?;
+        plan.finish(graph)?;
         Ok(plan)
+    }
+
+    fn add_policy_tasks(&mut self, rust: &BTreeSet<String>, kotlin: &BTreeSet<String>) {
+        self.tasks.push(Task::new(
+            "quick-contracts",
+            TaskAction::QuickContracts,
+            "compiler-free policy self-tests and resource parity",
+        ));
+        if !rust.is_empty() {
+            self.tasks.push(
+                Task::new("rust-fmt", TaskAction::RustFmt, "Rust source formatting")
+                    .using(RequiredTool::Rust, Resource::Cargo),
+            );
+        }
+        if !kotlin.is_empty() {
+            self.tasks.push(
+                Task::new(
+                    "kotlin-format",
+                    TaskAction::KotlinFormat,
+                    "ktlint layout of every Kotlin source and test root",
+                )
+                .using(RequiredTool::Java, Resource::Reports),
+            );
+        }
+    }
+
+    fn finish(&mut self, graph: &ImpactGraph) -> Result<()> {
+        if self.tasks.iter().any(|task| task.id == "quick-contracts") {
+            for task in &mut self.tasks {
+                if task.id != "quick-contracts" {
+                    task.dependencies.insert("quick-contracts".to_owned());
+                }
+            }
+        }
+        self.assign_artifacts(graph);
+        self.validate()
     }
 
     fn add_kotlin_tasks(
@@ -396,16 +441,6 @@ impl VerificationPlan {
         let android_lint = mode != PlanMode::Tests
             && !product_modules.is_empty()
             && (resource_change || mode == PlanMode::Check);
-        if mode != PlanMode::Tests {
-            self.tasks.push(
-                Task::new(
-                    "kotlin-format",
-                    TaskAction::KotlinFormat,
-                    "ktlint layout of every Kotlin source and test root",
-                )
-                .using(RequiredTool::Java, Resource::Reports),
-            );
-        }
         if mode != PlanMode::Tests && !product_modules.is_empty() {
             // Lint analyzes every packaged product module's sources, so its compile models must
             // be current even when the selected scope is narrower than the packaged closure.
@@ -455,6 +490,15 @@ impl VerificationPlan {
                 "compile the current rule JAR",
             )
             .using(RequiredTool::Kotlin, Resource::KotlinBuild),
+        );
+        self.tasks.push(
+            Task::new(
+                "kotlin-test-style",
+                TaskAction::KotlinTestStyle,
+                "test-source style rules shared with the CI Kotlin gate",
+            )
+            .after("kotlin-rules")
+            .using(RequiredTool::Java, Resource::Reports),
         );
         self.tasks.push(
             Task::new(
@@ -613,10 +657,12 @@ impl VerificationPlan {
                 | TaskAction::RustDocs
                 | TaskAction::Machete
                 | TaskAction::KotlinFormat
+                | TaskAction::KotlinTestStyle
                 | TaskAction::KotlinLight { .. }
                 | TaskAction::KotlinTests { .. }
                 | TaskAction::AndroidLint
                 | TaskAction::ShellContracts
+                | TaskAction::QuickContracts
                 | TaskAction::UseCaseReachability
                 | TaskAction::KotlinToolchainCheck => {}
             }
@@ -624,12 +670,6 @@ impl VerificationPlan {
     }
 
     fn add_rust_tasks(&mut self, rust: BTreeSet<String>, mode: PlanMode) {
-        if !rust.is_empty() && mode != PlanMode::Tests {
-            self.tasks.push(
-                Task::new("rust-fmt", TaskAction::RustFmt, "Rust source formatting")
-                    .using(RequiredTool::Rust, Resource::Cargo),
-            );
-        }
         for package in rust {
             if mode != PlanMode::Tests {
                 self.tasks.push(
@@ -722,7 +762,12 @@ pub(crate) fn run(
     let evidence = runner.write_report(&plan, &results)?;
     if let Some(failed) = results
         .iter()
-        .find(|result| !matches!(result.status, TaskStatus::Passed))
+        .find(|result| matches!(result.status, TaskStatus::Failed | TaskStatus::Cancelled))
+        .or_else(|| {
+            results
+                .iter()
+                .find(|result| result.status == TaskStatus::NotScheduled)
+        })
     {
         return Err(crate::protocol::EvidenceError {
             message: format!(

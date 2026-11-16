@@ -4,6 +4,7 @@ use std::{
     io::Read as _,
     path::PathBuf,
     process::Command,
+    sync::mpsc,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -52,10 +53,15 @@ pub trait CommandRunner: Sync {
     fn verify_outputs(&self, task: &Task) -> Result<()>;
 }
 
-/// Executes a validated DAG, sharing only nonconflicting resource sets in a wave.
+/// Executes a validated DAG with continuous dispatch.
+///
+/// A task starts as soon as every prerequisite has passed and none of its resources is held by
+/// a running task. Tasks that share a resource never overlap, and a finished task immediately
+/// frees its resources for the next ready task instead of waiting for unrelated long tasks.
 ///
 /// # Errors
-/// Returns an error for an invalid graph or an input snapshot that cannot be read.
+/// Returns an error for an invalid graph, an input snapshot that cannot be read, or a worker
+/// that panicked.
 pub fn execute(plan: &VerificationPlan, runner: &impl CommandRunner) -> Result<Vec<TaskReport>> {
     plan.validate()?;
     let initial: BTreeMap<_, _> = plan
@@ -64,57 +70,65 @@ pub fn execute(plan: &VerificationPlan, runner: &impl CommandRunner) -> Result<V
         .map(|task| Ok((task.id.clone(), runner.input_digest(task)?)))
         .collect::<Result<_>>()?;
     let mut reports: BTreeMap<String, TaskReport> = BTreeMap::new();
-    while reports.len() < plan.tasks.len() {
+    let (finished_sender, finished) = mpsc::channel::<Result<TaskReport>>();
+    std::thread::scope(|scope| -> Result<()> {
         let mut held = BTreeSet::<Resource>::new();
-        let mut ready = Vec::new();
-        for task in &plan.tasks {
-            if reports.contains_key(&task.id) {
-                continue;
-            }
-            if task.dependencies.iter().any(|id| {
-                reports
-                    .get(id)
-                    .is_some_and(|report| report.status != TaskStatus::Passed)
-            }) {
-                reports.insert(
-                    task.id.clone(),
-                    TaskReport {
-                        id: task.id.clone(),
-                        status: TaskStatus::NotScheduled,
-                        input_digest: initial
-                            .get(&task.id)
-                            .context("task input snapshot")?
-                            .clone(),
-                        elapsed_ms: 0,
-                        detail: "prerequisite failed or was cancelled".to_owned(),
-                    },
-                );
-            } else if task.dependencies.iter().all(|id| reports.contains_key(id))
-                && held.is_disjoint(&task.resources)
-            {
-                held.extend(task.resources.iter().cloned());
-                ready.push(task);
-            }
-        }
-        let wave = std::thread::scope(|scope| -> Result<Vec<TaskReport>> {
-            let mut handles = Vec::new();
-            for task in &ready {
+        let mut running = BTreeMap::<String, &Task>::new();
+        while reports.len() < plan.tasks.len() {
+            stop_queued_after_failure(plan, &initial, &running, &mut reports)?;
+            for task in &plan.tasks {
+                if reports.contains_key(&task.id)
+                    || running.contains_key(&task.id)
+                    || !held.is_disjoint(&task.resources)
+                    || !task.dependencies.iter().all(|id| {
+                        reports
+                            .get(id)
+                            .is_some_and(|report| report.status == TaskStatus::Passed)
+                    })
+                {
+                    continue;
+                }
                 let expected = initial.get(&task.id).context("task input snapshot")?;
-                handles.push(scope.spawn(move || execute_task(task, expected, runner)));
+                held.extend(task.resources.iter().cloned());
+                running.insert(task.id.clone(), task);
+                let sender = finished_sender.clone();
+                scope.spawn(move || {
+                    let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        execute_task(task, expected, runner)
+                    }))
+                    .map_err(|_panic| anyhow::anyhow!("verification worker panicked"));
+                    if sender.send(report).is_err() {
+                        util::emit_stderr(format_args!(
+                            "xtask: {}: scheduler stopped before the result was recorded",
+                            task.id
+                        ));
+                    }
+                });
             }
-            handles
-                .into_iter()
-                .map(|handle| {
-                    handle
-                        .join()
-                        .map_err(|_panic| anyhow::anyhow!("verification worker panicked"))
-                })
-                .collect()
-        })?;
-        for report in wave {
+            if reports.len() == plan.tasks.len() {
+                break;
+            }
+            ensure!(
+                !running.is_empty(),
+                "verification scheduler stalled with unscheduled tasks"
+            );
+            let report = finished
+                .recv()
+                .context("verification workers stopped reporting")??;
+            let task = running
+                .remove(&report.id)
+                .context("report from a task that was not running")?;
+            for resource in &task.resources {
+                held.remove(resource);
+            }
+            util::emit_stderr(format_args!(
+                "xtask: {} {:?} ({} ms): {}",
+                report.id, report.status, report.elapsed_ms, report.detail
+            ));
             reports.insert(report.id.clone(), report);
         }
-    }
+        Ok(())
+    })?;
     // A source edit after its task passed also invalidates the overall result.
     for task in &plan.tasks {
         if let Some(report) = reports.get_mut(&task.id)
@@ -130,6 +144,40 @@ pub fn execute(plan: &VerificationPlan, runner: &impl CommandRunner) -> Result<V
         .iter()
         .filter_map(|task| reports.remove(&task.id))
         .collect())
+}
+
+/// A failed or interrupted gate stops every task that has not started. Running tasks finish
+/// normally so their evidence is retained and resource-owning child processes are not orphaned.
+fn stop_queued_after_failure(
+    plan: &VerificationPlan,
+    initial: &BTreeMap<String, String>,
+    running: &BTreeMap<String, &Task>,
+    reports: &mut BTreeMap<String, TaskReport>,
+) -> Result<()> {
+    if !reports
+        .values()
+        .any(|report| matches!(report.status, TaskStatus::Failed | TaskStatus::Cancelled))
+    {
+        return Ok(());
+    }
+    for task in &plan.tasks {
+        if !reports.contains_key(&task.id) && !running.contains_key(&task.id) {
+            reports.insert(
+                task.id.clone(),
+                TaskReport {
+                    id: task.id.clone(),
+                    status: TaskStatus::NotScheduled,
+                    input_digest: initial
+                        .get(&task.id)
+                        .context("task input snapshot")?
+                        .clone(),
+                    elapsed_ms: 0,
+                    detail: "verification stopped after an earlier failure".to_owned(),
+                },
+            );
+        }
+    }
+    Ok(())
 }
 
 fn execute_task(task: &Task, expected: &str, runner: &impl CommandRunner) -> TaskReport {
@@ -225,6 +273,7 @@ impl<'a> RepositoryRunner<'a> {
         match &task.action {
             TaskAction::KotlinRules
             | TaskAction::KotlinFormat
+            | TaskAction::KotlinTestStyle
             | TaskAction::KotlinTests { .. }
             | TaskAction::KotlinLight { .. }
             | TaskAction::KotlinFull { .. }
@@ -239,6 +288,7 @@ impl<'a> RepositoryRunner<'a> {
             TaskAction::AndroidLint
             | TaskAction::Bindings
             | TaskAction::ShellContracts
+            | TaskAction::QuickContracts
             | TaskAction::UseCaseReachability
             | TaskAction::KotlinToolchainCheck
             | TaskAction::BaselineProfile => {
@@ -324,6 +374,7 @@ impl<'a> RepositoryRunner<'a> {
             }
             TaskAction::KotlinRules
             | TaskAction::KotlinFormat
+            | TaskAction::KotlinTestStyle
             | TaskAction::KotlinTests { .. }
             | TaskAction::KotlinLight { .. }
             | TaskAction::KotlinFull { .. }
@@ -333,6 +384,7 @@ impl<'a> RepositoryRunner<'a> {
             TaskAction::AndroidLint
             | TaskAction::Bindings
             | TaskAction::ShellContracts
+            | TaskAction::QuickContracts
             | TaskAction::UseCaseReachability
             | TaskAction::KotlinToolchainCheck
             | TaskAction::BaselineProfile => {
@@ -356,6 +408,12 @@ impl<'a> RepositoryRunner<'a> {
                 let mut command =
                     util::policy_script(workspace, "quality/scripts/kotlin_detekt_format.sh");
                 command.arg("check");
+                Ok(command)
+            }
+            TaskAction::KotlinTestStyle => {
+                let mut command =
+                    util::policy_script(workspace, "quality/scripts/kotlin_test_style_check.sh");
+                command.env("LOMO_KOTLIN_BUILD_DIR", &workspace.kotlin_build);
                 Ok(command)
             }
             TaskAction::KotlinTests { module } => {
@@ -404,6 +462,7 @@ impl<'a> RepositoryRunner<'a> {
             | TaskAction::Bindings
             | TaskAction::AndroidLint
             | TaskAction::ShellContracts
+            | TaskAction::QuickContracts
             | TaskAction::UseCaseReachability
             | TaskAction::KotlinToolchainCheck
             | TaskAction::BaselineProfile => {
@@ -495,6 +554,10 @@ impl CommandRunner for RepositoryRunner<'_> {
                 quality::run_shell_contracts(self.workspace)?;
                 return Ok(TaskOutcome::Success { tests: None });
             }
+            TaskAction::QuickContracts => {
+                quality::run_quick_contracts(self.workspace)?;
+                return Ok(TaskOutcome::Success { tests: None });
+            }
             TaskAction::UseCaseReachability => {
                 crate::usecase_reachability::check_usecase_reachability(&self.workspace.root)?;
                 return Ok(TaskOutcome::Success { tests: None });
@@ -512,6 +575,7 @@ impl CommandRunner for RepositoryRunner<'_> {
             | TaskAction::Machete
             | TaskAction::KotlinRules
             | TaskAction::KotlinFormat
+            | TaskAction::KotlinTestStyle
             | TaskAction::KotlinLight { .. }
             | TaskAction::AnalysisInput { .. }
             | TaskAction::KotlinFull { .. }

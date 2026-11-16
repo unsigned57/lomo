@@ -802,16 +802,23 @@ mod tests {
             top_level_keys.contains(&"jobs".to_string()),
             "jobs must be a root-level key in architecture_checks.yml"
         );
+        // `check` runs the same verification graph as local `just check`; the remaining jobs
+        // add only delivery evidence (coverage, native packaging, APK validation).
         assert_eq!(
             jobs,
             vec![
                 "changes",
+                "check",
                 "rust-host",
                 "native",
                 "android-kotlin",
                 "quality"
             ],
             "expected root-level jobs in architecture_checks.yml"
+        );
+        assert!(
+            text.contains("lomo-xtask -- check\n"),
+            "the CI check job must invoke the same xtask graph as `just check`"
         );
         assert!(
             !text.contains("  jobs:"),

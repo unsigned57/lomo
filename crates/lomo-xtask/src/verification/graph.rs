@@ -284,10 +284,12 @@ impl ImpactGraph {
             }
             TaskAction::KotlinTests { module } => BTreeSet::from([module.clone()]),
             TaskAction::KotlinRules => BTreeSet::from(["detekt-rules".to_owned()]),
-            TaskAction::KotlinFormat => ["app", "data", "domain", "ui-components", "detekt-rules"]
-                .map(str::to_owned)
-                .into_iter()
-                .collect(),
+            TaskAction::KotlinFormat | TaskAction::KotlinTestStyle => {
+                ["app", "data", "domain", "ui-components", "detekt-rules"]
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect()
+            }
             TaskAction::BaselineProfile => BTreeSet::from(["app".to_owned()]),
             TaskAction::KotlinLight { modules }
             | TaskAction::KotlinFull { modules }
@@ -304,6 +306,7 @@ impl ImpactGraph {
             | TaskAction::Bindings
             | TaskAction::AndroidLint
             | TaskAction::ShellContracts
+            | TaskAction::QuickContracts
             | TaskAction::KotlinToolchainCheck => self.owners.keys().cloned().collect(),
         };
         let mut closure = owners;

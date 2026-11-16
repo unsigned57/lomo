@@ -16,6 +16,7 @@ Write user-facing release notes using the [format guide](../docs/release_notes_f
 
 ```bash
 just bootstrap
+# Complete local delivery verification when no green CI receipt exists for this commit:
 just ci
 ```
 
@@ -63,8 +64,15 @@ Its name is the installed Android updater's metadata contract: both version fiel
 from `app/module.yaml` and `<abi>` is the ABI tag (`all` for universal packages), as reported by `data.apk` in the command result. Build intermediates stay in the single configured shared
 Kotlin build directory.
 
-Tag workflow `.github/workflows/android_release.yml` invokes the same commands and publishes both
-split and universal release artifacts. The universal package alone is discoverable by the in-app
+Tag workflow `.github/workflows/android_release.yml` checks the release notes before starting any
+expensive gate, runs
+the Quality Checks workflow as its gate (all surfaces, in parallel jobs), then builds the same
+commands and publishes both split and universal release artifacts. Push the release commit first
+and let Quality Checks pass; the tag then repeats an already-green gate instead of discovering
+failures after the release build has started. The tag forces full coverage even if path selection
+skipped delivery jobs on the branch. Its gate and signed build restore compatible build snapshots
+and save completed compilation after failures; pinned tools are saved immediately after bootstrap.
+The universal package alone is discoverable by the in-app
 updater; split packages remain available for manual installation. It must not grow a second native,
 Kotlin, signing, or APK validation implementation.
 

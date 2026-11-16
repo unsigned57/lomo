@@ -275,6 +275,31 @@ mod tests {
         }
     }
 
+    /// CI's Kotlin gate runs test-style Detekt. The local handoff and push gates must run the
+    /// same rule set, otherwise `just check` passes a change that CI then rejects.
+    #[test]
+    fn test_style_detekt_runs_in_every_static_plan_after_the_rule_jar() {
+        for mode in [PlanMode::Check, PlanMode::Dev] {
+            let plan = VerificationPlan::build(&synthetic_graph(), &complete(), None, mode)
+                .expect("plan builds");
+            let style = task(&plan, "kotlin-test-style");
+            assert!(
+                style.dependencies.contains("kotlin-rules"),
+                "test-style analysis loads the compiled rule JAR"
+            );
+        }
+        let tests_only =
+            VerificationPlan::build(&synthetic_graph(), &complete(), None, PlanMode::Tests)
+                .expect("plan builds");
+        assert!(
+            tests_only
+                .tasks
+                .iter()
+                .all(|task| task.id != "kotlin-test-style"),
+            "the tests-only sweep omits static analysis"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // Executor: zero/unreported tests, cancellation and input drift must fail closed
     // -----------------------------------------------------------------------

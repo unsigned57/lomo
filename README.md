@@ -162,7 +162,7 @@ cargo run -p lomo-tui --release --locked
 # Worktree iteration gate (add --tests-only to skip static analysis)
 just dev
 
-# Code handoff / merge gates (see Quality for applicability)
+# Optional local reproduction of CI; these are not required in sequence before each push
 just check
 just ci
 ```

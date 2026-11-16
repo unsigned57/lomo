@@ -31,10 +31,9 @@
 // Structural assertions (row counts, rescan evidence) are flaky-proof; the
 // timing numbers embedded in the assertion messages document magnitude.
 //
-// P-62 note: two contracts in this file used to assert wall-clock figures where
-// a deterministic observable exists — `warm_reopen` timed `runtime_at` and
-// `tag_picker` timed one `menu::rows` call. Both now assert the property their
-// names state (zero content reads; identical memoized `Arc`). The remaining
+// Three contracts use deterministic observables instead of wall-clock proxies:
+// warm reopen and delta reconcile bound actual content reads; the tag picker
+// checks identical memoized `Arc`s. The remaining
 // wall-clock gates keep every threshold unchanged but take the median of nine
 // samples, so a transient parallel-suite scheduling spike cannot falsify a
 // sustained-budget contract — noise filtering, not relaxation; see each test's
@@ -475,43 +474,74 @@ mod tests {
         );
     }
 
-    /// Session open hashes every workspace byte even when nothing changed; a
-    /// single `FsChanged` batch does the same on the one worker thread.
+    /// Test Change Justification:
+    /// Reason category: replace a machine-speed proxy with the claimed I/O resource contract.
+    /// Old behavior/assertion being replaced: a one-file-delta reconcile must finish under 50ms.
+    /// Why old assertion is no longer correct: CI run 43712494734 measured 108ms under shared
+    /// runner load; elapsed time cannot establish whether unchanged document bytes were read.
+    /// Coverage preserved by: every real add/delete of the same 16MiB file must leave the
+    /// document projection unchanged, read no unaffected document, and perform only bounded
+    /// control/changed-file reads. Durations remain diagnostic; other frame budgets stay intact.
+    /// Why this is not fitting the test to the implementation: this test has always claimed
+    /// absence of whole-workspace streaming. Fast hardware could satisfy the old time bound
+    /// while violating that property; the action/path assertions reject that regression directly.
+    /// Backend metadata-only listings are separately locked by the platform-fs contracts.
+    /// TDD proof: the named CI run is the observed timing RED; the real counted-executor
+    /// scenarios below provide deterministic GREEN without changing production code.
+    /// Excludes: an absolute latency guarantee across different host hardware and CPU load.
     #[test]
     fn session_open_and_reconcile_rehash_the_whole_workspace() {
-        let fixture = RuntimeFixture::new().expect("fixture");
-        fixture.seed(300).expect("seeded workspace");
-        let media = fixture.runtime.workspace.join("media");
+        let (_root, config, executor, workspace) = {
+            let fixture = RuntimeFixture::new().expect("fixture");
+            fixture.seed(300).expect("seeded workspace");
+            (
+                fixture.root,
+                fixture.runtime.session_config.clone(),
+                std::sync::Arc::clone(&fixture.runtime.executor),
+                fixture.runtime.workspace.clone(),
+            )
+        };
+        let tally = std::sync::Arc::new(ActionTally::wrap(executor));
+        let counted: std::sync::Arc<dyn PlatformActionExecutor> =
+            std::sync::Arc::<ActionTally>::clone(&tally);
+        let session = lomo_application::WorkspaceSession::open(config, counted).expect("warm open");
+        let media = workspace.join("media");
         std::fs::create_dir_all(&media).expect("media dir");
         let blob = media.join("big.bin");
-        // Median-of-9 against the unchanged 50ms budget (去噪非放宽): each
-        // sample flips the same 16 MiB blob in or out, so every pass is a real
-        // one-file-delta reconcile — the same quantity the original probe
-        // measured, just repeated under contention-safe sampling.
         let mut samples = Vec::with_capacity(SAMPLES);
-        let mut last_rewritten = false;
-        for round in 0..samples.capacity() {
+        for round in 0..SAMPLES {
             if round % 2 == 0 {
                 std::fs::write(&blob, vec![7u8; 16 * 1024 * 1024]).expect("blob");
             } else {
                 std::fs::remove_file(&blob).expect("remove blob");
             }
+            tally.read_paths.lock().expect("tally paths").clear();
             let start = Instant::now();
-            let changed = fixture
-                .runtime
-                .session
-                .rebuild_projection()
-                .expect("reconcile");
+            let changed = session.rebuild_projection().expect("reconcile");
             samples.push(start.elapsed());
-            last_rewritten = changed.rewritten;
+            let paths = tally.read_paths.lock().expect("tally paths").clone();
+            assert!(
+                !changed.rewritten,
+                "a binary-file delta must not rewrite memo documents"
+            );
+            assert!(
+                paths
+                    .iter()
+                    .all(|path| path.starts_with(".lomo/") || path == "media/big.bin")
+                    && paths
+                        .iter()
+                        .filter(|path| path.starts_with(".lomo/"))
+                        .count()
+                        <= 4
+                    && paths
+                        .iter()
+                        .filter(|path| path.as_str() == "media/big.bin")
+                        .count()
+                        <= 1,
+                "reconcile must not re-read unchanged workspace content: round {round}, \
+                 read paths {paths:?}, elapsed samples {samples:?}"
+            );
         }
-        let warm = median(samples.clone());
-        assert!(
-            warm < Duration::from_millis(50),
-            "a one-file-delta reconcile must not stream every workspace byte; \
-             300 memos + 16MiB blob: median {warm:?} of {samples:?} \
-             (last pass rewritten={last_rewritten})"
-        );
     }
 
     /// A second open on an already-indexed workspace must issue zero reads of

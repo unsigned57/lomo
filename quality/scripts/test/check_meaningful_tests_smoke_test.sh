@@ -8,6 +8,13 @@ set -euo pipefail
 # Observable outcomes: actual checker exit status and diagnostic, in committed and worktree modes.
 # TDD proof: the new adjacent-evidence case fails on the original checker; rerun this suite for GREEN.
 # Excludes: compiling fixture Kotlin and proving the semantic completeness of a declared scope.
+#
+# Every fixture repository is self-contained, so the checker's range selectors must come from
+# each case alone. The suite runs inside CI jobs (including tag pushes) that export the real
+# delivery range; inheriting it would point fixture checks at commits that only exist in the
+# outer checkout. Clear every selector once here instead of per helper.
+unset MEANINGFUL_TEST_DIFF_BASE MEANINGFUL_TEST_DEFAULT_BRANCH MEANINGFUL_TEST_CHECK_MODE \
+  GITHUB_BASE_REF CI
 
 repo_root="$(git rev-parse --show-toplevel)"
 script_path="$repo_root/quality/scripts/check_meaningful_tests.sh"
@@ -186,8 +193,7 @@ run_range_case() {
   local output
   local status
   set +e
-  output="$(cd "$repo_dir" && env -u MEANINGFUL_TEST_DIFF_BASE -u MEANINGFUL_TEST_DEFAULT_BRANCH \
-    -u GITHUB_BASE_REF -u CI "$@" "$script_path" 2>&1)"
+  output="$(cd "$repo_dir" && env "$@" "$script_path" 2>&1)"
   status=$?
   set -e
 

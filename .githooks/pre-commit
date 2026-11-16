@@ -11,11 +11,15 @@ if [ ! -f "$justfile" ]; then
 fi
 
 # Lightweight commit gate only: format + staged test contracts.
-# Heavy verification lives on pre-push (path-aware preflight) and handoff/CI (ci).
+# Product compilation and tests belong to explicit local gates and CI.
 
 staged_files=()
+format_sources=false
 while IFS= read -r -d '' file; do
   staged_files+=("$file")
+  case "$file" in
+    *.rs|*.kt|*.kts) format_sources=true ;;
+  esac
 done < <(git -C "$repo_root" diff --cached --name-only --diff-filter=ACMR -z)
 
 # Protect unstaged edits to staged files while formatting runs. `just fmt staged` runs
@@ -39,7 +43,7 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-if [ "${#staged_files[@]}" -gt 0 ]; then
+if [ "$format_sources" = true ]; then
   git -C "$repo_root" diff --binary --color=never -- "${staged_files[@]}" >"$unstaged_diff"
   if [ -s "$unstaged_diff" ]; then
     git -C "$repo_root" apply -R "$unstaged_diff"
@@ -64,9 +68,6 @@ if [ "${#staged_files[@]}" -gt 0 ]; then
     unstaged_diff_reversed=0
     rm -f "$unstaged_diff"
   fi
-else
-  echo "pre-commit: formatting staged sources through xtask..."
-  just --justfile "$justfile" fmt staged
 fi
 
 if [ ! -x "$meaningful_test_script" ]; then

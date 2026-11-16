@@ -69,7 +69,7 @@ const COMMANDS: &[CommandSpec] = &[
     command(
         "preflight",
         "[push [<remote>]]",
-        "Push hook gate; just entrypoint is _preflight",
+        "Compiler-free push policies and formatting; just entrypoint is _preflight",
         preflight,
     ),
     command(
@@ -170,8 +170,8 @@ const COMMANDS: &[CommandSpec] = &[
     ),
     command(
         "ci-rust",
-        "[fast|coverage]",
-        "CI-only Rust gate; invoke lomo-xtask directly",
+        "[fast|coverage|delivery]",
+        "CI-only Rust gate; delivery adds coverage evidence to the separate check job",
         |w, args| {
             ci_rust(w, args)?;
             Ok(Value::Null)
@@ -470,6 +470,9 @@ fn ci_native(workspace: &Workspace, arguments: &[String]) -> Result<()> {
 }
 
 fn ci_rust(workspace: &Workspace, arguments: &[String]) -> Result<()> {
+    if matches!(arguments, [mode] if mode == "delivery") {
+        return quality::rust_delivery_ci(workspace);
+    }
     quality::rust_ci(workspace, parse_coverage_mode(arguments, "ci-rust")?)
 }
 

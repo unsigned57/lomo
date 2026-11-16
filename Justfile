@@ -43,7 +43,7 @@ fmt mode="staged":
 dev *args:
     {{xtask}} dev {{args}}
 
-# Hidden: path-aware push gate, invoked by .githooks/pre-push only.
+# Hidden: push policies and formatting, without product compilation or tests.
 _preflight remote="origin":
     {{xtask}} preflight push {{remote}}
 
@@ -101,6 +101,6 @@ perf *args:
     {{xtask}} perf {{args}}
 
 # Audit, prune stale Cargo artifacts, or clean repository-owned generated state.
-# `prune` runs automatically inside `_preflight` before every push.
+# `prune` is explicit here; application builds also apply stale-artifact retention.
 cache mode="audit":
     {{xtask}} cache {{mode}}

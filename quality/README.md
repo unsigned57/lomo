@@ -35,7 +35,8 @@ Every invocation that reaches xtask writes exactly one JSON document to stdout:
 | --- | --- |
 | `just` / `just commands` | command names, arguments, purposes and protocol location |
 | `just dev --plan` | task graph, selected scope, `complete_worktree`, excluded owners |
-| `just dev`, `just check`, push hook | `plan`, `results`, `report_path`, task-id-to-file `logs` |
+| `just dev`, `just check` | `plan`, `results`, `report_path`, task-id-to-file `logs` |
+| push hook | `policy_only: true`, comparison `base`, and `verification` containing the formatting/policy results; this is not test evidence |
 | `just ci` | completed `verification` evidence and published `apk` |
 | `just cache paths` | resolved absolute `paths` |
 | `just cache audit` | entries with `present` plus bytes, or `absent` without invented bytes |
@@ -66,8 +67,10 @@ the word "review" alone does not require a build. Classify the actual change bef
 | Kotlin code or behavior-affecting tests | `./kotlin test --include-module=<module> --include-classes='…'` for changed specs, or the module suite for a broad change |
 | Native, FFI, lock or packaging inputs | Regenerate and validate the affected generated/pack surface |
 | Dependency manifests | `just deps check`; explicit task-related updates follow [Dependency Selection](dependencies.md) |
-| Code changes delivered for review or push | `just check`; `just dev` is an iteration aid, not a substitute |
-| Code merge/shared-branch delivery | `just ci`; pre-push also runs `just _preflight` |
+| Code changes delivered for local review | Applicable owner checks and `just dev` with `complete_worktree: true`; shared orchestration, toolchain or cross-language graph changes require `just check` |
+| Code pushed for integration | Lightweight pre-push policies, then the CI `check` job for the exact commit; local affected-owner results do not establish CI success |
+| Workflow-only path selection/cache keys, with unchanged toolchain and xtask task graph | Workflow syntax validation and actual path-selection/cache regression checks; run the architecture contract too. After a full gate, these checks suffice for subsequent edits confined to workflow configuration, its tests and process documentation |
+| Code merge/shared-branch delivery | Successful GitHub `quality` aggregation for the exact commit, or local `just ci` when remote evidence is unavailable; pre-push runs policy checks only |
 
 Documentation that changes an executable rule or a fixture's expected behavior is not a prose-only
 change. Use narrow tests during implementation; do not run the full release gate after each edit.
@@ -76,12 +79,43 @@ change. Use narrow tests during implementation; do not run the full release gate
 
 | Gate | Includes | Intentionally omits |
 | --- | --- | --- |
-| pre-commit | staged formatting and meaningful-test contracts | compile, test and native gates |
+| pre-commit | staged source formatting and meaningful-test contracts; no formatter bootstrap for prose-only commits | compile, test and native gates |
 | `just dev` | affected worktree owners, including untracked/deleted files | coverage, fat LTO |
 | `just dev --tests-only` | test tasks from the same worktree plan | static analysis, coverage |
-| `just _preflight` (pre-push) | pushed commits vs remote base; Rust-only pushes omit Kotlin; no remote base uses the full iterative surface | coverage, fat LTO |
-| `just check` | Rust fmt, strict Clippy, nextest/doc and architecture tests, machete; dev bindings/native graph; Kotlin model/build, Detekt, test style, Android Lint, shell contracts and host tests | cargo-deny, coverage, Compose static, fat-LTO release native, device install |
-| `just ci` | check plus cargo-deny, Rust/Kotlin coverage, Compose static, four-ABI release native and APK/ELF/dependency validation | device execution |
+| `just _preflight` (pre-push) | test-contract range, fast policy self-tests, resource parity and affected-language formatting; no remote base scans all test contracts and formats both languages | product compile/tests, cache pruning, coverage, native builds |
+| `just check` | fast policy prerequisites; Rust fmt, strict Clippy, nextest, rustdoc link checks, architecture tests, machete; dev bindings; Kotlin format, Detekt light/full, test style, Android Lint, shell contracts and host tests | doctests, property fuzz, cargo-deny, coverage, packaged Kotlin build, fat-LTO release native, device install |
+| `just ci` | check, then only delivery evidence: doctests, property fuzz, cargo-deny, Rust/Kotlin coverage, four-ABI release native, packaged Kotlin build, meaningful-test range and APK/ELF/dependency validation | device execution |
+
+The verification graph dispatches continuously: a task starts as soon as its prerequisites pass
+and none of its resources (`Cargo`, `KotlinBuild`, `Bindings`, `Reports`) is held, so the Rust,
+Kotlin-build and analysis lanes overlap instead of waiting for the slowest task of a batch.
+Detekt runs with `--parallel`. Quick policy self-tests must pass before any other task starts.
+The first failure is reported immediately and stops queued tasks, including independent ones;
+already-running tasks finish so their child processes and evidence remain owned. The final error
+names the failed task rather than an earlier task that was skipped. `just ci` adds delivery
+checks to `check`; instrumented coverage intentionally executes tests again with instrumentation.
+
+### Delivery pipeline
+
+Each stage catches the failures it can before the slower next stage runs:
+
+| Stage | Runs | Typical failures caught |
+| --- | --- | --- |
+| commit | pre-commit: staged formatting, staged meaningful-test contracts | formatting, missing Behavior Contract |
+| iterate | narrow `cargo test -p` / `./kotlin test`, then `just dev` | behavior regressions in the touched owners |
+| push | pre-push `just _preflight` over the pushed commits | formatting and contract errors, without another product build/test sweep |
+| hand-off | affected-owner evidence for local review; `just check` for shared inputs; merge requires the same commit's CI `quality` or local `just ci` | affected-owner correctness locally, complete checks and coverage before integration |
+| GitHub push/PR | compiler-free policies first, then Quality Checks jobs in parallel (below) | the same graph plus coverage, cargo-deny, natives, APK |
+| release tag | the same Quality Checks jobs (full surface), then signed APKs | signing and release packaging only |
+
+The release gate forces all surfaces, even when a branch's path-selected delivery jobs were
+skipped. Push the commit and let Quality Checks pass before tagging. A tag still revalidates the
+gate; it does not reuse an unrelated or merely planned success receipt.
+
+During a feature, run the narrow changed specs, use `just dev` for the affected owners, and
+commit/push normally. There is no need to run `dev`, `check` and `ci` in succession before every
+push: CI supplies the full commit-level evidence. Run `just check` when a local reproduction of
+that gate is useful; reserve local `just ci` for complete delivery verification.
 
 Device engine trend snapshots use `device-perf-engine-baseline.v2.json`, keyed by backend
 and metric. SAF and Direct update independent histories; missing history reports `no_baseline`,
@@ -111,9 +145,24 @@ Zero/unreported tests in a required test task, changes to its verification input
 prerequisites, missing outputs and unavailable required tools cannot pass. A prose-only task with
 no required test is not a zero-test failure.
 
-GitHub PR jobs select Rust/native/Kotlin surfaces by path. Native PR jobs use `release-ci`;
-shipping native outputs use the release pack path. The `quality` aggregation job governs branch
-protection. Workflows invoke xtask rather than implementing another build graph.
+GitHub Quality Checks first runs compiler-free policy fixtures, resource parity and changed-test
+contracts in `changes`, before any tool bootstrap. Pure documentation outside executable-policy
+paths skips build jobs. Executable changes run `check` (the same graph as local `just check`).
+Path-selected jobs add delivery evidence in parallel: `rust-host`
+(`ci-rust delivery`, without repeating check's formatting/Clippy/normal tests), the four-ABI
+`native` matrix (`release-ci`) and, after it, `android-kotlin`
+(`ci-android coverage`: packaged build, meaningful-test range, Kotlin coverage, APK validation,
+benchmark harness). TUI-only changes skip Android native packaging and delivery; the shared
+`check` graph still validates repository-wide boundaries. Unknown executable/configuration paths
+conservatively select every lane; malformed path inventories fail rather than becoming a docs-only
+success. Shipping native outputs use the release pack path. The `quality` aggregation
+job governs branch protection. The Android release workflow calls this workflow with
+`full: true` instead of running its own gate. Pinned cargo tools are cached by their pins alone
+and saved right after bootstrap. Build caches use a compatible toolchain/dependency prefix and
+a unique run/attempt suffix, restore the newest matching snapshot, and save even when a gate
+fails. Thus a retry can retain compilation completed during the failed attempt; immutable fixed
+keys cannot trap future runs on an old snapshot. OS/architecture and native profile remain
+isolated. Workflows invoke xtask rather than implementing another build graph.
 
 ## Canonical build inputs
 
@@ -206,8 +255,8 @@ ignored. Builds must be reproducible from a clean checkout; an existing dirty wo
 valid development input. Preserve other edits and record the inputs actually verified. Small golden
 format fixtures belong in `fixtures/`; large seeded corpora are generated by `just perf`.
 
-`just build tui` and `just build android` run the same `prune` operation before compiling;
-pre-push invokes it too. It delegates Cargo artifact retention to the pinned `cargo-sweep --time 7` (fingerprint access
+`just build tui` and `just build android` run the same `prune` operation before compiling.
+Push hooks preserve warm caches. Pruning delegates Cargo artifact retention to the pinned `cargo-sweep --time 7` (fingerprint access
 time) and coverage build-tree deletion to `cargo clean --target-dir`. Project scratch files
 use a seven-day modification-time cutoff. Recent caches,
 packages, corpora and reports remain. Cargo profile locks are held throughout pruning; a competing

@@ -55,6 +55,18 @@ reject_path() {
   [ ! -e "$1" ] || fail "legacy path remains: $1"
 }
 
+# Repository text search through Git itself, so the probe exists wherever the checkout does.
+# `git grep` exits 0 on a match and 1 on none; any other status is a broken probe, never a pass.
+source_matches() {
+  local status=0
+  git grep --untracked -q -E "$@" || status=$?
+  case "$status" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) fail "repository search failed (exit $status): $*" ;;
+  esac
+}
+
 for file in \
   Justfile \
   Cargo.toml \
@@ -83,9 +95,8 @@ if grep -Fq 'native-smoke' Justfile apps/android/project.yaml .gitignore; then
   fail "native-smoke composition root remains in the public command or module surface"
 fi
 reject_path apps/android/native-smoke
-if rg -n --glob '!quality/scripts/test/kotlin_quality_check_contract_test.sh' \
-  --glob '!target/**' --glob '!.git/**' \
-  'repo_root/build/(reports|jacoco|apk|dist|corpora)' quality/scripts >/dev/null; then
+if source_matches -e 'repo_root/build/(reports|jacoco|apk|dist|corpora)' -- quality/scripts \
+  ':(exclude)quality/scripts/test/kotlin_quality_check_contract_test.sh'; then
   fail "Kotlin policy scripts still write generated reports under repository-root build/"
 fi
 
@@ -157,9 +168,9 @@ for legacy in \
   reject_path "$legacy"
 done
 
-if rg -n '28\.2\.13676358|liblomo_sync_ffi|com\.lomo\.rustsync' \
-  --glob '!quality/scripts/test/kotlin_quality_check_contract_test.sh' \
-  --glob '!target/**' --glob '!build/**' --glob '!.git/**' . >/dev/null; then
+if source_matches -e '28\.2\.13676358|liblomo_sync_ffi|com\.lomo\.rustsync' -- . \
+  ':(exclude)quality/scripts/test/kotlin_quality_check_contract_test.sh' \
+  ':(exclude)target' ':(exclude)build'; then
   fail "old NDK, native library, or Kotlin package reference remains"
 fi
 

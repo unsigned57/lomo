@@ -8,24 +8,42 @@ on:
 
 permissions:
   contents: write
+  # Granted to the reused Quality Checks gate, which declares read access to pull requests.
+  pull-requests: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # Fails within seconds instead of after the gate when the release notes are missing.
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: test -s "docs/releases/$RELEASE_TAG.md"
+
+  # The same parallel gate as every push (check graph, Rust coverage, four native ABIs, Android
+  # delivery with coverage), forced to the full surface.
+  gate:
+    needs: notes
+    uses: ./.github/workflows/architecture_checks.yml
+    with:
+      full: true
+
   release:
+    needs: [notes, gate]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Validate release notes
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: test -s "docs/releases/$RELEASE_TAG.md"
       - name: Set up JDK 27
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
@@ -33,20 +51,30 @@ jobs:
           java-version: '27'
       - name: Set up Android SDK
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
-      - name: Cache release toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore pinned cargo tools
+        id: tools-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lomo/cargo-tools
+          key: cargo-tools-1.99-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'quality/tools.toml') }}
+      - name: Restore release build cache
+        id: build-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cache/lomo
+            ~/.cache/lomo/detekt
+            ~/.cache/lomo/gradle
+            ~/.cache/lomo/lint-checks
             ~/.cache/JetBrains/Kotlin
             ~/.gradle/caches
             ~/.gradle/wrapper
             target/cargo
             target/lomo/build
             ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
-          key: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}
+          key: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -73,19 +101,37 @@ jobs:
           } > apps/android/app/keystore.properties
       - name: Bootstrap pinned toolchain
         run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
-      - name: Run full gate
-        env:
-          # Tag pushes create a ref (no previous tip); the test-contract diff is taken from the
-          # default branch merge-base instead of a guessed parent commit.
-          MEANINGFUL_TEST_DIFF_BASE: ${{ github.event.before }}
-          MEANINGFUL_TEST_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci
+      - name: Save pinned cargo tools
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lomo/cargo-tools
+          key: ${{ steps.tools-cache.outputs.cache-primary-key }}
       - name: Build, validate, and verify release APKs
         run: |
-          for abi in arm64-v8a armeabi-v7a x86_64 x86 all; do
+          # The universal build compiles all four release natives first; the split builds then
+          # reuse those Cargo outputs and only repackage.
+          for abi in all arm64-v8a armeabi-v7a x86_64 x86; do
             echo "Building release APK for $abi..."
             cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- build android release "$abi"
           done
+      - name: Save release build cache
+        if: ${{ !cancelled() && steps.build-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/lomo/detekt
+            ~/.cache/lomo/gradle
+            ~/.cache/lomo/lint-checks
+            ~/.cache/JetBrains/Kotlin
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            target/cargo
+            target/lomo/build
+            ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
       - name: Upload release APKs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

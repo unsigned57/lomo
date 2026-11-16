@@ -2,10 +2,9 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-# Path-aware push gate: only the surfaces affected by pushed commits run (rust-only pushes
-# skip the Kotlin gate). A missing remote base falls back to the full iterative surface.
-# Coverage + fat-LTO remain on GitHub Actions / local merge handoff (ci recipe).
+# Bounded push policies: formatting and test contracts, without product compilation/tests or
+# cache pruning. Run `just dev` while developing and `just check` before handing off code.
 remote="${1:-origin}"
-echo "pre-push: running path-aware push gate (just _preflight ${remote})..."
+echo "pre-push: checking push policies (just _preflight ${remote})..."
 just --justfile "$repo_root/Justfile" _preflight "$remote"
-echo "pre-push: preflight complete; run the full handoff gate before merge as needed"
+echo "pre-push: policies passed; CI owns the complete verification gate"

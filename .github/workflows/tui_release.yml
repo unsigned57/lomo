@@ -46,22 +46,45 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Cache pinned Rust tools and host build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore pinned cargo tools
+        id: tools-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lomo/cargo-tools
+          key: cargo-tools-1.99-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'quality/tools.toml') }}
+      - name: Restore host build
+        id: build-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cache/lomo/cargo-tools
             target/cargo
             target/lomo/build
-          key: tui-release-1.99-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'rust-toolchain.toml') }}
+          key: tui-release-1.99-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'rust-toolchain.toml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: tui-release-1.99-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'rust-toolchain.toml') }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Bootstrap pinned Rust tools
         run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
+      - name: Save pinned cargo tools
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lomo/cargo-tools
+          key: ${{ steps.tools-cache.outputs.cache-primary-key }}
       - name: Run Rust host gate (no coverage)
         run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-rust fast
       - name: Build release binary
         run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- build tui release
+      - name: Save host build
+        if: ${{ !cancelled() && steps.build-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/cargo
+            target/lomo/build
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
       - name: Package tarball
         env:
           VERSION: ${{ needs.version.outputs.version }}
@@ -107,24 +130,47 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Cache pinned Rust tools and host build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore pinned cargo tools
+        id: tools-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lomo/cargo-tools
+          key: cargo-tools-1.99-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'quality/tools.toml') }}
+      - name: Restore host build
+        id: build-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cache/lomo/cargo-tools
             target/cargo
             target/lomo/build
-          key: tui-release-1.99-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'rust-toolchain.toml') }}
+          key: tui-release-1.99-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'rust-toolchain.toml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: tui-release-1.99-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'quality/tools.toml', 'rust-toolchain.toml') }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.99 --profile minimal
       - name: Bootstrap pinned Rust tools
         run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
+      - name: Save pinned cargo tools
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lomo/cargo-tools
+          key: ${{ steps.tools-cache.outputs.cache-primary-key }}
       - name: Verify platform filesystem contract
         run: RUSTUP_TOOLCHAIN=1.99 cargo test --manifest-path Cargo.toml --locked -p lomo-platform-fs
       - name: Build release binary
         run: RUSTUP_TOOLCHAIN=1.99 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- build tui release
+      - name: Save host build
+        if: ${{ !cancelled() && steps.build-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/cargo
+            target/lomo/build
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
       - name: Package tarball (Unix)
         if: matrix.shell_kind == 'unix'
         env:
