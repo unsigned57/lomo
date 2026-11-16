@@ -20,6 +20,15 @@
 //! RED: pre-push contains architecture/compilation, quick policies are absent, and queued work runs.
 //! GREEN: the same command after implementing the stage boundaries and fail-fast scheduling.
 //! Excludes: CI wall-clock speed, compiler caching and external service availability.
+//!
+//! Test Change Justification:
+//! Reason category: release checks now have one producer instead of a workflow-call duplicate.
+//! Old behavior/assertion being replaced: the full fixture supplies the removed `inputs.full` switch.
+//! Why old assertion is no longer correct: default-branch pushes/manual runs own full evidence;
+//! feature-branch/PR events select paths. Release consumes that evidence without executing tests.
+//! Coverage preserved by: identical selective/full outcomes, plus default-branch and manual controls.
+//! Why this is not fitting the test to the implementation: `ci_release_dedup_contract` first exposes
+//! the actual duplicate invocation and rejects incomplete evidence before release can proceed.
 
 #[cfg(test)]
 mod tests {
@@ -231,7 +240,7 @@ mod tests {
             .context("flag derivation step")?["run"]
             .as_str()
             .context("flag script")?;
-        for (name, changed, known_rust, full, expected) in [
+        for (name, changed, known_rust, manual, expected) in [
             (
                 "docs",
                 vec!["docs/guide.md"],
@@ -260,13 +269,11 @@ mod tests {
                 false,
                 [true, true, true, true],
             ),
-            ("release", vec![], vec![], true, [true, true, true, true]),
+            ("manual", vec![], vec![], true, [true, true, true, true]),
         ] {
             let directory = tempfile::tempdir()?;
             let output_file = directory.path().join("flags");
-            let mut script = script
-                .replace("${{ github.event_name }}", "push")
-                .replace("${{ inputs.full }}", if full { "true" } else { "false" });
+            let mut script = script.to_owned();
             for (key, value) in [
                 (
                     "rust",
@@ -284,6 +291,12 @@ mod tests {
             }
             let output = Command::new("bash")
                 .args(["-euo", "pipefail", "-c", &script])
+                .env(
+                    "GITHUB_EVENT_NAME",
+                    if manual { "workflow_dispatch" } else { "push" },
+                )
+                .env("GITHUB_REF", "refs/heads/feature")
+                .env("DEFAULT_BRANCH", "main")
                 .env("GITHUB_OUTPUT", &output_file)
                 .env("ALL_CHANGED_FILES", serde_json::to_string(&changed)?)
                 .env("RUST_CHANGED_FILES", serde_json::to_string(&known_rust)?)
@@ -322,9 +335,7 @@ mod tests {
             .context("flag derivation step")?["run"]
             .as_str()
             .context("flag script")?;
-        let mut invalid = script
-            .replace("${{ github.event_name }}", "push")
-            .replace("${{ inputs.full }}", "false");
+        let mut invalid = script.to_owned();
         for key in ["rust", "kotlin", "native", "quality_infra"] {
             invalid = invalid.replace(&format!("${{{{ steps.filter.outputs.{key} }}}}"), "false");
         }
@@ -332,6 +343,9 @@ mod tests {
         for inventory in ["malformed-json", "null", "{}", "[3]"] {
             let output = Command::new("bash")
                 .args(["-euo", "pipefail", "-c", &invalid])
+                .env("GITHUB_EVENT_NAME", "push")
+                .env("GITHUB_REF", "refs/heads/feature")
+                .env("DEFAULT_BRANCH", "main")
                 .env("GITHUB_OUTPUT", directory.path().join("flags"))
                 .env("ALL_CHANGED_FILES", inventory)
                 .env("RUST_CHANGED_FILES", "[]")

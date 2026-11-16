@@ -489,7 +489,9 @@ fn run_boltffi_pack_android(
         .env("ANDROID_SDK_ROOT", &workspace.android_sdk)
         .args(["--overlay"])
         .arg(&overlay)
-        .args(["pack", "android"]);
+        // BoltFFI only forwards Cargo diagnostics when verbose. Its default failure output
+        // lists target names but discards the compiler/linker error, which makes CI unauditable.
+        .args(["pack", "android", "--verbose"]);
     match profile {
         NativeProfile::Dev => {}
         NativeProfile::Release => {

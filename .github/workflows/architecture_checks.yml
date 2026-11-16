@@ -9,22 +9,16 @@ on:
       - 'v*'
       - 'tui-v*'
   workflow_dispatch:
-  # The Android release reuses this exact gate (all surfaces) before it builds signed APKs, so a
-  # release tag never runs a second, serial gate implementation.
-  workflow_call:
-    inputs:
-      full:
-        description: Run every surface regardless of changed paths
-        type: boolean
-        default: false
 
 permissions:
   contents: read
   pull-requests: read
 
 concurrency:
-  group: quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Default-branch commits can be release candidates: newer commits must not cancel their gate.
+  # PR iterations still supersede earlier runs on that PR.
+  group: quality-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Cache layout (identical in every job):
 # - pinned cargo tools are keyed only by their pins and saved immediately after bootstrap, so a
@@ -47,7 +41,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Detect changed paths
-        if: ${{ !inputs.full }}
+        if: github.event_name != 'workflow_dispatch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
@@ -95,6 +89,7 @@ jobs:
       - name: Derive required job flags
         id: flags
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           ALL_CHANGED_FILES: ${{ steps.filter.outputs.all_files }}
           RUST_CHANGED_FILES: ${{ steps.filter.outputs.rust_files }}
           KOTLIN_CHANGED_FILES: ${{ steps.filter.outputs.kotlin_files }}
@@ -105,8 +100,9 @@ jobs:
           kotlin='${{ steps.filter.outputs.kotlin }}'
           native='${{ steps.filter.outputs.native }}'
           quality='${{ steps.filter.outputs.quality_infra }}'
-          # workflow_dispatch and the release gate always run the full surface.
-          if [ '${{ github.event_name }}' = 'workflow_dispatch' ] || [ '${{ inputs.full }}' = 'true' ]; then
+          # Integration commits provide the complete gate a later release can reuse.
+          # Feature branches/PRs retain path selection; manual dispatch explicitly requests full.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
             rust=true; kotlin=true; native=true; quality=true
           else
             # Only known prose may skip verification. A new script/configuration owner must
@@ -140,7 +136,7 @@ jobs:
           echo "run_android=$run_android" >> "$GITHUB_OUTPUT"
       - name: Skip duplicate push runs with an open PR
         id: guard
-        if: github.event_name == 'push' && !inputs.full
+        if: github.event_name == 'push' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

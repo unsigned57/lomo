@@ -64,14 +64,18 @@ Its name is the installed Android updater's metadata contract: both version fiel
 from `app/module.yaml` and `<abi>` is the ABI tag (`all` for universal packages), as reported by `data.apk` in the command result. Build intermediates stay in the single configured shared
 Kotlin build directory.
 
-Tag workflow `.github/workflows/android_release.yml` checks the release notes before starting any
-expensive gate, runs
-the Quality Checks workflow as its gate (all surfaces, in parallel jobs), then builds the same
-commands and publishes both split and universal release artifacts. Push the release commit first
-and let Quality Checks pass; the tag then repeats an already-green gate instead of discovering
-failures after the release build has started. The tag forces full coverage even if path selection
-skipped delivery jobs on the branch. Its gate and signed build restore compatible build snapshots
-and save completed compilation after failures; pinned tools are saved immediately after bootstrap.
+Tag workflow `.github/workflows/android_release.yml` checks release notes first, then waits for
+the existing Quality Checks run for the same repository and exact commit. The default branch
+provides the complete integration gate once; feature branches/PRs retain selective iteration.
+The release verifies successful normal checks, Rust coverage, Android delivery/coverage, native
+jobs and aggregation through the read-only Actions API. It never invokes another quality graph.
+Push the commit to the default branch first; the branch and tag may be pushed together. Publishing
+from another ref requires a manual full Quality Checks run on that commit first. Missing, failed,
+cancelled or partial checks block the release rather than triggering duplicate compilation.
+Completed checks proceed immediately; active ones are awaited with a 90-minute bound, and missing
+runs fail after five minutes of discovery. Only then does the workflow build signed split and
+universal artifacts. The signed build restores compatible snapshots and saves completed
+compilation after failures; pinned tools are saved immediately after bootstrap.
 The universal package alone is discoverable by the in-app
 updater; split packages remain available for manual installation. It must not grow a second native,
 Kotlin, signing, or APK validation implementation.

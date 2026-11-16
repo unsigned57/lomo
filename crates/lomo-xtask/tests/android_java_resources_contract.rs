@@ -17,6 +17,15 @@
 //! CI regression RED: reports/manual/gates/resources-red.log, consumer exited 31 on stale state.
 //! GREEN: reports/manual/gates/resources-green.log, all resource contracts pass.
 //! Excludes: AGP's internal merger implementation; real signed release builds validate integration.
+//!
+//! Test Change Justification:
+//! Reason category: supply the release command's required signing precondition in its fixture.
+//! Old behavior/assertion being replaced: release command construction accepted absent signing input.
+//! Why old assertion is no longer correct: the canonical constructor now validates signing before
+//! preparing build state; quality tests must provide self-contained input rather than real secrets.
+//! Coverage preserved by: every stale-resource, variant and preservation assertion stays unchanged.
+//! Why this is not fitting the test to the implementation: signing rejection/acceptance is tested
+//! through the real constructor in `android_signing_contract`; this fixture isolates resource state.
 
 #[cfg(test)]
 mod tests {
@@ -50,6 +59,13 @@ mod tests {
         fs::write(
             root.join("kotlin"),
             "#!/bin/sh\n[ ! -e \"$LOMO_RESOURCE_STATE\" ] || exit 31\n[ ! -e \"$LOMO_RESOURCE_OUTPUT\" ] || exit 32\nprintf '%s\\n' \"$@\"\n",
+        )?;
+        let module = root.join("apps/android/app");
+        fs::create_dir_all(&module)?;
+        fs::write(module.join("fixture.keystore"), "test-only keystore bytes")?;
+        fs::write(
+            module.join("keystore.properties"),
+            "storeFile=fixture.keystore\nstorePassword=fixture\nkeyAlias=fixture\nkeyPassword=fixture\n",
         )?;
         #[cfg(unix)]
         {

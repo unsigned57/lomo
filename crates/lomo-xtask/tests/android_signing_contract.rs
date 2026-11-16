@@ -28,16 +28,52 @@
 //! deleted script, and jitpack was declared with no dependency needing it.
 //! Excludes: an actual signed release build (covered by `just build android release`
 //! emitting `apksigner verify` output in its JSON result).
+//!
+//! Test Change Justification:
+//! Reason category: clean-checkout regression and production-boundary coverage.
+//! Old behavior/assertion being replaced: duplicate parsing of an ignored real keystore file.
+//! Why old assertion is no longer correct: CI deliberately has no signing secrets during checks;
+//! presence on a developer machine neither proves the parser nor the build's validation boundary.
+//! Coverage preserved by: temporary relative/absolute keystores accepted by the real command
+//! constructor, plus absent/incomplete inputs rejected before Kotlin preparation.
+//! Why this is not fitting the test to the implementation: remote run 43883705876 failed on the
+//! missing ignored file; the new negative cases also expose the unvalidated command constructor.
+//! TDD proof: `missing_signing_inputs_reject_before_kotlin_preparation` fails before the fix.
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path, process::Command};
+    use std::{fmt::Write as _, fs, path::Path, process::Command};
 
     use anyhow::{Context, Result, ensure};
-    use lomo_xtask::repository_root;
+    use lomo_xtask::{AndroidVariant, Workspace, android_apk_command, repository_root};
 
     fn read(path: &Path) -> Result<String> {
         fs::read_to_string(path).with_context(|| format!("read {}", path.display()))
+    }
+
+    fn signing_workspace() -> Result<(tempfile::TempDir, Workspace)> {
+        let temporary = tempfile::tempdir()?;
+        let root = temporary.path().to_path_buf();
+        let workspace = Workspace {
+            root: root.clone(),
+            rust: root.clone(),
+            cargo_home: root.join("cargo-home"),
+            rust_target: root.join("target/cargo"),
+            lomo_output: root.join("target/lomo"),
+            tool_root: root.join("tools"),
+            android_sdk: root.join("sdk"),
+            kotlin_home: root.join("home"),
+            kotlin_cache: root.join("cache"),
+            kotlin_data: root.join("data"),
+            kotlin_config: root.join("config"),
+            android_home: root.join("android"),
+            kotlin_cli_cache: root.join("kotlin-cli"),
+            gradle_home: root.join("gradle"),
+            kotlin_build: root.join("shared-kotlin-build"),
+        };
+        fs::create_dir_all(root.join("apps/android/app/signing"))?;
+        fs::write(root.join("kotlin"), "#!/bin/sh\nexit 0\n")?;
+        Ok((temporary, workspace))
     }
 
     #[test]
@@ -53,35 +89,75 @@ mod tests {
 
     #[test]
     fn keystore_properties_is_complete_and_resolves() -> Result<()> {
-        let root = repository_root()?;
-        let module_dir = root.join("apps/android/app");
-        let properties = module_dir.join("keystore.properties");
-        let text = read(&properties)?;
-        let mut values = std::collections::BTreeMap::new();
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((key, value)) = line.split_once('=') {
-                values.insert(key.trim().to_owned(), value.trim().to_owned());
-            }
+        for absolute in [false, true] {
+            let (_temporary, workspace) = signing_workspace()?;
+            let module = workspace.root.join("apps/android/app");
+            let store = module.join("signing/release.keystore");
+            fs::write(
+                &store,
+                "fixture keystore; cryptographic signing is a separate gate",
+            )?;
+            let path = if absolute {
+                store
+            } else {
+                "signing/release.keystore".into()
+            };
+            fs::write(
+                module.join("keystore.properties"),
+                format!(
+                    "storeFile={}\nstorePassword=fixture\nkeyAlias=fixture\nkeyPassword=fixture\n",
+                    path.display()
+                ),
+            )?;
+            let command = android_apk_command(&workspace, AndroidVariant::Release)?;
+            ensure!(command.get_program() == workspace.root.join("kotlin"));
         }
-        for key in ["storeFile", "storePassword", "keyAlias", "keyPassword"] {
+        Ok(())
+    }
+
+    #[test]
+    fn missing_signing_inputs_reject_before_kotlin_preparation() -> Result<()> {
+        for missing in [
+            "properties",
+            "storeFile",
+            "storePassword",
+            "keyAlias",
+            "keyPassword",
+            "keystore",
+        ] {
+            let (_temporary, workspace) = signing_workspace()?;
+            let module = workspace.root.join("apps/android/app");
+            if missing != "properties" {
+                let mut text = String::new();
+                for (key, value) in [
+                    ("storeFile", "signing/release.keystore"),
+                    ("storePassword", "fixture"),
+                    ("keyAlias", "fixture"),
+                    ("keyPassword", "fixture"),
+                ] {
+                    if key != missing {
+                        writeln!(&mut text, "{key}={value}")?;
+                    }
+                }
+                fs::write(module.join("keystore.properties"), text)?;
+            }
+            if missing != "keystore" {
+                fs::write(module.join("signing/release.keystore"), "fixture")?;
+            }
+            let error = android_apk_command(&workspace, AndroidVariant::Release)
+                .err()
+                .context("missing signing inputs must reject the release command")?;
+            let expected = match missing {
+                "properties" => "keystore.properties",
+                "keystore" => "release keystore does not exist",
+                key => key,
+            };
+            ensure!(error.to_string().contains(expected), "{missing}: {error}");
             ensure!(
-                values.get(key).is_some_and(|value| !value.is_empty()),
-                "{key} must be non-empty in keystore.properties"
+                !workspace.kotlin_build.exists() && !workspace.kotlin_cache.exists(),
+                "invalid signing must reject before build/cache preparation"
             );
         }
-        let store = values
-            .get("storeFile")
-            .context("storeFile missing from keystore.properties")?;
-        let store = module_dir.join(store);
-        ensure!(
-            store.is_file(),
-            "storeFile must resolve to an existing keystore: {}",
-            store.display()
-        );
         Ok(())
     }
 

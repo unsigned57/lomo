@@ -95,8 +95,9 @@ pub fn abi_tag_name(abis: &[Abi]) -> String {
 pub fn build(workspace: &Workspace, variant: AndroidVariant, abis: &[Abi]) -> Result<PathBuf> {
     if variant == AndroidVariant::Release {
         validate_baseline_sources(workspace)?;
-        validate_signing_config(workspace)?;
     }
+    // Prepare and validate inputs before cache maintenance or native compilation starts.
+    let mut command = android_apk_command(workspace, variant)?;
     crate::cache::prune(workspace)?;
     let profile = match variant {
         AndroidVariant::Debug => NativeProfile::Dev,
@@ -109,7 +110,6 @@ pub fn build(workspace: &Workspace, variant: AndroidVariant, abis: &[Abi]) -> Re
 
     let _stash_guard = native::AbiStashGuard::stash_unselected(workspace, abis)?;
 
-    let mut command = android_apk_command(workspace, variant)?;
     run(&mut command)?;
     let release = variant == AndroidVariant::Release;
     let apk = validate_built_apk(workspace, &build_dir, release, abis)?;
@@ -122,8 +122,12 @@ pub fn build(workspace: &Workspace, variant: AndroidVariant, abis: &[Abi]) -> Re
 /// Prepares the canonical Kotlin command for one Android APK variant.
 ///
 /// # Errors
-/// Returns errors invalidating resource merge state, preparing shared directories or locating the wrapper.
+/// Rejects incomplete release signing input before preparing resource/build state; also returns
+/// errors invalidating resource merge state, preparing shared directories or locating the wrapper.
 pub fn android_apk_command(workspace: &Workspace, variant: AndroidVariant) -> Result<Command> {
+    if variant == AndroidVariant::Release {
+        validate_signing_config(workspace)?;
+    }
     invalidate_java_resource_merge_state(workspace, variant)?;
     let build_dir = &workspace.kotlin_build;
     let mut command = kotlin(workspace)?;

@@ -106,11 +106,18 @@ Each stage catches the failures it can before the slower next stage runs:
 | push | pre-push `just _preflight` over the pushed commits | formatting and contract errors, without another product build/test sweep |
 | hand-off | affected-owner evidence for local review; `just check` for shared inputs; merge requires the same commit's CI `quality` or local `just ci` | affected-owner correctness locally, complete checks and coverage before integration |
 | GitHub push/PR | compiler-free policies first, then Quality Checks jobs in parallel (below) | the same graph plus coverage, cargo-deny, natives, APK |
-| release tag | the same Quality Checks jobs (full surface), then signed APKs | signing and release packaging only |
+| release tag | wait for the same commit's completed full Quality Checks run, then signed APKs | failed/missing/incomplete verification blocks signing; checks are not executed again |
 
-The release gate forces all surfaces, even when a branch's path-selected delivery jobs were
-skipped. Push the commit and let Quality Checks pass before tagging. A tag still revalidates the
-gate; it does not reuse an unrelated or merely planned success receipt.
+Default-branch pushes and manual Quality Checks runs cover every surface once. Feature branches
+and PRs retain path selection. A release tag reads the existing run's GitHub result and verifies
+that `check`, Rust coverage, Android delivery/coverage, the native matrix and `quality` aggregation
+actually succeeded for the same repository and commit. PR results, failed/cancelled runs and
+skipped delivery jobs cannot authorize a release. No reusable-workflow call starts a second gate.
+Push the commit to the default branch first; tagging in the same push is supported because the
+release waits for its matching gate. Other refs need a manual full Quality Checks run first.
+Missing runs fail after five minutes of discovery; active runs have a bounded 90-minute wait.
+New default-branch commits do not cancel an older release candidate's run; PR iterations still
+cancel superseded checks. A saved local report cannot substitute for GitHub's completed evidence.
 
 During a feature, run the narrow changed specs, use `just dev` for the affected owners, and
 commit/push normally. There is no need to run `dev`, `check` and `ci` in succession before every
@@ -146,18 +153,20 @@ prerequisites, missing outputs and unavailable required tools cannot pass. A pro
 no required test is not a zero-test failure.
 
 GitHub Quality Checks first runs compiler-free policy fixtures, resource parity and changed-test
-contracts in `changes`, before any tool bootstrap. Pure documentation outside executable-policy
-paths skips build jobs. Executable changes run `check` (the same graph as local `just check`).
-Path-selected jobs add delivery evidence in parallel: `rust-host`
+contracts in `changes`, before any tool bootstrap. On feature branches/PRs, pure documentation
+outside executable-policy paths skips build jobs; executable changes run `check` (the same graph
+as local `just check`). The default branch and manual dispatch run the complete integration gate.
+Delivery jobs run in parallel: `rust-host`
 (`ci-rust delivery`, without repeating check's formatting/Clippy/normal tests), the four-ABI
 `native` matrix (`release-ci`) and, after it, `android-kotlin`
 (`ci-android coverage`: packaged build, meaningful-test range, Kotlin coverage, APK validation,
-benchmark harness). TUI-only changes skip Android native packaging and delivery; the shared
+benchmark harness). TUI-only feature changes skip Android native packaging and delivery; the shared
 `check` graph still validates repository-wide boundaries. Unknown executable/configuration paths
 conservatively select every lane; malformed path inventories fail rather than becoming a docs-only
 success. Shipping native outputs use the release pack path. The `quality` aggregation
-job governs branch protection. The Android release workflow calls this workflow with
-`full: true` instead of running its own gate. Pinned cargo tools are cached by their pins alone
+job governs branch protection. The Android release workflow only consumes the same commit's
+completed result through the read-only Actions API; it does not execute Quality Checks again.
+Pinned cargo tools are cached by their pins alone
 and saved right after bootstrap. Build caches use a compatible toolchain/dependency prefix and
 a unique run/attempt suffix, restore the newest matching snapshot, and save even when a gate
 fails. Thus a retry can retain compilation completed during the failed attempt; immutable fixed

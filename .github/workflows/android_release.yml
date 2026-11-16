@@ -8,8 +8,7 @@ on:
 
 permissions:
   contents: write
-  # Granted to the reused Quality Checks gate, which declares read access to pull requests.
-  pull-requests: read
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -28,13 +27,71 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: test -s "docs/releases/$RELEASE_TAG.md"
 
-  # The same parallel gate as every push (check graph, Rust coverage, four native ABIs, Android
-  # delivery with coverage), forced to the full surface.
+  # Quality Checks owns execution. A tag consumes the same commit's completed full gate;
+  # concurrent branch/tag pushes wait for that one run instead of compiling it twice.
   gate:
     needs: notes
-    uses: ./.github/workflows/architecture_checks.yml
-    with:
-      full: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    steps:
+      - name: Verify the commit's completed quality gate
+        id: quality-result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          deadline=$((SECONDS + 5400))
+          discovery_attempts=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            runs="$(gh api -X GET "repos/$REPOSITORY/actions/workflows/architecture_checks.yml/runs" \
+              -f "head_sha=$RELEASE_SHA" -f per_page=100)"
+            candidate="$(jq -c --arg sha "$RELEASE_SHA" --arg repo "$REPOSITORY" --arg branch "$DEFAULT_BRANCH" '
+              .workflow_runs | map(select(
+                .head_sha == $sha and .head_repository.full_name == $repo and
+                .path == ".github/workflows/architecture_checks.yml" and
+                (.event == "workflow_dispatch" or (.event == "push" and .head_branch == $branch))))
+              | sort_by(.run_number) | reverse | .[0]' <<< "$runs")"
+            if [ "$candidate" = null ]; then
+              discovery_attempts=$((discovery_attempts + 1))
+              if [ "$discovery_attempts" -ge 15 ]; then
+                echo "No Quality Checks run for $RELEASE_SHA; push the commit to the default branch or run Quality Checks manually first." >&2
+                exit 1
+              fi
+            else
+              run_id="$(jq -er '.id | numbers' <<< "$candidate")"
+              status="$(jq -er '.status | strings' <<< "$candidate")"
+              case "$status" in
+                completed)
+                  conclusion="$(jq -er '.conclusion | strings' <<< "$candidate")"
+                  if [ "$conclusion" != success ]; then
+                    echo "Quality Checks run $run_id ended $conclusion; release is blocked." >&2
+                    exit 1
+                  fi
+                  jobs="$(gh api --paginate --slurp "repos/$REPOSITORY/actions/runs/$run_id/jobs?filter=latest&per_page=100")"
+                  jq -e '
+                    [.[].jobs[]] |
+                    def passed($name): any(.[]; .name == $name and .status == "completed" and .conclusion == "success");
+                    passed("check") and passed("rust-host") and passed("android-kotlin") and passed("quality") and
+                    ([.[] | select(.name | startswith("native ("))] |
+                     length > 0 and all(.[]; .status == "completed" and .conclusion == "success"))
+                  ' <<< "$jobs" >/dev/null || {
+                    echo "Run $run_id has no complete passing delivery gate; run full Quality Checks for this commit first." >&2
+                    exit 1
+                  }
+                  echo "quality_run_id=$run_id" >> "$GITHUB_OUTPUT"
+                  echo "Using https://github.com/$REPOSITORY/actions/runs/$run_id for $RELEASE_SHA"
+                  exit 0
+                  ;;
+                queued|requested|waiting|pending|in_progress) ;;
+                *) echo "Unknown Quality Checks status: $status" >&2; exit 1 ;;
+              esac
+            fi
+            sleep 20
+          done
+          echo "Timed out waiting for Quality Checks for $RELEASE_SHA" >&2
+          exit 1
 
   release:
     needs: [notes, gate]
