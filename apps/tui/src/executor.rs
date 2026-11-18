@@ -515,13 +515,15 @@ impl Scheduler {
                     let Some(diagnostic) = died else {
                         return;
                     };
+                    // Refuse new admissions before the UI can observe the worker's death.
+                    let abandoned_jobs = queue.mark_dead();
                     // `false` is already traced inside `report` — the UI is
                     // gone and there is no one left to tell.
                     let _delivered = outbox.report(RuntimeMessage::WorkerDied {
                         lane,
                         diagnostic: diagnostic.clone(),
                     });
-                    for job in queue.mark_dead() {
+                    for job in abandoned_jobs {
                         if job.token.is_cancelled() {
                             continue;
                         }
