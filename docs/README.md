@@ -13,7 +13,7 @@ subject. Translations serve different readers and share the same product facts.
 | [Project directories](project-layout.md) | Source directory map and where to find packages, build state and reports |
 | [Dependency Selection](../quality/dependencies.md) | Advanced, actively maintained dependencies, research and custom-code justification |
 | [Dependency capabilities](../quality/dependency-capabilities.toml) | Version-independent library capability data consumed by architecture checks; no per-module library inventory |
-| [Meaningful Tests](../quality/testing/ai-meaningful-tests.md) | Shared behavior evidence, TDD applicability and assertion changes |
+| [Meaningful Tests](../quality/testing/ai-meaningful-tests.md) | Which changes owe a test, shared evidence, and changing or retiring tests |
 | [Kotlin Tests](../quality/testing/ai-kotlin-test-style.md) | Kotlin stack, isolation, async testing and assertions |
 | [Rust Tests](../quality/testing/ai-rust-test-style.md) | Rust test layout, dependencies and execution conventions |
 | [UDF](../quality/udf-contract.md) | Kotlin presentation state, events and bounded exceptions |

@@ -17,7 +17,7 @@ public production hooks or dependencies added to the production graph for tests.
 
 ## Observable contracts
 
-Use the shared [Behavior Contract and evidence rules](ai-meaningful-tests.md). Assert plans, returned
+Use the shared [tiers and evidence rules](ai-meaningful-tests.md). Assert plans, returned
 error variants/messages, bytes, persisted artifacts, state transitions, dependency boundaries or
 command results. Source-token assertions do not substitute for runtime behavior.
 
@@ -31,8 +31,8 @@ ignored Results and must not add first-party unsafe, lint allows or lint-suppres
 
 ## Completion evidence
 
-Use the narrow test-target command for RED/GREEN, then the package/handoff checks required by
+Use the narrow test-target command while iterating, then the package/handoff checks required by
 [Quality](../README.md#gate-selection-and-evidence). The
 [Quality Contract](../README.md#command-protocol) defines machine-readable evidence.
-Record the failing behavior and subsequent passing outcome, not compilation alone.
+For a test-first change, record the failing behavior and the passing outcome, not compilation alone.
 Do not commit generated Kotlin or native binaries as byte oracles.

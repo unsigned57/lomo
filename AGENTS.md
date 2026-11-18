@@ -94,12 +94,10 @@ research, version changes, validation and the reviewable decision.
 
 ## Implement with observable evidence
 
-Features, bug fixes and changes to executable behavior or constraints use BDD + TDD:
-state capability, Given/When/Then scenarios, outcomes and exclusions; observe the narrowest real
-RED failure; implement GREEN; refactor under GREEN. Non-behavior documentation, mechanical changes
-and behavior-preserving refactors do not require an invented RED. Use content checks or existing
-regression tests as appropriate. The [test contract](quality/testing/ai-meaningful-tests.md) owns
-evidence and justified assertion changes; language guides own test layout and conventions.
+Match the evidence to what a regression would cost using the
+[test contract](quality/testing/ai-meaningful-tests.md). It defines when to test first, when
+existing scenarios suffice, when to use direct evidence, and when to retire a test.
+Language guides own test layout and conventions.
 
 Keep unrelated and overlapping working-tree edits intact. Follow the
 [source layout](ARCHITECTURE.md#source-layout) and update both `values` and `values-zh-rCN` for i18n.

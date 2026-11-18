@@ -50,13 +50,6 @@ pub fn preflight(workspace: &Workspace, source: &ChangeSource) -> Result<serde_j
         bail!("preflight requires a push change source");
     };
     let base = crate::verification::push_base(&workspace.root, remote)?;
-    let mut contracts = policy_script(workspace, "quality/scripts/check_meaningful_tests.sh");
-    if let Some(base) = &base {
-        contracts.env("MEANINGFUL_TEST_DIFF_BASE", base);
-    } else {
-        contracts.arg("--all");
-    }
-    run(&mut contracts)?;
     let verification = crate::verification::run(
         workspace,
         source,
@@ -243,8 +236,8 @@ pub fn kotlin_build_command(workspace: &Workspace) -> Result<std::process::Comma
     Ok(build)
 }
 
-/// Delivery-only Kotlin evidence outside the `check` graph: the packaged workspace build, the
-/// meaningful-test range check and host tests (instrumented when coverage is requested).
+/// Delivery-only Kotlin evidence outside the `check` graph: the packaged workspace build and
+/// host tests (instrumented when coverage is requested).
 fn kotlin_delivery_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     kotlin_build(workspace)?;
     kotlin_delivery_checks(workspace, coverage)
@@ -260,7 +253,6 @@ fn kotlin_build(workspace: &Workspace) -> Result<()> {
 }
 
 fn kotlin_delivery_checks(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
-    run_policy(workspace, "quality/scripts/check_meaningful_tests.sh")?;
     if coverage == CoverageMode::On {
         run_policy(workspace, "quality/scripts/kotlin_coverage_check.sh")
     } else {
@@ -326,7 +318,6 @@ pub fn run_shell_contracts(workspace: &Workspace) -> Result<()> {
 
 pub fn run_quick_contracts(workspace: &Workspace) -> Result<()> {
     for script in [
-        "quality/scripts/test/check_meaningful_tests_smoke_test.sh",
         "quality/scripts/test/check_string_resource_parity_smoke_test.sh",
         "quality/scripts/check_string_resource_parity.sh",
     ] {

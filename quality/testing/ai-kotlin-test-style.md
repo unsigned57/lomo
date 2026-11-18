@@ -72,4 +72,4 @@ orchestration without an oracle is not a useful property test.
 
 Do not test Kotlin source strings as a proxy for behavior, private fields, or pure rendering details.
 Architecture-rule fixtures are the documented exception: source is the actual policy input.
-Keep contract metadata and RED/GREEN evidence according to the common test guide.
+Headers and evidence follow the common test guide.

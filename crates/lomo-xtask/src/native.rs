@@ -492,6 +492,14 @@ fn run_boltffi_pack_android(
         // BoltFFI only forwards Cargo diagnostics when verbose. Its default failure output
         // lists target names but discards the compiler/linker error, which makes CI unauditable.
         .args(["pack", "android", "--verbose"]);
+    // BoltFFI exports the NDK compiler and archiver for each target, but no ranlib. `cc` then
+    // probes the host PATH for `llvm-ranlib` and otherwise invents `<triple>-ranlib`, which the
+    // NDK no longer ships: vendored C builds (OpenSSL) pass only on hosts with a system LLVM.
+    // Every binutil comes from the pinned NDK, never from the host.
+    let ranlib = ndk_tool(workspace, "llvm-ranlib")?;
+    for triple in android_pack_target_triples() {
+        command.env(format!("RANLIB_{}", triple.replace('-', "_")), &ranlib);
+    }
     match profile {
         NativeProfile::Dev => {}
         NativeProfile::Release => {

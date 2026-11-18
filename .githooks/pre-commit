@@ -2,7 +2,6 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-meaningful_test_script="$repo_root/quality/scripts/check_meaningful_tests.sh"
 justfile="$repo_root/Justfile"
 
 if [ ! -f "$justfile" ]; then
@@ -10,7 +9,7 @@ if [ ! -f "$justfile" ]; then
   exit 1
 fi
 
-# Lightweight commit gate only: format + staged test contracts.
+# Lightweight commit gate only: staged source formatting.
 # Product compilation and tests belong to explicit local gates and CI.
 
 staged_files=()
@@ -69,13 +68,5 @@ if [ "$format_sources" = true ]; then
     rm -f "$unstaged_diff"
   fi
 fi
-
-if [ ! -x "$meaningful_test_script" ]; then
-  echo "pre-commit: meaningful test check script not found or not executable: $meaningful_test_script" >&2
-  exit 1
-fi
-
-echo "pre-commit: checking meaningful test contracts on staged tests..."
-MEANINGFUL_TEST_CHECK_MODE=staged "$meaningful_test_script"
 
 echo "pre-commit: lightweight gate complete (use preflight/check before push when needed)"

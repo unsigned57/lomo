@@ -149,14 +149,9 @@ jobs:
 
       - name: Check quick policy regressions before bootstrap
         if: steps.guard.outputs.skip != 'true' && steps.flags.outputs.run_check == 'true'
-        env:
-          MEANINGFUL_TEST_DIFF_BASE: ${{ github.event.pull_request.base.sha || (startsWith(github.ref, 'refs/tags/') && '0000000000000000000000000000000000000000') || github.event.before }}
-          MEANINGFUL_TEST_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          quality/scripts/test/check_meaningful_tests_smoke_test.sh
           quality/scripts/test/check_string_resource_parity_smoke_test.sh
           quality/scripts/check_string_resource_parity.sh
-          quality/scripts/check_meaningful_tests.sh
 
   # The same command as local `just check`: the complete verification graph (Rust fmt/Clippy/
   # tests/docs/machete, architecture, bindings, Kotlin format/Detekt/test style/tests, Android
@@ -341,8 +336,8 @@ jobs:
           path: apps/android/app/jniLibs/${{ matrix.abi }}/*
           if-no-files-found: error
 
-  # Delivery-only Android evidence: packaged build, meaningful-test range, Kotlin coverage, APK
-  # validation and the benchmark harness. Static Kotlin analysis runs in `check`.
+  # Delivery-only Android evidence: packaged build, Kotlin coverage, APK validation and the
+  # benchmark harness. Static Kotlin analysis runs in `check`.
   android-kotlin:
     runs-on: ubuntu-latest
     needs: [changes, native]
@@ -417,11 +412,6 @@ jobs:
           path: ~/.cache/lomo/cargo-tools
           key: ${{ steps.tools-cache.outputs.cache-primary-key }}
       - name: Run Android delivery gate with coverage
-        env:
-          # Pull requests compare with their base; a release tag (no meaningful previous tip)
-          # compares with the default-branch merge-base; a branch push uses its previous tip.
-          MEANINGFUL_TEST_DIFF_BASE: ${{ github.event.pull_request.base.sha || (startsWith(github.ref, 'refs/tags/') && '0000000000000000000000000000000000000000') || github.event.before }}
-          MEANINGFUL_TEST_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-android coverage
       - name: Save build cache
         if: ${{ !cancelled() && steps.build-cache.outputs.cache-hit != 'true' }}

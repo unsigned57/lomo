@@ -62,7 +62,7 @@ the word "review" alone does not require a build. Classify the actual change bef
 | --- | --- |
 | Read-only review or investigation | Findings and inspected evidence; run tests only when needed to establish a finding |
 | Non-behavior documentation or mechanical prose change | Content, local links, referenced paths/commands and `git diff --check`; no invented RED or full build |
-| Feature, fix or executable contract/quality-rule change | Narrow behavior RED/GREEN, followed by the applicable package and code-delivery checks |
+| Feature, fix or executable contract/quality-rule change | The evidence its [tier](testing/ai-meaningful-tests.md#decide-what-the-change-owes) owes, followed by the applicable package and code-delivery checks |
 | Rust package code or tests | `cargo clippy -p <crate> --all-targets --locked -- -D warnings` and relevant `cargo test -p <crate> … --locked` |
 | Kotlin code or behavior-affecting tests | `./kotlin test --include-module=<module> --include-classes='…'` for changed specs, or the module suite for a broad change |
 | Native, FFI, lock or packaging inputs | Regenerate and validate the affected generated/pack surface |
@@ -79,12 +79,12 @@ change. Use narrow tests during implementation; do not run the full release gate
 
 | Gate | Includes | Intentionally omits |
 | --- | --- | --- |
-| pre-commit | staged source formatting and meaningful-test contracts; no formatter bootstrap for prose-only commits | compile, test and native gates |
+| pre-commit | staged source formatting; no formatter bootstrap for prose-only commits | compile, test and native gates |
 | `just dev` | affected worktree owners, including untracked/deleted files | coverage, fat LTO |
 | `just dev --tests-only` | test tasks from the same worktree plan | static analysis, coverage |
-| `just _preflight` (pre-push) | test-contract range, fast policy self-tests, resource parity and affected-language formatting; no remote base scans all test contracts and formats both languages | product compile/tests, cache pruning, coverage, native builds |
+| `just _preflight` (pre-push) | fast policy self-tests, resource parity and affected-language formatting; no remote base formats both languages | product compile/tests, cache pruning, coverage, native builds |
 | `just check` | fast policy prerequisites; Rust fmt, strict Clippy, nextest, rustdoc link checks, architecture tests, machete; dev bindings; Kotlin format, Detekt light/full, test style, Android Lint, shell contracts and host tests | doctests, property fuzz, cargo-deny, coverage, packaged Kotlin build, fat-LTO release native, device install |
-| `just ci` | check, then only delivery evidence: doctests, property fuzz, cargo-deny, Rust/Kotlin coverage, four-ABI release native, packaged Kotlin build, meaningful-test range and APK/ELF/dependency validation | device execution |
+| `just ci` | check, then only delivery evidence: doctests, property fuzz, cargo-deny, Rust/Kotlin coverage, four-ABI release native, packaged Kotlin build and APK/ELF/dependency validation | device execution |
 
 The verification graph dispatches continuously: a task starts as soon as its prerequisites pass
 and none of its resources (`Cargo`, `KotlinBuild`, `Bindings`, `Reports`) is held, so the Rust,
@@ -101,9 +101,9 @@ Each stage catches the failures it can before the slower next stage runs:
 
 | Stage | Runs | Typical failures caught |
 | --- | --- | --- |
-| commit | pre-commit: staged formatting, staged meaningful-test contracts | formatting, missing Behavior Contract |
+| commit | pre-commit: staged formatting | formatting |
 | iterate | narrow `cargo test -p` / `./kotlin test`, then `just dev` | behavior regressions in the touched owners |
-| push | pre-push `just _preflight` over the pushed commits | formatting and contract errors, without another product build/test sweep |
+| push | pre-push `just _preflight` over the pushed commits | formatting and policy errors, without another product build/test sweep |
 | hand-off | affected-owner evidence for local review; `just check` for shared inputs; merge requires the same commit's CI `quality` or local `just ci` | affected-owner correctness locally, complete checks and coverage before integration |
 | GitHub push/PR | compiler-free policies first, then Quality Checks jobs in parallel (below) | the same graph plus coverage, cargo-deny, natives, APK |
 | release tag | wait for the same commit's completed full Quality Checks run, then signed APKs | failed/missing/incomplete verification blocks signing; checks are not executed again |
@@ -152,15 +152,14 @@ Zero/unreported tests in a required test task, changes to its verification input
 prerequisites, missing outputs and unavailable required tools cannot pass. A prose-only task with
 no required test is not a zero-test failure.
 
-GitHub Quality Checks first runs compiler-free policy fixtures, resource parity and changed-test
-contracts in `changes`, before any tool bootstrap. On feature branches/PRs, pure documentation
+GitHub Quality Checks first runs compiler-free policy fixtures and resource parity in `changes`,
+before any tool bootstrap. On feature branches/PRs, pure documentation
 outside executable-policy paths skips build jobs; executable changes run `check` (the same graph
 as local `just check`). The default branch and manual dispatch run the complete integration gate.
 Delivery jobs run in parallel: `rust-host`
 (`ci-rust delivery`, without repeating check's formatting/Clippy/normal tests), the four-ABI
 `native` matrix (`release-ci`) and, after it, `android-kotlin`
-(`ci-android coverage`: packaged build, meaningful-test range, Kotlin coverage, APK validation,
-benchmark harness). TUI-only feature changes skip Android native packaging and delivery; the shared
+(`ci-android coverage`: packaged build, Kotlin coverage, APK validation, benchmark harness). TUI-only feature changes skip Android native packaging and delivery; the shared
 `check` graph still validates repository-wide boundaries. Unknown executable/configuration paths
 conservatively select every lane; malformed path inventories fail rather than becoming a docs-only
 success. Shipping native outputs use the release pack path. The `quality` aggregation

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-# Bounded push policies: formatting and test contracts, without product compilation/tests or
+# Bounded push policies: formatting and quick policy checks, without product compilation/tests or
 # cache pruning. Run `just dev` while developing and `just check` before handing off code.
 remote="${1:-origin}"
 echo "pre-push: checking push policies (just _preflight ${remote})..."

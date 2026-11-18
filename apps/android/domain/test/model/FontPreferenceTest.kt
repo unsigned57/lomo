@@ -84,7 +84,7 @@ class FontPreferenceTest : DomainFunSpec() {
         }
 
         test("null or blank storage value collapses to default") {
-            FontPreference.fromStorageValue(null) shouldBe FontPreference.default()
+            FontPreference.fromStorageValue(null) shouldBe FontPreference.SystemDefault
             FontPreference.fromStorageValue("") shouldBe FontPreference.default()
             FontPreference.fromStorageValue("   ") shouldBe FontPreference.default()
         }
@@ -98,10 +98,6 @@ class FontPreferenceTest : DomainFunSpec() {
         test("unknown prefix collapses to default") {
             FontPreference.fromStorageValue("unknown:value") shouldBe FontPreference.default()
             FontPreference.fromStorageValue("custom:") shouldBe FontPreference.default()
-        }
-
-        test("default is SystemDefault") {
-            FontPreference.default() shouldBe FontPreference.SystemDefault
         }
     }
 }

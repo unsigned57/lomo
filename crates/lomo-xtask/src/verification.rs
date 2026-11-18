@@ -610,7 +610,7 @@ impl VerificationPlan {
                 Task::new(
                     "shell-contracts",
                     TaskAction::ShellContracts,
-                    "quality wiring, test contracts and resource parity",
+                    "quality wiring and Android runtime input contracts",
                 )
                 .using(RequiredTool::Rust, Resource::Reports),
             );

@@ -219,10 +219,11 @@ mod tests {
             .as_vec()
             .context("changes steps")?;
         ensure!(
-            steps.iter().any(|step| step["run"].as_str().is_some_and(
-                |run| run.contains("quality/scripts/test/check_meaningful_tests_smoke_test.sh")
-            )),
-            "the nine-second regression must fail before any compiler bootstrap"
+            steps
+                .iter()
+                .any(|step| step["run"].as_str().is_some_and(|run| run
+                    .contains("quality/scripts/test/check_string_resource_parity_smoke_test.sh"))),
+            "the short policy regression must fail before any compiler bootstrap"
         );
         Ok(())
     }
@@ -389,10 +390,7 @@ mod tests {
     #[test]
     fn documentation_commits_skip_formatter_bootstrap_and_source_commits_keep_it() -> Result<()> {
         use std::{fs, os::unix::fs::PermissionsExt as _, process::Command};
-        for (file, expected) in [
-            ("guide.md", "contracts\n"),
-            ("source.rs", "format\ncontracts\n"),
-        ] {
+        for (file, expected) in [("guide.md", ""), ("source.rs", "format\n")] {
             let fixture = tempfile::tempdir()?;
             let root = fixture.path();
             let status = Command::new("git")
@@ -400,19 +398,15 @@ mod tests {
                 .current_dir(root)
                 .status()?;
             ensure!(status.success());
-            fs::create_dir_all(root.join("quality/scripts"))?;
             fs::create_dir(root.join("bin"))?;
             fs::write(root.join("Justfile"), "# fixture")?;
-            for (path, command) in [
-                ("bin/just", "format"),
-                ("quality/scripts/check_meaningful_tests.sh", "contracts"),
-            ] {
-                fs::write(
-                    root.join(path),
-                    format!("#!/bin/sh\necho {command} >> \"$TRACE\"\n"),
-                )?;
-                fs::set_permissions(root.join(path), fs::Permissions::from_mode(0o755))?;
-            }
+            fs::write(
+                root.join("bin/just"),
+                "#!/bin/sh\necho format >> \"$TRACE\"\n",
+            )?;
+            fs::set_permissions(root.join("bin/just"), fs::Permissions::from_mode(0o755))?;
+            // The hook appends to this file only when it starts the formatter.
+            fs::write(root.join("trace"), "")?;
             fs::write(root.join(file), "staged\n")?;
             ensure!(
                 Command::new("git")
@@ -437,9 +431,10 @@ mod tests {
                 "{}",
                 String::from_utf8_lossy(&output.stderr)
             );
+            let trace = fs::read_to_string(root.join("trace"))?;
             ensure!(
-                fs::read_to_string(root.join("trace"))? == expected,
-                "{file} bootstrapped an unnecessary formatter"
+                trace == expected,
+                "{file}: formatter invocations {trace:?}, expected {expected:?}"
             );
             ensure!(fs::read_to_string(root.join(file))? == "staged\nunstaged\n");
         }

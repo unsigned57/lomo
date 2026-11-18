@@ -1,100 +1,106 @@
 # Meaningful Tests
 
-Tests protect observable behavior, not line coverage or implementation shape. Read this contract
-once for a test task, then the relevant language guide. Production authority remains in
+A test earns its place by protecting behavior that would be costly to lose. Line coverage, a
+process step and implementation shape are not reasons to write one. Production authority remains in
 [ARCHITECTURE.md](../../ARCHITECTURE.md); command output and gates remain in
 [Quality Contract](../README.md). After this file, read only the relevant
 [Kotlin](ai-kotlin-test-style.md) or [Rust](ai-rust-test-style.md) conventions.
 
-## Contract and RED/GREEN
+## Decide what the change owes
 
-For a feature, bug fix or change to executable behavior or constraints:
+Classify a change by the code it touches, not by its size: a one-line codec change is tier 1 and
+a two-hundred-line layout rework is tier 3.
 
-1. State the capability, Given/When/Then scenarios, outcomes and exclusions.
-2. Add the narrowest regression test and run it before changing the implementation.
-3. Record the actual failing assertion/exception and why it exposes the missing behavior.
-4. Implement GREEN, then refactor under GREEN. Run the changed surface before handoff.
+| Tier | The change touches | It owes |
+| --- | --- | --- |
+| 1 | Durable data and its guarantees: parsing, serialization, persistence, transactions, migration, sync, conflict and recovery, credentials and other security boundaries, ordering, cancellation, concurrency, failure classification, cross-language wire contracts and resource bounds | A test written first. Add the narrowest scenario, see it fail for the reason the change exists, then implement |
+| 2 | A user-visible state machine with real branching (ViewModel, coordinator, TEA update), or an algorithm a careful reader could get wrong (date and locale math, text layout, diffing, gesture and scroll geometry) | Exercise the affected path using an existing scenario if its assertion would catch the regression. Extend the owning spec when coverage is missing. Test-first is optional |
+| 3 | Everything else: layout, copy, tokens, motion, theming, wiring, delegation, logging, build and tooling configuration, behavior-preserving refactors | No new test. Keep the existing suite green and show the result directly: a screenshot or UI flow for something visible, command output for tooling |
 
-Compilation failure unrelated to the scenario, zero discovered tests and a green first run do not
-prove a regression. Pure documentation, mechanical edits and behavior-preserving refactors do not
-need an invented RED; use content checks or existing regression evidence. A pure test migration may
-record `Not applicable - test-only migration; no production change within the declared scope.`
-Do not use that explanation for changed behavior or production branches covered by the test.
-For a behavior-preserving refactor, record `TDD proof: Regression preservation - <before/after
-test commands and observed outcomes>` instead. This provides regression evidence without claiming
-that production files were unchanged or inventing a new failing behavior.
+A bug fix takes the tier of the code that was wrong. For tier 1, reuse an existing test if it
+reproduces the failure. An unrelated compilation error, zero discovered tests and a green run
+are not failure observations. For tier 2, an existing test or UI flow that exercises and asserts
+the corrected behavior can supply the evidence.
 
-Every changed Kotlin test file needs an in-file Behavior Contract or its adjacent
-`<TestFile>.contract.md`; keep the Behavior Contract in one place. A helper without policy is not
-required to invent a separate test or contract. Contract-only edits are checked through their test.
-Rust test contracts use the same structure. Keep the contract specific and short:
+Between two tiers, take the stricter one for data a user cannot recreate and the lighter one for
+anything they can see and retry. A lint, policy check or validator is tier 1 for the inputs it
+judges: show a forbidden input it rejects and a legal one it accepts.
 
-```text
-Behavior Contract:
-Capability: <observable capability>; owning layer: <owner>; priority: P0/P1/P2.
-Scenarios:
-- Given <state/input>, when <action>, then <observable result>.
-- Given <failure/cancellation/conflict>, when <action>, then <explicit result>.
-Observable outcomes: <returned value, emitted state, error, bytes or durable state>.
-TDD proof: <real RED command/failure and GREEN command, or a link to their evidence>.
-Excludes: <boundaries this test does not claim to prove>.
-```
+## Put the test where the behavior lives
 
-In a mixed change set, establish a test's production scope when claiming its behavior is unaffected:
-
-```text
-Production scope: apps/android/domain/src/usecase/LoadEditableMemoUseCase.kt
-```
-
-Repeat the field for each relevant production file, including collaborators whose behavior the
-scenarios cover. Use exact repository-relative `src/` paths, not globs, directories or traversal.
-Place these fields in the Behavior Contract. A nonexistent path is invalid unless it is part of
-the current production diff (for example, a deletion). If a declared file changed, the test-only
-`Not applicable` claim is rejected. Without a declared scope, the checker cannot establish separation
-from a mixed production diff; provide scope or the applicable behavior/regression evidence instead.
-Scope declarations are reviewable evidence, not a
-proof of semantic completeness; do not omit a changed collaborator to evade a behavior lock.
-
-Replace legacy `Test Contract` headers when touching a test, except in a documented mechanical
-format pass. Avoid duplicate generic headers that say only “tests pass”.
+- Extend the spec that already covers the unit. One more scenario is one more test case, not one
+  more file; create a test file only for a unit that has none.
+- Test at the owner. Rust owns durable rules, so assert them in the owning crate. A Kotlin test
+  that reaches a Rust rule through a fake returning the answer proves the fake.
+- Do not extract a one-line rule, widen visibility or add a production hook so that a test has
+  something to call, and do not test code that no production path calls: delete that code.
 
 ## Test the consequence
 
-Prioritize correctness of transactions, parsing, recovery, ordering, conflict handling and
-cancellation (P0), user-visible state machines (P1), and data transformations (P2).
 Test returned values, emitted sequences, persisted bytes, classified failures and explicit ordering
-contracts. Reach new branches, or prove they are unreachable without them.
+contracts. Reach new branches, or prove they are unreachable without them. Keep deterministic
+failure, boundary and cancellation cases.
 
-Do not add tests for trivial delegation, DI glue or pure rendering unless they contain policy that
-can regress. Do not assert private helper existence, a value just assigned to a getter, mock call
-counts alone, or source tokens as a proxy for product behavior.
-Architecture/quality tests may inspect dependency graphs, parsed source, manifests and CLI results:
-those are their actual inputs and outputs. Pair forbidden-input tests with legal controls; test the
-real runner when registration, configuration, exclusion or suppression can disable a rule.
+Do not write tests for trivial delegation, DI glue, constants, tokens, defaults, getters or pure
+rendering. Do not assert private helper existence, a value just assigned, mock call counts alone,
+or source tokens as a proxy for product behavior.
+Architecture and quality tests may inspect dependency graphs, parsed source, manifests and CLI
+results: those are their actual inputs and outputs. Pair forbidden-input tests with legal
+controls; test the real runner when registration, configuration, exclusion or suppression can
+disable a rule.
 
-## Preserve behavior locks
+## State the evidence once
 
-Keep existing assertions and sync v1 golden vectors unless the domain contract changed, an assertion
-is factually wrong, a test is nondeterministic, or a mechanical migration requires a shape change.
-When an old test fails, investigate the implementation first.
+Test names carry the scenario: given a state, when an action, then an observable result. A test
+file needs no header. Comment only what names cannot say, such as the bug a regression pins or a
+boundary the test leaves out.
 
-If changing an existing assertion, record **Test Change Justification:** in the test or its adjacent
-`<TestFile>.contract.md`; the handoff may link to it but cannot replace machine-readable evidence.
-Use these exact labels: `Reason category:`, `Old behavior/assertion being replaced:`,
-`Why old assertion is no longer correct:`, `Coverage preserved by:`, and
-`Why this is not fitting the test to the implementation:`. New tests normally accompany an existing
-regression lock.
+A Behavior Contract is that statement written out at the top of a test: capability, scenarios,
+observable outcomes and exclusions. Write one where another contract asks for it: a production
+`// behavior-contract:` exception, an intentional default or a capability degradation must be
+backed by a test that states the allowed behavior. Elsewhere it is optional. Existing headers
+may be shortened or dropped when a file is edited; no file needs an edit only for that.
 
-The Kotlin checker reads the in-file contract within the first 200 lines, an adjacent contract
-within the first 220 lines, and scope/justification fields within the first 250 lines. It accepts
-justification in either location even when the Behavior Contract is in the other. It conservatively
-requires justification for a modified existing test with changed or unspecified production scope;
-it does not infer assertion semantics or code dependencies from filenames. Pure renames and test
-support files retain their mechanical/support treatment. Unrelated worktree changes do not invalidate
-a documented test-only claim whose complete production scope is unchanged.
+Test-first evidence belongs where the change is reviewed: the commit, pull request or
+handoff names the command, the failing assertion before the change and the passing run after it.
+Do not copy that record into the test file. It describes one moment and goes stale.
 
 For xtask evidence, inspect the JSON status, task results and scope; a successful `--plan` is not
-a test run. Capture command, failing/passing observation and report/log paths when present.
-A successful lint or coverage number cannot prove semantic correctness. Keep deterministic failure,
-boundary and cancellation cases. Static checks enforce repeatable conventions; they do not replace
-these observable contracts.
+a test run. A passing lint or a coverage number does not prove semantic correctness. The coverage
+floors in the [Quality Contract](../README.md) watch the codebase as a whole: never write a test
+whose purpose is to execute lines, and when a floor is the only failing check, report it instead
+of padding.
+
+## Screen the existing suite
+
+1. Inventory Rust targets from the Cargo manifests, Kotlin specs from module test roots, and
+   script, instrumentation and UI tests from their runners. Keep support files and fixtures
+   distinct from executable cases.
+2. Start with the owning suite you are changing. Shortlist assertions on getters, mock calls
+   alone, source text for product behavior, completed migrations and overlapping scenarios.
+   If timings are available, review expensive candidates first.
+3. For each candidate, name one realistic regression the assertion would catch and check the
+   owning layer for another test of the same consequence. Delete only after this review. If the
+   input matters but duplicates another spec, move it into the owning spec's scenario table.
+   Keep uncertain cases for a later review.
+4. Run the remaining owning suite and record which consequence survives and where. Where a
+   behavior lock is disputed, observe the retained test fail against the corresponding
+   regression. A green suite alone establishes only that the remaining assertions pass.
+
+## Change and retire tests deliberately
+
+Existing assertions and sync v1 golden vectors are behavior locks. When an old test fails after a
+change, suspect the implementation first. Change an assertion only when the domain contract
+changed, the assertion was factually wrong, the test is nondeterministic or a mechanical
+migration needs a different shape, and say which in the commit or handoff.
+
+Delete a test that protects nothing, in the change that makes that true or whenever you find one:
+
+- its subject has no production caller: delete the dead code with it;
+- it only proves delegation, a constant, a default or a getter;
+- another test at the owning layer asserts the same consequence: name that test;
+- it locks a finished migration, or the absence of an identifier that cannot come back;
+- it asserts wall-clock time or sleeps in place of a contract.
+
+Never retire golden vectors, fixture-backed format tests, a regression that pins a real bug, or
+the only test of non-trivial logic. Rewrite a clumsy one instead.

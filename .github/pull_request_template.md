@@ -12,12 +12,10 @@ For an architecture-sensitive change; otherwise write "not applicable".
 - Dependency/authority effect under [ARCHITECTURE.md](../ARCHITECTURE.md):
 - Explicit boundary exception and evidence, if any:
 
-## Meaningful Test Notes
+## Evidence
 
-- Meaningful test targets or "not applicable":
-- Behaviors and observable outcomes covered:
-- Failure, cancellation, or conflict paths covered:
-- Why the assertions remain valid after refactors:
+- Tier under [Meaningful Tests](../quality/testing/ai-meaningful-tests.md#decide-what-the-change-owes) and why:
+- Tests added, changed or retired, with the failing observation for a test-first change; otherwise the direct evidence (screenshot, UI flow, command output):
 
 ## Verification
 

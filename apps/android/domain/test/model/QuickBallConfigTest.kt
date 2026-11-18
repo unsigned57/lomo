@@ -27,13 +27,14 @@ class QuickBallConfigTest :
             descriptor.defaultValue shouldBe SettingValue.Text("v1|RECORD|SCROLL_TOP|SEARCH|LONG_TEXT|FILTER")
         }
 
-        test("given malformed quick ball bindings when imported then the setting is rejected") {
+        test("given malformed or retired quick ball bindings when imported then the setting is rejected") {
             val descriptor = SettingsCatalog.descriptors.single { it.id == "editor.quickBallConfig" }
             listOf(
                 "",
                 "v2|RECORD|SCROLL_TOP|SEARCH|LONG_TEXT|FILTER",
                 "v1|RECORD",
                 "v1|UNKNOWN|SCROLL_TOP|SEARCH|LONG_TEXT|FILTER",
+                "v1|TASKS|SCROLL_TOP|SEARCH|LONG_TEXT|FILTER",
             )
                 .forEach { value ->
                     shouldThrow<IllegalArgumentException> { descriptor.parseStorageValue(value) }
