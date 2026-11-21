@@ -13,8 +13,8 @@ settings:
       apiLevel: 37
       minorApiLevel: 2
     targetSdk: 37
-    versionCode: 47
-    versionName: 2.0.0
+    versionCode: 48
+    versionName: 2.0.1
     signing:
       enabled: true
   jvm:
