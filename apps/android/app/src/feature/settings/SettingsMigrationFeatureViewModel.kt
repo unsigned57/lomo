@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.FileNotFoundException
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -34,7 +35,7 @@ sealed interface SettingsMigrationOperationState {
         val settingsSummary: MigrationSettingsSummary = MigrationSettingsSummary(),
     ) : SettingsMigrationOperationState
 
-    data class Error(val kind: SettingsMigrationOperationKind, val message: String) : SettingsMigrationOperationState
+    data class Error(val kind: SettingsMigrationOperationKind, val code: String) : SettingsMigrationOperationState
 }
 
 class SettingsMigrationFeatureViewModel(
@@ -43,6 +44,7 @@ class SettingsMigrationFeatureViewModel(
     private val importAllNotesArchiveUseCase: ImportAllNotesArchiveUseCase,
     private val exportEncryptedSettingsUseCase: ExportEncryptedSettingsUseCase,
     private val importEncryptedSettingsUseCase: ImportEncryptedSettingsUseCase,
+    private val errorMapper: SettingsOperationErrorMapper,
 ) {
     private val _operationState =
         MutableStateFlow<SettingsMigrationOperationState>(SettingsMigrationOperationState.Idle)
@@ -51,7 +53,7 @@ class SettingsMigrationFeatureViewModel(
     fun exportNotesArchive(openOutput: () -> OutputStream?) {
         runMigration(SettingsMigrationOperationKind.EXPORT_NOTES) {
             val summary =
-                requireNotNull(openOutput()) { "Unable to open export file" }.use { output ->
+                (openOutput() ?: throw FileNotFoundException("Unable to open export file")).use { output ->
                     exportAllNotesArchiveUseCase(output)
                 }
             SettingsMigrationOperationState.Success(
@@ -64,7 +66,7 @@ class SettingsMigrationFeatureViewModel(
     fun importNotesArchive(openInput: () -> InputStream?) {
         runMigration(SettingsMigrationOperationKind.IMPORT_NOTES) {
             val summary =
-                requireNotNull(openInput()) { "Unable to open import file" }.use { input ->
+                (openInput() ?: throw FileNotFoundException("Unable to open import file")).use { input ->
                     importAllNotesArchiveUseCase(input)
                 }
             SettingsMigrationOperationState.Success(
@@ -77,7 +79,7 @@ class SettingsMigrationFeatureViewModel(
     fun exportEncryptedSettings(password: String, openOutput: () -> OutputStream?) {
         runMigration(SettingsMigrationOperationKind.EXPORT_SETTINGS) {
             val summary =
-                requireNotNull(openOutput()) { "Unable to open settings export file" }.use { output ->
+                (openOutput() ?: throw FileNotFoundException("Unable to open settings export file")).use { output ->
                     exportEncryptedSettingsUseCase(output, password)
                 }
             SettingsMigrationOperationState.Success(
@@ -90,7 +92,7 @@ class SettingsMigrationFeatureViewModel(
     fun importEncryptedSettings(password: String, openInput: () -> InputStream?) {
         runMigration(SettingsMigrationOperationKind.IMPORT_SETTINGS) {
             val summary =
-                requireNotNull(openInput()) { "Unable to open settings import file" }.use { input ->
+                (openInput() ?: throw FileNotFoundException("Unable to open settings import file")).use { input ->
                     importEncryptedSettingsUseCase(input, password)
                 }
             SettingsMigrationOperationState.Success(
@@ -115,8 +117,7 @@ class SettingsMigrationFeatureViewModel(
                     .getOrElse { throwable ->
                         SettingsMigrationOperationState.Error(
                             kind = kind,
-                            message = throwable.message?.takeIf(String::isNotBlank)
-                                ?: "Migration operation failed",
+                            code = errorMapper.migration(kind, throwable),
                         )
                     }
         }.invokeOnCompletion { cause ->

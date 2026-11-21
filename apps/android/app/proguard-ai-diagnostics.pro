@@ -1,2 +1,0 @@
--printusage build/outputs/mapping/release/usage.txt
--printseeds build/outputs/mapping/release/seeds.txt

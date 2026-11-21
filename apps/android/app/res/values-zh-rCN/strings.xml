@@ -212,10 +212,23 @@
     <string name="settings_update_available_subtitle">发现新版本 %1$s，点击可查看更新选项。</string>
     <string name="settings_debug_update_preview">Debug 更新预览</string>
     <string name="settings_debug_update_preview_subtitle">打开 GitHub 最新正式包的真实更新流程，直接测试应用内下载。</string>
-    <string name="settings_debug_engine_diagnostics">引擎命令诊断</string>
-    <string name="settings_debug_engine_diagnostics_subtitle">最近的工作区命令及其结果码、类别与耗时。</string>
-    <string name="settings_debug_engine_diagnostics_empty">还没有记录到任何工作区命令。</string>
-    <string name="settings_debug_engine_diagnostics_entry">%1$s · %2$d ms</string>
+    <string name="settings_engine_diagnostics">诊断</string>
+    <string name="settings_engine_diagnostics_subtitle">查看近期操作结果并复制诊断报告。</string>
+    <string name="settings_engine_diagnostics_empty">本次运行还没有诊断记录。</string>
+    <string name="settings_engine_diagnostics_copy">复制诊断</string>
+    <string name="failure_with_code">%1$s［%2$s］</string>
+    <string name="failure_workspace_update">无法更新存储设置。</string>
+    <string name="failure_workspace_grant">缺少目录授权。请重新选择目录并授予读写权限。</string>
+    <string name="failure_workspace_unavailable">无法访问已选目录。请确认目录仍然存在。</string>
+    <string name="failure_workspace_unreadable">Lomo 无法读取目录中的全部文件。</string>
+    <string name="failure_workspace_unwritable">请选择可写的目录。</string>
+    <string name="failure_workspace_probe">检查目录访问权限超时。请重试选择目录。</string>
+    <string name="failure_file_unavailable">Lomo 无法打开选中的文件。</string>
+    <string name="failure_document_utf8">有 Markdown 文件使用了无效的 UTF-8 编码。</string>
+    <string name="failure_document_render_limit">Markdown 内容超出了渲染限制。</string>
+    <string name="failure_migration">无法完成导入或导出。</string>
+    <string name="failure_migration_password">请检查加密设置时使用的密码。</string>
+    <string name="failure_migration_envelope">设置文件已损坏或使用了不支持的格式。</string>
     
     <!-- Dialog Titles -->
     <string name="settings_select_date_format">选择日期格式</string>
@@ -826,7 +839,7 @@
     <string name="recording_saved_notification_action">编辑</string>
 
     <string name="engine_recovery_title">工作区为只读</string>
-    <string name="engine_recovery_body">Rust 引擎无法以可写方式打开此工作区。请查看诊断、重试或另选工作区。不存在回退到旧 Kotlin 核心继续写入的路径。</string>
+    <string name="engine_recovery_body">Lomo 无法以可写方式打开此工作区。请重试或选择另一个工作区。</string>
     <string name="engine_recovery_code_label">代码：%1$s</string>
     <string name="engine_recovery_retry">重试</string>
     <string name="engine_recovery_retry_unavailable">没有可用于重试的工作区位置</string>

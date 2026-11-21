@@ -21,6 +21,7 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.app.R
 import com.lomo.app.feature.common.PendingUiEvent
+import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.conflict.SyncConflictStateViewModel
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.MemoEditorController
@@ -695,7 +696,7 @@ private fun rememberMainScreenInteractionCallbacks(
         },
         onCameraCaptureError = { error ->
             scope.launch {
-                snackbarHostState.showSnackbar(error.message ?: unknownErrorMessage)
+                snackbarHostState.showSnackbar(error.toUserMessage(unknownErrorMessage))
             }
         },
         onStartRecording = {

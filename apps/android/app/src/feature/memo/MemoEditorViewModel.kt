@@ -3,7 +3,7 @@ package com.lomo.app.feature.memo
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.appWhileSubscribed
-import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.feature.common.reportUserFailure
 import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.EngineDiagnosticEvent
@@ -66,7 +66,12 @@ class MemoEditorViewModel(
                 clearTrackedStagedMedia()
             },
             onStarted = { _errorMessage.value = null },
-            onFailure = { throwable -> _errorMessage.value = throwable.toUserMessage() },
+            onFailure = { throwable ->
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "editor.submit",
+                    throwable,
+                )
+            },
         )
     val submissionState: StateFlow<MemoEditorSubmissionState> = submissions.state
     val editorScreenState: StateFlow<MemoEditorScreenState> =
@@ -101,7 +106,7 @@ class MemoEditorViewModel(
                         // draft recovery legitimately races engine open at process start.
                         reconcileDraftMediaUseCase(draft.draftId)
                     } catch (recoverable: RecoverableDraftFailure) {
-                        _errorMessage.value = recoverable.toUserMessage()
+                        _errorMessage.value = diagnostics.reportUserFailure("editor.restore", recoverable)
                     }
                 }
             }
@@ -177,7 +182,11 @@ class MemoEditorViewModel(
                 if (savedPaths.isNotEmpty()) {
                     onResult(savedPaths)
                 }
-                _errorMessage.value = throwable.toUserMessage("Failed to save image")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "editor.save_image",
+                    throwable,
+                    "Failed to save image",
+                )
                 onError?.invoke()
             }
         }
@@ -226,7 +235,11 @@ class MemoEditorViewModel(
                 trackedStagedMedia.clear()
                 discardDraftMediaUseCase(toDelete, draftId)
             }.onFailure { throwable ->
-                _errorMessage.value = throwable.toUserMessage("Failed to discard input")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "editor.discard",
+                    throwable,
+                    "Failed to discard input",
+                )
             }
         }
     }
@@ -237,7 +250,7 @@ class MemoEditorViewModel(
 
     /** Surfaces a non-mutation failure (e.g. editor open) on the shared error channel. */
     fun reportError(throwable: Throwable) {
-        _errorMessage.value = throwable.toUserMessage("Failed to open memo")
+        _errorMessage.value = diagnostics.reportUserFailure("editor.open", throwable, "Failed to open memo")
     }
 
     fun clearError() {

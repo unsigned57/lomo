@@ -16,10 +16,11 @@ import com.lomo.app.feature.common.UiEventEnqueueResult
 import com.lomo.app.feature.common.UiEventQueueCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.newMemoOperationId
-import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.feature.common.reportUserFailure
 import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
@@ -63,6 +64,7 @@ private const val MANUAL_REFRESH_TIMEOUT_MILLIS = 30_000L
 
 /** Collaborators of the main screen. */
 data class MainViewModelDependencies(
+    val diagnostics: EngineDiagnosticsRecorder,
     val mainMemoListQueryUseCase: MainMemoListQueryUseCase,
     val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
     val setMemoPinnedUseCase: SetMemoPinnedUseCase,
@@ -81,6 +83,7 @@ data class MainViewModelDependencies(
 )
 
 class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
+    private val diagnostics = dependencies.diagnostics
     private val mainMemoListQueryUseCase = dependencies.mainMemoListQueryUseCase
     private val observeActiveDayCountUseCase = dependencies.observeActiveDayCountUseCase
     private val setMemoPinnedUseCase = dependencies.setMemoPinnedUseCase
@@ -99,6 +102,7 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
     private val _errorMessage = MutableStateFlow<String?>(null)
     private val collectionActionStateHolder =
         MemoCollectionActionStateHolder(
+            diagnostics = diagnostics,
             capabilities =
             MemoCollectionCapabilities.DeletableTodo(
                 deleteMemo = mainMemoMutationCoordinator::deleteMemo,
@@ -147,7 +151,6 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
 
         data class ReadOnlyRecovery(
             val code: String,
-            val diagnostic: String,
             val canRebuildDerivedIndex: Boolean,
             val hasRecoveryTarget: Boolean,
         ) : MainScreenState
@@ -243,9 +246,8 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
                 readiness is EngineReadiness.ReadOnlyRecovery ->
                     MainScreenState.ReadOnlyRecovery(
                         code = readiness.code,
-                        diagnostic = readiness.diagnostic,
                         canRebuildDerivedIndex = readiness.canRebuildDerivedIndex(),
-                        hasRecoveryTarget = mount.location != null,
+                        hasRecoveryTarget = mount.location != null || readiness.retryLocation != null,
                     )
 
                 directory == null -> MainScreenState.NoDirectory
@@ -382,7 +384,7 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
                 _errorMessage.value = failureMessage
             }
         } catch (error: Exception) {
-            _errorMessage.value = error.toUserMessage(failureMessage)
+            _errorMessage.value = diagnostics.reportUserFailure("request.recording", error, failureMessage)
         }
     }
 
@@ -449,7 +451,11 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                _errorMessage.value = error.toUserMessage("Failed to create directories")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "storage.create_directories",
+                    error,
+                    "Failed to create directories",
+                )
             }
         }
     }
@@ -562,7 +568,11 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                _errorMessage.value = error.toUserMessage("Failed to mark reminder done")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "reminder.complete",
+                    error,
+                    "Failed to mark reminder done",
+                )
             }
         }
     }
@@ -574,7 +584,7 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                _errorMessage.value = error.toUserMessage("Failed to update pin status")
+                _errorMessage.value = diagnostics.reportUserFailure("memo.pin", error, "Failed to update pin status")
             }
         }
     }
@@ -595,7 +605,7 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
-                        _errorMessage.value = error.toUserMessage(fallbackMessage)
+                        _errorMessage.value = diagnostics.reportUserFailure("media.refresh", error, fallbackMessage)
                     }
                 } finally {
                     imageCacheSyncJob = null
@@ -612,7 +622,11 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
             } catch (error: Exception) {
                 Timber.w(error, "Failed to load version history")
                 versionHistoryCoordinator.hide()
-                _errorMessage.value = error.toUserMessage("Failed to load version history")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "history.load",
+                    error,
+                    "Failed to load version history",
+                )
             }
         }
     }
@@ -624,7 +638,11 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                _errorMessage.value = error.toUserMessage("Failed to load more version history")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "history.load_more",
+                    error,
+                    "Failed to load more version history",
+                )
             }
         }
     }
@@ -636,7 +654,11 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                _errorMessage.value = error.toUserMessage("Failed to restore version")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "history.restore",
+                    error,
+                    "Failed to restore version",
+                )
             }
         }
     }
@@ -677,7 +699,9 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
     val retryEngineOpen: () -> Unit = {
         viewModelScope.launch {
             try {
-                val location = workspaceCoordinator.mount.value.location?.raw
+                val currentMount = workspaceCoordinator.mount.value
+                val recovery = currentMount.readiness as? EngineReadiness.ReadOnlyRecovery
+                val location = (currentMount.location ?: recovery?.retryLocation)?.raw
                 if (location == null) {
                     _errorMessage.value = "No workspace location is available to retry opening the engine"
                 } else {
@@ -687,7 +711,11 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
                 throw error
             } catch (error: Exception) {
                 Timber.w(error, "Engine reopen failed")
-                _errorMessage.value = error.toUserMessage("Failed to reopen workspace")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "workspace.retry",
+                    error,
+                    "Failed to reopen workspace",
+                )
             }
         }
     }
@@ -700,7 +728,11 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
                 throw error
             } catch (error: Exception) {
                 Timber.w(error, "Derived index rebuild failed")
-                _errorMessage.value = error.toUserMessage("Failed to rebuild the derived index")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "workspace.rebuild_index",
+                    error,
+                    "Failed to rebuild the derived index",
+                )
             }
         }
     }
@@ -714,7 +746,11 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
                 throw error
             } catch (error: Exception) {
                 Timber.w(error, "Recovery diagnostic export failed")
-                _errorMessage.value = error.toUserMessage("Failed to prepare recovery diagnostics")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "workspace.export_diagnostics",
+                    error,
+                    "Failed to prepare recovery diagnostics",
+                )
             }
         }
     }
@@ -739,7 +775,7 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
                     throwable.conflicts.files.size,
                 )
 
-            else -> _errorMessage.value = throwable.toUserMessage(fallbackMessage)
+            else -> _errorMessage.value = diagnostics.reportUserFailure("memo.refresh", throwable, fallbackMessage)
         }
     }
 

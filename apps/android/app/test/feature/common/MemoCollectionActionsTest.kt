@@ -48,6 +48,7 @@ package com.lomo.app.feature.common
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.verifiedEditSession
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.ExitAnimationRegistry
@@ -66,7 +67,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
-                val errors = MemoCollectionErrors(errorMessage)
+                val errors = MemoCollectionErrors(errorMessage, FakeEngineDiagnosticsRecorder())
                 val capabilities = MemoCollectionCapabilities.DeletableTodo(
                     deleteMemo = { _, _ -> },
                     toggleTodo = { _, _ -> "updated" },
@@ -98,7 +99,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
-                val errors = MemoCollectionErrors(errorMessage)
+                val errors = MemoCollectionErrors(errorMessage, FakeEngineDiagnosticsRecorder())
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { _, _ -> },
                     deletePermanently = { _, _ -> },
@@ -133,7 +134,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
-                val errors = MemoCollectionErrors(errorMessage)
+                val errors = MemoCollectionErrors(errorMessage, FakeEngineDiagnosticsRecorder())
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { _, _ -> },
                     deletePermanently = { _, _ -> },
@@ -166,7 +167,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
-                val errors = MemoCollectionErrors(errorMessage)
+                val errors = MemoCollectionErrors(errorMessage, FakeEngineDiagnosticsRecorder())
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { _, _ -> },
                     deletePermanently = { _, _ -> },
@@ -191,7 +192,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
-                val errors = MemoCollectionErrors(errorMessage)
+                val errors = MemoCollectionErrors(errorMessage, FakeEngineDiagnosticsRecorder())
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { _, _ -> },
                     deletePermanently = { _, _ -> },
@@ -232,7 +233,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
-                val errors = MemoCollectionErrors(errorMessage)
+                val errors = MemoCollectionErrors(errorMessage, FakeEngineDiagnosticsRecorder())
                 var committedMemoId: String? = null
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { memo, _ -> committedMemoId = memo.id },
@@ -277,7 +278,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
-                val errors = MemoCollectionErrors(errorMessage)
+                val errors = MemoCollectionErrors(errorMessage, FakeEngineDiagnosticsRecorder())
                 val capabilities = MemoCollectionCapabilities.Trash(
                     restoreMemo = { _, _ -> throw RuntimeException("restore boom") },
                     deletePermanently = { _, _ -> },
@@ -320,7 +321,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
             runTest {
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val errorMessage = MutableStateFlow<String?>(null)
-                val errors = MemoCollectionErrors(errorMessage)
+                val errors = MemoCollectionErrors(errorMessage, FakeEngineDiagnosticsRecorder())
                 val capabilities = MemoCollectionCapabilities.DeletableTodo(
                     deleteMemo = { _, _ -> },
                     toggleTodo = { _, _ -> "updated" },
@@ -373,7 +374,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val actions =
                     MemoCollectionActions(
                         exitAnimationRegistry = ExitAnimationRegistry(),
-                        errors = MemoCollectionErrors(errorMessage),
+                        errors = MemoCollectionErrors(errorMessage, FakeEngineDiagnosticsRecorder()),
                         draftId = com.lomo.domain.model.DraftId("draft-test"),
                         capabilities =
                         MemoCollectionCapabilities.Editable(

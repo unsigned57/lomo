@@ -29,6 +29,7 @@ val viewModelModule = module {
     // a missing binding behind an allowlist.
     factory {
         MainViewModelDependencies(
+            diagnostics = get(),
             mainMemoListQueryUseCase = get(),
             observeActiveDayCountUseCase = get(),
             setMemoPinnedUseCase = get(),
@@ -48,6 +49,7 @@ val viewModelModule = module {
     }
     factory {
         TagFilterViewModelDependencies(
+            diagnostics = get(),
             getMemosByTagPageUseCase = get(),
             observeActiveDayCountUseCase = get(),
             appConfigStateProvider = get(),
@@ -64,6 +66,7 @@ val viewModelModule = module {
     }
     factory {
         SearchViewModelDependencies(
+            diagnostics = get(),
             observeActiveDayCountUseCase = get(),
             appConfigStateProvider = get(),
             appConfigUiCoordinator = get(),
@@ -80,6 +83,7 @@ val viewModelModule = module {
     }
     factory {
         DailyReviewViewModelDependencies(
+            diagnostics = get(),
             observeActiveDayCountUseCase = get(),
             appConfigStateProvider = get(),
             appConfigUiCoordinator = get(),

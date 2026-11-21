@@ -1,5 +1,6 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.repository.CustomFontStore
@@ -27,6 +28,7 @@ data class SettingsCoordinatorDependencies(
     val customFontHost: com.lomo.app.feature.preferences.CustomFontHost,
     val engineReadinessRepository: EngineReadinessRepository,
     val syncInboxRepository: SyncInboxRepository,
+    val diagnostics: EngineDiagnosticsRecorder,
 )
 
 class SettingsCoordinatorFactory(dependencies: SettingsCoordinatorDependencies) {
@@ -42,6 +44,7 @@ class SettingsCoordinatorFactory(dependencies: SettingsCoordinatorDependencies) 
     private val customFontHost = dependencies.customFontHost
     private val engineReadinessRepository = dependencies.engineReadinessRepository
     private val syncInboxRepository = dependencies.syncInboxRepository
+    private val diagnostics = dependencies.diagnostics
     private val settingsCredentialCoordinator =
         SettingsCredentialCoordinator(credentialRepository)
 
@@ -86,7 +89,7 @@ class SettingsCoordinatorFactory(dependencies: SettingsCoordinatorDependencies) 
         scope = scope,
     )
 
-    fun createErrorMapper(): SettingsOperationErrorMapper = SettingsOperationErrorMapper()
+    fun createErrorMapper(): SettingsOperationErrorMapper = SettingsOperationErrorMapper(diagnostics)
 
     fun customFontStore(): CustomFontStore = customFontStore
 

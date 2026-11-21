@@ -4,6 +4,7 @@ import com.lomo.domain.model.EngineCommandFailure
 import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.WorkspaceFailureStage
 
 /**
  * Single conversion edge for engine failures.
@@ -63,6 +64,8 @@ internal fun engineCommandFailure(
     diagnostic: String,
     operationId: String? = null,
     jobId: String? = null,
+    stage: WorkspaceFailureStage? = null,
+    cause: Throwable? = null,
 ): EngineCommandFailureException = EngineCommandFailureException(
     EngineCommandFailure(
         category = category,
@@ -71,7 +74,9 @@ internal fun engineCommandFailure(
         operationId = operationId,
         jobId = jobId,
         diagnostic = diagnostic,
+        workspaceStage = stage,
     ),
+    cause = cause,
 )
 
 /**
@@ -101,8 +106,11 @@ internal inline fun <T> withRenderFailureConversion(block: () -> T): T = try {
  * [com.lomo.nativebridge.EngineError] is a sealed carrier without a message; catching it here is the
  * only place that knows how to keep its typed payload.
  */
-internal inline fun <T> withEngineFailureConversion(block: () -> T): T = try {
+internal inline fun <T> withEngineFailureConversion(stage: WorkspaceFailureStage? = null, block: () -> T): T = try {
     block()
 } catch (error: com.lomo.nativebridge.EngineError.Failure) {
-    throw EngineCommandFailureException(error.failure.toEngineCommandFailure(), cause = error)
+    throw EngineCommandFailureException(
+        error.failure.toEngineCommandFailure().copy(workspaceStage = stage),
+        cause = error,
+    )
 }

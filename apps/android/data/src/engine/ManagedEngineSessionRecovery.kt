@@ -1,12 +1,12 @@
 package com.lomo.data.engine
 
+import com.lomo.domain.model.EngineCommandFailure
+import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.EngineRetryDisposition
 
 internal fun recoveryFromThrowable(error: Throwable): EngineReadiness.ReadOnlyRecovery = when (error) {
-    is WorkspaceActivationException -> error.recovery
-
     is CapabilityRegistryException ->
         EngineReadiness.ReadOnlyRecovery(
             category = error.category.toFailureCategory(),
@@ -15,13 +15,9 @@ internal fun recoveryFromThrowable(error: Throwable): EngineReadiness.ReadOnlyRe
             diagnostic = error.diagnostic,
         )
 
-    is com.lomo.nativebridge.EngineError.Failure ->
-        EngineReadiness.ReadOnlyRecovery(
-            category = error.failure.category.toFailureCategory(),
-            code = error.failure.code,
-            retryDisposition = error.failure.retryDisposition.toRecoveryRetryDisposition(),
-            diagnostic = error.failure.diagnostic,
-        )
+    is EngineCommandFailureException -> error.failure.toRecovery()
+
+    is com.lomo.nativebridge.EngineError.Failure -> error.failure.toEngineCommandFailure().toRecovery()
 
     else ->
         EngineReadiness.ReadOnlyRecovery(
@@ -32,11 +28,11 @@ internal fun recoveryFromThrowable(error: Throwable): EngineReadiness.ReadOnlyRe
         )
 }
 
-private fun String.toRecoveryRetryDisposition(): EngineRetryDisposition = EngineRetryDisposition.fromWireOrNull(this)
-    ?: error("Unknown Rust engine retry disposition: $this")
+private fun EngineCommandFailure.toRecovery(): EngineReadiness.ReadOnlyRecovery =
+    EngineReadiness.ReadOnlyRecovery(category, code, retryDisposition, diagnostic, workspaceStage)
 
-internal fun workspaceOpenNotReady(readiness: EngineReadiness): EngineReadiness.ReadOnlyRecovery =
-    EngineReadiness.ReadOnlyRecovery(
+internal fun workspaceOpenRecovery(readiness: EngineReadiness): EngineReadiness.ReadOnlyRecovery =
+    readiness as? EngineReadiness.ReadOnlyRecovery ?: EngineReadiness.ReadOnlyRecovery(
         category = EngineFailureCategory.INTERNAL,
         code = "workspace_open_not_ready",
         retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,

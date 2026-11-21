@@ -52,6 +52,7 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.collectWhileSubscribed
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeMediaRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
@@ -330,6 +331,7 @@ class TagFilterViewModelTest : AppFunSpec() {
 
     private fun TestScope.createViewModel(savedStateHandle: SavedStateHandle): TagFilterViewModel = TagFilterViewModel(
         TagFilterViewModelDependencies(
+            diagnostics = FakeEngineDiagnosticsRecorder(),
             getMemosByTagPageUseCase =
             GetMemosByTagPageUseCase(
                 com.lomo.app.testing.fakes.FakeMemoSearchRepository(memoRepository),

@@ -12,6 +12,7 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.collectWhileSubscribed
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.app.testing.fakes.testMemoUiMapper
@@ -223,6 +224,7 @@ class TrashViewModelTest : AppFunSpec() {
     }
 
     private fun TestScope.createViewModel(): TrashViewModel = TrashViewModel(
+        diagnostics = FakeEngineDiagnosticsRecorder(),
         memoTrashUseCase =
         MemoTrashUseCase(
             com.lomo.app.testing.fakes.FakeMemoTrashRepository(repository),

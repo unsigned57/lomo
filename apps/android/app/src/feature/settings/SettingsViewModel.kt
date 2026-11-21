@@ -81,7 +81,7 @@ class SettingsViewModel(
             appConfigCoordinator = appConfigCoordinator,
             mount = coordinatorFactory.mount(),
             onError = { error ->
-                _operationError.value = errorMapper.map(error, "Failed to update storage settings")
+                _operationError.value = errorMapper.workspace(error)
             },
         )
     val displayFeature =
@@ -119,6 +119,7 @@ class SettingsViewModel(
             importAllNotesArchiveUseCase = importAllNotesArchiveUseCase,
             exportEncryptedSettingsUseCase = exportEncryptedSettingsUseCase,
             importEncryptedSettingsUseCase = importEncryptedSettingsUseCase,
+            errorMapper = errorMapper,
         )
     val lanShareFeature =
         SettingsLanShareFeatureViewModel(

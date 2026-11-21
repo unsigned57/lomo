@@ -12,6 +12,7 @@ import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeAppRuntimeInfoRepository
 import com.lomo.app.testing.fakes.FakeAppVersionRepository
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeExternalAppCommandStore
 import com.lomo.app.testing.fakes.FakeGitSyncRepository
 import com.lomo.app.testing.fakes.FakeMediaRepository
@@ -1266,6 +1267,7 @@ class MainViewModelTest : AppFunSpec() {
         val appConfigStateProvider = createAppConfigStateProvider()
         return MainViewModel(
             MainViewModelDependencies(
+                diagnostics = FakeEngineDiagnosticsRecorder(),
                 mainMemoListQueryUseCase = mainMemoListQueryUseCase(),
                 observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
                 setMemoPinnedUseCase = setMemoPinnedUseCase(),

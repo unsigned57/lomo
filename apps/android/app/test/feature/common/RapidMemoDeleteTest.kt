@@ -1,6 +1,7 @@
 package com.lomo.app.feature.common
 
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.ExitAnimationRegistry
@@ -35,7 +36,7 @@ class RapidMemoDeleteTest :
                 val registry = ExitAnimationRegistry<MemoUiModel>()
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
-                    errors = MemoCollectionErrors(error),
+                    errors = MemoCollectionErrors(error, FakeEngineDiagnosticsRecorder()),
                     draftId = DraftId("rapid-delete"),
                     scope = this,
                     capabilities = MemoCollectionCapabilities.DeletableTodo(

@@ -2,6 +2,7 @@ package com.lomo.app.feature.common
 
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoEditorSubmissionStateMachine
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import kotlinx.coroutines.CoroutineScope
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class MemoCollectionActionStateHolder(
+    diagnostics: EngineDiagnosticsRecorder,
     capabilities: MemoCollectionCapabilities,
     scope: CoroutineScope,
     mapToUiModel: suspend (Memo) -> MemoUiModel,
@@ -25,7 +27,7 @@ class MemoCollectionActionStateHolder(
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
-    val errors: MemoCollectionErrors = MemoCollectionErrors(_errorMessage)
+    val errors: MemoCollectionErrors = MemoCollectionErrors(_errorMessage, diagnostics)
     private val editorSubmissionStateMachine = MemoEditorSubmissionStateMachine()
     val editorSubmissionState = editorSubmissionStateMachine.state
 

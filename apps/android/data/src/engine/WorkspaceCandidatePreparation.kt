@@ -1,8 +1,6 @@
 package com.lomo.data.engine
 
-import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
-import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.StorageLocation
 import kotlinx.coroutines.CancellationException
 import java.io.File
@@ -104,56 +102,35 @@ internal class WorkspaceCandidatePreparer(
     ): ManagedWorkspaceCandidate {
         val selection = selectionFor(location)
         val candidate = openWorkspaceAdapter(selection, mediaRoots)
-        val candidateReadiness = candidate.readiness.value
-        if (candidateReadiness is EngineReadiness.Ready) {
-            return try {
-                // Keep revision and verification from one owner receipt. A switch verifies
-                // before promotion; startup may expose the retained read-only revision.
-                val projectionRevision =
-                    if (!allowRetainedProjection && !candidate.sessionProjectionVerified) {
-                        candidate.startRebuild(64u).highWaterRevision
-                    } else {
-                        requireNotNull(candidate.sessionProjectionRevision) {
-                            "Workspace session open completed without a projection revision"
-                        }
+        return try {
+            candidate.requireReady()
+            val projectionRevision =
+                if (!allowRetainedProjection && !candidate.sessionProjectionVerified) {
+                    candidate.startRebuild(64u).highWaterRevision
+                } else {
+                    requireNotNull(candidate.sessionProjectionRevision) {
+                        "Workspace session open completed without a projection revision"
                     }
-                candidate.resnapshot()
-                val afterInspect = candidate.readiness.value
-                if (afterInspect !is EngineReadiness.Ready) {
-                    val activation =
-                        WorkspaceActivationException(
-                            afterInspect as? EngineReadiness.ReadOnlyRecovery
-                                ?: workspaceOpenNotReady(afterInspect),
-                        )
-                    failPreparation(candidate, selection.capabilityToken, activation)
                 }
-                ManagedWorkspaceCandidate(
-                    adapter = candidate,
-                    selection = selection.workspace,
-                    projectionRevision = projectionRevision,
-                    projectionVerified = !allowRetainedProjection || candidate.sessionProjectionVerified,
-                )
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-                failPreparation(candidate, selection.capabilityToken, error)
-            }
-        }
-
-        // Soft open (Recovery / Opening / Awaiting): never promote; release the candidate.
-        val activation =
-            WorkspaceActivationException(
-                candidateReadiness as? EngineReadiness.ReadOnlyRecovery
-                    ?: EngineReadiness.ReadOnlyRecovery(
-                        category = EngineFailureCategory.INTERNAL,
-                        code = "workspace_open_not_ready",
-                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-                        diagnostic =
-                        "Workspace open did not reach Ready " +
-                            "(${candidateReadiness::class.simpleName})",
-                    ),
+            candidate.resnapshot()
+            candidate.requireReady()
+            ManagedWorkspaceCandidate(
+                adapter = candidate,
+                selection = selection.workspace,
+                projectionRevision = projectionRevision,
+                projectionVerified = !allowRetainedProjection || candidate.sessionProjectionVerified,
             )
-        releaseCandidate(candidate, selection.capabilityToken, activation, capabilityRegistry)
-        throw activation
+        } catch (error: Exception) {
+            releaseCandidate(candidate, selection.capabilityToken, error, capabilityRegistry)
+            throw error
+        }
+    }
+
+    private fun RustEngineAdapter.requireReady() {
+        val current = readiness.value
+        if (current !is EngineReadiness.Ready) {
+            throw workspaceOpenRecovery(current).toActivationFailure()
+        }
     }
 
     suspend fun rebuildProjectionForRecovery(
@@ -228,11 +205,6 @@ internal class WorkspaceCandidatePreparer(
     }
 
     private fun RustEngineAdapter.closeResult(): Throwable? = runCatching { close() }.exceptionOrNull()
-
-    private fun failPreparation(candidate: RustEngineAdapter, capabilityToken: String?, error: Exception): Nothing {
-        releaseCandidate(candidate, capabilityToken, error, capabilityRegistry)
-        throw error
-    }
 
     private data class PreparedSelection(val workspace: NativeWorkspaceSelection, val capabilityToken: String?)
 }

@@ -11,6 +11,7 @@ import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeAppRuntimeInfoRepository
 import com.lomo.app.testing.fakes.FakeAppVersionRepository
 import com.lomo.app.testing.fakes.FakeAudioPlayerManager
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeExternalAppCommandStore
 import com.lomo.app.testing.fakes.FakeGitSyncRepository
 import com.lomo.app.testing.fakes.FakeMediaRepository
@@ -211,17 +212,17 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
             }
         }
 
-        test("failed first projection is recoverable without recreating the ViewModel") {
+        test("failed cold mount can retry the committed folder without an active workspace") {
             runTest {
                 val root = StorageLocation("/tmp/large-root")
                 appConfigRepository.setLocation(StorageArea.ROOT, root)
-                engineReadinessRepository.activateWorkspace(root, mediaChange = null)
                 engineReadinessRepository.publish(
                     EngineReadiness.ReadOnlyRecovery(
                         category = EngineFailureCategory.STORAGE,
                         code = "projection_refresh_failed",
                         retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                         diagnostic = "Workspace projection build failed",
+                        retryLocation = root,
                     ),
                 )
 
@@ -231,7 +232,6 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                     viewModel.uiState.value shouldBe
                         MainViewModel.MainScreenState.ReadOnlyRecovery(
                             code = "projection_refresh_failed",
-                            diagnostic = "Workspace projection build failed",
                             canRebuildDerivedIndex = false,
                             hasRecoveryTarget = true,
                         )
@@ -284,6 +284,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
 
     private fun TestScope.createViewModel(): MainViewModel = MainViewModel(
         MainViewModelDependencies(
+            diagnostics = FakeEngineDiagnosticsRecorder(),
             mainMemoListQueryUseCase = mainMemoListQueryUseCase(),
             observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
             setMemoPinnedUseCase = setMemoPinnedUseCase(),

@@ -5,8 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.PendingUiEvent
 import com.lomo.app.feature.common.UiEventEnqueueResult
 import com.lomo.app.feature.common.UiEventQueueCoordinator
-import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.feature.common.reportUserFailure
 import com.lomo.app.feature.preferences.AppPreferencesState
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.usecase.MemoStatisticsUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
@@ -32,6 +33,7 @@ sealed interface StatisticsScreenState {
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StatisticsViewModel(
+    private val diagnostics: EngineDiagnosticsRecorder,
     private val memoStatisticsUseCase: MemoStatisticsUseCase,
     private val persistShareImageUseCase: PersistShareImageUseCase,
     appConfigStateProvider: com.lomo.app.feature.common.AppConfigStateProvider,
@@ -100,7 +102,11 @@ class StatisticsViewModel(
 
     fun reportShareFailure(throwable: Throwable) {
         if (throwable is CancellationException) throw throwable
-        _shareErrorMessage.value = throwable.toUserMessage("Failed to share statistics")
+        _shareErrorMessage.value = diagnostics.reportUserFailure(
+            "statistics.share",
+            throwable,
+            "Failed to share statistics",
+        )
     }
 
     fun consumeShareImageEvent(eventId: Long) {

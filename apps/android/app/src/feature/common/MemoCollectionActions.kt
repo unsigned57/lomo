@@ -10,6 +10,7 @@ import com.lomo.app.feature.memo.MemoEditorSubmissionStateMachine
 import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.EditableMemoSnapshot
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.MemoUpdateAttempt
@@ -257,7 +258,10 @@ class MemoCollectionActions internal constructor(
     }
 }
 
-class MemoCollectionErrors internal constructor(private val errorMessage: MutableStateFlow<String?>) {
+class MemoCollectionErrors internal constructor(
+    private val errorMessage: MutableStateFlow<String?>,
+    private val diagnostics: EngineDiagnosticsRecorder,
+) {
     fun clear() {
         errorMessage.value = null
     }
@@ -269,7 +273,7 @@ class MemoCollectionErrors internal constructor(private val errorMessage: Mutabl
         // The user surface only gets the sanitized message; logcat is the diagnostics channel
         // for the real failure class and any structured engine code it carries.
         timber.log.Timber.w(throwable, "Memo collection action failed: %s", fallbackMessage)
-        errorMessage.value = throwable.toUserMessage(fallbackMessage)
+        errorMessage.value = diagnostics.reportUserFailure("memo.collection", throwable, fallbackMessage)
     }
 }
 

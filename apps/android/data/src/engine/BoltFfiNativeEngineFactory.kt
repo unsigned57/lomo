@@ -1,6 +1,10 @@
 package com.lomo.data.engine
 
 import com.lomo.data.repository.StoreInvalidationBus
+import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.WorkspaceFailureStage
 import com.lomo.nativebridge.EngineConfig
 import com.lomo.nativebridge.EngineError
 import com.lomo.nativebridge.EngineFailure
@@ -8,6 +12,7 @@ import com.lomo.nativebridge.LomoEngine
 import com.lomo.nativebridge.PlatformActionBatch
 import com.lomo.nativebridge.PlatformBatchHost
 import com.lomo.nativebridge.PlatformBatchResult
+import com.lomo.nativebridge.SessionOpenResult
 import com.lomo.nativebridge.WorkspaceDescriptor
 import java.io.File
 import java.time.ZoneId
@@ -22,55 +27,84 @@ internal object BoltFfiNativeEngineFactory {
     /**
      * Opens one adapter as a single ownership transaction.
      *
-     * The port is handed to [RustEngineAdapter.acquire] in the same expression that creates it, so
-     * there is no statement in between where a failure could strand an open engine and its
-     * workspace lock with nothing left holding a reference to close them.
+     * The factory owns the port through session open. [RustEngineAdapter.acquire] takes ownership
+     * only after that succeeds and handles failures during adapter acquisition.
      */
     fun openAdapter(
         request: NativeEngineOpenRequest,
         executor: AndroidPlatformActionExecutor,
         invalidation: StoreInvalidationBus,
-    ): RustEngineAdapter {
+    ): RustEngineAdapter = withEngineFailureConversion(WorkspaceFailureStage.OPEN) {
         val port = openPort(request)
         val platformBatchRunner = PlatformBatchRunner(native = port, executor = executor)
         val sessionOpen =
-            if (request.workspace != null) {
-                // The persisted bootstrap job's deadline is measured from engine open, so its
-                // capability probe must finish before the session mounts: a SAF first-mount
-                // reconcile blocks openWorkspaceSession for the whole data-dependent scan and
-                // would leave the probe WaitingPlatform until it expires unexecuted.
-                val bootstrapFailed =
-                    (port.state() as? NativeEngineSnapshot.Opening)
-                        ?.let { opening ->
-                            val step = platformBatchRunner.drive(opening.jobId)
-                            step is NativeJobStep.Failed || step is NativeJobStep.BlockedByConflict
-                        } == true
-                if (bootstrapFailed) {
-                    null
-                } else {
-                    port.openWorkspaceSession(
-                        host = SessionPlatformBatchHost(executor),
-                        timeZone = ZoneId.systemDefault().id,
-                        // The configured storage filename token crosses unchanged; Rust `DateFormat`
-                        // is the only authority that resolves or rejects it. A workspace request that
-                        // lost its token is a programming error, not a recoverable preference.
-                        dateFormat =
-                        requireNotNull(request.dateFormat) {
-                            "Workspace session open requires a date format token"
-                        },
-                        mediaStageRoot = request.mediaStageRoot.absolutePath,
-                    )
+            runCatching { openSession(request, port, executor, platformBatchRunner) }
+                .getOrElse { failure ->
+                    runCatching(port::close).exceptionOrNull()?.let(failure::addSuppressed)
+                    throw failure
                 }
-            } else {
-                null
-            }
-        return RustEngineAdapter.acquire(
+        RustEngineAdapter.acquire(
             native = port,
             platformBatchRunner = platformBatchRunner,
             invalidation = invalidation,
             sessionOpenResult = sessionOpen,
         )
     }
+
+    private fun openSession(
+        request: NativeEngineOpenRequest,
+        port: BoltFfiNativeEnginePort,
+        executor: AndroidPlatformActionExecutor,
+        platformBatchRunner: PlatformBatchRunner,
+    ): SessionOpenResult? = if (request.workspace != null) {
+        // The persisted bootstrap job's deadline is measured from engine open, so its
+        // capability probe must finish before the session mounts: a SAF first-mount
+        // reconcile blocks openWorkspaceSession for the whole data-dependent scan and
+        // would leave the probe WaitingPlatform until it expires unexecuted.
+        when (val state = port.state()) {
+            is NativeEngineSnapshot.Opening -> requireCompletedProbe(platformBatchRunner, state.jobId)
+            is NativeEngineSnapshot.ReadOnlyRecovery -> rejectProbe(state.failure)
+            else -> Unit
+        }
+        port.openWorkspaceSession(
+            host = SessionPlatformBatchHost(executor),
+            timeZone = ZoneId.systemDefault().id,
+            // The configured storage filename token crosses unchanged; Rust `DateFormat`
+            // is the only authority that resolves or rejects it. A workspace request that
+            // lost its token is a programming error, not a recoverable preference.
+            dateFormat =
+            requireNotNull(request.dateFormat) {
+                "Workspace session open requires a date format token"
+            },
+            mediaStageRoot = request.mediaStageRoot.absolutePath,
+        )
+    } else {
+        null
+    }
+
+    private fun requireCompletedProbe(runner: PlatformBatchRunner, jobId: String) {
+        when (val step = runner.drive(jobId)) {
+            NativeJobStep.Completed -> Unit
+
+            is NativeJobStep.Failed -> rejectProbe(step.failure, jobId)
+
+            is NativeJobStep.BlockedByConflict -> rejectProbe(step.failure, jobId)
+
+            else -> throw engineCommandFailure(
+                category = EngineFailureCategory.TIMEOUT,
+                code = "workspace_probe_incomplete",
+                retryDisposition = EngineRetryDisposition.TRANSIENT,
+                diagnostic = "Workspace capability probe did not reach a terminal result",
+                jobId = jobId,
+                stage = WorkspaceFailureStage.PROBE,
+            )
+        }
+    }
+
+    private fun rejectProbe(failure: EngineFailureSnapshot, jobId: String? = null): Nothing =
+        throw EngineCommandFailureException(
+            failure.toEngineCommandFailure(jobId = jobId).copy(workspaceStage = WorkspaceFailureStage.PROBE),
+        )
 
     /**
      * Named callback so the generated-binding reachability contract records an explicit

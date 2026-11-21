@@ -651,9 +651,13 @@ mod tests {
         // reconcile can block that call for minutes and would expire the probe unexecuted.
         let factory =
             read(&root.join("apps/android/data/src/engine/BoltFfiNativeEngineFactory.kt"))?;
+        ensure!(
+            factory.contains("runner.drive(jobId)"),
+            "BoltFfiNativeEngineFactory must drive the bootstrap batch via PlatformBatchRunner"
+        );
         let drive = factory
-            .find("platformBatchRunner.drive(opening.jobId)")
-            .context("BoltFfiNativeEngineFactory must drive the bootstrap batch in openAdapter")?;
+            .find("requireCompletedProbe(platformBatchRunner, state.jobId)")
+            .context("BoltFfiNativeEngineFactory must drive the bootstrap probe in openSession")?;
         let session_open = factory
             .find("port.openWorkspaceSession(")
             .context("BoltFfiNativeEngineFactory must open the workspace session")?;

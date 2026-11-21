@@ -203,10 +203,23 @@
     <string name="settings_update_available_subtitle">New version %1$s is available. Tap to review update options.</string>
     <string name="settings_debug_update_preview">Debug update preview</string>
     <string name="settings_debug_update_preview_subtitle">Open the real latest GitHub release update flow for direct in-app download testing.</string>
-    <string name="settings_debug_engine_diagnostics">Engine command diagnostics</string>
-    <string name="settings_debug_engine_diagnostics_subtitle">Recent workspace commands with their result code, category and duration.</string>
-    <string name="settings_debug_engine_diagnostics_empty">No workspace command has been recorded yet.</string>
-    <string name="settings_debug_engine_diagnostics_entry">%1$s · %2$d ms</string>
+    <string name="settings_engine_diagnostics">Diagnostics</string>
+    <string name="settings_engine_diagnostics_subtitle">Review recent operation results and copy a diagnostic report.</string>
+    <string name="settings_engine_diagnostics_empty">No diagnostic events recorded in this session.</string>
+    <string name="settings_engine_diagnostics_copy">Copy diagnostics</string>
+    <string name="failure_with_code">%1$s [%2$s]</string>
+    <string name="failure_workspace_update">Could not update storage settings.</string>
+    <string name="failure_workspace_grant">Folder access is missing. Select the folder again to grant read and write access.</string>
+    <string name="failure_workspace_unavailable">The selected folder is unavailable. Check that it still exists.</string>
+    <string name="failure_workspace_unreadable">Lomo could not read all files in the folder.</string>
+    <string name="failure_workspace_unwritable">Lomo needs a writable folder.</string>
+    <string name="failure_workspace_probe">Checking folder access timed out. Try selecting the folder again.</string>
+    <string name="failure_file_unavailable">Lomo could not open the selected file.</string>
+    <string name="failure_document_utf8">A Markdown file uses invalid UTF-8 encoding.</string>
+    <string name="failure_document_render_limit">The Markdown content exceeds the rendering limit.</string>
+    <string name="failure_migration">Could not complete the import or export.</string>
+    <string name="failure_migration_password">Check the password used to encrypt the settings.</string>
+    <string name="failure_migration_envelope">The settings file is damaged or uses an unsupported format.</string>
     <string name="settings_lan_share_enabled_title">Enable LAN Share</string>
     <string name="settings_lan_share_enabled_subtitle">Allow device discovery and local network transfers</string>
     
@@ -838,7 +851,7 @@
     <string name="recording_saved_notification_action">Edit</string>
 
     <string name="engine_recovery_title">Workspace is read-only</string>
-    <string name="engine_recovery_body">The Rust engine could not open this workspace for writing. Review the diagnostic, retry, or choose another workspace. There is no fallback that writes through the old Kotlin core.</string>
+    <string name="engine_recovery_body">Lomo could not open this workspace for writing. Retry or choose another workspace.</string>
     <string name="engine_recovery_code_label">Code: %1$s</string>
     <string name="engine_recovery_retry">Retry</string>
     <string name="engine_recovery_retry_unavailable">No workspace location is available to retry</string>

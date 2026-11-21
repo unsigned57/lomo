@@ -1,6 +1,7 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.domain.repository.MigrationArchiveRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.usecase.ExportAllNotesArchiveUseCase
@@ -132,7 +133,7 @@ class SettingsMigrationFeatureViewModelTest : AppFunSpec() {
                 repository.importSettingsCallCount shouldBe 1
                 val error = feature.operationState.value.shouldBeInstanceOf<SettingsMigrationOperationState.Error>()
                 error.kind shouldBe SettingsMigrationOperationKind.IMPORT_SETTINGS
-                error.message.isNotBlank() shouldBe true
+                error.code shouldBe "migration_password_invalid"
             }
         }
     }
@@ -152,6 +153,7 @@ private fun createFeature(
     ),
     exportEncryptedSettingsUseCase = ExportEncryptedSettingsUseCase(repository),
     importEncryptedSettingsUseCase = ImportEncryptedSettingsUseCase(repository),
+    errorMapper = SettingsOperationErrorMapper(FakeEngineDiagnosticsRecorder()),
 )
 
 private class FakeMigrationArchiveRepository(private val settingsImportFailure: Throwable? = null) :

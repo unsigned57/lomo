@@ -20,6 +20,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.app.feature.common.failureExplanation
 import com.lomo.ui.component.common.LomoButton
 import com.lomo.ui.component.common.LomoFilledTonalButton
 import com.lomo.ui.component.common.LomoOutlinedButton
@@ -39,7 +40,6 @@ import com.lomo.ui.theme.AppSpacing
 @Composable
 fun EngineReadOnlyRecoveryScreen(
     code: String,
-    diagnostic: String,
     onRetry: () -> Unit,
     retryEnabled: Boolean,
     onReselectWorkspace: () -> Unit,
@@ -103,12 +103,14 @@ fun EngineReadOnlyRecoveryScreen(
                     ),
                 )
             }
-            Text(
-                text = diagnostic,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+            failureExplanation(code)?.let { reason ->
+                Text(
+                    text = reason,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
             if (canRebuildDerivedIndex) {
                 LomoButton(onClick = onRebuildDerivedIndex) {
                     Text(stringResource(R.string.engine_recovery_rebuild_index))

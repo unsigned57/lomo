@@ -43,6 +43,7 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeDailyReviewSessionRepository
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeMediaRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
@@ -58,7 +59,6 @@ import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -69,7 +69,7 @@ import kotlinx.coroutines.test.runTest
 /**
  * Behavior Contract:
  * - Unit under test: DailyReviewViewModel post IR cutover wiring.
- * - Scenarios: construct + toggle uses action-span owner path without line-index Markdown authority.
+ * - Scenarios: toggle uses action-span owner path.
  * - Excludes: frozen random-walk pagination characterizations (domain use cases own paging facts).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -96,13 +96,6 @@ class DailyReviewViewModelTest : AppFunSpec() {
     init {
         extension(MainDispatcherExtension(testDispatcher))
 
-        test("constructs with IR mapper") {
-            runTest {
-                val viewModel = createViewModel()
-                viewModel shouldNotBe null
-            }
-        }
-
         test("toggleTodo uses action span path without crashing") {
             runTest {
                 val memo = sampleMemo("todo-1").copy(content = "- [ ] task")
@@ -119,6 +112,7 @@ class DailyReviewViewModelTest : AppFunSpec() {
 
     private fun createViewModel(): DailyReviewViewModel = DailyReviewViewModel(
         DailyReviewViewModelDependencies(
+            diagnostics = FakeEngineDiagnosticsRecorder(),
             observeActiveDayCountUseCase =
             ObserveActiveDayCountUseCase(
                 com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),

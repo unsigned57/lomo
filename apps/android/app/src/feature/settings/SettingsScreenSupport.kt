@@ -13,44 +13,50 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.lomo.app.R
+import com.lomo.app.feature.common.failureExplanation
+import com.lomo.app.feature.common.recordApplicationFailure
+import com.lomo.app.feature.common.toUserMessage
+import com.lomo.domain.model.EngineCommandFailure
+import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.EngineDiagnosticsRecorder
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.WorkspaceFailureStage
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 
 @Composable
 internal fun rememberStoragePickerActions(
     storageFeature: SettingsStorageFeatureViewModel,
     s3Feature: SettingsS3FeatureViewModel,
     snackbarHostState: SnackbarHostState,
-    unknownErrorMessage: String,
 ): StoragePickerActions = StoragePickerActions(
     openRoot =
     rememberTreePickerAction(
         onUriSelected = storageFeature::updateRootUri,
         snackbarHostState = snackbarHostState,
-        unknownErrorMessage = unknownErrorMessage,
     ),
     openImage =
     rememberTreePickerAction(
         onUriSelected = storageFeature::updateImageUri,
         snackbarHostState = snackbarHostState,
-        unknownErrorMessage = unknownErrorMessage,
     ),
     openVoice =
     rememberTreePickerAction(
         onUriSelected = storageFeature::updateVoiceUri,
         snackbarHostState = snackbarHostState,
-        unknownErrorMessage = unknownErrorMessage,
     ),
     openSyncInbox =
     rememberTreePickerAction(
         onUriSelected = storageFeature::updateSyncInboxUri,
         snackbarHostState = snackbarHostState,
-        unknownErrorMessage = unknownErrorMessage,
     ),
     openS3LocalSyncDirectory =
     rememberTreePickerAction(
         onUriSelected = s3Feature.updateLocalSyncDirectory,
         snackbarHostState = snackbarHostState,
-        unknownErrorMessage = unknownErrorMessage,
     ),
 )
 
@@ -58,10 +64,11 @@ internal fun rememberStoragePickerActions(
 private fun rememberTreePickerAction(
     onUriSelected: (String) -> Unit,
     snackbarHostState: SnackbarHostState,
-    unknownErrorMessage: String,
 ): () -> Unit {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val diagnostics = koinInject<EngineDiagnosticsRecorder>()
+    val grantFailureMessage = stringResource(R.string.failure_workspace_grant)
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             uri ?: return@rememberLauncherForActivityResult
@@ -69,9 +76,10 @@ private fun rememberTreePickerAction(
                 persistTreePermission(context, uri)
                 onUriSelected(uri.toString())
             }.onFailure { throwable ->
+                diagnostics.recordApplicationFailure("settings.directory_picker", throwable)
                 scope.launch {
                     snackbarHostState.showSnackbar(
-                        throwable.message?.takeIf { it.isNotBlank() } ?: unknownErrorMessage,
+                        throwable.toUserMessage(grantFailureMessage),
                     )
                 }
             }
@@ -126,7 +134,7 @@ internal fun rememberMigrationPickerActions(
             }.onFailure { throwable ->
                 scope.launch {
                     snackbarHostState.showSnackbar(
-                        throwable.message?.takeIf(String::isNotBlank) ?: unknownErrorMessage,
+                        throwable.toUserMessage(unknownErrorMessage),
                     )
                 }
             }
@@ -137,7 +145,7 @@ internal fun rememberMigrationPickerActions(
             }.onFailure { throwable ->
                 scope.launch {
                     snackbarHostState.showSnackbar(
-                        throwable.message?.takeIf(String::isNotBlank) ?: unknownErrorMessage,
+                        throwable.toUserMessage(unknownErrorMessage),
                     )
                 }
             }
@@ -149,7 +157,7 @@ internal fun rememberMigrationPickerActions(
             }.onFailure { throwable ->
                 scope.launch {
                     snackbarHostState.showSnackbar(
-                        throwable.message?.takeIf(String::isNotBlank) ?: unknownErrorMessage,
+                        throwable.toUserMessage(unknownErrorMessage),
                     )
                 }
             }
@@ -161,7 +169,7 @@ internal fun rememberMigrationPickerActions(
             }.onFailure { throwable ->
                 scope.launch {
                     snackbarHostState.showSnackbar(
-                        throwable.message?.takeIf(String::isNotBlank) ?: unknownErrorMessage,
+                        throwable.toUserMessage(unknownErrorMessage),
                     )
                 }
             }
@@ -171,20 +179,37 @@ internal fun rememberMigrationPickerActions(
 
 internal fun persistTreePermission(context: Context, uri: Uri) {
     val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-    context.contentResolver.takePersistableUriPermission(uri, flags)
-    check(
-        context.contentResolver.persistedUriPermissions.any { permission ->
+    try {
+        context.contentResolver.takePersistableUriPermission(uri, flags)
+        val persisted = context.contentResolver.persistedUriPermissions.any { permission ->
             persistedTreeMatches(permission.uri, uri) &&
                 permission.isReadPermission &&
                 permission.isWritePermission
-        },
-    ) { "saf_grant_not_persisted" }
+        }
+        if (!persisted) throw missingPersistedTreeGrant()
+    } catch (error: SecurityException) {
+        throw missingPersistedTreeGrant(error)
+    }
 }
+
+private fun missingPersistedTreeGrant(cause: SecurityException? = null): EngineCommandFailureException =
+    EngineCommandFailureException(
+        EngineCommandFailure(
+            category = EngineFailureCategory.PERMISSION,
+            code = "saf_grant_not_persisted",
+            retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+            operationId = null,
+            jobId = null,
+            diagnostic = "Android did not persist the selected directory's read/write grant",
+            workspaceStage = WorkspaceFailureStage.GRANT,
+        ),
+        cause,
+    )
 
 private fun persistedTreeMatches(persistedUri: Uri, requestedUri: Uri): Boolean {
     if (persistedUri == requestedUri || persistedUri.toString() == requestedUri.toString()) return true
     if (!DocumentsContract.isTreeUri(persistedUri) || !DocumentsContract.isTreeUri(requestedUri)) return false
-    return DocumentsContract.getTreeDocumentId(persistedUri) ==
+    return persistedUri.authority == requestedUri.authority && DocumentsContract.getTreeDocumentId(persistedUri) ==
         DocumentsContract.getTreeDocumentId(requestedUri)
 }
 
@@ -200,7 +225,18 @@ internal fun HandleSettingsOperationError(
             is SettingsOperationError.GitSync ->
                 SettingsErrorPresenter.gitSyncErrorMessage(error.code, error.detail)
 
-            is SettingsOperationError.Message -> error.text
+            is SettingsOperationError.Message -> {
+                val code = error.workspaceFailureCode
+                if (code == null) {
+                    error.text
+                } else {
+                    stringResource(
+                        R.string.failure_with_code,
+                        failureExplanation(code) ?: stringResource(R.string.failure_workspace_update),
+                        code,
+                    )
+                }
+            }
 
             is SettingsOperationError.WebDavSync ->
                 SettingsErrorPresenter.webDavSyncErrorMessage(error.code, error.detail)

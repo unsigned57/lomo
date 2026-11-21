@@ -3,7 +3,7 @@ package com.lomo.domain.model
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * One recorded fact about a workspace command or editor submission.
+ * One recorded outcome of a Lomo operation.
  *
  * The channel exists because a rejection that only becomes a user-facing sentence is unusable for
  * diagnosis: the code, category and timing are what identify which rule refused.
@@ -13,7 +13,7 @@ sealed interface EngineDiagnosticEvent {
     val label: String
 
     /** Wall-clock duration of the observed operation. */
-    val durationMillis: Long
+    val durationMillis: Long?
 
     data class Committed(
         override val label: String,
@@ -24,7 +24,7 @@ sealed interface EngineDiagnosticEvent {
 
     data class Rejected(
         override val label: String,
-        override val durationMillis: Long,
+        override val durationMillis: Long?,
         val failure: EngineCommandFailure,
     ) : EngineDiagnosticEvent
 
@@ -50,26 +50,40 @@ interface EngineDiagnosticsRecorder {
 }
 
 /**
- * The one rendering of an event's outcome, shared by every surface that shows it.
- *
- * A second rendering would let the on-device window and the external log disagree about the same
- * recorded fact, which is precisely the ambiguity a diagnostics channel exists to remove.
+ * Structured diagnostics for the on-device window, clipboard and log.
+ * Keep free-form diagnostics and correlation IDs out of the shared representation.
  */
-fun EngineDiagnosticEvent.detail(): String = when (this) {
+private fun EngineDiagnosticEvent.detail(): String = when (this) {
     is EngineDiagnosticEvent.Committed ->
-        "committed · revision=$coreRevision · scopes=${scopes.joinToString(",").ifEmpty { "-" }}"
+        "committed · revision=$coreRevision · scopes=${scopes.joinToString(
+            ",",
+        ) { it.diagnosticIdentifier() }.ifEmpty { "-" }}"
 
     is EngineDiagnosticEvent.Rejected ->
         buildString {
-            append("rejected · ${failure.code} · ${failure.category.wireValue}")
+            append("rejected · ${failure.code.diagnosticIdentifier()} · ${failure.category.wireValue}")
             append(" · retry=${failure.retryDisposition.wireValue}")
-            failure.operationId?.let { append(" · op=$it") }
-            failure.jobId?.let { append(" · job=$it") }
-            if (failure.diagnostic.isNotBlank()) {
-                append("\n${failure.diagnostic}")
-            }
+            failure.workspaceStage?.let { append(" · stage=${it.wireValue}") }
         }
 
     is EngineDiagnosticEvent.Stalled ->
         "stalled · no terminal acknowledgement within the submission budget"
+}
+
+fun EngineDiagnosticEvent.summary(): String = buildString {
+    append(label.diagnosticIdentifier())
+    durationMillis?.let { append(" · ${it}ms") }
+    append(" · ")
+    append(detail())
+}
+
+private val diagnosticIdentifierPattern = Regex("[a-zA-Z][a-zA-Z0-9_.-]{0,127}")
+
+private fun String.diagnosticIdentifier(): String = if (matches(
+        diagnosticIdentifierPattern,
+    )
+) {
+    this
+} else {
+    "invalid_identifier"
 }

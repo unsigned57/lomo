@@ -6,7 +6,7 @@ import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.newMemoOperationId
-import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.feature.common.reportUserFailure
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.mapToUiModels
@@ -17,6 +17,7 @@ import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.model.DailyReviewCollectionSource
 import com.lomo.domain.model.DailyReviewOptions
 import com.lomo.domain.model.DailyReviewSession
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
@@ -52,6 +53,7 @@ sealed interface DailyReviewScreenState {
 
 /** Collaborators of the daily-review screen. */
 data class DailyReviewViewModelDependencies(
+    val diagnostics: EngineDiagnosticsRecorder,
     val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
     val appConfigStateProvider: AppConfigStateProvider,
     val appConfigUiCoordinator: AppConfigUiCoordinator,
@@ -66,6 +68,7 @@ data class DailyReviewViewModelDependencies(
 )
 
 class DailyReviewViewModel(dependencies: DailyReviewViewModelDependencies) : ViewModel() {
+    private val diagnostics = dependencies.diagnostics
     private val observeActiveDayCountUseCase = dependencies.observeActiveDayCountUseCase
     private val appConfigStateProvider = dependencies.appConfigStateProvider
     private val appConfigUiCoordinator = dependencies.appConfigUiCoordinator
@@ -94,7 +97,7 @@ class DailyReviewViewModel(dependencies: DailyReviewViewModelDependencies) : Vie
             scope = viewModelScope,
             updateMemo = memoUpdater::update,
             onFailure = { throwable ->
-                _errorMessage.value = throwable.toUserMessage("Failed to update memo")
+                _errorMessage.value = diagnostics.reportUserFailure("review.update", throwable, "Failed to update memo")
             },
         )
     private var loadJob: Job? = null
@@ -210,7 +213,11 @@ class DailyReviewViewModel(dependencies: DailyReviewViewModelDependencies) : Vie
                 reviewData.update { latest ->
                     if (latest is DailyReviewData.Loaded) latest.copy(isLoadingMore = false) else latest
                 }
-                _errorMessage.value = throwable.toUserMessage("Failed to load more memos")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "review.load_more",
+                    throwable,
+                    "Failed to load more memos",
+                )
             }.onSuccess { page ->
                 reviewData.update { latest ->
                     if (latest is DailyReviewData.Loaded) {
@@ -257,7 +264,11 @@ class DailyReviewViewModel(dependencies: DailyReviewViewModelDependencies) : Vie
             }.onSuccess { newContent ->
                 updateVisibleMemoContent(memo.id, newContent)
             }.onFailure { throwable ->
-                _errorMessage.value = throwable.toUserMessage("Failed to update todo")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "review.toggle_task",
+                    throwable,
+                    "Failed to update todo",
+                )
             }
         }
     }
@@ -279,7 +290,7 @@ class DailyReviewViewModel(dependencies: DailyReviewViewModelDependencies) : Vie
                     }
                 }
             }.onFailure { throwable ->
-                _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
+                _errorMessage.value = diagnostics.reportUserFailure("review.delete", throwable, "Failed to delete memo")
             }
         }
     }
@@ -307,7 +318,11 @@ class DailyReviewViewModel(dependencies: DailyReviewViewModelDependencies) : Vie
                 if (savedPaths.isNotEmpty()) {
                     onResult(savedPaths)
                 }
-                _errorMessage.value = throwable.toUserMessage("Failed to save image")
+                _errorMessage.value = diagnostics.reportUserFailure(
+                    "review.save_image",
+                    throwable,
+                    "Failed to save image",
+                )
                 onError?.invoke()
             }
         }
@@ -333,7 +348,7 @@ class DailyReviewViewModel(dependencies: DailyReviewViewModelDependencies) : Vie
 
     /** Surfaces a non-mutation failure (e.g. editor open) on the shared error channel. */
     fun reportError(throwable: Throwable) {
-        _errorMessage.value = throwable.toUserMessage("Failed to open memo")
+        _errorMessage.value = diagnostics.reportUserFailure("review.open_memo", throwable, "Failed to open memo")
     }
 
     fun clearError() {

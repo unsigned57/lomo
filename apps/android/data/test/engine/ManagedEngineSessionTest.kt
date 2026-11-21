@@ -2683,6 +2683,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         session.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
                     recovery.code shouldBe "saf_grant_revoked"
                     recovery.category shouldBe EngineFailureCategory.PERMISSION
+                    recovery.retryLocation shouldBe tree
                     session.activeWorkspaceLocation.value shouldBe null
                     session.workspaceAuthority.value shouldBe null
                 } finally {
@@ -2794,10 +2795,10 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     val readyPortCloseBefore = closedPorts.last().portCloseCount
 
                     val error =
-                        shouldThrow<WorkspaceActivationException> {
+                        shouldThrow<EngineCommandFailureException> {
                             session.activateWorkspace(StorageLocation(candidateRoot.absolutePath), mediaChange = null)
                         }
-                    error.recovery.code shouldBe "saf_grant_revoked"
+                    error.failure.code shouldBe "saf_grant_revoked"
                     session.readiness.value shouldBe
                         EngineReadiness.Ready
                     // Previous Ready port must remain open; only the soft-failed candidate closed.
@@ -2856,14 +2857,14 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     session.requestEngineStart()
 
                     val error =
-                        shouldThrow<WorkspaceActivationException> {
+                        shouldThrow<EngineCommandFailureException> {
                             session.activateWorkspace(
                                 StorageLocation("content://com.lomo.documents/tree/primary%3ALomo"),
                                 mediaChange = null,
                             )
                         }
 
-                    error.recovery.code shouldBe "saf_grant_revoked"
+                    error.failure.code shouldBe "saf_grant_revoked"
                     error.suppressedExceptions.single().message shouldBe "candidate close refused"
                     shouldThrow<CapabilityRegistryException> { registry.resolve(tokens.single()) }
                     session.close()

@@ -52,6 +52,7 @@ import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
 import com.lomo.app.testing.fakes.testMemoUiMapper
@@ -212,6 +213,7 @@ class SearchViewModelFilterTest : AppFunSpec() {
 
     private fun createViewModel(): SearchViewModel = SearchViewModel(
         SearchViewModelDependencies(
+            diagnostics = FakeEngineDiagnosticsRecorder(),
             observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
             appConfigStateProvider =
             AppConfigStateProvider(

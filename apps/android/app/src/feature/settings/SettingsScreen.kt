@@ -114,7 +114,6 @@ fun SettingsScreen(
             storageFeature = features.storage,
             s3Feature = features.s3,
             snackbarHostState = snackbarHostState,
-            unknownErrorMessage = resources.messages.unknownErrorMessage,
         )
     val migrationPickers =
         rememberMigrationPickerActions(

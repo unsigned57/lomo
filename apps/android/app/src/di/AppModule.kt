@@ -124,6 +124,7 @@ val appModule = module {
             customFontHost = get(),
             engineReadinessRepository = get(),
             syncInboxRepository = get(),
+            diagnostics = get(),
         )
     }
     single { SettingsCoordinatorFactory(get()) }

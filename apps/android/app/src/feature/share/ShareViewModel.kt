@@ -4,9 +4,10 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.appWhileSubscribed
-import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.feature.common.reportUserFailure
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.LanIncomingBatch
 import com.lomo.domain.model.LanPairingRequest
 import com.lomo.domain.model.LanShareDiscoveryDiagnostics
@@ -32,6 +33,7 @@ private const val SHARE_MEMO_CONTENT_KEY = "memoContent"
 private const val SHARE_MEMO_TIMESTAMP_KEY = "memoTimestamp"
 
 class ShareViewModel(
+    private val diagnostics: EngineDiagnosticsRecorder,
     private val lanShareUiCoordinator: LanShareUiCoordinator,
     private val extractShareAttachmentsUseCase: ExtractShareAttachmentsUseCase,
     private val shareErrorPolicy: ShareErrorPolicy,
@@ -248,7 +250,12 @@ class ShareViewModel(
 
     private fun reportOperationError(throwable: Throwable, fallbackMessage: String) {
         if (throwable is CancellationException) throw throwable
-        val message = throwable.toUserMessage(fallbackMessage, shareErrorPolicy::sanitizeUserFacingMessage)
+        val message = diagnostics.reportUserFailure(
+            "share.lan",
+            throwable,
+            fallbackMessage,
+            shareErrorPolicy::sanitizeUserFacingMessage,
+        )
         _operationError.value = message
         Timber.e(throwable, "ShareViewModel operation failed: %s", message)
     }

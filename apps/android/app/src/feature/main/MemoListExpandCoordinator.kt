@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.common.AppConfigStateProvider
+import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.EngineReadinessRepository
@@ -216,7 +217,7 @@ internal class MemoListExpandCoordinator(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                MemoExpandEntry.Failed(error.message ?: "Expand load failed")
+                MemoExpandEntry.Failed(error.toUserMessage("Failed to expand memo"))
             }
         synchronized(lock) {
             val current = tracked[request.memoId] ?: return@synchronized

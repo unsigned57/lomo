@@ -7,6 +7,7 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeDailyReviewSessionRepository
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeMediaRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
@@ -21,7 +22,6 @@ import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -112,20 +112,11 @@ class DailyReviewViewModelSessionTest : AppFunSpec() {
                 }
             }
         }
-
-        test("viewModel constructs with workspace IR mapper and loads idle state") {
-            runTest {
-                memoRepository.setActiveMemos(listOf(sampleMemo("m1")))
-                val viewModel = createViewModel()
-                advanceUntilIdle()
-                viewModel shouldNotBe null
-                viewModel.uiState.value shouldNotBe null
-            }
-        }
     }
 
     private fun createViewModel(): DailyReviewViewModel = DailyReviewViewModel(
         DailyReviewViewModelDependencies(
+            diagnostics = FakeEngineDiagnosticsRecorder(),
             observeActiveDayCountUseCase =
             ObserveActiveDayCountUseCase(
                 com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),

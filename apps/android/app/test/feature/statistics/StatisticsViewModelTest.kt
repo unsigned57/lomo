@@ -4,6 +4,7 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.usecase.MemoStatisticsUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
@@ -200,6 +201,7 @@ class StatisticsViewModelTest : AppFunSpec() {
     }
 
     private fun createViewModel(): StatisticsViewModel = StatisticsViewModel(
+        diagnostics = FakeEngineDiagnosticsRecorder(),
         memoStatisticsUseCase = memoStatisticsUseCase,
         persistShareImageUseCase = persistShareImageUseCase,
         appConfigStateProvider = createAppConfigStateProvider(),

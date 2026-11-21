@@ -21,6 +21,7 @@ import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.DraftId
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSearchMode
@@ -63,6 +64,7 @@ sealed interface SearchScreenState {
 
 /** Collaborators of the search screen. */
 data class SearchViewModelDependencies(
+    val diagnostics: EngineDiagnosticsRecorder,
     val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
     val appConfigStateProvider: AppConfigStateProvider,
     val appConfigUiCoordinator: AppConfigUiCoordinator,
@@ -218,6 +220,7 @@ class SearchViewModel(dependencies: SearchViewModelDependencies) : ViewModel() {
 
     private val actionStateHolder =
         MemoCollectionActionStateHolder(
+            diagnostics = dependencies.diagnostics,
             capabilities =
             MemoCollectionCapabilities.Editable(
                 deleteMemo = deleteMemoUseCase::invoke,

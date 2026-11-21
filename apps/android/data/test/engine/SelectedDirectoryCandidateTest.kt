@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.testing.fakes.FakeCursor
+import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.StorageLocation
 import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.assertions.throwables.shouldThrow
@@ -51,23 +52,23 @@ class SelectedDirectoryCandidateTest :
         ) {
             runTest {
                 val provider = CandidateProviderFixture(childAvailable = false, listingAvailable = true)
-                shouldThrow<WorkspaceCandidateValidationException> {
+                shouldThrow<EngineCommandFailureException> {
                     WorkspaceCandidateProbe(
                         provider.context,
                         com.lomo.domain.usecase.DefaultDispatcherProvider(),
                     ).validate(StorageLocation(CANDIDATE))
-                }.code shouldBe "workspace_content_unavailable"
+                }.failure.code shouldBe "workspace_content_unavailable"
             }
         }
         test("given a null listing when validated then the candidate fails before switching") {
             runTest {
                 val provider = CandidateProviderFixture(childAvailable = true, listingAvailable = false)
-                shouldThrow<WorkspaceCandidateValidationException> {
+                shouldThrow<EngineCommandFailureException> {
                     WorkspaceCandidateProbe(
                         provider.context,
                         com.lomo.domain.usecase.DefaultDispatcherProvider(),
                     ).validate(StorageLocation(CANDIDATE))
-                }.code shouldBe "metadata_enumeration_incomplete"
+                }.failure.code shouldBe "metadata_enumeration_incomplete"
             }
         }
         test("given a complete empty selected directory when validated then it is accepted") {

@@ -2,6 +2,8 @@ package com.lomo.app.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.paging.PagingData
+import androidx.paging.PagingDataEvent
+import androidx.paging.PagingDataPresenter
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoCollectionProjectionMapper
 import com.lomo.app.feature.main.MainWorkspaceCoordinator
@@ -12,6 +14,7 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.collectWhileSubscribed
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
 import com.lomo.app.testing.fakes.testMemoUiMapper
@@ -174,12 +177,15 @@ class SearchViewModelTest : AppFunSpec() {
             }
         }
 
-        test("non blank query propagates repository search results") {
+        test("search presents the first 60 results and preserves the remaining placeholder index") {
             runTest {
-                val expectedMemo = sampleMemo(id = "memo-1", content = "search-hit")
-                memoRepository.setActiveMemos(listOf(expectedMemo))
+                val matches = List(61) { sampleMemo(id = "memo-$it", content = "search-hit $it") }
+                memoRepository.mainListPageProvider = { matches }
                 val viewModel = createViewModel()
-                val differ = backgroundScope.collectPagedData(viewModel.pagedUiMemos)
+                val presenter = object : PagingDataPresenter<MemoUiModel>(testDispatcher) {
+                    override suspend fun presentPagingDataEvent(event: PagingDataEvent<MemoUiModel>) = Unit
+                }
+                backgroundScope.launch { viewModel.pagedUiMemos.collectLatest(presenter::collectFrom) }
 
                 viewModel.onSearchQueryChanged("search-hit")
                 testDispatcher.scheduler.advanceTimeBy(350)
@@ -190,8 +196,10 @@ class SearchViewModelTest : AppFunSpec() {
                         query = "search-hit",
                         filter = MemoListFilter(),
                     )
-                memoRepository.mainListPageLoads shouldContain
-                    FakeMemoStore.MainListPageLoad(key = null, loadSize = 60)
+                memoRepository.mainListPageLoads shouldBe
+                    listOf(FakeMemoStore.MainListPageLoad(key = null, loadSize = 60))
+                presenter.snapshot().items.map { it.memo.id } shouldBe matches.take(60).map { it.id }
+                presenter.snapshot().placeholdersAfter shouldBe 1
             }
         }
 
@@ -590,6 +598,7 @@ class SearchViewModelTest : AppFunSpec() {
 
     private fun TestScope.createViewModel(): SearchViewModel = SearchViewModel(
         SearchViewModelDependencies(
+            diagnostics = FakeEngineDiagnosticsRecorder(),
             observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
             appConfigStateProvider =
             com.lomo.app.feature.common.AppConfigStateProvider(

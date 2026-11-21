@@ -403,7 +403,6 @@ internal fun MainScreenBody(
         is MainViewModel.MainScreenState.ReadOnlyRecovery -> {
             EngineReadOnlyRecoveryScreen(
                 code = state.code,
-                diagnostic = state.diagnostic,
                 onRetry = onRetryEngine,
                 retryEnabled = state.hasRecoveryTarget,
                 onReselectWorkspace = onSettings,

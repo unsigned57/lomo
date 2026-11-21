@@ -337,7 +337,7 @@ internal class ManagedEngineSession(
                         }
                     } catch (failure: Exception) {
                         if (failure is kotlinx.coroutines.CancellationException) throw failure
-                        holdRecoveryAuthority(recoveryFromThrowable(failure))
+                        holdRecoveryAuthority(recoveryFromThrowable(failure).copy(retryLocation = existing))
                     }
                 }
                 if (!closed.get() && recoveryAuthority.get() == null && activeAdapter == null) {
@@ -509,7 +509,7 @@ internal class ManagedEngineSession(
             is AdapterPromotion.CandidateRejected -> {
                 rejectWorkspaceCandidate(
                     candidate,
-                    WorkspaceActivationException(promotion.recovery),
+                    promotion.recovery.toActivationFailure(),
                     capabilityRegistry,
                 )
             }
@@ -541,8 +541,7 @@ internal class ManagedEngineSession(
         candidate.adapter.withReadinessAtCommit { candidateReadiness ->
             if (candidate.workspaceId != null && candidateReadiness !is EngineReadiness.Ready) {
                 return@withReadinessAtCommit AdapterPromotion.CandidateRejected(
-                    candidateReadiness as? EngineReadiness.ReadOnlyRecovery
-                        ?: workspaceOpenNotReady(candidateReadiness),
+                    workspaceOpenRecovery(candidateReadiness),
                 )
             }
             // Commitment validation precedes adapter mutation: mint the generation and

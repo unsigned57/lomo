@@ -38,6 +38,7 @@ package com.lomo.data.engine
 import android.content.Context
 import android.net.Uri
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.StorageLocation
 import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.assertions.throwables.shouldThrow
@@ -73,9 +74,9 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
                     isContentUri = { false },
                 )
                 val missing = File("/tmp/lomo-missing-candidate-${System.nanoTime()}")
-                shouldThrow<WorkspaceCandidateValidationException> {
+                shouldThrow<EngineCommandFailureException> {
                     probe.validate(StorageLocation(missing.absolutePath))
-                }.code shouldBe "workspace_root_unavailable"
+                }.failure.code shouldBe "workspace_root_unavailable"
             }
         }
 
@@ -109,9 +110,9 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
                     context = mockk<Context>(),
                     isContentUri = { false },
                 )
-                shouldThrow<WorkspaceCandidateValidationException> {
+                shouldThrow<EngineCommandFailureException> {
                     probe.validate(StorageLocation(proc.absolutePath))
-                }.code shouldBe "workspace_root_unwritable"
+                }.failure.code shouldBe "workspace_root_unwritable"
             }
         }
 
@@ -130,9 +131,9 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
                         isContentUri = { it.startsWith("content://") },
                     )
                 try {
-                    shouldThrow<WorkspaceCandidateValidationException> {
+                    shouldThrow<EngineCommandFailureException> {
                         probe.validate(StorageLocation(raw))
-                    }.code shouldBe "saf_grant_revoked"
+                    }.failure.code shouldBe "saf_grant_revoked"
                 } finally {
                     unmockkStatic(Uri::class)
                 }

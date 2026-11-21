@@ -45,6 +45,14 @@ enum class EngineRetryDisposition(val wireValue: String) {
     }
 }
 
+enum class WorkspaceFailureStage(val wireValue: String) {
+    GRANT("workspace.grant"),
+    VALIDATE("workspace.validate"),
+    PROBE("workspace.probe"),
+    OPEN("workspace.open"),
+    INDEX("workspace.index"),
+}
+
 /**
  * One structured engine rejection.
  *
@@ -60,6 +68,7 @@ data class EngineCommandFailure(
     val operationId: String?,
     val jobId: String?,
     val diagnostic: String,
+    val workspaceStage: WorkspaceFailureStage? = null,
 ) {
     init {
         require(code.isNotBlank()) { "Engine failure code must not be blank" }

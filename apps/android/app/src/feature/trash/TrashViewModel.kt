@@ -14,6 +14,7 @@ import com.lomo.app.feature.common.memoPager
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.MemoTrashUseCase
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.stateIn
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TrashViewModel(
+    diagnostics: EngineDiagnosticsRecorder,
     memoTrashUseCase: MemoTrashUseCase,
     appConfigStateProvider: AppConfigStateProvider,
     imageMapProvider: ImageMapProvider,
@@ -88,6 +90,7 @@ class TrashViewModel(
 
     private val actionStateHolder =
         MemoCollectionActionStateHolder(
+            diagnostics = diagnostics,
             capabilities =
             MemoCollectionCapabilities.Trash(
                 restoreMemo = memoTrashUseCase::restoreMemo,

@@ -20,6 +20,7 @@ import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.DraftId
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.GetMemosByTagPageUseCase
@@ -46,6 +47,7 @@ sealed interface TagFilterScreenState {
 
 /** Collaborators of the tag-filter screen; the route handle stays a separate view-model input. */
 data class TagFilterViewModelDependencies(
+    val diagnostics: EngineDiagnosticsRecorder,
     val getMemosByTagPageUseCase: GetMemosByTagPageUseCase,
     val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
     val appConfigStateProvider: AppConfigStateProvider,
@@ -126,6 +128,7 @@ class TagFilterViewModel(dependencies: TagFilterViewModelDependencies, savedStat
 
     private val actionStateHolder =
         MemoCollectionActionStateHolder(
+            diagnostics = dependencies.diagnostics,
             capabilities =
             MemoCollectionCapabilities.Editable(
                 deleteMemo = deleteMemoUseCase::invoke,

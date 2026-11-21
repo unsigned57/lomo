@@ -41,15 +41,30 @@ package com.lomo.data.engine
  *   Direct has a real grant, not a sentinel token or an unbound path.
  */
 
+import com.lomo.data.repository.StoreInvalidationBus
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.EngineReadiness
 import com.lomo.nativebridge.EngineError
+import com.lomo.nativebridge.EngineFailure
+import com.lomo.nativebridge.EngineState
+import com.lomo.nativebridge.JobStep
+import com.lomo.nativebridge.LanServicePhaseDto
+import com.lomo.nativebridge.LanServiceSnapshotDto
+import com.lomo.nativebridge.LomoEngine
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionBatch
+import com.lomo.nativebridge.SessionOpenResult
+import com.lomo.nativebridge.ShutdownOutcome
 import com.lomo.nativebridge.WorkspaceTarget
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkObject
 import java.io.File
+import java.util.concurrent.Executors
 
 class BoltFfiNativeEngineFactoryTest : DataFunSpec() {
     init {
@@ -152,6 +167,90 @@ class BoltFfiNativeEngineFactoryTest : DataFunSpec() {
             error.failure.code shouldBe "platform_batch_host_error"
             error.failure.jobId shouldBe "job-boundary"
             error.failure.diagnostic shouldContain "provider exploded"
+        }
+
+        test("given a rejected SAF probe when opening its workspace then the original rejection reaches the caller") {
+            val filesDir = kotlin.io.path.createTempDirectory("lomo-engine-saf-refusal").toFile()
+            val readExecutor = Executors.newSingleThreadExecutor()
+            try {
+                val grant = CapabilityRegistry().register(treeUri = "content://com.example/tree/notes")
+                val request = NativeEngineOpenRequest.forAppFilesDir(filesDir).copy(
+                    workspace = NativeWorkspaceSelection.Saf(grant),
+                    dateFormat = "yyyy_MM_dd",
+                )
+                val executor = AndroidPlatformActionExecutor(
+                    access = PlatformActionAccess { error("The probe has already failed") },
+                    currentTimeMillis = { 1_000L },
+                    readExecutor = readExecutor,
+                )
+                val engine = mockk<LomoEngine>()
+                every { engine.state() } returnsMany listOf(EngineState.Opening("job-1"), EngineState.Ready(0uL, 1uL))
+                every { engine.pollJob("job-1") } returns JobStep.Failed(
+                    EngineFailure("permission", "saf_grant_revoked", "after_user_action", null, "job-1", ""),
+                )
+                every { engine.stopLanService() } returns LanServiceSnapshotDto(LanServicePhaseDto.STOPPED, null)
+                every { engine.shutdown(any()) } returns ShutdownOutcome.COMPLETED
+                every { engine.close() } returns Unit
+
+                mockkObject(LomoEngine.Companion) {
+                    every { LomoEngine.open(any()) } returns engine
+                    val failure = shouldThrow<EngineCommandFailureException> {
+                        BoltFfiNativeEngineFactory.openAdapter(request, executor, StoreInvalidationBus()).use { }
+                    }
+                    failure.failure.code shouldBe "saf_grant_revoked"
+                    failure.failure.jobId shouldBe "job-1"
+                }
+            } finally {
+                readExecutor.shutdownNow()
+                filesDir.deleteRecursively()
+            }
+        }
+
+        test("given a failed native session open when the same workspace is retried then its owner is available") {
+            val filesDir = kotlin.io.path.createTempDirectory("lomo-engine-retry").toFile()
+            val readExecutor = Executors.newSingleThreadExecutor()
+            try {
+                val grant = CapabilityRegistry().registerDirect(rootPath = filesDir)
+                val request = NativeEngineOpenRequest.forAppFilesDir(filesDir).copy(
+                    workspace = NativeWorkspaceSelection.Direct(grant),
+                    dateFormat = "yyyy_MM_dd",
+                )
+                val executor = AndroidPlatformActionExecutor(
+                    access = PlatformActionAccess { error("Direct bootstrap needs no platform action") },
+                    currentTimeMillis = { 1_000L },
+                    readExecutor = readExecutor,
+                )
+                val engine = mockk<LomoEngine>()
+                var locked = false
+                every { engine.state() } returns EngineState.Ready(0uL, 1uL)
+                every { engine.openWorkspaceSession(any(), any(), any(), any()) } throws
+                    EngineError.Failure(EngineFailure("resource_limit", "ir_string_too_large", "never", null, null, ""))
+                every { engine.stopLanService() } returns LanServiceSnapshotDto(LanServicePhaseDto.STOPPED, null)
+                every { engine.shutdown(any()) } returns ShutdownOutcome.COMPLETED
+                every { engine.close() } answers { locked = false }
+
+                mockkObject(LomoEngine.Companion) {
+                    every { LomoEngine.open(any()) } answers {
+                        check(!locked) { "workspace owner is still locked" }
+                        locked = true
+                        engine
+                    }
+                    val invalidation = StoreInvalidationBus()
+                    val failure = shouldThrow<EngineCommandFailureException> {
+                        BoltFfiNativeEngineFactory.openAdapter(request, executor, invalidation)
+                    }
+                    failure.failure.code shouldBe "ir_string_too_large"
+
+                    every { engine.openWorkspaceSession(any(), any(), any(), any()) } returns
+                        SessionOpenResult(deviceId = "device", projectionRevision = 1uL, projectionVerified = true)
+                    BoltFfiNativeEngineFactory.openAdapter(request, executor, invalidation).use { adapter ->
+                        adapter.readiness.value shouldBe EngineReadiness.Ready
+                    }
+                }
+            } finally {
+                readExecutor.shutdownNow()
+                filesDir.deleteRecursively()
+            }
         }
     }
 }

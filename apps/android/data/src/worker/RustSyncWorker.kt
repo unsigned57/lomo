@@ -230,16 +230,6 @@ class RustSyncWorker(
 
         fun cancelTargets(): List<String> = listOf(WORK_NAME, ONESHOT_WORK_NAME, DEFERRED_WORK_NAME)
 
-        fun mapRetryHint(
-            hint: RemoteSyncRetryHint,
-            runAttemptCount: Int = 0,
-            maxAttempts: Int = com.lomo.data.sync.REMOTE_AUTO_SYNC_RETRY_POLICY.maxAttempts,
-        ): ListenableWorker.Result = RustSyncRetryPolicy.workResult(
-            hint = hint,
-            runAttemptCount = runAttemptCount,
-            maxAttempts = maxAttempts,
-        )
-
         fun inputData(
             workspaceRoot: String,
             backendKind: String,

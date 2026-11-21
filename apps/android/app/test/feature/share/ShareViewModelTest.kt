@@ -46,6 +46,7 @@ import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.collectWhileSubscribed
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeLanShareService
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.LanShareRuntimeState
@@ -150,6 +151,7 @@ class ShareViewModelTest : AppFunSpec() {
         test("missing share payload exposes operationError") {
             runTest {
                 val viewModel = ShareViewModel(
+                    diagnostics = FakeEngineDiagnosticsRecorder(),
                     lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                     extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                     shareErrorPolicy = shareErrorPolicy,
@@ -163,6 +165,7 @@ class ShareViewModelTest : AppFunSpec() {
         test("legacy memo content is used when payload store misses key") {
             runTest {
                 val viewModel = ShareViewModel(
+                    diagnostics = FakeEngineDiagnosticsRecorder(),
                     lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                     extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                     shareErrorPolicy = shareErrorPolicy,
@@ -305,6 +308,7 @@ class ShareViewModelTest : AppFunSpec() {
         test("sendMemo with blank content keeps unavailable error and skips send pipeline") {
             runTest {
                 val viewModel = ShareViewModel(
+                    diagnostics = FakeEngineDiagnosticsRecorder(),
                     lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                     extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                     shareErrorPolicy = shareErrorPolicy,
@@ -396,6 +400,7 @@ class ShareViewModelTest : AppFunSpec() {
     private fun TestScope.createViewModel(savedStateHandle: SavedStateHandle): ShareViewModel {
         val viewModel =
             ShareViewModel(
+                diagnostics = FakeEngineDiagnosticsRecorder(),
                 lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                 extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                 shareErrorPolicy = shareErrorPolicy,

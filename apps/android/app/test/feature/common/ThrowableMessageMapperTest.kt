@@ -31,11 +31,14 @@
 
 package com.lomo.app.feature.common
 
+import com.lomo.app.feature.settings.recentDiagnosticsReport
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.domain.model.EngineCommandFailure
 import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.WorkspaceFailureStage
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
@@ -52,8 +55,8 @@ class ThrowableMessageMapperTest : AppFunSpec() {
         test("falls back when throwable message is blank") {
             val throwable = IllegalStateException("")
 
-            (throwable.toUserMessage("Failed")) shouldBe ("Failed")
-            (throwable.toUserMessage()) shouldBe ("Unexpected error")
+            (throwable.toUserMessage("Failed")) shouldBe ("Failed: unexpected_error")
+            (throwable.toUserMessage()) shouldBe ("unexpected_error")
         }
 
         test("sanitizer path is preferred when provided") {
@@ -106,6 +109,29 @@ class ThrowableMessageMapperTest : AppFunSpec() {
 
             message shouldContain "sqlite_error"
             message shouldNotContain "/storage/emulated/0"
+        }
+
+        test("a wrapped workspace refusal keeps its code and stage in the copied report") {
+            val recorder = FakeEngineDiagnosticsRecorder()
+            val rejection = EngineCommandFailureException(
+                EngineCommandFailure(
+                    category = EngineFailureCategory.PERMISSION,
+                    code = "saf_grant_revoked",
+                    retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                    operationId = "private-operation",
+                    jobId = "private-job",
+                    diagnostic = "The folder content://example/tree/private was revoked",
+                    workspaceStage = WorkspaceFailureStage.PROBE,
+                ),
+            )
+            val error = IllegalStateException("Opening failed", rejection)
+
+            recorder.recordApplicationFailure("settings.storage", error)
+
+            error.toUserMessage("Could not open folder") shouldBe "Could not open folder: saf_grant_revoked"
+            recentDiagnosticsReport(recorder.events.value, "2.0.0", 37) shouldBe
+                "lomo_diagnostics_v1\napp_version=2.0.0\nandroid_sdk=37\n" +
+                "settings.storage · rejected · saf_grant_revoked · permission · retry=after_user_action · stage=workspace.probe\n"
         }
     }
 }

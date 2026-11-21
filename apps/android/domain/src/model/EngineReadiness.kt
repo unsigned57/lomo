@@ -20,6 +20,8 @@ sealed interface EngineReadiness {
         val code: String,
         val retryDisposition: EngineRetryDisposition,
         val diagnostic: String,
+        val workspaceStage: WorkspaceFailureStage? = null,
+        val retryLocation: StorageLocation? = null,
     ) : EngineReadiness
 
     data object ShuttingDown : EngineReadiness
@@ -90,6 +92,7 @@ fun EngineReadiness.ReadOnlyRecovery.toDiagnosticReport(
             appendLine("category=${category.wireValue}")
             appendLine("code=$code")
             appendLine("retry=${retryDisposition.wireValue}")
+            workspaceStage?.let { appendLine("stage=${it.wireValue}") }
             appendLine("workspace_kind=$workspace")
         },
     )

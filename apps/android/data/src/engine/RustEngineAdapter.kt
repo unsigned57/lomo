@@ -314,8 +314,9 @@ internal class RustEngineAdapter private constructor(
         projection: com.lomo.nativebridge.StoreSafMemoProjection,
     ): com.lomo.nativebridge.StoreMemoCommit = native.commitWorkspaceDocumentFacts(command, projection)
 
-    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
-        native.startRebuild(batchSize)
+    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult = withEngineFailureConversion(
+        com.lomo.domain.model.WorkspaceFailureStage.INDEX,
+    ) { native.startRebuild(batchSize) }
 
     override fun stageMedia(
         mediaRoot: String,

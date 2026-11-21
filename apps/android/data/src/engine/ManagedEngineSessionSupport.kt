@@ -1,6 +1,7 @@
 package com.lomo.data.engine
 
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.WorkspaceFailureStage
 
 /** Releases a candidate that will never be published, reporting its close failure on [primary]. */
 internal fun releaseCandidate(
@@ -24,14 +25,13 @@ internal fun rejectWorkspaceCandidate(
     throw failure
 }
 
-/**
- * Soft workspace activation failure: candidate opened but never reached Ready.
- * Carries structured recovery so cold-restore can freeze authority without promoting the candidate.
- */
-class WorkspaceActivationException(val recovery: EngineReadiness.ReadOnlyRecovery) :
-    IllegalStateException(
-        "Workspace activation did not reach Ready (${recovery.code}): ${recovery.diagnostic}",
-    )
+internal fun EngineReadiness.ReadOnlyRecovery.toActivationFailure() = engineCommandFailure(
+    category = category,
+    code = code,
+    retryDisposition = retryDisposition,
+    diagnostic = diagnostic,
+    stage = workspaceStage ?: WorkspaceFailureStage.OPEN,
+)
 
 internal fun SafMemoProjectionSnapshot.toBridge(): com.lomo.nativebridge.StoreSafMemoProjection =
     com.lomo.nativebridge.StoreSafMemoProjection(

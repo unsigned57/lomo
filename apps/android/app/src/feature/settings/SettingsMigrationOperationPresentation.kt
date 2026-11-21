@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
+import com.lomo.app.feature.common.failureExplanation
 
 @Composable
 internal fun HandleMigrationOperationState(
@@ -15,9 +16,17 @@ internal fun HandleMigrationOperationState(
     val message =
         when (operationState) {
             SettingsMigrationOperationState.Idle -> null
+
             is SettingsMigrationOperationState.Running -> null
+
             is SettingsMigrationOperationState.Success -> migrationSuccessMessage(operationState)
-            is SettingsMigrationOperationState.Error -> operationState.message
+
+            is SettingsMigrationOperationState.Error ->
+                stringResource(
+                    R.string.failure_with_code,
+                    failureExplanation(operationState.code) ?: stringResource(R.string.failure_migration),
+                    operationState.code,
+                )
         }
     LaunchedEffect(operationState) {
         if (message != null) {

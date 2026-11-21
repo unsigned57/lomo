@@ -2,6 +2,7 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.ui.text.font.FontFamily
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.preferences.CustomFontHost
 import com.lomo.app.feature.preferences.CustomFontStatus
 import com.lomo.app.feature.update.AppUpdateChecker
@@ -454,7 +455,7 @@ class SettingsSystemFeatureViewModel(
                             }
                         },
                         onFailure = { throwable ->
-                            SettingsManualUpdateState.Error(throwable.message)
+                            SettingsManualUpdateState.Error(throwable.toUserMessage())
                         },
                     )
         }
@@ -486,7 +487,7 @@ class SettingsSystemFeatureViewModel(
                             }
                         },
                         onFailure = { throwable ->
-                            _manualUpdateState.value = SettingsManualUpdateState.Error(throwable.message)
+                            _manualUpdateState.value = SettingsManualUpdateState.Error(throwable.toUserMessage())
                         },
                     )
             }.also { launchedJob ->

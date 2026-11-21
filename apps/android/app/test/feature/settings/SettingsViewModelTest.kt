@@ -26,6 +26,7 @@ import com.lomo.app.testing.fakes.FakeAppRuntimeInfoRepository
 import com.lomo.app.testing.fakes.FakeAppUpdateDownloadRepository
 import com.lomo.app.testing.fakes.FakeCredentialRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.app.testing.fakes.FakeLanShareService
 import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
@@ -340,6 +341,7 @@ class SettingsViewModelTest : AppFunSpec() {
                 customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(FakeCustomFontStore()),
                 engineReadinessRepository = FakeEngineReadinessRepository(),
                 syncInboxRepository = FakeSyncInboxRepository(),
+                diagnostics = FakeEngineDiagnosticsRecorder(),
             ),
         ),
         exportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(migrationRepository),

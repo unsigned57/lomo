@@ -315,14 +315,14 @@ fun AboutSettingsSection(
                     onClick = onPreviewDebugUpdate,
                 )
             }
-            item {
-                PreferenceItem(
-                    title = stringResource(R.string.settings_debug_engine_diagnostics),
-                    subtitle = stringResource(R.string.settings_debug_engine_diagnostics_subtitle),
-                    icon = LomoIcons.Info,
-                    onClick = { showEngineDiagnostics = true },
-                )
-            }
+        }
+        item {
+            PreferenceItem(
+                title = stringResource(R.string.settings_engine_diagnostics),
+                subtitle = stringResource(R.string.settings_engine_diagnostics_subtitle),
+                icon = LomoIcons.Info,
+                onClick = { showEngineDiagnostics = true },
+            )
         }
         item {
             PreferenceItem(
@@ -334,7 +334,10 @@ fun AboutSettingsSection(
         }
     }
     if (showEngineDiagnostics) {
-        EngineDiagnosticsDialog(onDismiss = { showEngineDiagnostics = false })
+        EngineDiagnosticsDialog(
+            appVersion = state.currentVersion,
+            onDismiss = { showEngineDiagnostics = false },
+        )
     }
 }
 
