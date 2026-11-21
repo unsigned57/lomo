@@ -1,5 +1,6 @@
 package com.lomo.app.feature.settings
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -12,22 +13,24 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedListItem
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import com.lomo.app.R
 import com.lomo.domain.model.ThemeMode
 import com.lomo.ui.component.common.LomoModalBottomSheet
 import com.lomo.ui.component.common.LomoSheetTokens
+import com.lomo.ui.component.common.rememberModalSheetPresentation
 import com.lomo.ui.component.settings.SwitchPreferenceItem
 import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
 
@@ -45,34 +48,19 @@ internal fun ThemePreferenceDialog(
 ) {
     if (!visible) return
 
+    val presentation = rememberModalSheetPresentation()
     val haptic = LocalAppHapticFeedback.current
     val colorScheme = MaterialTheme.colorScheme
-    val unselectedColors =
-        ListItemDefaults.segmentedColors(
-            containerColor = LomoSheetTokens.tileSurfaceColor(colorScheme),
-            contentColor = colorScheme.onSurface,
-        )
-    val selectedColors =
-        ListItemDefaults.segmentedColors(
-            containerColor = colorScheme.secondaryContainer,
-            contentColor = colorScheme.onSecondaryContainer,
-            leadingContentColor = colorScheme.onSecondaryContainer,
-        )
-
-    val sheetState =
-        rememberBottomSheetState(
-            initialValue = SheetValue.Hidden,
-            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-        )
 
     LomoModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
+        sheetState = presentation.sheetState,
     ) {
         Column(
             modifier =
             Modifier
                 .fillMaxWidth()
+                .onSizeChanged(presentation::onContentMeasured)
                 .padding(horizontal = AppSpacing.Medium)
                 .padding(bottom = AppSpacing.ExtraLarge),
         ) {
@@ -87,35 +75,16 @@ internal fun ThemePreferenceDialog(
                 verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
             ) {
                 options.forEachIndexed { index, option ->
-                    val selected = option == currentThemeMode
-                    val baseShape = ListItemDefaults.segmentedShapes(index, options.size).shape
-                    val staticShapes =
-                        ListItemDefaults.shapes(
-                            shape = baseShape,
-                            selectedShape = baseShape,
-                            pressedShape = baseShape,
-                            focusedShape = baseShape,
-                            hoveredShape = baseShape,
-                            draggedShape = baseShape,
-                        )
-                    SegmentedListItem(
-                        selected = selected,
+                    ThemePreferenceOptionRow(
+                        index = index,
+                        count = options.size,
+                        selected = option == currentThemeMode,
+                        label = themeModeLabels[option] ?: option.value,
                         onClick = {
                             haptic.medium()
                             onSelectThemeMode(option)
                         },
-                        shapes = staticShapes,
-                        colors = if (selected) selectedColors else unselectedColors,
-                        leadingContent = {
-                            RadioButton(selected = selected, onClick = null)
-                        },
-                    ) {
-                        Text(
-                            text = themeModeLabels[option] ?: option.value,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                    }
+                    )
                 }
             }
 
@@ -135,5 +104,57 @@ internal fun ThemePreferenceDialog(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ThemePreferenceOptionRow(index: Int, count: Int, selected: Boolean, label: String, onClick: () -> Unit) {
+    val colorScheme = MaterialTheme.colorScheme
+    val componentMotion = LocalLomoMotion.current.component
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) colorScheme.secondaryContainer else LomoSheetTokens.tileSurfaceColor(colorScheme),
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ThemeOptionContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) colorScheme.onSecondaryContainer else colorScheme.onSurface,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ThemeOptionContent",
+    )
+    val leadingColor by animateColorAsState(
+        targetValue = if (selected) colorScheme.onSecondaryContainer else colorScheme.onSurfaceVariant,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ThemeOptionLeading",
+    )
+    val baseShape = ListItemDefaults.segmentedShapes(index, count).shape
+    val shapes =
+        ListItemDefaults.shapes(
+            shape = baseShape,
+            selectedShape = baseShape,
+            pressedShape = LomoSheetTokens.TilePressedShape,
+            focusedShape = baseShape,
+            hoveredShape = baseShape,
+            draggedShape = baseShape,
+        )
+    SegmentedListItem(
+        selected = selected,
+        onClick = onClick,
+        shapes = shapes,
+        colors =
+        ListItemDefaults.segmentedColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+            leadingContentColor = leadingColor,
+        ),
+        leadingContent = {
+            RadioButton(selected = selected, onClick = null)
+        },
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        )
     }
 }

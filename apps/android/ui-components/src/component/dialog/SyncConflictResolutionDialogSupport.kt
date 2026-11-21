@@ -1,20 +1,23 @@
 package com.lomo.ui.component.dialog
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonShapes
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,6 +27,8 @@ import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.supportsDeferredConflictResolution
 import com.lomo.domain.model.supportsDeferredReviewResolution
+import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.component.common.lomoCompactInteractiveHeight
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.sync_conflict_choice_current_short
 import com.lomo.ui.generated.resources.sync_conflict_choice_inbox_short
@@ -35,6 +40,8 @@ import com.lomo.ui.generated.resources.sync_conflict_merge_preview
 import com.lomo.ui.generated.resources.sync_conflict_review_message
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
+import com.lomo.ui.util.LocalAppHapticFeedback
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -84,6 +91,7 @@ internal fun MergePreview(mergedText: String) {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ChoicePill(
     text: String,
@@ -93,16 +101,33 @@ internal fun ChoicePill(
     selectedContentColor: Color,
     modifier: Modifier = Modifier,
 ) {
-    val backgroundColor = if (selected) selectedColor else Color.Transparent
-    val contentColor = if (selected) selectedContentColor else MaterialTheme.colorScheme.onSurfaceVariant
+    val haptic = LocalAppHapticFeedback.current
+    val componentMotion = LocalLomoMotion.current.component
+    val backgroundColor by animateColorAsState(
+        targetValue = if (selected) selectedColor else Color.Transparent,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ConflictChoicePillContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) selectedContentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ConflictChoicePillContent",
+    )
 
-    Box(
-        modifier = modifier
-            .clip(AppShapes.Medium)
-            .background(backgroundColor)
-            .clickable { onClick() }
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center,
+    LomoFilledTonalButton(
+        onClick = {
+            haptic.medium()
+            onClick()
+        },
+        modifier = modifier.lomoCompactInteractiveHeight(40.dp),
+        shapes = ButtonShapes(shape = AppShapes.Medium, pressedShape = AppShapes.Small),
+        colors =
+        ButtonDefaults.filledTonalButtonColors(
+            containerColor = backgroundColor,
+            contentColor = contentColor,
+        ),
+        elevation = null,
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
     ) {
         Text(
             text = text,

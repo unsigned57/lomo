@@ -1,7 +1,7 @@
 package com.lomo.app.feature.main
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,6 +14,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -26,10 +27,13 @@ import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.component.common.LomoButtonDefaults
 import com.lomo.ui.component.common.LomoFilledTonalButton
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.component.common.LomoSheetTokens
+import com.lomo.ui.component.common.LomoStateContent
 import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.icon.LomoIconSpec
 import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
 import java.time.LocalDate
 
@@ -193,7 +197,23 @@ internal fun MainMemoDateRangeSection(
 
 @Composable
 internal fun MainMemoDateFieldContent(label: String, value: String, hasValue: Boolean) {
+    val componentMotion = LocalLomoMotion.current.component
     val colors = mainMemoDateFieldColors(hasValue = hasValue, colorScheme = MaterialTheme.colorScheme)
+    val iconColor by animateColorAsState(
+        targetValue = colors.iconColor,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "MemoDateFieldIcon",
+    )
+    val labelColor by animateColorAsState(
+        targetValue = colors.labelColor,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "MemoDateFieldLabel",
+    )
+    val valueColor by animateColorAsState(
+        targetValue = colors.valueColor,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "MemoDateFieldValue",
+    )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
@@ -201,32 +221,34 @@ internal fun MainMemoDateFieldContent(label: String, value: String, hasValue: Bo
         LomoIcon(
             icon = LomoIcons.CalendarMonth,
             contentDescription = null,
-            tint = colors.iconColor,
+            tint = iconColor,
             modifier = Modifier.size(20.dp),
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = colors.labelColor,
+            color = labelColor,
             textAlign = TextAlign.Center,
         )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.valueColor,
-            textAlign = TextAlign.Center,
-        )
+        LomoStateContent(
+            state = value,
+            contentKey = { it },
+        ) { animatedValue ->
+            Text(
+                text = animatedValue,
+                style = MaterialTheme.typography.bodySmall,
+                color = valueColor,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
 @Composable
-internal fun BoxScope.MainMemoDateFieldClearAction(onClear: () -> Unit) {
+internal fun MainMemoDateFieldClearAction(onClear: () -> Unit, modifier: Modifier = Modifier) {
     LomoIconButton(
         onClick = onClear,
-        modifier =
-        Modifier
-            .size(24.dp)
-            .align(Alignment.TopEnd),
+        modifier = modifier.size(24.dp),
     ) {
         val colors = mainMemoDateFieldColors(hasValue = true, colorScheme = MaterialTheme.colorScheme)
         LomoIcon(
@@ -287,18 +309,28 @@ private fun ContentFlagTile(
     modifier: Modifier = Modifier,
 ) {
     val haptic = LocalAppHapticFeedback.current
-    val containerColor =
+    val componentMotion = LocalLomoMotion.current.component
+    val colorScheme = MaterialTheme.colorScheme
+    val containerColor by animateColorAsState(
+        targetValue =
         when (value) {
-            true -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
-            false -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
-            null -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        }
-    val contentColor =
+            true -> colorScheme.secondaryContainer
+            false -> colorScheme.errorContainer
+            null -> LomoSheetTokens.tileSurfaceColor(colorScheme)
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "MemoContentFlagContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue =
         when (value) {
-            true -> MaterialTheme.colorScheme.onSecondaryContainer
-            false -> MaterialTheme.colorScheme.onErrorContainer
-            null -> MaterialTheme.colorScheme.onSurfaceVariant
-        }
+            true -> colorScheme.onSecondaryContainer
+            false -> colorScheme.onErrorContainer
+            null -> colorScheme.onSurfaceVariant
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "MemoContentFlagContent",
+    )
     val stateLabelRes =
         when (value) {
             true -> R.string.main_filter_content_state_required
@@ -335,15 +367,21 @@ private fun ContentFlagTile(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (stateLabelRes != null) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(stateLabelRes),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = contentColor,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            LomoStateContent(
+                state = stateLabelRes,
+                contentKey = { it ?: "unselected" },
+            ) { labelRes ->
+                if (labelRes != null) {
+                    Text(
+                        text = stringResource(labelRes),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        minLines = 1,
+                        color = contentColor,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }

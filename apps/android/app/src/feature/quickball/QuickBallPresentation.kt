@@ -1,7 +1,12 @@
 package com.lomo.app.feature.quickball
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +43,7 @@ import com.lomo.ui.component.common.LomoButtonDefaults
 import com.lomo.ui.component.common.LomoFilledTonalButton
 import com.lomo.ui.component.common.LomoModalBottomSheet
 import com.lomo.ui.component.common.LomoSheetTokens
+import com.lomo.ui.component.common.LomoStateContent
 import com.lomo.ui.component.common.rememberModalSheetPresentation
 import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.icon.LomoIconSpec
@@ -216,27 +222,32 @@ private fun QuickBallSheetHeader(title: String, selectedAction: QuickBallAction?
             modifier = Modifier.weight(1f),
         )
         if (selectedAction != null) {
-            Surface(
-                shape = AppShapes.Full,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = AppSpacing.Small, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+            LomoStateContent(
+                state = selectedAction,
+                contentKey = { it },
+            ) { currentAction ->
+                Surface(
+                    shape = AppShapes.Full,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
-                    LomoIcon(
-                        icon = selectedAction.icon(),
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                    Text(
-                        text = stringResource(selectedAction.labelRes()),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = AppSpacing.Small, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        LomoIcon(
+                            icon = currentAction.icon(),
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        Text(
+                            text = stringResource(currentAction.labelRes()),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
         }
@@ -326,21 +337,36 @@ private fun QuickBallActionTile(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            if (isSelectionMode && selected) {
-                Surface(
-                    shape = CircleShape,
-                    color = contentColor.copy(alpha = 0.14f),
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        LomoIcon(
-                            icon = LomoIcons.Check,
-                            contentDescription = stringResource(R.string.quick_ball_selected),
-                            tint = contentColor,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                }
+            QuickBallActionSelectedBadge(
+                visible = isSelectionMode && selected,
+                contentColor = contentColor,
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickBallActionSelectedBadge(visible: Boolean, contentColor: androidx.compose.ui.graphics.Color) {
+    val componentMotion = LocalLomoMotion.current.component
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(componentMotion.fastEffectsSpec()) +
+            scaleIn(initialScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()),
+        exit = fadeOut(componentMotion.fastEffectsSpec()) +
+            scaleOut(targetScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()),
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = contentColor.copy(alpha = 0.14f),
+            modifier = Modifier.size(24.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                LomoIcon(
+                    icon = LomoIcons.Check,
+                    contentDescription = stringResource(R.string.quick_ball_selected),
+                    tint = contentColor,
+                    modifier = Modifier.size(14.dp),
+                )
             }
         }
     }

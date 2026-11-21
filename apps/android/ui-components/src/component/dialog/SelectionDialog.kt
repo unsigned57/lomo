@@ -1,5 +1,6 @@
 package com.lomo.ui.component.dialog
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,12 +16,16 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.component.common.LomoModalBottomSheet
 import com.lomo.ui.component.common.LomoSheetTokens
+import com.lomo.ui.component.common.rememberModalSheetPresentation
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 import kotlinx.collections.immutable.ImmutableList
 
 /**
@@ -39,27 +44,18 @@ fun <T> SelectionDialog(
     modifier: Modifier = Modifier,
     labelProvider: (T) -> String = { it.toString() },
 ) {
+    val presentation = rememberModalSheetPresentation()
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    val colorScheme = MaterialTheme.colorScheme
-    val unselectedColors =
-        ListItemDefaults.segmentedColors(
-            containerColor = LomoSheetTokens.tileSurfaceColor(colorScheme),
-            contentColor = colorScheme.onSurface,
-        )
-    val selectedColors =
-        ListItemDefaults.segmentedColors(
-            containerColor = colorScheme.secondaryContainer,
-            contentColor = colorScheme.onSecondaryContainer,
-            leadingContentColor = colorScheme.onSecondaryContainer,
-        )
     LomoModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = presentation.sheetState,
         modifier = modifier,
     ) {
         Column(
             modifier =
             Modifier
                 .fillMaxWidth()
+                .onSizeChanged(presentation::onContentMeasured)
                 .padding(horizontal = AppSpacing.Medium)
                 .padding(bottom = AppSpacing.ExtraLarge),
         ) {
@@ -76,38 +72,71 @@ fun <T> SelectionDialog(
                 verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
             ) {
                 itemsIndexed(options) { index, option ->
-                    val selected = option == currentSelection
-                    val baseShape = ListItemDefaults.segmentedShapes(index, options.size).shape
-                    val staticShapes =
-                        ListItemDefaults.shapes(
-                            shape = baseShape,
-                            selectedShape = baseShape,
-                            pressedShape = baseShape,
-                            focusedShape = baseShape,
-                            hoveredShape = baseShape,
-                            draggedShape = baseShape,
-                        )
-                    SegmentedListItem(
-                        selected = selected,
+                    SelectionSheetOptionRow(
+                        index = index,
+                        count = options.size,
+                        selected = option == currentSelection,
+                        label = labelProvider(option),
                         onClick = {
                             haptic.medium()
                             onSelect(option)
                         },
-                        shapes = staticShapes,
-                        colors = if (selected) selectedColors else unselectedColors,
-                        leadingContent = {
-                            RadioButton(selected = selected, onClick = null)
-                        },
-                    ) {
-                        Text(
-                            text = labelProvider(option),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                    }
+                    )
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SelectionSheetOptionRow(index: Int, count: Int, selected: Boolean, label: String, onClick: () -> Unit) {
+    val colorScheme = MaterialTheme.colorScheme
+    val componentMotion = LocalLomoMotion.current.component
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) colorScheme.secondaryContainer else LomoSheetTokens.tileSurfaceColor(colorScheme),
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "SelectionOptionContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) colorScheme.onSecondaryContainer else colorScheme.onSurface,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "SelectionOptionContent",
+    )
+    val leadingColor by animateColorAsState(
+        targetValue = if (selected) colorScheme.onSecondaryContainer else colorScheme.onSurfaceVariant,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "SelectionOptionLeading",
+    )
+    val baseShape = ListItemDefaults.segmentedShapes(index, count).shape
+    val shapes =
+        ListItemDefaults.shapes(
+            shape = baseShape,
+            selectedShape = baseShape,
+            pressedShape = LomoSheetTokens.TilePressedShape,
+            focusedShape = baseShape,
+            hoveredShape = baseShape,
+            draggedShape = baseShape,
+        )
+    SegmentedListItem(
+        selected = selected,
+        onClick = onClick,
+        shapes = shapes,
+        colors =
+        ListItemDefaults.segmentedColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+            leadingContentColor = leadingColor,
+        ),
+        leadingContent = {
+            RadioButton(selected = selected, onClick = null)
+        },
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        )
     }
 }
 

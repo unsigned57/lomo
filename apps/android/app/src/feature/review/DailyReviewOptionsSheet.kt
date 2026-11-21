@@ -1,5 +1,11 @@
 package com.lomo.app.feature.review
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,6 +45,7 @@ import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
 
 /**
@@ -130,20 +137,7 @@ internal fun DailyReviewOptionsSheet(
                     commitChange(newFilter = filter.copy(endDate = null))
                 },
             )
-            if (!datesValid) {
-                Surface(
-                    shape = AppShapes.Medium,
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = stringResource(R.string.review_invalid_dates),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
-                    )
-                }
-            }
+            DailyReviewInvalidDatesBanner(visible = !datesValid)
         }
     }
     MainMemoDatePickerHost(
@@ -156,8 +150,42 @@ internal fun DailyReviewOptionsSheet(
 }
 
 @Composable
+private fun DailyReviewInvalidDatesBanner(visible: Boolean) {
+    val layoutMotion = LocalLomoMotion.current.layout
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(layoutMotion.defaultSpatialSpec()) + fadeIn(layoutMotion.defaultEffectsSpec()),
+        exit = shrinkVertically(layoutMotion.defaultSpatialSpec()) + fadeOut(layoutMotion.fastEffectsSpec()),
+    ) {
+        Surface(
+            shape = AppShapes.Medium,
+            color = MaterialTheme.colorScheme.errorContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = stringResource(R.string.review_invalid_dates),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
+            )
+        }
+    }
+}
+
+@Composable
 private fun DailyReviewFilterHeader(isModified: Boolean, onReset: () -> Unit) {
     val haptic = LocalAppHapticFeedback.current
+    val componentMotion = LocalLomoMotion.current.component
+    val resetContentColor by animateColorAsState(
+        targetValue =
+        if (isModified) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "DailyReviewResetContent",
+    )
     Row(
         modifier =
         Modifier
@@ -188,15 +216,7 @@ private fun DailyReviewFilterHeader(isModified: Boolean, onReset: () -> Unit) {
                 haptic.medium()
                 onReset()
             },
-            colors =
-            ButtonDefaults.textButtonColors(
-                contentColor =
-                if (isModified) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            ),
+            colors = ButtonDefaults.textButtonColors(contentColor = resetContentColor),
         ) {
             Text(
                 text = stringResource(R.string.action_reset),

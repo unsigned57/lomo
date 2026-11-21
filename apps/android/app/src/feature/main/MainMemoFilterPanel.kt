@@ -1,5 +1,11 @@
 package com.lomo.app.feature.main
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +55,7 @@ import com.lomo.ui.icon.LomoIconSpec
 import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
 import java.time.Instant
 import java.time.LocalDate
@@ -74,11 +81,9 @@ internal fun MainMemoFilterSheet(
     var datePickerTarget by rememberSaveable { mutableStateOf<DatePickerTarget?>(null) }
     val hasDateFilter = filter.startDate != null || filter.endDate != null
     val openStartDatePicker = {
-        haptic.medium()
         datePickerTarget = DatePickerTarget.START
     }
     val openEndDatePicker = {
-        haptic.medium()
         datePickerTarget = DatePickerTarget.END
     }
     val clearStartDate = {
@@ -134,6 +139,7 @@ internal fun MainMemoFilterSheet(
 @Composable
 internal fun MainMemoFilterHeader(isFilterActive: Boolean = false, onResetFilter: () -> Unit = {}) {
     val haptic = LocalAppHapticFeedback.current
+    val componentMotion = LocalLomoMotion.current.component
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
@@ -155,7 +161,13 @@ internal fun MainMemoFilterHeader(isFilterActive: Boolean = false, onResetFilter
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f),
         )
-        if (isFilterActive) {
+        AnimatedVisibility(
+            visible = isFilterActive,
+            enter = fadeIn(componentMotion.fastEffectsSpec()) +
+                scaleIn(initialScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()),
+            exit = fadeOut(componentMotion.fastEffectsSpec()) +
+                scaleOut(targetScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()),
+        ) {
             com.lomo.ui.component.common.LomoTextButton(
                 onClick = {
                     haptic.medium()
@@ -174,7 +186,18 @@ internal fun MainMemoDateRangeSectionCard(
     isActive: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val componentMotion = LocalLomoMotion.current.component
     val iconColors = mainMemoDateRangeIconColors(isActive = isActive, colorScheme = MaterialTheme.colorScheme)
+    val animatedContainerColor by animateColorAsState(
+        targetValue = iconColors.containerColor,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "MemoDateRangeContainer",
+    )
+    val animatedIconColor by animateColorAsState(
+        targetValue = iconColors.iconColor,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "MemoDateRangeIcon",
+    )
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = AppSpacing.Small),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
@@ -184,13 +207,13 @@ internal fun MainMemoDateRangeSectionCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    color = iconColors.containerColor,
+                    color = animatedContainerColor,
                     shape = AppShapes.Small,
                 ) {
                     LomoIcon(
                         icon = LomoIcons.CalendarMonth,
                         contentDescription = null,
-                        tint = iconColors.iconColor,
+                        tint = animatedIconColor,
                         modifier = Modifier.padding(AppSpacing.Small),
                     )
                 }
@@ -217,24 +240,25 @@ internal fun MainMemoSortButton(
     onClick: () -> Unit,
 ) {
     val haptic = LocalAppHapticFeedback.current
-    val containerColor by androidx.compose.animation.animateColorAsState(
+    val componentMotion = LocalLomoMotion.current.component
+    val containerColor by animateColorAsState(
         targetValue =
         if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
             LomoSheetTokens.tileSurfaceColor(MaterialTheme.colorScheme)
         },
-        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        animationSpec = componentMotion.fastEffectsSpec(),
         label = "MemoSortContainer",
     )
-    val contentColor by androidx.compose.animation.animateColorAsState(
+    val contentColor by animateColorAsState(
         targetValue =
         if (selected) {
             MaterialTheme.colorScheme.onSecondaryContainer
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        animationSpec = componentMotion.fastEffectsSpec(),
         label = "MemoSortContent",
     )
 
@@ -305,7 +329,13 @@ internal fun MainMemoDateField(
     onClear: () -> Unit,
 ) {
     val haptic = LocalAppHapticFeedback.current
+    val componentMotion = LocalLomoMotion.current.component
     val colors = mainMemoDateFieldColors(hasValue = hasValue, colorScheme = MaterialTheme.colorScheme)
+    val containerColor by animateColorAsState(
+        targetValue = colors.containerColor,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "MemoDateFieldContainer",
+    )
     LomoFilledTonalButton(
         onClick = {
             haptic.medium()
@@ -313,26 +343,44 @@ internal fun MainMemoDateField(
         },
         modifier = modifier,
         shapes = LomoButtonDefaults.cardFieldShapes(),
-        colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.containerColor),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = containerColor),
         contentPadding = PaddingValues(0.dp),
     ) {
-        Box(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = AppSpacing.Small, vertical = AppSpacing.Small),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
-            ) {
-                MainMemoDateFieldContent(label = label, value = value, hasValue = hasValue)
-            }
+        MainMemoDateFieldBody(
+            label = label,
+            value = value,
+            hasValue = hasValue,
+            onClear = onClear,
+        )
+    }
+}
 
-            if (hasValue) {
-                MainMemoDateFieldClearAction(onClear = onClear)
-            }
+@Composable
+private fun MainMemoDateFieldBody(label: String, value: String, hasValue: Boolean, onClear: () -> Unit) {
+    val componentMotion = LocalLomoMotion.current.component
+    Box(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppSpacing.Small, vertical = AppSpacing.Small),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
+        ) {
+            MainMemoDateFieldContent(label = label, value = value, hasValue = hasValue)
+        }
+
+        AnimatedVisibility(
+            visible = hasValue,
+            enter = fadeIn(componentMotion.fastEffectsSpec()) +
+                scaleIn(initialScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()),
+            exit = fadeOut(componentMotion.fastEffectsSpec()) +
+                scaleOut(targetScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()),
+            modifier = Modifier.align(Alignment.TopEnd),
+        ) {
+            MainMemoDateFieldClearAction(onClear = onClear)
         }
     }
 }

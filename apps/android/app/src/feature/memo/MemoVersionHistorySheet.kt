@@ -1,5 +1,11 @@
 package com.lomo.app.feature.memo
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -21,15 +27,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
@@ -45,9 +51,12 @@ import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.common.LomoModalBottomSheet
 import com.lomo.ui.component.common.LomoSheetTokens
 import com.lomo.ui.component.common.LomoTextButton
+import com.lomo.ui.component.common.rememberModalSheetPresentation
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.icon.LomoIcons
+import com.lomo.ui.theme.LocalLomoMotion
+import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
 import java.time.Instant
 import java.time.ZoneId
@@ -72,11 +81,6 @@ internal data class VersionHistoryCardPresentation(
     val highlight: VersionHistoryCardHighlight,
     val isBusy: Boolean,
 )
-
-private fun formatCommitTime(commitTimeMillis: Long): String = Instant
-    .ofEpochMilli(commitTimeMillis)
-    .atZone(ZoneId.systemDefault())
-    .format(VERSION_COMMIT_TIME_FORMATTER)
 
 internal fun resolveVersionHistoryCardPresentation(
     version: MemoRevision,
@@ -114,19 +118,17 @@ internal fun MemoVersionHistorySheet(
     onRestore: (MemoRevision) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-    )
+    val presentation = rememberModalSheetPresentation()
 
     LomoModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
+        sheetState = presentation.sheetState,
     ) {
         Column(
             modifier =
             Modifier
                 .fillMaxWidth()
+                .onSizeChanged(presentation::onContentMeasured)
                 .benchmarkAnchorRoot(BenchmarkAnchorContract.VERSION_HISTORY_ROOT)
                 .padding(horizontal = 20.dp, vertical = 4.dp)
                 .padding(bottom = 24.dp),
@@ -210,10 +212,15 @@ private fun MemoVersionHistoryBody(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(versions, key = { version -> version.revision.revisionId }) { version ->
+                    val formattedTime =
+                        Instant
+                            .ofEpochMilli(version.revision.createdAt)
+                            .atZone(ZoneId.systemDefault())
+                            .format(VERSION_COMMIT_TIME_FORMATTER)
                     VersionTimelineItem(
                         version = version.revision,
                         preview = version.preview,
-                        formattedTime = formatCommitTime(version.revision.createdAt),
+                        formattedTime = formattedTime,
                         isRestoreInProgress = isRestoreInProgress,
                         restoringRevisionId = restoringRevisionId,
                         onRestore = { onRestore(version.revision) },
@@ -271,60 +278,34 @@ private fun VersionTimelineItem(
     restoringRevisionId: String?,
     onRestore: () -> Unit,
 ) {
+    val haptic = LocalAppHapticFeedback.current
+    val componentMotion = LocalLomoMotion.current.component
     val presentation =
         resolveVersionHistoryCardPresentation(
             version = version,
             isRestoreInProgress = isRestoreInProgress,
             restoringRevisionId = restoringRevisionId,
         )
-    val containerColor =
+    val containerColor by animateColorAsState(
+        targetValue =
         if (presentation.highlight == VersionHistoryCardHighlight.Current) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
             LomoSheetTokens.tileSurfaceColor(MaterialTheme.colorScheme)
-        }
-    val topMetaColor =
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "VersionItemContainer",
+    )
+    val topMetaColor by animateColorAsState(
+        targetValue =
         if (presentation.highlight == VersionHistoryCardHighlight.Current) {
             MaterialTheme.colorScheme.onSecondaryContainer
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
-        }
-
-    val content: @Composable () -> Unit = {
-        Column(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
-            ) {
-                Text(
-                    text = formattedTime,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = topMetaColor,
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (presentation.isBusy) {
-                        VersionRestoringBadge()
-                    }
-                    if (version.lifecycleState != MemoRevisionLifecycleState.ACTIVE) {
-                        VersionLifecycleBadge(lifecycleState = version.lifecycleState)
-                    }
-                }
-            }
-            VersionContentPreview(
-                preview = preview,
-            )
-        }
-    }
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "VersionItemMeta",
+    )
 
     when (presentation.interaction) {
         VersionHistoryCardInteraction.Restore -> {
@@ -337,18 +318,24 @@ private fun VersionTimelineItem(
                 colors = CardDefaults.cardColors(containerColor = containerColor),
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
-                    content()
+                    VersionTimelineItemBody(
+                        formattedTime = formattedTime,
+                        topMetaColor = topMetaColor,
+                        isBusy = presentation.isBusy,
+                        lifecycleState = version.lifecycleState,
+                        preview = preview,
+                    )
                     Box(
                         modifier =
                         Modifier
                             .matchParentSize()
                             .clickable(
-                                interactionSource =
-                                remember {
-                                    MutableInteractionSource()
-                                },
+                                interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
-                                onClick = onRestore,
+                                onClick = {
+                                    haptic.medium()
+                                    onRestore()
+                                },
                             ),
                     )
                 }
@@ -364,9 +351,63 @@ private fun VersionTimelineItem(
                 shape = LomoSheetTokens.TileShape,
                 colors = CardDefaults.cardColors(containerColor = containerColor),
             ) {
-                content()
+                VersionTimelineItemBody(
+                    formattedTime = formattedTime,
+                    topMetaColor = topMetaColor,
+                    isBusy = presentation.isBusy,
+                    lifecycleState = version.lifecycleState,
+                    preview = preview,
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun VersionTimelineItemBody(
+    formattedTime: String,
+    topMetaColor: androidx.compose.ui.graphics.Color,
+    isBusy: Boolean,
+    lifecycleState: MemoRevisionLifecycleState,
+    preview: MemoVersionPreview,
+) {
+    val componentMotion = LocalLomoMotion.current.component
+    Column(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text(
+                text = formattedTime,
+                style = MaterialTheme.typography.labelSmall,
+                color = topMetaColor,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AnimatedVisibility(
+                    visible = isBusy,
+                    enter = fadeIn(componentMotion.fastEffectsSpec()) +
+                        scaleIn(initialScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()),
+                    exit = fadeOut(componentMotion.fastEffectsSpec()) +
+                        scaleOut(targetScale = 0.85f, animationSpec = componentMotion.fastSpatialSpec()),
+                ) {
+                    VersionRestoringBadge()
+                }
+                if (lifecycleState != MemoRevisionLifecycleState.ACTIVE) {
+                    VersionLifecycleBadge(lifecycleState = lifecycleState)
+                }
+            }
+        }
+        VersionContentPreview(preview = preview)
     }
 }
 

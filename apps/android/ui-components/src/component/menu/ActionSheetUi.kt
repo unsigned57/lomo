@@ -1,5 +1,6 @@
 package com.lomo.ui.component.menu
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -19,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -33,6 +35,7 @@ import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.info_characters
 import com.lomo.ui.generated.resources.info_created
 import com.lomo.ui.icon.LomoIcon
+import com.lomo.ui.theme.LocalLomoMotion
 import org.jetbrains.compose.resources.stringResource
 
 /** Top row of compact icon-over-label tiles sharing the width equally. */
@@ -65,14 +68,25 @@ internal fun ActionTileRow(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ActionTile(action: ActionItemUi, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val componentMotion = LocalLomoMotion.current.component
     val colors = ActionSheetTokens.tileColors(MaterialTheme.colorScheme, action)
+    val containerColor by animateColorAsState(
+        targetValue = colors.container,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ActionTileContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = colors.content,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ActionTileContent",
+    )
     LomoFilledTonalButton(
         onClick = onClick,
         shapes = ActionSheetTokens.tileShapes(),
         colors =
         ButtonDefaults.filledTonalButtonColors(
-            containerColor = colors.container,
-            contentColor = colors.content,
+            containerColor = containerColor,
+            contentColor = contentColor,
         ),
         contentPadding = PaddingValues(horizontal = ActionSheetTokens.TileContentPadding),
         modifier =
@@ -132,14 +146,25 @@ internal fun ActionCapsuleRow(actions: List<ActionItemUi>, onPerform: (ActionIte
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ActionCapsule(action: ActionItemUi, isInline: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val componentMotion = LocalLomoMotion.current.component
     val colors = ActionSheetTokens.capsuleColors(MaterialTheme.colorScheme, action)
+    val containerColor by animateColorAsState(
+        targetValue = colors.container,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ActionCapsuleContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = colors.content,
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ActionCapsuleContent",
+    )
     LomoFilledTonalButton(
         onClick = onClick,
         shapes = ActionSheetTokens.capsuleShapes(),
         colors =
         ButtonDefaults.filledTonalButtonColors(
-            containerColor = colors.container,
-            contentColor = colors.content,
+            containerColor = containerColor,
+            contentColor = contentColor,
         ),
         contentPadding = PaddingValues(ActionSheetTokens.CapsuleContentPadding),
         modifier =

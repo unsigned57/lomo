@@ -1,9 +1,16 @@
 package com.lomo.app.feature.memo
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,7 +18,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -36,6 +46,8 @@ import com.lomo.app.R
 import com.lomo.domain.model.Recurrence
 import com.lomo.domain.repository.ReminderTokenFactory
 import com.lomo.ui.component.common.LomoFilledIconButton
+import com.lomo.ui.component.common.LomoFilledTonalButton
+import com.lomo.ui.component.common.LomoStateContent
 import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
 import com.lomo.ui.component.picker.ExpressivePickerStep
 import com.lomo.ui.component.picker.ExpressiveSteppedPickerDialog
@@ -44,6 +56,8 @@ import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LocalLomoMotion
+import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.persistentListOf
 import java.time.Instant
 import java.time.LocalDate
@@ -161,38 +175,50 @@ private fun ReminderRepeatPage(
 
         RepeatStepper(value = repeatCount, onValueChanged = onRepeatCountChange)
 
-        if (repeatCount > 1) {
-            Text(
-                text = stringResource(R.string.reminder_dialog_interval_label),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Start),
-            )
-            val intervalLayoutSpec = ReminderIntervalChoiceLayoutPolicy.spec()
-            FlowRow(
+        val layoutMotion = LocalLomoMotion.current.layout
+        AnimatedVisibility(
+            visible = repeatCount > 1,
+            enter = expandVertically(layoutMotion.defaultSpatialSpec()) + fadeIn(layoutMotion.defaultEffectsSpec()),
+            exit = shrinkVertically(layoutMotion.defaultSpatialSpec()) + fadeOut(layoutMotion.fastEffectsSpec()),
+        ) {
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                Arrangement.spacedBy(
-                    space = intervalLayoutSpec.horizontalSpacing,
-                    alignment = Alignment.CenterHorizontally,
-                ),
-                verticalArrangement = Arrangement.spacedBy(intervalLayoutSpec.verticalSpacing),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                REMINDER_INTERVAL_PRESETS.forEach { minutes ->
-                    ReminderIntervalChoiceButton(
-                        minutes = minutes,
-                        selected = intervalMinutes == minutes,
-                        layoutSpec = intervalLayoutSpec,
-                        onClick = { onIntervalMinutesChange(minutes) },
-                    )
+                Text(
+                    text = stringResource(R.string.reminder_dialog_interval_label),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Start),
+                )
+                val intervalLayoutSpec = ReminderIntervalChoiceLayoutPolicy.spec()
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement =
+                    Arrangement.spacedBy(
+                        space = intervalLayoutSpec.horizontalSpacing,
+                        alignment = Alignment.CenterHorizontally,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(intervalLayoutSpec.verticalSpacing),
+                ) {
+                    REMINDER_INTERVAL_PRESETS.forEach { minutes ->
+                        ReminderIntervalChoiceButton(
+                            minutes = minutes,
+                            selected = intervalMinutes == minutes,
+                            layoutSpec = intervalLayoutSpec,
+                            onClick = { onIntervalMinutesChange(minutes) },
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ReminderIntervalChoiceButton(
     minutes: Int,
@@ -200,23 +226,41 @@ private fun ReminderIntervalChoiceButton(
     layoutSpec: ReminderIntervalChoiceLayoutSpec,
     onClick: () -> Unit,
 ) {
-    val containerColor =
+    val haptic = LocalAppHapticFeedback.current
+    val componentMotion = LocalLomoMotion.current.component
+    val containerColor by animateColorAsState(
+        targetValue =
         if (selected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
             MaterialTheme.colorScheme.surfaceContainerLow
-        }
-    val contentColor =
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ReminderIntervalContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue =
         if (selected) {
             MaterialTheme.colorScheme.onPrimaryContainer
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
-        }
+        },
+        animationSpec = componentMotion.fastEffectsSpec(),
+        label = "ReminderIntervalContent",
+    )
 
-    Surface(
-        onClick = onClick,
-        shape = AppShapes.Small,
-        color = containerColor,
+    LomoFilledTonalButton(
+        onClick = {
+            haptic.medium()
+            onClick()
+        },
+        shapes = ButtonShapes(shape = AppShapes.Small, pressedShape = AppShapes.ExtraSmall),
+        colors =
+        ButtonDefaults.filledTonalButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+        contentPadding = PaddingValues(0.dp),
         modifier = Modifier.size(width = layoutSpec.choiceWidth, height = layoutSpec.choiceHeight),
     ) {
         Box(
@@ -263,10 +307,15 @@ private fun RepeatStepper(value: Int, onValueChanged: (Int) -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "$value",
-                        style = MaterialTheme.typography.headlineSmallEmphasized,
-                    )
+                    LomoStateContent(
+                        state = value,
+                        contentKey = { it },
+                    ) { count ->
+                        Text(
+                            text = "$count",
+                            style = MaterialTheme.typography.headlineSmallEmphasized,
+                        )
+                    }
                 }
             }
             LomoFilledIconButton(
