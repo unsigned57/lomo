@@ -23,6 +23,7 @@ import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.icon.LomoIconSpec
 import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.util.LocalAppHapticFeedback
 import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.glass.GlassStyle
@@ -41,6 +42,7 @@ internal fun GalleryReelTopBar(
     onShowMenu: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val haptic = LocalAppHapticFeedback.current
     Row(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -57,14 +59,20 @@ internal fun GalleryReelTopBar(
             hazeState = hazeState,
             icon = LomoIcons.Close,
             contentDescription = stringResource(R.string.gallery_reel_close),
-            onClick = onClose,
+            onClick = {
+                haptic.medium()
+                onClose()
+            },
         )
         if (onShowMenu != null) {
             GalleryReelTopBarPillButton(
                 hazeState = hazeState,
                 icon = LomoIcons.MoreVert,
                 contentDescription = stringResource(R.string.cd_more_options),
-                onClick = onShowMenu,
+                onClick = {
+                    haptic.medium()
+                    onShowMenu()
+                },
             )
         } else {
             Spacer(modifier = Modifier.size(GALLERY_REEL_TOP_BAR_TOUCH_SIZE))

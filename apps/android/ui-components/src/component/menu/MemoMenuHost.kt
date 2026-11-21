@@ -48,10 +48,8 @@ fun MemoMenuHost(
 ) {
     var activeState by remember { mutableStateOf<MemoMenuState?>(null) }
     val scope = rememberCoroutineScope()
-    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
 
     content { state ->
-        haptic.medium()
         activeState = state
     }
 

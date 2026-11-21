@@ -276,7 +276,7 @@ private fun UtilityButton(
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     Surface(
         onClick = {
-            haptic.light()
+            haptic.medium()
             onClick()
         },
         shape = shape,
@@ -346,7 +346,7 @@ private fun NavigationItem(
             badge = badge?.let { { Text(it, style = MaterialTheme.typography.labelSmall) } },
             selected = isSelected,
             onClick = {
-                haptic.light()
+                haptic.medium()
                 onClick()
             },
             colors =
@@ -503,11 +503,11 @@ private fun LazyListScope.sidebarDestinations(
 }
 
 @Composable
-internal fun rememberLightHapticClick(onClick: () -> Unit): () -> Unit {
+internal fun rememberMediumHapticClick(onClick: () -> Unit): () -> Unit {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     return remember(onClick, haptic) {
         {
-            haptic.light()
+            haptic.medium()
             onClick()
         }
     }

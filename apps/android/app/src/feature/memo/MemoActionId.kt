@@ -249,7 +249,7 @@ private fun memoMenuLeafItem(
                     }
                 },
                 isDestructive = true,
-                haptic = ActionItemHaptic.HEAVY,
+                haptic = ActionItemHaptic.MEDIUM,
             )
     }
 }

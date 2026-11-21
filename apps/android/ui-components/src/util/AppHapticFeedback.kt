@@ -54,7 +54,7 @@ fun ProvideAppHapticFeedback(enabled: Boolean = true, content: @Composable () ->
                     }
 
                     override fun heavy() {
-                        view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     }
 
                     override fun longPress() {

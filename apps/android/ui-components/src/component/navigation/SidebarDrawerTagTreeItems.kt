@@ -308,7 +308,7 @@ private fun TagTreeExpandButton(isExpanded: Boolean, onClick: () -> Unit) {
         label = "TagExpandIndicator",
     )
     LomoIconButton(
-        onClick = rememberLightHapticClick(onClick),
+        onClick = rememberMediumHapticClick(onClick),
         modifier = Modifier.size(IconButtonDefaults.smallContainerSize()),
     ) {
         LomoIcon(
@@ -332,7 +332,7 @@ private fun rememberTagClick(fullPath: String, onTagClick: (String) -> Unit): ()
     val haptic = LocalAppHapticFeedback.current
     return remember(fullPath, onTagClick, haptic) {
         {
-            haptic.light()
+            haptic.medium()
             onTagClick(fullPath)
         }
     }

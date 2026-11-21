@@ -33,6 +33,7 @@ import com.lomo.app.feature.memo.memoMenuSelection
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.image.RetainedAsyncImage
 import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableMap
 import kotlin.math.max
 
@@ -213,6 +214,7 @@ private fun GalleryGridCell(
     onResolveImageAspect: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptic = LocalAppHapticFeedback.current
     val imageUrls = uiModel.imageUrls
     if (imageUrls.isEmpty()) return
 
@@ -239,6 +241,7 @@ private fun GalleryGridCell(
                     )
                 },
                 onLongClick = {
+                    haptic.longPress()
                     onShowMenu(
                         memoMenuSelection(
                             memo = uiModel.memo,
