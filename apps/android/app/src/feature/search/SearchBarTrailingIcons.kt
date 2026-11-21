@@ -20,6 +20,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -60,6 +62,7 @@ internal fun SearchModeFloatingCapsule(
     searchMode: MemoSearchMode,
     onToggleSearchMode: () -> Unit,
     modifier: Modifier = Modifier,
+    appearanceFraction: Float = 1f,
 ) {
     val isFuzzy = searchMode == MemoSearchMode.Fuzzy
     val haptic = LocalAppHapticFeedback.current
@@ -74,9 +77,9 @@ internal fun SearchModeFloatingCapsule(
 
     Surface(
         shape = AppShapes.Full,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shadowElevation = 8.dp,
+        shadowElevation = 0.dp,
         border =
         BorderStroke(
             width = 1.dp,
@@ -84,6 +87,15 @@ internal fun SearchModeFloatingCapsule(
         ),
         modifier =
         modifier
+            .graphicsLayer {
+                val opacity = appearanceFraction.coerceIn(0f, 1f)
+                shadowElevation = 8.dp.toPx() * opacity
+                shape = AppShapes.Full
+                alpha = opacity
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+                scaleX = CAPSULE_ENTER_SCALE + (1f - CAPSULE_ENTER_SCALE) * appearanceFraction
+                scaleY = scaleX
+            }
             .semantics { contentDescription = modeDescription },
     ) {
         Row(
@@ -166,3 +178,5 @@ private fun SearchModeSegmentOption(selected: Boolean, icon: LomoIconSpec, label
         )
     }
 }
+
+private const val CAPSULE_ENTER_SCALE = 0.8f

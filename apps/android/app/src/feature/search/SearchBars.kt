@@ -1,6 +1,8 @@
 package com.lomo.app.feature.search
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -224,29 +226,33 @@ private fun BoxScope.FloatingSearchModeCapsule(
     searchMode: MemoSearchMode,
     onToggleSearchMode: () -> Unit,
 ) {
-    val layoutMotion = LocalLomoMotion.current.layout
-    AnimatedVisibility(
-        visible = visible,
-        enter =
-        slideInVertically(
-            initialOffsetY = { it },
-            animationSpec = layoutMotion.defaultSpatialSpec(),
-        ) + fadeIn(animationSpec = layoutMotion.defaultEffectsSpec()),
-        exit =
-        slideOutVertically(
-            targetOffsetY = { it },
-            animationSpec = layoutMotion.defaultSpatialSpec(),
-        ) + fadeOut(animationSpec = layoutMotion.fastEffectsSpec()),
-        modifier =
-        Modifier
-            .align(Alignment.BottomCenter)
-            .imePadding()
-            .padding(bottom = AppSpacing.Medium),
-    ) {
-        SearchModeFloatingCapsule(
-            searchMode = searchMode,
-            onToggleSearchMode = onToggleSearchMode,
-        )
+    val componentMotion = LocalLomoMotion.current.component
+    val appearance = updateTransition(visible, label = "SearchModeCapsuleVisibility")
+    val appearanceFraction by appearance.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                componentMotion.defaultSpatialSpec()
+            } else {
+                componentMotion.fastSpatialSpec()
+            }
+        },
+        label = "SearchModeCapsuleAppearance",
+    ) { shown -> if (shown) 1f else 0f }
+
+    if (appearance.currentState || appearance.targetState) {
+        Box(
+            modifier =
+            Modifier
+                .align(Alignment.BottomCenter)
+                .imePadding()
+                .padding(bottom = AppSpacing.Medium),
+        ) {
+            SearchModeFloatingCapsule(
+                searchMode = searchMode,
+                onToggleSearchMode = { if (visible) onToggleSearchMode() },
+                appearanceFraction = appearanceFraction,
+            )
+        }
     }
 }
 
