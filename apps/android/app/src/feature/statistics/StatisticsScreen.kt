@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +49,7 @@ import com.lomo.ui.component.stats.ChartTagSlice
 import com.lomo.ui.component.stats.HourlyActivityChart
 import com.lomo.ui.component.stats.PeriodReportCard
 import com.lomo.ui.component.stats.StatCard
+import com.lomo.ui.component.stats.StatCardGrid
 import com.lomo.ui.component.stats.TagDistributionChart
 import com.lomo.ui.component.stats.WeeklyHourHeatmap
 import com.lomo.ui.icon.LomoIcon
@@ -205,7 +204,6 @@ private fun StatisticsTopBar(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StatisticsContent(
     stats: MemoStatistics,
@@ -256,7 +254,6 @@ private fun StatisticsContent(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StatisticsOverviewSection(stats: MemoStatistics) {
     Column(
@@ -264,52 +261,36 @@ private fun StatisticsOverviewSection(stats: MemoStatistics) {
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
         SectionHeader(text = stringResource(R.string.stats_section_overview))
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-        ) {
+        StatCardGrid(modifier = Modifier.fillMaxWidth()) {
             StatCard(
                 value = stats.totalMemos.toString(),
                 label = stringResource(R.string.stats_total_memos),
                 icon = LomoIcons.Notes,
-                modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = formatStatisticsNumber(stats.totalWords),
                 label = stringResource(R.string.stats_total_words),
                 icon = LomoIcons.ShortText,
-                modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = stats.activeDays.toString(),
                 label = stringResource(R.string.stats_active_days),
                 icon = LomoIcons.CalendarMonth,
-                modifier = Modifier.weight(1f),
             )
-        }
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-        ) {
             StatCard(
                 value = "%.1f".format(Locale.US, stats.averageWordsPerMemo),
                 label = stringResource(R.string.stats_avg_words),
                 icon = LomoIcons.Analytics,
-                modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = stats.totalTags.toString(),
                 label = stringResource(R.string.stats_total_tags),
                 icon = LomoIcons.Tag,
-                modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = formatStatisticsNumber(stats.totalCharacters),
                 label = stringResource(R.string.stats_total_chars),
                 icon = LomoIcons.TextFields,
-                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -347,7 +328,6 @@ private fun StatisticsActivitySection(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StatisticsTimeSection(stats: MemoStatistics) {
     Column(
@@ -355,22 +335,16 @@ private fun StatisticsTimeSection(stats: MemoStatistics) {
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
         SectionHeader(text = stringResource(R.string.stats_section_time))
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-        ) {
+        StatCardGrid(modifier = Modifier.fillMaxWidth()) {
             StatCard(
                 value = formatStatisticsDailyMemoTime(stats.earliestDailyMemoTime),
                 label = stringResource(R.string.stats_earliest_note_time),
                 icon = LomoIcons.WbSunny,
-                modifier = Modifier.weight(1f),
             )
             StatCard(
                 value = formatStatisticsDailyMemoTime(stats.latestDailyMemoTime),
                 label = stringResource(R.string.stats_latest_note_time),
                 icon = LomoIcons.NightsStay,
-                modifier = Modifier.weight(1f),
             )
         }
         val weeklyHourDistribution =

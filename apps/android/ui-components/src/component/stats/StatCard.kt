@@ -15,7 +15,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.icon.LomoIconSpec
@@ -24,7 +23,8 @@ import com.lomo.ui.theme.AppSpacing
 
 /**
  * M3 Expressive statistic tile: a tonal container with the emphasized value and optional trailing
- * glyph badge on the top row, and the supporting label below.
+ * glyph badge on the top row, and the supporting label below. The tile never shortens its text;
+ * [StatCardGrid] keeps it at least as wide as its unbroken content.
  */
 @Composable
 fun StatCard(value: String, label: String, modifier: Modifier = Modifier, icon: LomoIconSpec? = null) {
@@ -48,15 +48,15 @@ fun StatCard(value: String, label: String, modifier: Modifier = Modifier, icon: 
                         text = displayedValue,
                         style = MaterialTheme.typography.headlineSmallEmphasized,
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 if (icon != null) {
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer,
                         shape = AppShapes.Small,
-                        modifier = Modifier.size(StatCardTokens.BadgeSize),
+                        modifier = Modifier
+                            .padding(start = AppSpacing.Small)
+                            .size(StatCardTokens.BadgeSize),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             LomoIcon(
@@ -74,8 +74,6 @@ fun StatCard(value: String, label: String, modifier: Modifier = Modifier, icon: 
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
         }
     }
