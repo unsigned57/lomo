@@ -38,23 +38,3 @@ pub use lock::{
 };
 pub use mirror::{open_local_repository, path_is_under, rebuild_app_private_mirror};
 pub use redaction::redact_diagnostic;
-
-/// Crate package identity for architecture ownership locks.
-pub const GIT_CRATE_NAME: &str = "lomo-git";
-
-/// Owner identity document for stage-5 ownership locks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GitOwnerIdentity {
-    /// Package name of the git adapter crate.
-    pub crate_name: &'static str,
-}
-
-impl GitOwnerIdentity {
-    /// Returns the shipped dark-owner identity.
-    #[must_use]
-    pub const fn current() -> Self {
-        Self {
-            crate_name: GIT_CRATE_NAME,
-        }
-    }
-}

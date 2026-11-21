@@ -4,13 +4,12 @@
 //! observable intent counts without provider-specific planners.
 //!
 //! Scenarios:
-//! - Given a shipped owner identity, when validated, then ok; forged name fails closed.
 //! - Given absolute or `..` paths, when `SyncPath::parse` runs, then validation fails.
 //! - Given a complete remote snapshot over the page limit, when built, then resource-limit fails.
 //! - Given prepared batch intents, when counted, then EnsureAbsent/EnsurePresent/OpenConflict are
 //!   observable.
 //!
-//! Observable outcomes: parse errors, page limits, intent counts, owner identity.
+//! Observable outcomes: parse errors, page limits, and intent counts.
 //! Excludes: production DI, provider adapters, `WorkManager`.
 
 #[cfg(test)]
@@ -23,32 +22,12 @@ mod tests {
     use lomo_sync::{
         BatchAtomicity, ContentDigest, MAX_ACTION_PAGE_ITEMS, PreparedRemoteBatch,
         ProviderNeutralIntent, RemoteDigestFact, RemotePathEntry, RemoteSnapshot, RemoteValidator,
-        SYNC_CRATE_NAME, SnapshotCompleteness, SyncOwnerIdentity, SyncPath, error_category,
+        SnapshotCompleteness, SyncPath, error_category,
     };
 
     fn digest(seed: u8) -> ContentDigest {
         let hex = format!("{seed:02x}").repeat(32);
         ContentDigest::parse(&hex).expect("digest")
-    }
-
-    #[test]
-    fn owner_identity_matches_shipped_scaffold() {
-        let identity = SyncOwnerIdentity::current();
-        assert_eq!(identity.crate_name, "lomo-sync");
-        assert_eq!(identity.crate_name, SYNC_CRATE_NAME);
-        identity
-            .validate()
-            .expect("shipped owner identity must validate");
-    }
-
-    #[test]
-    fn forged_owner_identity_fails_closed() {
-        let wrong = SyncOwnerIdentity {
-            crate_name: "not-lomo-sync",
-        };
-        let error = wrong.validate().expect_err("forged crate name must fail");
-        assert_eq!(error.category(), ErrorCategory::Validation);
-        assert_eq!(error.code(), "invalid_sync_owner");
     }
 
     #[test]

@@ -8,10 +8,6 @@ publish = false
 autotests = false
 
 [[test]]
-name = "owner_identity_contract"
-path = "tests/owner_identity_contract.rs"
-
-[[test]]
 name = "open_schema_contract"
 path = "tests/open_schema_contract.rs"
 

@@ -117,41 +117,6 @@ pub use webdav::{
 
 use lomo_core::{ErrorCategory, LomoError};
 
-/// Crate package identity for architecture ownership locks.
-pub const SYNC_CRATE_NAME: &str = "lomo-sync";
-
-/// Owner identity document for stage-5 ownership locks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SyncOwnerIdentity {
-    /// Package name of the sync owner crate.
-    pub crate_name: &'static str,
-}
-
-impl SyncOwnerIdentity {
-    /// Returns the shipped dark-owner identity.
-    #[must_use]
-    pub const fn current() -> Self {
-        Self {
-            crate_name: SYNC_CRATE_NAME,
-        }
-    }
-
-    /// Validates the owner name matches the shipped package.
-    ///
-    /// # Errors
-    ///
-    /// Validation when the name is forged.
-    pub fn validate(self) -> Result<(), LomoError> {
-        if self.crate_name != SYNC_CRATE_NAME {
-            return Err(sync_validation(
-                "invalid_sync_owner",
-                "sync owner crate name must be lomo-sync",
-            ));
-        }
-        Ok(())
-    }
-}
-
 /// Maps a sync boundary error category for contracts that assert `CorruptState` semantics.
 #[must_use]
 pub const fn error_category(error: &LomoError) -> ErrorCategory {

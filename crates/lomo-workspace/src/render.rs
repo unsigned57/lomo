@@ -277,39 +277,44 @@ pub enum RenderInline {
 /// Returns `resource_limit` when inline size, nesting, node count, or IR string budgets are exceeded.
 pub fn render_markdown(source: &SourceBytes) -> Result<RenderDocumentV1, LomoError> {
     ResourceBudget::check_inline_render_bytes(source.len())?;
-    render_with_budget(source, NodeBudget::Presentation)
+    render_with_budget(source, ProjectionBudget::Presentation)
 }
 
 /// Projects the same IR for workspace facts — never for presentation.
 ///
 /// Index, query, task, and attachment facts are read from the user's own files: a dated file
-/// accumulates every memo's nodes and one memo may be a long checklist or imported note, so
-/// neither the 1 MiB inline gate nor the [`crate::MAX_RENDER_DOCUMENT_NODES`] presentation budget
-/// applies — the IR is linear in source bytes the caller already holds (workspace reads are
-/// bounded by the application file-size limit). Nesting depth, IR string and node-count
-/// representability limits still apply. IR crossing to a renderer goes through
+/// accumulates every memo's nodes and one memo may be a long checklist or imported note. The
+/// application bounds workspace reads by file size. The IR is linear in the source bytes, with
+/// nesting-depth and node-count representability limits. IR crossing to a renderer goes through
 /// [`render_markdown`] and its budgets.
 ///
 /// # Errors
 ///
-/// Returns `resource_limit` when nesting, IR string, or node-count representability limits fail.
+/// Returns `resource_limit` when nesting or node-count representability limits fail.
 pub fn project_markdown_facts(source: &SourceBytes) -> Result<RenderDocumentV1, LomoError> {
-    render_with_budget(source, NodeBudget::Facts)
+    render_with_budget(source, ProjectionBudget::Facts)
 }
 
-/// Which node-count law a projection is held to.
+/// Which presentation limits a projection must satisfy.
 #[derive(Clone, Copy)]
-enum NodeBudget {
-    /// IR handed to a renderer: bounded by [`crate::MAX_RENDER_DOCUMENT_NODES`].
+enum ProjectionBudget {
+    /// IR handed to a renderer: bounded by node count and UTF-8 string size.
     Presentation,
-    /// Workspace facts: bounded only by `u32` representability.
+    /// Workspace facts: text comes from the bounded workspace source.
     Facts,
 }
 
-impl NodeBudget {
-    fn admit(self, node_count: u32) -> Result<(), LomoError> {
+impl ProjectionBudget {
+    fn check_nodes(self, node_count: u32) -> Result<(), LomoError> {
         match self {
             Self::Presentation => ResourceBudget::check_render_document_nodes(node_count),
+            Self::Facts => Ok(()),
+        }
+    }
+
+    fn check_string(self, text: &str) -> Result<(), LomoError> {
+        match self {
+            Self::Presentation => ResourceBudget::check_ir_string_bytes(text.len()),
             Self::Facts => Ok(()),
         }
     }
@@ -317,9 +322,9 @@ impl NodeBudget {
 
 fn render_with_budget(
     source: &SourceBytes,
-    node_budget: NodeBudget,
+    budget: ProjectionBudget,
 ) -> Result<RenderDocumentV1, LomoError> {
-    let mut builder = RenderBuilder::new(source.len(), node_budget);
+    let mut builder = RenderBuilder::new(source.len(), budget);
     for (event, range) in offset_events(source.as_str()) {
         builder.feed(event, range)?;
     }
@@ -339,7 +344,7 @@ struct RenderBuilder {
     stack: Vec<Frame>,
     root_blocks: Vec<RenderBlock>,
     node_count: u32,
-    node_budget: NodeBudget,
+    budget: ProjectionBudget,
     max_depth: u32,
     source_len: usize,
     link_text_spans: links::LinkTextSpans,
@@ -426,12 +431,12 @@ enum Frame {
 }
 
 impl RenderBuilder {
-    const fn new(source_len: usize, node_budget: NodeBudget) -> Self {
+    const fn new(source_len: usize, budget: ProjectionBudget) -> Self {
         Self {
             stack: Vec::new(),
             root_blocks: Vec::new(),
             node_count: 0,
-            node_budget,
+            budget,
             max_depth: 0,
             source_len,
             link_text_spans: links::LinkTextSpans::new(),
@@ -446,7 +451,6 @@ impl RenderBuilder {
             Event::Text(text) => self.push_text(&text, source_span),
             Event::Code(text) => {
                 self.count_node()?;
-                check_ir_string(text.as_ref())?;
                 self.push_inline(RenderInline::Code {
                     source_span,
                     text: text.into_string(),
@@ -459,14 +463,12 @@ impl RenderBuilder {
                 }
                 if self.in_inline_context() {
                     self.count_node()?;
-                    check_ir_string(html.as_ref())?;
                     self.push_inline(RenderInline::HtmlInline {
                         source_span,
                         text: html.into_string(),
                     })
                 } else {
                     self.count_node()?;
-                    check_ir_string(html.as_ref())?;
                     self.push_block(RenderBlock::HtmlBlock {
                         source_span,
                         literal: html.into_string(),
@@ -772,7 +774,6 @@ impl RenderBuilder {
                     ..
                 }) => {
                     self.count_node()?;
-                    check_ir_string(&literal)?;
                     self.push_block(RenderBlock::CodeBlock {
                         source_span: merge_spans(source_span, end_span, self.source_len)?,
                         language,
@@ -904,7 +905,6 @@ impl RenderBuilder {
                     return Ok(());
                 };
                 self.count_node()?;
-                check_ir_string(&destination)?;
                 self.push_inline(RenderInline::Link {
                     source_span: merge_spans(source_span, end_span, self.source_len)?,
                     destination,
@@ -923,9 +923,7 @@ impl RenderBuilder {
                     return Ok(());
                 };
                 self.count_node()?;
-                check_ir_string(&destination)?;
                 let alt = alt_parts.join("");
-                check_ir_string(&alt)?;
                 self.push_inline(RenderInline::Image {
                     source_span: merge_spans(source_span, end_span, self.source_len)?,
                     destination: crate::attachments::ImageDest::classify(&destination),
@@ -941,7 +939,6 @@ impl RenderBuilder {
                 }) = self.stack.pop()
                 {
                     self.count_node()?;
-                    check_ir_string(&literal)?;
                     self.push_block(RenderBlock::HtmlBlock {
                         source_span: merge_spans(source_span, end_span, self.source_len)?,
                         literal,
@@ -960,7 +957,6 @@ impl RenderBuilder {
     }
 
     fn push_text(&mut self, text: &CowStr<'_>, source_span: ByteSpan) -> Result<(), LomoError> {
-        check_ir_string(text.as_ref())?;
         if let Some(Frame::CodeBlock { literal, .. } | Frame::HtmlBlock { literal, .. }) =
             self.stack.last_mut()
         {
@@ -1125,7 +1121,7 @@ impl RenderBuilder {
 
     fn count_node(&mut self) -> Result<(), LomoError> {
         self.node_count = checked_node_increment(self.node_count)?;
-        self.node_budget.admit(self.node_count)
+        self.budget.check_nodes(self.node_count)
     }
 
     fn checked_span(&self, range: Range<usize>) -> Result<ByteSpan, LomoError> {
@@ -1134,10 +1130,10 @@ impl RenderBuilder {
 
     fn finish(self) -> Result<RenderDocumentV1, LomoError> {
         ResourceBudget::check_semantic_nesting_depth(self.max_depth)?;
-        let final_node_count = validate_final_ir(&self.root_blocks, self.source_len)?;
-        self.node_budget.admit(final_node_count)?;
+        let final_node_count = validate_final_ir(&self.root_blocks, self.source_len, self.budget)?;
+        self.budget.check_nodes(final_node_count)?;
         let plain_text = blocks_plain_text(&self.root_blocks);
-        check_ir_string(&plain_text)?;
+        self.budget.check_string(&plain_text)?;
 
         let mut tag_names = Vec::new();
         let mut attachment_destinations = Vec::new();
@@ -1168,10 +1164,6 @@ impl RenderBuilder {
 fn title_opt(title: CowStr<'_>) -> Option<String> {
     let text = title.into_string();
     if text.is_empty() { None } else { Some(text) }
-}
-
-fn check_ir_string(text: &str) -> Result<(), LomoError> {
-    ResourceBudget::check_ir_string_bytes(text.len())
 }
 
 fn merge_spans(
@@ -1603,8 +1595,6 @@ fn classify_wiki_text(
                             .to_owned(),
                     });
                 } else {
-                    check_ir_string(target)?;
-                    check_ir_string(&alt)?;
                     out.push(RenderInline::Image {
                         source_span: subspan(
                             source_span,
@@ -1651,7 +1641,6 @@ fn classify_wiki_text(
                             .to_owned(),
                     });
                 } else {
-                    check_ir_string(target)?;
                     let fact_span = subspan(
                         source_span,
                         base + open,
@@ -1959,7 +1948,6 @@ fn classify_tags(
                             .to_owned(),
                     });
                 }
-                check_ir_string(&name)?;
                 out.push(RenderInline::Tag {
                     source_span: subspan(source_span, start, end, source_len)?,
                     name,
@@ -2016,7 +2004,6 @@ fn classify_reminders(
                         "reminder scanner produced a non-boundary range",
                     )
                 })?;
-                check_ir_string(token)?;
                 out.push(RenderInline::Reminder {
                     source_span: subspan(source_span, start, end, source_len)?,
                     token: token.to_owned(),
@@ -2896,9 +2883,13 @@ fn emit_attachment_fact(
     }
 }
 
-fn validate_final_ir(blocks: &[RenderBlock], source_len: usize) -> Result<u32, LomoError> {
+fn validate_final_ir(
+    blocks: &[RenderBlock],
+    source_len: usize,
+    budget: ProjectionBudget,
+) -> Result<u32, LomoError> {
     let mut count = 0u32;
-    validate_blocks(blocks, None, 1, source_len, &mut count)?;
+    validate_blocks(blocks, None, 1, source_len, budget, &mut count)?;
     Ok(count)
 }
 
@@ -2907,6 +2898,7 @@ fn validate_blocks(
     parent: Option<ByteSpan>,
     depth: u32,
     source_len: usize,
+    budget: ProjectionBudget,
     count: &mut u32,
 ) -> Result<(), LomoError> {
     ResourceBudget::check_semantic_nesting_depth(depth)?;
@@ -2916,7 +2908,14 @@ fn validate_blocks(
         validate_span(span, parent, source_len)?;
         match block {
             RenderBlock::Paragraph { inlines, .. } | RenderBlock::Heading { inlines, .. } => {
-                validate_inlines(inlines, span, depth.saturating_add(1), source_len, count)?;
+                validate_inlines(
+                    inlines,
+                    span,
+                    depth.saturating_add(1),
+                    source_len,
+                    budget,
+                    count,
+                )?;
             }
             RenderBlock::BlockQuote { blocks, .. } => {
                 validate_blocks(
@@ -2924,6 +2923,7 @@ fn validate_blocks(
                     Some(span),
                     depth.saturating_add(1),
                     source_len,
+                    budget,
                     count,
                 )?;
             }
@@ -2939,6 +2939,7 @@ fn validate_blocks(
                         Some(item.source_span),
                         depth.saturating_add(1),
                         source_len,
+                        budget,
                         count,
                     )?;
                 }
@@ -2947,9 +2948,9 @@ fn validate_blocks(
                 language, literal, ..
             } => {
                 if let Some(language) = language {
-                    check_ir_string(language)?;
+                    budget.check_string(language)?;
                 }
-                check_ir_string(literal)?;
+                budget.check_string(literal)?;
             }
             RenderBlock::Table { header, rows, .. } => {
                 for cell in header.iter().chain(rows.iter().flatten()) {
@@ -2960,11 +2961,12 @@ fn validate_blocks(
                         cell.source_span,
                         depth.saturating_add(1),
                         source_len,
+                        budget,
                         count,
                     )?;
                 }
             }
-            RenderBlock::HtmlBlock { literal, .. } => check_ir_string(literal)?,
+            RenderBlock::HtmlBlock { literal, .. } => budget.check_string(literal)?,
             RenderBlock::ThematicBreak { .. } => {}
         }
     }
@@ -2976,6 +2978,7 @@ fn validate_inlines(
     parent: ByteSpan,
     depth: u32,
     source_len: usize,
+    budget: ProjectionBudget,
     count: &mut u32,
 ) -> Result<(), LomoError> {
     ResourceBudget::check_semantic_nesting_depth(depth)?;
@@ -2986,14 +2989,33 @@ fn validate_inlines(
         match inline {
             RenderInline::Text { text, .. }
             | RenderInline::Code { text, .. }
-            | RenderInline::HtmlInline { text, .. } => check_ir_string(text)?,
+            | RenderInline::HtmlInline { text, .. } => budget.check_string(text)?,
             RenderInline::Strong { children, .. }
             | RenderInline::Emphasis { children, .. }
             | RenderInline::Strikethrough { children, .. }
             | RenderInline::Underline { children, .. }
-            | RenderInline::Highlight { children, .. }
-            | RenderInline::WikiReference { children, .. } => {
-                validate_inlines(children, span, depth.saturating_add(1), source_len, count)?;
+            | RenderInline::Highlight { children, .. } => {
+                validate_inlines(
+                    children,
+                    span,
+                    depth.saturating_add(1),
+                    source_len,
+                    budget,
+                    count,
+                )?;
+            }
+            RenderInline::WikiReference {
+                target, children, ..
+            } => {
+                budget.check_string(target)?;
+                validate_inlines(
+                    children,
+                    span,
+                    depth.saturating_add(1),
+                    source_len,
+                    budget,
+                    count,
+                )?;
             }
             RenderInline::Link {
                 destination,
@@ -3001,11 +3023,18 @@ fn validate_inlines(
                 children,
                 ..
             } => {
-                check_ir_string(destination)?;
+                budget.check_string(destination)?;
                 if let Some(title) = title {
-                    check_ir_string(title)?;
+                    budget.check_string(title)?;
                 }
-                validate_inlines(children, span, depth.saturating_add(1), source_len, count)?;
+                validate_inlines(
+                    children,
+                    span,
+                    depth.saturating_add(1),
+                    source_len,
+                    budget,
+                    count,
+                )?;
             }
             RenderInline::Image {
                 destination,
@@ -3013,21 +3042,21 @@ fn validate_inlines(
                 alt,
                 ..
             } => {
-                check_ir_string(destination.raw())?;
+                budget.check_string(destination.raw())?;
                 if let Some(title) = title {
-                    check_ir_string(title)?;
+                    budget.check_string(title)?;
                 }
-                check_ir_string(alt)?;
+                budget.check_string(alt)?;
             }
-            RenderInline::Tag { name, .. } => check_ir_string(name)?,
-            RenderInline::Reminder { token, .. } => check_ir_string(token)?,
+            RenderInline::Tag { name, .. } => budget.check_string(name)?,
+            RenderInline::Reminder { token, .. } => budget.check_string(token)?,
             RenderInline::SoftBreak { .. } | RenderInline::HardBreak { .. } => {}
         }
     }
     Ok(())
 }
 
-/// Final IR walk counts every node; the caller's [`NodeBudget`] judges the total, so extension
+/// Final IR walk counts every node; the caller's [`ProjectionBudget`] judges the total, so extension
 /// expansion after parsing cannot bypass the presentation budget.
 fn count_final_node(count: &mut u32) -> Result<(), LomoError> {
     *count = checked_node_increment(*count)?;

@@ -16,9 +16,8 @@
 //! - Given JPEG magic with `.png` extension hint, when mime is detected, then validation rejects
 //!   magic/extension conflict.
 //! - Given absolute or `..` paths, when `MediaRelativePath::parse` runs, then validation fails.
-//! - Given shipped owner constants, when `MediaOwnerIdentity::current` is validated, then ok.
 //!
-//! Observable outcomes: digests, mime rejects, path rejects, owner identity.
+//! Observable outcomes: digests, MIME validation, and path validation.
 //! Excludes: stage/commit/orphan, FFI, production DI cutover.
 
 #[cfg(test)]
@@ -29,9 +28,9 @@
 mod tests {
     use lomo_core::ErrorCategory;
     use lomo_media::{
-        ContentDigest, MEDIA_CRATE_NAME, MediaMime, MediaOwnerIdentity, MediaRelativePath,
-        error_category, media_conflict, media_corruption, media_storage, media_validation,
-        read_magic_header, write_bytes_for_tests,
+        ContentDigest, MediaMime, MediaRelativePath, error_category, media_conflict,
+        media_corruption, media_storage, media_validation, read_magic_header,
+        write_bytes_for_tests,
     };
 
     const PNG_1X1: &[u8] = &[
@@ -41,26 +40,6 @@ mod tests {
         0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d, 0xb4, 0x00, 0x00,
         0x00, 0x00, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
     ];
-
-    #[test]
-    fn owner_identity_matches_shipped_scaffold() {
-        let identity = MediaOwnerIdentity::current();
-        assert_eq!(identity.crate_name, "lomo-media");
-        assert_eq!(identity.crate_name, MEDIA_CRATE_NAME);
-        identity
-            .validate()
-            .expect("shipped owner identity must validate");
-    }
-
-    #[test]
-    fn forged_owner_identity_fails_closed() {
-        let wrong = MediaOwnerIdentity {
-            crate_name: "not-lomo-media",
-        };
-        let error = wrong.validate().expect_err("forged crate name must fail");
-        assert_eq!(error.category(), ErrorCategory::Validation);
-        assert_eq!(error.code(), "invalid_media_owner");
-    }
 
     #[test]
     fn png_digest_golden_matches_sha256() {
@@ -279,16 +258,6 @@ mod tests {
         let good = ContentDigest::of_slice(PNG_1X1);
         let round = ContentDigest::parse(good.as_str()).expect("parse good");
         assert_eq!(round, good);
-    }
-
-    #[test]
-    fn media_owner_validate_rejects_wrong_crate_name() {
-        let bad = MediaOwnerIdentity {
-            crate_name: "not-lomo-media",
-        };
-        let err = bad.validate().expect_err("wrong owner");
-        assert_eq!(err.code(), "invalid_media_owner");
-        assert_eq!(error_category(&err), ErrorCategory::Validation);
     }
 
     #[test]

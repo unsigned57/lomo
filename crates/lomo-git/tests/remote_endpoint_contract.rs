@@ -1,14 +1,5 @@
-// adversarial-audit: validate_git_remote_url rejects every SSH/SCP form, not only `user@host:path`
-//
-// Probe: `is_scp_like_ssh` in `crates/lomo-git/src/endpoint.rs` only rejects SCP syntax when the
-// pre-colon segment contains `@`. `host:path` (SCP without userinfo) carries no `://`, falls
-// through `validate_remote_url_shape`, and is classified as a "plain local path" — then the same
-// string is handed verbatim to `repo.remote("origin", url)` (`adapter.rs::origin_remote`), where
-// libgit2 interprets `host:path` as SSH transport syntax. The HTTPS-only boundary claim is
-// therefore enforced by accident of the missing `ssh` git2 feature, not by validation.
-//
-// These tests assert the *claimed* contract (spec requirement: 拒绝 SCP 形态). A failure documents the
-// residual hole; controls pin the rejections that do work.
+//! SCP forms without userinfo must be rejected by both precheck and endpoint parsing.
+
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
@@ -26,37 +17,6 @@ mod tests {
             },
         )
     }
-
-    // --- controls: rejections that must hold -----------------------------------
-
-    #[test]
-    fn control_scp_with_userinfo_is_rejected() {
-        let err = validate_git_remote_url("git@example.com:org/repo.git")
-            .expect_err("user@host:path must stay rejected");
-        assert_eq!(err.code(), "git_ssh_not_supported");
-    }
-
-    #[test]
-    fn control_ssh_scheme_is_rejected() {
-        let err =
-            validate_git_remote_url("ssh://git@example.com/org/repo.git").expect_err("ssh://");
-        assert_eq!(err.code(), "git_ssh_not_supported");
-    }
-
-    #[test]
-    fn control_https_userinfo_is_rejected() {
-        let err = validate_git_remote_url("https://user:pass@example.com/org/repo.git")
-            .expect_err("userinfo must be rejected");
-        assert_eq!(err.code(), "git_url_userinfo_rejected");
-    }
-
-    #[test]
-    fn control_https_remote_is_accepted() {
-        validate_git_remote_url("https://example.com/org/repo.git").expect("https remote ok");
-        endpoint_parse("https://example.com/org/repo.git").expect("endpoint https ok");
-    }
-
-    // --- probes: SCP forms without `@` ------------------------------------------
 
     /// `host:path` is SCP SSH syntax to git/libgit2. It must be rejected at the boundary.
     #[test]

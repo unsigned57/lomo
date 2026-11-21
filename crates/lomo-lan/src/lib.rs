@@ -81,6 +81,3 @@ pub use session::{
 };
 
 pub use transport::{FrameStream, LanDeadlines, accept_peer, bind_listener, connect_peer};
-
-/// Crate package identity for architecture ownership locks.
-pub const LAN_CRATE_NAME: &str = "lomo-lan";

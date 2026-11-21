@@ -123,50 +123,6 @@ use lomo_core::{ErrorCategory, LomoError, PageSize, RetryDisposition};
 
 use crate::error::from_sqlite;
 
-/// Crate package identity for architecture ownership locks.
-pub const CRATE_NAME: &str = "lomo-store";
-
-/// Owner identity document for stage-3 ownership locks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StoreOwnerIdentity {
-    /// Package name of the store owner crate.
-    pub crate_name: &'static str,
-    /// Declared schema version (v1 for P3-01+).
-    pub schema_version: u32,
-}
-
-impl StoreOwnerIdentity {
-    /// Returns the current owner identity constants.
-    #[must_use]
-    pub const fn current() -> Self {
-        Self {
-            crate_name: CRATE_NAME,
-            schema_version: STORE_SCHEMA_VERSION,
-        }
-    }
-
-    /// Validates that this identity matches the shipped owner crate constants.
-    ///
-    /// # Errors
-    ///
-    /// Returns a structured validation error when crate name or schema version diverges.
-    pub fn validate(self) -> Result<(), LomoError> {
-        if self.crate_name != CRATE_NAME {
-            return Err(store_validation(
-                "invalid_store_owner",
-                "store owner crate_name must be lomo-store",
-            ));
-        }
-        if self.schema_version != STORE_SCHEMA_VERSION {
-            return Err(store_validation(
-                "invalid_store_schema_version",
-                "store schema_version must match STORE_SCHEMA_VERSION",
-            ));
-        }
-        Ok(())
-    }
-}
-
 /// Open local store handle for a workspace root.
 pub struct Store {
     workspace_root: PathBuf,
