@@ -12,13 +12,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,6 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,6 +37,7 @@ import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.app.presentation.markdown.MemoMarkdownMediaAdapter
 import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.domain.model.Memo
@@ -56,10 +56,12 @@ import com.lomo.ui.component.common.computeItemKeyWindow
 import com.lomo.ui.component.common.lomoListItemExitPhaseMotion
 import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.component.common.rememberLomoListExitState
+import com.lomo.ui.component.common.rememberModalSheetPresentation
 import com.lomo.ui.component.menu.ActionItemHaptic
 import com.lomo.ui.component.menu.ActionItemPlacement
 import com.lomo.ui.component.menu.ActionItemUi
 import com.lomo.ui.component.menu.MemoActionSheet
+import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.icon.LomoIcons
 import kotlinx.collections.immutable.ImmutableList
@@ -139,7 +141,6 @@ fun TrashScreen(
             listState = listState,
             onNavigateToImage = onNavigateToImage,
             onMemoMenuClick = { memo ->
-                haptic.medium()
                 selectedMemo = memo
             },
             modifier = modifier.padding(paddingValues),
@@ -155,6 +156,8 @@ fun TrashScreen(
     TrashScreenDialogs(
         selectedMemo = selectedMemo,
         showClearTrashDialog = showClearTrashDialog,
+        dateFormat = appPreferences.dateFormat,
+        timeFormat = appPreferences.timeFormat,
         onDismissActionSheet = { selectedMemo = null },
         onRestoreMemo = { memo ->
             viewModel.restoreMemo(memo, trashAnchorAfter(overlayItems, memo.id)) { restored ->
@@ -435,6 +438,8 @@ private fun TrashMemoCardItem(
 private fun TrashScreenDialogs(
     selectedMemo: Memo?,
     showClearTrashDialog: Boolean,
+    dateFormat: String,
+    timeFormat: String,
     onDismissActionSheet: () -> Unit,
     onRestoreMemo: (Memo) -> Unit,
     onDeletePermanently: (Memo) -> Unit,
@@ -442,7 +447,9 @@ private fun TrashScreenDialogs(
     onConfirmClearTrash: () -> Unit,
 ) {
     selectedMemo?.let { memo ->
+        val menuState = remember(memo, dateFormat, timeFormat) { memoMenuState(memo, dateFormat, timeFormat) }
         TrashActionSheet(
+            state = menuState,
             onDismiss = onDismissActionSheet,
             onRestore = { onRestoreMemo(memo) },
             onDeletePermanently = { onDeletePermanently(memo) },
@@ -478,15 +485,22 @@ private fun TrashClearDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TrashActionSheet(onDismiss: () -> Unit, onRestore: () -> Unit, onDeletePermanently: () -> Unit) {
-    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
+private fun TrashActionSheet(
+    state: MemoMenuState,
+    onDismiss: () -> Unit,
+    onRestore: () -> Unit,
+    onDeletePermanently: () -> Unit,
+) {
+    val presentation = rememberModalSheetPresentation()
 
     LomoModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
+        sheetState = presentation.sheetState,
     ) {
         MemoActionSheet(
+            state = state,
             onDismiss = onDismiss,
+            modifier = Modifier.onSizeChanged(presentation::onContentMeasured),
             benchmarkRootTag = BenchmarkAnchorContract.MEMO_MENU_ROOT,
             actions =
             persistentListOf(
