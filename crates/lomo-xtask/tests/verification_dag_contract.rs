@@ -28,9 +28,9 @@ mod tests {
 
     use anyhow::Result;
     use lomo_xtask::verification::{
-        ChangeInventory, CommandRunner, ImpactGraph, Owner, OwnerKind, PlanMode, RequiredTool,
-        Resource, Task, TaskAction, TaskOutcome, TaskStatus, VerificationPlan, execute,
-        parse_test_count,
+        ArchitectureScope, ChangeInventory, CommandRunner, ImpactGraph, Owner, OwnerKind, PlanMode,
+        RequiredTool, Resource, Task, TaskAction, TaskOutcome, TaskStatus, VerificationPlan,
+        execute, parse_test_count,
     };
 
     fn root() -> PathBuf {
@@ -398,7 +398,12 @@ mod tests {
                     },
                 ),
                 ("ffi-contract", TaskAction::FfiContract),
-                ("architecture", TaskAction::Architecture),
+                (
+                    "architecture",
+                    TaskAction::Architecture {
+                        scope: ArchitectureScope::Repository,
+                    },
+                ),
             ] {
                 let dependent = bare_task("downstream", TaskAction::ShellContracts, &[id]);
                 let plan = plan_with(vec![bare_task(id, action, &[]), dependent]);
@@ -558,7 +563,6 @@ mod tests {
     fn full_mode_semantic_canary_must_be_wired_into_a_gate() {
         let wired_in = [
             "quality/scripts/kotlin_detekt_check.sh",
-            "quality/scripts/kotlin_analysis_input.sh",
             "quality/scripts/test/kotlin_quality_check_contract_test.sh",
             "quality/scripts/test/detekt_activation_contract_test.sh",
             "crates/lomo-xtask/src/quality.rs",

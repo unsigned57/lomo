@@ -71,8 +71,29 @@ fn source_files(root: &Path, prefix: &str) -> Result<Vec<PathBuf>, String> {
 
 use std::path::{Path, PathBuf};
 
+fn write(root: &Path, relative: &str, content: &str) -> PathBuf {
+    let path = root.join(relative);
+    let directory = path
+        .parent()
+        .unwrap_or_else(|| panic!("fixture has no parent: {}", path.display()));
+    std::fs::create_dir_all(directory).unwrap_or_else(|error| {
+        panic!("create fixture directory {}: {error}", directory.display())
+    });
+    std::fs::write(&path, content)
+        .unwrap_or_else(|error| panic!("write fixture {}: {error}", path.display()));
+    path
+}
+
 #[path = "policy/ffi.rs"]
 mod ffi;
+
+#[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "adversarial fixtures fail closed with explicit diagnostics"
+)]
+#[path = "ffi_block_decoy/nested_cases.rs"]
+mod nested_cases;
 
 #[expect(
     clippy::expect_used,
@@ -83,6 +104,7 @@ mod tests {
         Export, ResolvedGraph, contract_violations, exports, install_app_data_koin_runtime_edge,
         load_graph, workspace_exports,
     };
+    use super::write;
     use sha2::{Digest as _, Sha256};
     use std::collections::BTreeSet;
     use std::fs;
@@ -99,13 +121,6 @@ mod tests {
             surface("#[export] pub fn dead_export() {}"),
             BTreeSet::from(["com.lomo.nativebridge.deadExport".to_owned()]),
         )
-    }
-
-    fn write(root: &Path, relative: &str, content: &str) -> PathBuf {
-        let path = root.join(relative);
-        fs::create_dir_all(path.parent().expect("fixture parent")).expect("fixture mkdir");
-        fs::write(&path, content).expect("fixture file");
-        path
     }
 
     fn git_init(root: &Path) {

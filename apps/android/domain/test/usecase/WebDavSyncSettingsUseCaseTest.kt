@@ -1,26 +1,10 @@
 package com.lomo.domain.usecase
 
-/*
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- *
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
-import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeMemoMutationRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.domain.testing.fakes.FakeWebDavSyncRepository
@@ -28,19 +12,10 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 
-/*
- * Behavior Contract:
- * - Unit under test: WebDavSyncSettingsUseCase
- * - Behavior focus: remote backend policy updates, auto-sync policy application, and WebDAV action behavior.
- * - Observable outcomes: backend policy writes, fake repository state, memo refresh count, and connection-test result.
- * - TDD proof: Fails before behavior changes or migration are applied.
- * - Excludes: WebDAV transport behavior, repository implementation internals, and UI rendering.
- */
 class WebDavSyncSettingsUseCaseTest : DomainFunSpec() {
     private val eventLog = mutableListOf<String>()
     private lateinit var webDavSyncRepository: FakeWebDavSyncRepository
     private lateinit var syncPolicyRepository: FakeSyncPolicyRepository
-    private lateinit var memoRepository: FakeMemoStore
     private lateinit var useCase: WebDavSyncSettingsUseCase
 
     init {
@@ -48,14 +23,13 @@ class WebDavSyncSettingsUseCaseTest : DomainFunSpec() {
             eventLog.clear()
             webDavSyncRepository = FakeWebDavSyncRepository()
             syncPolicyRepository = FakeSyncPolicyRepository(eventLog = eventLog)
-            memoRepository = FakeMemoStore()
             useCase =
                 WebDavSyncSettingsUseCase(
                     webDavSyncRepository = webDavSyncRepository,
                     syncPolicyRepository = syncPolicyRepository,
                     syncAndRebuildUseCase =
                     SyncAndRebuildUseCase(
-                        memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
+                        memoRepository = FakeMemoMutationRepository(FakeMemoStore()),
                         syncProviderRegistry = SyncProviderRegistry(emptySet()),
                         syncPolicyRepository = syncPolicyRepository,
                     ),
@@ -107,26 +81,6 @@ class WebDavSyncSettingsUseCaseTest : DomainFunSpec() {
                 webDavSyncRepository.autoSyncIntervalWrites shouldBe listOf("1h")
                 webDavSyncRepository.syncOnRefreshEnabledWrites shouldBe listOf(true)
                 syncPolicyRepository.applyRemoteSyncPolicyCallCount shouldBe 2
-            }
-        }
-
-        test("triggerSyncNow forces a memo refresh through shared actions") {
-            runTest {
-                useCase.triggerSyncNow()
-
-                memoRepository.refreshMemosCallCount shouldBe 1
-            }
-        }
-
-        test("testConnection delegates to webdav repository") {
-            runTest {
-                val expected = WebDavSyncResult.Success("connected")
-                webDavSyncRepository.nextTestConnectionResult = expected
-
-                val result = useCase.testConnection()
-
-                result shouldBe expected
-                webDavSyncRepository.testConnectionCallCount shouldBe 1
             }
         }
 

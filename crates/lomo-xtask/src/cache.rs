@@ -89,6 +89,10 @@ fn audit(workspace: &Workspace) -> Result<Value> {
         // Surface divergent module-local outputs so they cannot shadow the shared build.
         workspace.root.join("apps/android/.kotlin"),
         workspace.root.join("apps/android/build"),
+        workspace.root.join("apps/android/target"),
+        workspace.root.join("apps/android/data/build"),
+        workspace.root.join("apps/android/benchmark/.gradle"),
+        workspace.root.join("crates/lomo-native/target"),
     ] {
         if path.try_exists()? {
             entries
@@ -134,10 +138,31 @@ pub fn prune(workspace: &Workspace) -> Result<Value> {
     let Some(cutoff) = SystemTime::now().checked_sub(STALE_SCRATCH_AGE) else {
         bail!("system clock predates the stale-artifact cutoff");
     };
+    let scratch = lomo_output.join("tmp");
+    let (removed, freed) = prune_stale_scratch(&scratch, cutoff)?;
+    let reports_dir = workspace.reports_dir();
+    let removed_verification_runs =
+        crate::verification::prune_verification_reports(&reports_dir, None)?;
+    let removed_detekt_symbol_dirs = prune_stale_detekt_symbols(&reports_dir)?;
+    crate::util::emit_stderr(format_args!(
+        "xtask: prune removed {removed} scratch files ({freed} bytes), {removed_verification_runs} old verification runs, and {removed_detekt_symbol_dirs} stale detekt symbol dirs"
+    ));
+    Ok(json!({
+        "target": target,
+        "cargo_sweep": sweep_log,
+        "scratch": scratch,
+        "removed_scratch_files": removed,
+        "freed_scratch_bytes": freed,
+        "removed_instrumented_directory": removed_instrumented,
+        "removed_verification_runs": removed_verification_runs,
+        "removed_detekt_symbol_dirs": removed_detekt_symbol_dirs,
+    }))
+}
+
+fn prune_stale_scratch(scratch: &Path, cutoff: SystemTime) -> Result<(u64, u64)> {
     let mut removed = 0_u64;
     let mut freed = 0_u64;
-    let scratch = lomo_output.join("tmp");
-    let mut pending = vec![scratch.clone()];
+    let mut pending = vec![scratch.to_path_buf()];
     while let Some(directory) = pending.pop() {
         let entries = match fs::read_dir(&directory) {
             Ok(entries) => entries,
@@ -167,13 +192,75 @@ pub fn prune(workspace: &Workspace) -> Result<Value> {
             }
         }
     }
-    crate::util::emit_stderr(format_args!(
-        "xtask: scratch prune removed {removed} expired files ({freed} bytes); recent scratch, artifacts and reports retained"
-    ));
-    Ok(json!({
-        "target": target, "cargo_sweep": sweep_log, "scratch": scratch, "removed_scratch_files": removed, "freed_scratch_bytes": freed,
-        "removed_instrumented_directory": removed_instrumented,
-    }))
+    Ok((removed, freed))
+}
+
+fn prune_stale_detekt_symbols(reports_dir: &Path) -> Result<u64> {
+    let symbols_dir = reports_dir.join("detekt/symbols");
+    let entries = match fs::read_dir(&symbols_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", symbols_dir.display()));
+        }
+    };
+    let mut active_dirs = std::collections::BTreeSet::new();
+    let mut candidates = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to stat {}", path.display()))?;
+        if metadata.is_dir() {
+            candidates.push(path);
+        } else if metadata.is_file() && is_detekt_symbol_index(&path) {
+            record_indexed_symbol_dir(&path, &mut active_dirs)?;
+        }
+    }
+    let mut removed = 0_u64;
+    for candidate in candidates {
+        if is_active_symbol_dir(&candidate, &active_dirs) {
+            continue;
+        }
+        fs::remove_dir_all(&candidate)
+            .with_context(|| format!("failed to remove {}", candidate.display()))?;
+        removed += 1;
+    }
+    Ok(removed)
+}
+
+fn is_detekt_symbol_index(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("index-"))
+        && path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+}
+
+fn record_indexed_symbol_dir(
+    index_path: &Path,
+    active_dirs: &mut std::collections::BTreeSet<PathBuf>,
+) -> Result<()> {
+    let raw = fs::read_to_string(index_path)
+        .with_context(|| format!("failed to read {}", index_path.display()))?;
+    let doc: Value = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse {}", index_path.display()))?;
+    if let Some(directory) = doc.get("directory").and_then(Value::as_str) {
+        let dir_path = PathBuf::from(directory);
+        active_dirs.insert(dir_path.clone());
+        if let Ok(canonical) = fs::canonicalize(&dir_path) {
+            active_dirs.insert(canonical);
+        }
+    }
+    Ok(())
+}
+
+fn is_active_symbol_dir(
+    candidate: &Path,
+    active_dirs: &std::collections::BTreeSet<PathBuf>,
+) -> bool {
+    active_dirs.contains(candidate)
+        || fs::canonicalize(candidate).is_ok_and(|canonical| active_dirs.contains(&canonical))
 }
 
 // Cargo holds these same profile locks while compiling. Acquire every existing profile lock
@@ -219,10 +306,14 @@ fn lock_cargo_profiles(target: &Path, lomo_output: &Path) -> Result<Vec<fs::File
 fn clean(workspace: &Workspace) -> Result<Value> {
     let mut removed = Vec::new();
     for relative in [
-        // Divergent Kotlin build trees outside the canonical --build-dir location;
+        // Divergent build trees outside the canonical target/lomo layout;
         // regenerable output, removed so a stale graph can never shadow the shared one.
         "apps/android/.kotlin",
         "apps/android/build",
+        "apps/android/target",
+        "apps/android/data/build",
+        "apps/android/benchmark/.gradle",
+        "crates/lomo-native/target",
         "target",
         "apps/android/app/jniLibs",
         "apps/android/native-bindings/src",

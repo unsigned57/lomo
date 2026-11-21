@@ -144,11 +144,6 @@ lomo-architecture:
       - VisibleForTesting
       - Keep
       - Preview
-      - Module
-      - Provides
-      - Binds
-      - Multibinds
-      - HiltViewModel
   NoSwallowedResult:
     active: true
   NoDeprecatedKept:

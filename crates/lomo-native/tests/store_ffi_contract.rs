@@ -54,7 +54,14 @@
 #[cfg(test)]
 mod create_observer;
 #[cfg(test)]
-mod support;
+#[path = "support/option_success.rs"]
+mod option_success;
+#[cfg(test)]
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 #[expect(
@@ -62,7 +69,9 @@ mod support;
     reason = "FFI lifecycle and reminder conversion matrices are intentionally long contracts"
 )]
 mod tests {
-    use super::support::{OptionTestExt, ResultTestExt};
+    use super::option_success::OptionTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
     use std::{
         fs,
         path::{Path, PathBuf},

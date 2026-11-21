@@ -15,7 +15,8 @@
 //! Excludes: Kotlin presentation and platform I/O.
 
 #[cfg(test)]
-mod support;
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 #[expect(
@@ -23,7 +24,7 @@ mod support;
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
-    use super::support::ResultTestExt;
+    use super::result_success::ResultTestExt;
     use lomo_workspace::{SourceBytes, parse_workspace_document};
 
     fn analyze(content: &str) -> lomo_workspace::WorkspaceDocument {

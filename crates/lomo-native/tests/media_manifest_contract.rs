@@ -19,7 +19,8 @@
 //! real: the digest no longer tracks bytes when the weak hint matches.
 
 #[cfg(test)]
-mod support;
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 #[expect(
@@ -27,7 +28,7 @@ mod support;
     reason = "adversarial audit tests fail closed with panics on missing facts"
 )]
 mod tests {
-    use super::support::ResultTestExt;
+    use super::result_success::ResultTestExt;
     use std::{
         fs,
         path::Path,

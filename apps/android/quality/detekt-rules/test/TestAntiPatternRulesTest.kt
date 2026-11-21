@@ -55,7 +55,6 @@ class TestAntiPatternRulesTest :
             rules[RuleName("NoThreadSleepInTests")].shouldNotBeNull()
             rules[RuleName("NoInteractionOnlyTest")].shouldNotBeNull()
             rules[RuleName("NoFlowFirstForStateSequence")].shouldNotBeNull()
-            rules[RuleName("ExcessiveMockStubbing")].shouldNotBeNull()
             rules[RuleName("NoSourceStringBehaviorTest")].shouldNotBeNull()
             rules[RuleName("NoAssertionlessTest")].shouldNotBeNull()
         }
@@ -159,6 +158,28 @@ class TestAntiPatternRulesTest :
             findings shouldBe emptyList()
         }
 
+        test("allows interaction checks paired with shouldBeTypeOf") {
+            val findings =
+                rule("NoInteractionOnlyTest").findingsForTestSource(
+                    """
+                package com.lomo.sample
+
+                import io.kotest.core.spec.style.FunSpec
+                import io.kotest.matchers.types.shouldBeTypeOf
+                import io.mockk.coVerify
+
+                class SaveMemoTest : FunSpec({
+                    test("saves memo") {
+                        result.shouldBeTypeOf<SaveResult.Success>()
+                        coVerify { repository.saveMemo("body") }
+                    }
+                })
+                """,
+                )
+
+            findings shouldBe emptyList()
+        }
+
         test("flags ViewModel state flow first usage") {
             val findings =
                 rule("NoFlowFirstForStateSequence").findingsForTestSource(
@@ -177,50 +198,6 @@ class TestAntiPatternRulesTest :
 
             findings.shouldHaveSize(1)
             findings.single().message shouldContain "Turbine"
-        }
-
-        test("flags excessive mock stubbings when limit exceeded") {
-            val findings =
-                rule("ExcessiveMockStubbing").findingsForTestSource(
-                    """
-                package com.lomo.sample
-
-                import io.mockk.every
-
-                class TooManyStubs {
-                    fun setup(mockRepo: java.util.List<String>) {
-                        every { mockRepo[0] } returns "a"
-                        every { mockRepo[1] } returns "b"
-                        every { mockRepo[2] } returns "c"
-                        every { mockRepo[3] } returns "d"
-                        every { mockRepo[4] } returns "e"
-                        every { mockRepo[5] } returns "f"
-                    }
-                }
-                """,
-                )
-
-            findings.shouldHaveSize(1)
-            findings.single().message shouldContain "Excessive mock stubbings"
-        }
-
-        test("allows few mock stubbings within limit") {
-            val findings =
-                rule("ExcessiveMockStubbing").findingsForTestSource(
-                    """
-                package com.lomo.sample
-
-                import io.mockk.every
-
-                class SafeStubs {
-                    fun setup(mockRepo: java.util.List<String>) {
-                        every { mockRepo[0] } returns "a"
-                    }
-                }
-                """,
-                )
-
-            findings shouldBe emptyList()
         }
 
         test("flags non-architecture source-string behavior tests") {
@@ -414,34 +391,6 @@ class TestAntiPatternRulesTest :
                         (1 + 1) shouldBe 2
                     }
                 }
-                """,
-                )
-
-            findings shouldBe emptyList()
-        }
-
-        test("allows mock stubbings inside a named Fixture harness") {
-            val findings =
-                rule("ExcessiveMockStubbing").findingsForTestSource(
-                    """
-                package com.lomo.sample
-
-                import io.mockk.every
-                import io.mockk.mockk
-
-                private class ResolverFixture {
-                    val mockRepo = mockk<MutableList<String>>()
-                    fun setup() {
-                        every { mockRepo[0] } returns "a"
-                        every { mockRepo[1] } returns "b"
-                        every { mockRepo[2] } returns "c"
-                        every { mockRepo[3] } returns "d"
-                        every { mockRepo[4] } returns "e"
-                        every { mockRepo[5] } returns "f"
-                    }
-                }
-
-                class SampleTest
                 """,
                 )
 

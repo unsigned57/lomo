@@ -190,6 +190,7 @@ exit "$LOMO_TEST_TOOL_EXIT"
                 .env("LOMO_TEST_TOOL_EXIT", exit.to_string())
                 .env("CARGO_TARGET_DIR", directory.path().join("target"))
                 .env("LOMO_GENERATED_ROOT", directory.path().join("generated"))
+                .env("LOMO_REPORTS_DIR", directory.path().join("reports"))
                 .output()?;
             let result = document(&output)?;
             ensure!(output.status.success() == (exit == 0), "{result}");

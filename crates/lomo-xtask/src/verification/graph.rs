@@ -298,7 +298,7 @@ impl ImpactGraph {
                 .map(str::to_owned)
                 .into_iter()
                 .collect(),
-            TaskAction::Architecture
+            TaskAction::Architecture { .. }
             | TaskAction::FfiContract
             | TaskAction::RustFmt
             | TaskAction::RustDocs

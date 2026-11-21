@@ -16,7 +16,14 @@
 //! Excludes: platform file execution, persistent memo IDs, and UI rendering.
 
 #[cfg(test)]
-mod support;
+#[path = "support/option_success.rs"]
+mod option_success;
+#[cfg(test)]
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 mod tests {
@@ -25,7 +32,9 @@ mod tests {
         WorkspaceRelativePath, parse_workspace_document, plan_document_patch,
     };
 
-    use super::support::{OptionTestExt, ResultTestExt};
+    use super::option_success::OptionTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
 
     fn parse(raw: &str) -> WorkspaceDocument {
         let source = SourceBytes::try_from_str(raw).test_ok("valid UTF-8");

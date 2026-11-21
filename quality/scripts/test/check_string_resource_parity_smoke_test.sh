@@ -13,7 +13,6 @@ set -euo pipefail
 # - Given a listed module without its values-zh-rCN directory, When the check runs, Then it
 #   fails instead of silently skipping the module.
 # Observable outcomes: shell exit status and diagnostic text name the affected module/key.
-# TDD proof: this smoke test is expected to fail before check_string_resource_parity.sh exists, then pass once implemented.
 # Excludes: translation quality, placeholder semantics, unused strings, and Android resource merge behavior.
 
 repo_root="$(git rev-parse --show-toplevel)"
@@ -79,8 +78,8 @@ create_fixture_repo() {
   git -C "$repo_dir" config user.name "Fixture Runner"
   git -C "$repo_dir" config user.email "fixture@example.com"
 
-  write_strings_pair "$repo_dir/app" "res" "$zh_mode"
-  write_strings_pair "$repo_dir/ui-components" "composeResources" "complete"
+  write_strings_pair "$repo_dir/apps/android/app" "res" "$zh_mode"
+  write_strings_pair "$repo_dir/apps/android/ui-components" "composeResources" "complete"
 
   git -C "$repo_dir" add -A
   git -C "$repo_dir" commit -qm "fixture"
@@ -132,8 +131,8 @@ run_case() {
 run_case "complete_parity" "complete" 0 "string resource parity OK"
 run_case "missing_zh_key" "missing" 1 "missing in values-zh-rCN: release_permission_hint"
 run_case "split_plurals_file" "complete" 1 "missing in values-zh-rCN: extra_count" \
-  "printf '%s\\n' '<resources><plurals name=\"extra_count\"><item quantity=\"other\">%d</item></plurals></resources>' > app/res/values/plurals.xml"
+  "printf '%s\\n' '<resources><plurals name=\"extra_count\"><item quantity=\"other\">%d</item></plurals></resources>' > apps/android/app/res/values/plurals.xml"
 run_case "missing_zh_directory" "complete" 1 "missing values-zh-rCN directory" \
-  "rm -rf ui-components/composeResources/values-zh-rCN"
+  "rm -rf apps/android/ui-components/composeResources/values-zh-rCN"
 
 echo "check_string_resource_parity smoke tests passed"

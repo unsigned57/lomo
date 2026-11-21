@@ -116,6 +116,7 @@ mod tests {
             kotlin_cli_cache: root.join("kotlin-cli-cache"),
             gradle_home: root.join("gradle-home"),
             kotlin_build: root.join("kotlin-build"),
+            reports_dir: root.join("reports"),
         };
         Ok((temporary, workspace))
     }

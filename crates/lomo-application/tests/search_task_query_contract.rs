@@ -212,6 +212,41 @@ mod tests {
     }
 
     #[test]
+    fn imported_long_utf8_memo_indexes_without_truncating_the_body() {
+        let ctx = open_session();
+        let body = "界".repeat(150_000);
+        let source = lomo_workspace::SourceBytes::try_from_str(&body).expect("body source");
+        let presentation = lomo_workspace::render_markdown(&source)
+            .expect_err("body exceeds the presentation string budget");
+        assert_eq!(presentation.code(), "ir_string_too_large");
+
+        std::fs::write(
+            ctx.workspace_path.join("2026_11_09.md"),
+            format!("- 09:00:00\n{body}\n\n- 10:00:00\n- [ ] neighbouring memo\n"),
+        )
+        .expect("import");
+
+        let indexed = ctx.session.rebuild_projection().expect("index import");
+        assert_eq!(indexed.memos_indexed, 2);
+        let rows = ctx
+            .session
+            .list_memos(&lomo_store::MemoQuery {
+                search_text: None,
+                filters: lomo_store::MemoFilters::default(),
+                sort: lomo_store::MemoSort::default(),
+            })
+            .expect("memo list");
+        let imported = ctx
+            .session
+            .projected_memo(&rows.items[1].memo_id)
+            .expect("projected memo")
+            .expect("imported memo");
+        assert_eq!(imported.body.as_bytes(), body.as_bytes());
+        let tasks = ctx.session.list_tasks().expect("tasks");
+        assert_eq!(tasks[0].text, "neighbouring memo");
+    }
+
+    #[test]
     fn task_board_and_memo_cards_share_markdown_task_semantics() {
         let ctx = open_session();
         create(

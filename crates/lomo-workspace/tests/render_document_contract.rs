@@ -51,11 +51,16 @@
 //! dual-stack switch (P2-09).
 
 #[cfg(test)]
-mod support;
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 mod tests {
-    use super::support::ResultTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::ptr;

@@ -23,11 +23,16 @@
 //! Excludes: TUI placeholder wording, store projection shape (covered by its own contracts).
 
 #[cfg(test)]
-mod support;
+#[path = "support/option_success.rs"]
+mod option_success;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 mod tests {
-    use super::support::{OptionTestExt, ResultTestExt};
+    use super::option_success::OptionTestExt;
+    use super::result_success::ResultTestExt;
     use lomo_core::RelativeWorkspacePath;
     use lomo_workspace::{ImageDest, RenderInline, SourceBytes, render_markdown};
 

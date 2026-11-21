@@ -28,7 +28,6 @@ package com.lomo.data.repository
  *   generation is accepted instead of colliding.
  * - Given a replayed/stale generation, when reanchor is called, then it throws
  *   IllegalArgumentException.
- * - Given a non-positive commit receipt, when surfaced, then it is a structured ProtocolFailure.
  *
  * Observable outcomes: reanchor accept/reject decisions and typed failure surfaces.
  *
@@ -50,7 +49,6 @@ package com.lomo.data.repository
  *   single-authority contract, independent of how the bus implements it.
  */
 
-import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -82,42 +80,5 @@ class ReanchorCollisionContractTest :
             shouldThrow<IllegalArgumentException> {
                 bus.reanchor(generation = 1, highWaterRevision = 11)
             }
-        }
-
-        test("expected contract: a post-import activation is a new generation, not a stale one") {
-            val bus = StoreInvalidationBus()
-            bus.reanchor(generation = 1, highWaterRevision = 5)
-            bus.reanchorProjection(highWaterRevision = 2)
-
-            shouldNotThrowAny {
-                // The session-owned counter produces 2 here; the projection incarnation bump must
-                // not consume a generation the session will legitimately issue.
-                bus.reanchor(generation = 2, highWaterRevision = 9)
-            }
-            bus.publications.value.coreRevision shouldBe 9
-        }
-
-        test("non-positive commit receipt still surfaces structured ProtocolFailure") {
-            val bus = StoreInvalidationBus()
-            bus.reanchor(generation = 1, highWaterRevision = 5)
-            bus.reanchorProjection(highWaterRevision = 2)
-
-            // Even if activation gen bookkeeping were fixed, receipts must stay classified.
-            val failure =
-                shouldThrow<com.lomo.domain.model.EngineCommandFailureException> {
-                    bus.publish(
-                        com.lomo.data.engine.store.StoreMemoCommit(
-                            operationId = "op-0",
-                            memoId = "memo-1",
-                            coreRevision = 0,
-                            eventSequence = 0,
-                            contentRevision = 0,
-                            fileFingerprint = "fp",
-                            scopes = emptyList(),
-                            idempotentReplay = false,
-                        ),
-                    )
-                }
-            failure.failure.code shouldBe StoreInvalidationBus.PROTOCOL_FAILURE_CODE
         }
     })

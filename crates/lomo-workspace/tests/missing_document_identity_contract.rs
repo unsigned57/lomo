@@ -24,7 +24,11 @@
 //! Excludes: platform absence proof and SQLite projection ownership.
 
 #[cfg(test)]
-mod support;
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 #[cfg(test)]
 mod tests {
     use lomo_core::OperationId;
@@ -34,7 +38,8 @@ mod tests {
         plan_document_patch,
     };
 
-    use super::support::ResultTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
 
     fn document(raw: &str) -> WorkspaceDocument {
         parse_workspace_document(

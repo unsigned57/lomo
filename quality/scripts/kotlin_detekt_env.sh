@@ -18,7 +18,6 @@ DETEKT_CLI_SHA1="543c524afee8f40330b4bf66e760cb141accb87a"
 # succeed (verified cache copy or verified download) or fail the gate.
 DETEKT_KTLINT_SHA1="3ae178f7b18c5aefea6d4c78ac3d548694ff5d5c"
 DETEKT_COROUTINES_SHA1="056cb5c33cd41775e374474fac1964c1b080380b"
-DETEKT_CLI_CACHE_DIR_DEFAULT=""
 
 lomo_detekt_repo_root() {
   git rev-parse --show-toplevel
@@ -152,13 +151,13 @@ lomo_detekt_rules_jar() {
 # A candidate that does not reproduce the pin is not "a plugin we failed to
 # verify" — it is not the artifact at all, and is skipped for the next channel.
 lomo_detekt_coroutines_jar() {
-  local repo_root cache_root cache_dir jar_path url actual candidate
-  repo_root="$(lomo_detekt_repo_root)"
+  local cache_root cache_dir jar_path url actual candidate gradle_cache
   cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
   cache_dir="${LOMO_DETEKT_CACHE_DIR:-$cache_root/lomo/detekt}"
   jar_path="$cache_dir/detekt-rules-coroutines-${DETEKT_VERSION}.jar"
+  gradle_cache="${GRADLE_USER_HOME:-$HOME/.gradle}"
   mkdir -p "$cache_dir"
-  if [ ! -f "$jar_path" ]; then
+  if [ ! -f "$jar_path" ] && [ -d "$gradle_cache" ]; then
     while IFS= read -r candidate; do
       [ -f "$candidate" ] || continue
       actual="$(sha1sum "$candidate" | awk '{print $1}')"
@@ -167,7 +166,7 @@ lomo_detekt_coroutines_jar() {
         break
       fi
     done < <(
-      find "$repo_root/.gradle" "$HOME/.gradle" \
+      find "$gradle_cache" \
         -path "*/dev.detekt/detekt-rules-coroutines/${DETEKT_VERSION}/*" \
         -name "detekt-rules-coroutines-${DETEKT_VERSION}.jar" \
         2>/dev/null | sort

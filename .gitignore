@@ -20,7 +20,6 @@ build/
 .kotlin-cli/
 .kotlin/
 .android-sdk/
-.android-task/
 .externalNativeBuild/
 .cxx/
 *.out.old/
@@ -87,9 +86,7 @@ Thumbs.db
 
 # Local AI tooling artifacts
 /.agents/
-.codex-skill-build/
 .codex
-.commandcode/
 .claude
 .claude.json
 .gemini/
@@ -102,28 +99,15 @@ Thumbs.db
 # not race sibling test load. Track the config that pins it.
 !/.config/nextest.toml
 
-# Local credentials and tool homes
+# Local credentials, tool homes, and agent guide aliases
 /.aws/
 .home
 .android
 .android-test-home
 .xdg-data
-CLAUDE.md
-task.md
-/docs/archive/local-audits/
-/lomo_functional_chains.md
-/docs/superpowers/plans
 .xdg-config
-/.antigravitycli
+/CLAUDE.md
 /GEMINI.md
-
-# Local migration planning notes (not repository product truth; use ARCHITECTURE/fixtures)
-/ROADMAP.MD
-/BOLTFFI-MIGRATION-PLAN.md
-/plan.md
-/plan2.md
-/plan3.md
-/P0-P1-ADVERSARIAL-AUDIT-2026-07-24.md
 
 # Durable local verification evidence and editor backups
 /reports/

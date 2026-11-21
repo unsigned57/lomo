@@ -51,7 +51,11 @@
 //! fake-first production adapters, real providers, arm64 device, Sync Center UI.
 
 #[cfg(test)]
-mod support;
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 #[expect(
@@ -59,7 +63,8 @@ mod support;
     reason = "contract tests fail closed with panics on missing facts"
 )]
 mod tests {
-    use super::support::ResultTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
     use lomo_native::{
         SyncBackendConfigDto, SyncConflictPathStatusDto, SyncConflictResolutionDto,
         SyncConflictSessionStateDto, looks_like_lease_id, sync_cycle_status,

@@ -51,9 +51,5 @@ path = "tests/ffi_module_path_contract.rs"
 name = "ffi_block_decoy_contract"
 path = "tests/ffi_block_decoy_contract.rs"
 
-[[test]]
-name = "ffi_nested_block_decoy_contract"
-path = "tests/ffi_nested_block_decoy_contract.rs"
-
 [lints]
 workspace = true

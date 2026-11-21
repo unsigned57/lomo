@@ -46,8 +46,6 @@ def module_keys(directory):
 
 for module, resource_root in module_resource_roots.items():
     mod_dir = repo_root / "apps/android" / module
-    if not mod_dir.exists():
-        mod_dir = repo_root / module
     default_dir = mod_dir / resource_root / "values"
     zh_dir = mod_dir / resource_root / "values-zh-rCN"
     # Both locales are required for every listed module; a missing directory is a broken

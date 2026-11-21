@@ -26,7 +26,7 @@ if [ ! -x "$lint_bin" ]; then
   exit 1
 fi
 
-report_root="$repo_root/reports/android-lint"
+report_root="${LOMO_REPORTS_DIR:-$repo_root/reports}/android-lint"
 mkdir -p "$report_root"
 project_xml="$report_root/project.xml"
 report_xml="$report_root/lint-report.xml"
@@ -186,9 +186,8 @@ PY
 
 echo "kotlin-android-lint-check: running lint"
 set +e
-# UnusedResources is error in lint.xml for AGP-era intent, but standalone CLI does not resolve
-# Compose stringResource/R usages and flags nearly every string. Disable only on this CLI path.
-# i18n key parity remains enforced by check_string_resource_parity.sh.
+# UnusedResources is ignored in lint.xml because standalone SDK lint CLI cannot resolve Compose
+# stringResource/R usages; i18n key parity is enforced by check_string_resource_parity.sh.
 # Source analysis of every packaged module exceeds the launcher's 1 GiB default heap; an OOM
 # surfaces as LintError and fails the gate instead of shrinking its coverage.
 LINT_OPTS="${LINT_OPTS:--Xmx6g}" \
@@ -196,7 +195,6 @@ ANDROID_HOME="$kotlin_android_sdk" ANDROID_SDK_ROOT="$kotlin_android_sdk" \
   "$lint_bin" \
   --project "$project_xml" \
   --config "$repo_root/quality/android/lint.xml" \
-  --disable UnusedResources \
   --exitcode \
   --sdk-home "$kotlin_android_sdk" \
   --compile-sdk-version "$app_compile_sdk" \

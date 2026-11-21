@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Architecture + style Detekt for product modules (parity with old architectureCheck).
+# Architecture and style Detekt for product modules.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,7 +10,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 build_dir="${LOMO_KOTLIN_BUILD_DIR:-${LOMO_GENERATED_ROOT:-$repo_root/target/lomo}/build/kotlin}"
 
-report_root="$repo_root/reports/detekt"
+report_root="${LOMO_REPORTS_DIR:-$repo_root/reports}/detekt"
 mkdir -p "$report_root"
 
 # The architecture/style gate must always load its own rule set. An ambient
@@ -112,6 +112,11 @@ temporary = target.with_suffix('.partial')
 temporary.write_text(json.dumps({'schema_version': 1, 'directory': sys.argv[2]}))
 temporary.replace(target)
 PY
+    for old_dir in "$report_root/symbols/${module}."*; do
+      [ -d "$old_dir" ] || continue
+      [ "$old_dir" = "$LOMO_SYMBOL_FACTS_DIR" ] && continue
+      rm -rf -- "$old_dir"
+    done
   fi
 done
 

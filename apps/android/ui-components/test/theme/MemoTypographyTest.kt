@@ -61,6 +61,7 @@ class MemoTypographyTest : UiComponentsFunSpec() {
             (body.fontSize) shouldBe (14.sp)
             (body.lineHeight) shouldBe (21.sp)
             (body.letterSpacing) shouldBe (0.1.sp)
+            body.platformStyle shouldBe cjkPlatformStyle
 
             (editor.fontSize) shouldBe (body.fontSize)
             (editor.lineHeight) shouldBe (body.lineHeight)
@@ -77,6 +78,7 @@ class MemoTypographyTest : UiComponentsFunSpec() {
             (summary.fontSize) shouldBe (14.sp)
             (summary.lineHeight) shouldBe (21.sp)
             (summary.letterSpacing) shouldBe (0.1.sp)
+            summary.platformStyle shouldBe cjkPlatformStyle
         }
 
         test("memo paragraph block spacing stays clearly balanced with the reading line rhythm") {

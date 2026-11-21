@@ -14,10 +14,7 @@ package com.lomo.data.engine.lan
  * - Given Rust returns a session challenge and a committable item before its inbox wait fails, when
  *   the coordinator awaits inbox generations, then the challenge is signed, the item is committed,
  *   and the wait failure remains observable instead of silently terminating the loop.
- * - Given the coordinator source is inspected, when the listener loop is read, then it waits on
- *   inbox generation instead of polling JNI every 100ms.
-
-
+ *
  * Observable outcomes: engine calls, lease ownership, signed challenge bytes, commit commands,
  * and the coordinator failure state.
  *
@@ -27,16 +24,6 @@ package com.lomo.data.engine.lan
  * the listener job.
  *
  * Excludes: Android framework callback registration, NSD implementation, Rust protocol semantics.
- * // architectural-boundary-check: the listener-loop assertion pins the await-based contract.
- * Test Change Justification:
- * - Reason category: behavior contract change (inbox-driven listener loop).
- * - Old behavior/assertion being replaced: the coordinator polled JNI on a 100ms interval.
- * - Why old assertion is no longer correct: the listener now awaits engine.awaitLanInbox
- *   generations; the poll loop is removed.
- * - Coverage preserved by: challenge-signing/commit/failure-visibility scenarios still assert
- *   observable outcomes; a source-level check pins the await-based loop.
- * - Why this is not fitting the test to the implementation: the await contract is the declared
- *   listener design, not an incidental detail.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -51,7 +38,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import java.io.File
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class LanRuntimeCoordinatorTest : DataFunSpec() {
@@ -73,7 +59,7 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
             coordinator.failure.value?.operation shouldBe LanRuntimeFailureOperation.Permission
         }
 
-        test("given poll returns work then fails when services run then work completes and failure is observable") {
+        test("given the inbox returns work before a wait failure then work completes and the failure is observable") {
             val challenge = LanSessionChallenge(
                 sessionId = "session-1",
                 peerDeviceId = "peer-1",
@@ -267,19 +253,6 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
                 coordinator.stopDiscovery()
                 coordinator.stopServices()
             }
-        }
-
-        test("given coordinator source when the listener loop is inspected then it waits on inbox generation") {
-            val currentDir = File(System.getProperty("user.dir") ?: ".")
-            val source =
-                listOf(
-                    currentDir.resolve("src/engine/lan/LanRuntimeCoordinator.kt"),
-                    currentDir.resolve("data/src/engine/lan/LanRuntimeCoordinator.kt"),
-                ).first { file -> file.isFile }
-            val text = source.readText()
-            text.contains("engine.awaitLanInbox") shouldBe true
-            text.contains("engine.pollLanListener") shouldBe false
-            text.contains("LISTENER_POLL_INTERVAL_MS = 100") shouldBe false
         }
     }
 

@@ -64,7 +64,11 @@ jobs:
               - 'Justfile'
             kotlin:
               - 'apps/android/**'
-              - 'quality/**'
+              - 'quality/android/**'
+              - 'quality/detekt/**'
+              - 'quality/scripts/**'
+              - 'quality/tools.toml'
+              - 'quality/dependency-capabilities.toml'
               - 'kotlin'
             native:
               # All Rust crates conservatively cover the native dependency closure; TUI-only
@@ -82,9 +86,12 @@ jobs:
               - '.githooks/**'
               - '.github/workflows/**'
               - '.editorconfig'
-              - 'quality/**'
-              - 'AGENTS.md'
-              - 'ARCHITECTURE.md'
+              - 'quality/android/**'
+              - 'quality/detekt/**'
+              - 'quality/rust/**'
+              - 'quality/scripts/**'
+              - 'quality/tools.toml'
+              - 'quality/dependency-capabilities.toml'
               - 'apps/android/project.yaml'
       - name: Derive required job flags
         id: flags
@@ -193,8 +200,8 @@ jobs:
             ~/.gradle/wrapper
             target/cargo
             target/lomo/build
-          key: check-1.99-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: check-1.99-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-
+          key: check-1.99-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: check-1.99-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Bootstrap pinned Rust tools
         run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
       - name: Save pinned cargo tools
@@ -381,8 +388,8 @@ jobs:
             target/cargo
             target/lomo/build
             ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
-          key: android-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: android-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-
+          key: android-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: android-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Download arm64-v8a
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

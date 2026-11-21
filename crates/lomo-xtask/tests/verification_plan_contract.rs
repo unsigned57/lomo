@@ -50,9 +50,9 @@
 mod tests {
     use anyhow::{Context, Result, ensure};
     use lomo_xtask::verification::{
-        Artifact, ChangeInventory, ChangeSource, CommandRunner, ImpactGraph, PlanMode,
-        RequiredTool, Resource, Task, TaskAction, TaskOutcome, TaskStatus, VerificationPlan,
-        execute,
+        ArchitectureScope, Artifact, ChangeInventory, ChangeSource, CommandRunner, ImpactGraph,
+        PlanMode, RequiredTool, Resource, Task, TaskAction, TaskOutcome, TaskStatus,
+        VerificationPlan, execute,
     };
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -130,6 +130,44 @@ mod tests {
 
     fn ids(plan: &VerificationPlan) -> BTreeSet<&str> {
         plan.tasks.iter().map(|task| task.id.as_str()).collect()
+    }
+
+    #[test]
+    fn architecture_package_tests_have_one_owner_in_each_plan() -> Result<()> {
+        let graph = graph()?;
+        let changed = ChangeInventory {
+            paths: [PathBuf::from(
+                "crates/lomo-architecture-tests/tests/architecture.rs",
+            )]
+            .into(),
+            removed: BTreeSet::new(),
+            complete: false,
+        };
+        for mode in [PlanMode::Dev, PlanMode::Check] {
+            let plan = VerificationPlan::build(&graph, &changed, None, mode)?;
+            ensure!(plan.tasks.iter().any(|task| matches!(
+                task.action,
+                TaskAction::Architecture {
+                    scope: ArchitectureScope::Package
+                }
+            )));
+            ensure!(
+                !ids(&plan).contains("rust-tests:lomo-architecture-tests"),
+                "the architecture task already owns this package's tests"
+            );
+            ensure!(ids(&plan).contains("rust-clippy:lomo-architecture-tests"));
+        }
+        let tests_only = VerificationPlan::build(&graph, &changed, None, PlanMode::Tests)?;
+        ensure!(ids(&tests_only).contains("rust-tests:lomo-architecture-tests"));
+        ensure!(!ids(&tests_only).contains("architecture"));
+        let scoped = VerificationPlan::build(&graph, &changed, Some("lomo-tui"), PlanMode::Dev)?;
+        ensure!(scoped.tasks.iter().any(|task| matches!(
+            task.action,
+            TaskAction::Architecture {
+                scope: ArchitectureScope::Repository
+            }
+        )));
+        Ok(())
     }
 
     #[test]

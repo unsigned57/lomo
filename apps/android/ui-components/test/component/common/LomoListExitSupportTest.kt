@@ -304,6 +304,7 @@ class LomoListExitSupportTest :
         test("keys without duplicates are returned unchanged") {
             val base = listOf("a", "b", "c")
             uniqueMemoListRenderKeys(base) shouldContainExactly base
+            uniqueMemoListRenderKeys(emptyList()) shouldContainExactly emptyList()
         }
 
         test("repeated keys are disambiguated while first occurrence and order are preserved") {
@@ -317,6 +318,14 @@ class LomoListExitSupportTest :
             result[3] shouldBe "c"
             (result[2] == "a") shouldBe false
             (result[4] == "b") shouldBe false
+        }
+
+        test("disambiguated keys do not collide with literal keys in the same list") {
+            val base = listOf("paging-placeholder-0", "memo-1", "memo-1", "memo-1\u0000dup-2")
+            val result = uniqueMemoListRenderKeys(base)
+
+            result.take(2) shouldContainExactly base.take(2)
+            result.toSet().size shouldBe base.size
         }
 
         test("computeExitRenderKeyWindow unique-ifies only the loaded window") {

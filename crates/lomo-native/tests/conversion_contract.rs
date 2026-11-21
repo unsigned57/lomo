@@ -19,11 +19,17 @@ use lomo_core as core;
 use lomo_native::*;
 
 #[cfg(test)]
-mod support;
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 mod tests {
-    use super::{support::ResultTestExt, *};
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
+    use super::*;
 
     fn digest() -> String {
         "a".repeat(64)

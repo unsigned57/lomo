@@ -21,7 +21,7 @@ internal class ForbiddenTestStackImportsRule(config: Config) :
         reportFile(
             file,
             "Forbidden test stack import: $offending. " +
-                "Use Kotest matchers / MockK / kotlinx.coroutines.test / Turbine per quality/testing/ai-kotlin-test-style.md.",
+                "Use Kotest matchers / MockK / kotlinx.coroutines.test / Turbine per quality/testing/kotlin-test-style.md.",
         )
     }
 

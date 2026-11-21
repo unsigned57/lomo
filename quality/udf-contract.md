@@ -1,7 +1,7 @@
 # UDF Contract
 
 This file defines the current Kotlin presentation state and event interface; module authority is
-defined by `ARCHITECTURE.md`. Read it only when changing ViewModels, events, paging presentation or
+defined by [ARCHITECTURE.md](../ARCHITECTURE.md). Read it only when changing ViewModels, events, paging presentation or
 the related rules; it maintains no class-name inventory and no migration progress.
 
 ## 1. State ownership

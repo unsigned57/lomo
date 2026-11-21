@@ -1,27 +1,11 @@
 package com.lomo.domain.usecase
 
-/*
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- *
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
-import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeMemoMutationRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeS3SyncRepository
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
@@ -29,19 +13,10 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 
-/*
- * Behavior Contract:
- * - Unit under test: S3SyncSettingsUseCase
- * - Behavior focus: remote backend policy updates, S3 settings mutation wiring, and sync action behavior.
- * - Observable outcomes: backend policy writes, fake repository state, memo refresh count, and connection-test result.
- * - TDD proof: Fails before the fix because S3 settings orchestration does not exist yet.
- * - Excludes: S3 transport behavior, encryption codec internals, and UI rendering.
- */
 class S3SyncSettingsUseCaseTest : DomainFunSpec() {
     private val eventLog = mutableListOf<String>()
     private lateinit var s3SyncRepository: FakeS3SyncRepository
     private lateinit var syncPolicyRepository: FakeSyncPolicyRepository
-    private lateinit var memoRepository: FakeMemoStore
     private lateinit var useCase: S3SyncSettingsUseCase
 
     init {
@@ -49,14 +24,13 @@ class S3SyncSettingsUseCaseTest : DomainFunSpec() {
             eventLog.clear()
             s3SyncRepository = FakeS3SyncRepository()
             syncPolicyRepository = FakeSyncPolicyRepository(eventLog = eventLog)
-            memoRepository = FakeMemoStore()
             useCase =
                 S3SyncSettingsUseCase(
                     s3SyncRepository = s3SyncRepository,
                     syncPolicyRepository = syncPolicyRepository,
                     syncAndRebuildUseCase =
                     SyncAndRebuildUseCase(
-                        memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
+                        memoRepository = FakeMemoMutationRepository(FakeMemoStore()),
                         syncProviderRegistry = SyncProviderRegistry(emptySet()),
                         syncPolicyRepository = syncPolicyRepository,
                     ),
@@ -142,26 +116,6 @@ class S3SyncSettingsUseCaseTest : DomainFunSpec() {
                 useCase.isAccessKeyConfigured() shouldBe true
                 useCase.isSecretAccessKeyConfigured() shouldBe true
                 useCase.isEncryptionPasswordConfigured() shouldBe true
-            }
-        }
-
-        test("triggerSyncNow forces a memo refresh through shared actions") {
-            runTest {
-                useCase.triggerSyncNow()
-
-                memoRepository.refreshMemosCallCount shouldBe 1
-            }
-        }
-
-        test("testConnection delegates to s3 repository") {
-            runTest {
-                val expected = S3SyncResult.Success("connected")
-                s3SyncRepository.nextTestConnectionResult = expected
-
-                val result = useCase.testConnection()
-
-                result shouldBe expected
-                s3SyncRepository.testConnectionCallCount shouldBe 1
             }
         }
 

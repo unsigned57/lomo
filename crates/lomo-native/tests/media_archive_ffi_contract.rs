@@ -41,7 +41,11 @@
 #[cfg(test)]
 mod create_observer;
 #[cfg(test)]
-mod support;
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 #[expect(
@@ -49,7 +53,8 @@ mod support;
     reason = "contract tests fail closed with panics on missing facts"
 )]
 mod tests {
-    use super::support::ResultTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
     use std::{fs, path::Path};
 
     use lomo_core::{CapabilityToken, PlatformActionExecutor};

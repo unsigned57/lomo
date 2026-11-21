@@ -130,8 +130,8 @@ jobs:
             target/cargo
             target/lomo/build
             ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
-          key: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-
+          key: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}

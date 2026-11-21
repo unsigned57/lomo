@@ -7,7 +7,7 @@
  *
  * Scenarios:
  * - Given Idle session, when startRecording, then isRecording becomes true.
- * - Given Recording session, when stopRecording, then isRecording becomes false and onResult receives markdown.
+ * - Given a recording publishes a duration and amplitude, when it stops, then both values reset and onResult receives markdown.
  * - Given Recording session, when cancelRecording, then isRecording becomes false.
  * - Given session start failure, when startRecording, then isRecording stays false and errorMessage is set.
  * - Given errorMessage is set, when clearError, then errorMessage becomes null.
@@ -68,13 +68,17 @@ class RecordingViewModelTest : AppFunSpec() {
             }
         }
 
-        test("stopRecording returns markdown and resets state") {
+        test("stopping a recording with a live timer and amplitude resets both and returns markdown") {
             runTest(testDispatcher) {
                 val viewModel = createViewModel()
                 var resultMarkdown: String? = null
 
                 viewModel.startRecording(com.lomo.domain.model.DraftId("editor-test"))
                 advanceUntilIdle()
+                fakeSession.publishSample(durationMillis = 50L, amplitude = 42)
+                viewModel.recordingDuration.value shouldBe 50L
+                viewModel.recordingAmplitude.value shouldBe 42
+
                 viewModel.stopRecording { resultMarkdown = it }
                 advanceUntilIdle()
 
@@ -150,6 +154,11 @@ private class FakeRecordingSession : RecordingSession {
     override val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
     var startException: Throwable? = null
+
+    fun publishSample(durationMillis: Long, amplitude: Int) {
+        _durationMillis.value = durationMillis
+        _amplitude.value = amplitude
+    }
 
     fun reset() {
         _state.value = RecordingSessionState.Idle

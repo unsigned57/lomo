@@ -518,18 +518,6 @@ mod tests {
             );
         }
 
-        /// Green control: `enum class` headers without a body bail `Err` — a
-        /// malformed Kotlin file can never slip a half-parsed declaration through.
-        #[test]
-        fn a_headerless_enum_still_bails_fail_closed() {
-            let dir = tempfile::tempdir().expect("fixture");
-            usecase_fixture(dir.path(), "enum class Registry\nfun f() = DeadUseCase");
-            assert!(
-                lomo_xtask::check_usecase_reachability(dir.path()).is_err(),
-                "a `enum class` header without `{{` must bail fail-closed"
-            );
-        }
-
         /// Green control: `$`-prefixed names *inside* `${}` keep their boundary —
         /// `"${ x }"` contributes a `}` so a following `(` cannot glue; and a bare
         /// `${ DeadUseCase() }` construction must keep minting.

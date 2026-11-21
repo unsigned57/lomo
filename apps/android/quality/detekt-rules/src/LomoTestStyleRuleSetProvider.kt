@@ -19,7 +19,6 @@ class LomoTestStyleRuleSetProvider : RuleSetProvider {
             RuleName("NoThreadSleepInTests") to ::NoThreadSleepInTestsRule,
             RuleName("NoInteractionOnlyTest") to ::NoInteractionOnlyTestRule,
             RuleName("NoFlowFirstForStateSequence") to ::NoFlowFirstForStateSequenceRule,
-            RuleName("ExcessiveMockStubbing") to ::ExcessiveMockStubbingRule,
             RuleName("NoSourceStringBehaviorTest") to ::NoSourceStringBehaviorTestRule,
             RuleName("NoAssertionlessTest") to ::NoAssertionlessTestRule,
             RuleName("ShouldBeInstanceOfAssertion") to ::ShouldBeInstanceOfAssertionRule,

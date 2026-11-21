@@ -165,7 +165,6 @@ fn planned_replacements(
     // Human-facing pin lines and CI cache key prefixes use major.minor (msrv).
     let doc_paths = [
         "quality/README.md",
-        "CLAUDE.md",
         "AGENTS.md",
         ".github/workflows/android_release.yml",
         ".github/workflows/architecture_checks.yml",

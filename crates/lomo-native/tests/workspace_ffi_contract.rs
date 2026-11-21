@@ -25,7 +25,11 @@
 //! Excludes: production DI dual-stack (P2-09), Kotlin IR presentation (P2-07).
 
 #[cfg(test)]
-mod support;
+#[path = "support/option_success.rs"]
+mod option_success;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 #[expect(
@@ -33,7 +37,8 @@ mod support;
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
-    use super::support::{OptionTestExt, ResultTestExt};
+    use super::option_success::OptionTestExt;
+    use super::result_success::ResultTestExt;
     use std::{
         fs,
         sync::{

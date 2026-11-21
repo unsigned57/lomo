@@ -3,14 +3,12 @@ package com.lomo.app.feature.main
 import androidx.paging.compose.LazyPagingItems
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import com.lomo.ui.component.common.resolveExitRenderList
-import com.lomo.ui.component.common.uniqueMemoListRenderKeys
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toPersistentSet
 
 /*
  * Behavior Contract:
@@ -26,7 +24,6 @@ import kotlinx.collections.immutable.toPersistentSet
  * - Given a loaded window at a deep placeholder rank, when render keys are computed, then only the window is unique-ified and unloaded ranks stay formulaic.
  * - Given placeholders before a loaded page, when materialized count is computed, then it is placeholdersBefore plus loaded size.
  * - Given an exiting item with a stale predecessor, when its exit anchor is refreshed, then the entry is dynamically re-anchored after the active predecessor.
- * - Given list items are being deleted, when filtered snapshot is computed, then deleting items are removed while order of remaining items is preserved.
  *
  * Observable outcomes:
  * - resolved memo item or null.
@@ -55,45 +52,6 @@ import kotlinx.collections.immutable.toPersistentSet
  */
 class PagedMemoListMotionTddTest :
     FunSpec({
-        test(
-            "given snapshot memos and deleting ids when filtered then deleted items are excluded and order is preserved",
-        ) {
-            val memo1 = MemoUiModel(
-                memo = com.lomo.domain.model.Memo(
-                    id = "1",
-                    content = "memo1",
-                    rawContent = "memo1",
-                    timestamp = 1000L,
-                    updatedAt = 1000L,
-                    isPinned = false,
-                    dateKey = "2026_06_21",
-                ),
-                processedContent = "memo1",
-                renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
-                tags = persistentListOf(),
-                reminders = persistentListOf(),
-                imageUrls = persistentListOf(),
-                shouldShowExpand = false,
-                collapsedSummary = "",
-            )
-            val memo2 = memo1.copy(memo = memo1.memo.copy(id = "2"))
-            val memo3 = memo1.copy(memo = memo1.memo.copy(id = "3"))
-
-            val snapshotMemos = listOf(memo1, memo2, memo3).toImmutableList()
-            val deletingIds = setOf("2").toPersistentSet()
-
-            val filtered = snapshotMemos.filterNot { it.memo.id in deletingIds }
-
-            filtered shouldBe listOf(memo1, memo3)
-        }
-
-        test("given duplicate memo ids when generating render keys then keys are unique and order is preserved") {
-            val baseKeys = listOf("1", "2", "1", "3", "2")
-            val uniqueKeys = uniqueMemoListRenderKeys(baseKeys)
-
-            uniqueKeys shouldBe listOf("1", "2", "1\u0000dup-2", "3", "2\u0000dup-4")
-        }
-
         test("render keys for a loaded window stay O(loaded) and placeholders stay formulaic") {
             val window =
                 memoListRenderKeyWindow(

@@ -97,20 +97,6 @@ class SidebarViewModelTest : AppFunSpec() {
             }
         }
 
-        test("onSearch delegates query update to state holder") {
-            runTest {
-                val viewModel = SidebarViewModel(
-                    observeSidebarStatisticsUseCase = observeSidebarStatisticsUseCase(),
-                    stateHolder = stateHolder,
-                    appConfigCoordinator = appConfigCoordinator,
-                )
-
-                viewModel.onSearch("meeting")
-
-                viewModel.searchQuery.value shouldBe "meeting"
-            }
-        }
-
         test("the session owner clears the query through one explicit reset") {
             runTest {
                 val viewModel = SidebarViewModel(
@@ -120,6 +106,7 @@ class SidebarViewModelTest : AppFunSpec() {
                 )
 
                 viewModel.onSearch("meeting")
+                viewModel.searchQuery.value shouldBe "meeting"
 
                 stateHolder.clearAll()
 

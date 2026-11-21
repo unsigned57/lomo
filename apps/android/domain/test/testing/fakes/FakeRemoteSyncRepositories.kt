@@ -45,14 +45,8 @@ class FakeGitSyncRepository : GitSyncRepository {
     var token: String? = null
     var syncCallCount = 0
         private set
-    var testConnectionCallCount = 0
-        private set
-    var resetRepositoryCallCount = 0
-        private set
     var nextSyncResult: GitSyncResult = GitSyncResult.Success("synced")
     var syncFailure: Exception? = null
-    var nextTestConnectionResult: GitSyncResult = GitSyncResult.Success("connected")
-    var nextResetRepositoryResult: GitSyncResult = GitSyncResult.Success("reset")
 
     fun setEnabled(value: Boolean) {
         enabled.value = value
@@ -165,15 +159,9 @@ class FakeGitSyncRepository : GitSyncRepository {
     override suspend fun getStatus(): GitSyncStatus =
         GitSyncStatus(hasLocalChanges = false, aheadCount = 0, behindCount = 0, lastSyncTime = null)
 
-    override suspend fun testConnection(): GitSyncResult {
-        testConnectionCallCount += 1
-        return nextTestConnectionResult
-    }
+    override suspend fun testConnection(): GitSyncResult = GitSyncResult.Success("connected")
 
-    override suspend fun resetRepository(): GitSyncResult {
-        resetRepositoryCallCount += 1
-        return nextResetRepositoryResult
-    }
+    override suspend fun resetRepository(): GitSyncResult = GitSyncResult.Success("reset")
 
     override fun syncState(): Flow<UnifiedSyncState> = syncState.asStateFlow()
 }
@@ -203,9 +191,6 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
     var syncCallCount = 0
         private set
     var nextSyncResult: WebDavSyncResult = WebDavSyncResult.Success("synced")
-    var nextTestConnectionResult: WebDavSyncResult = WebDavSyncResult.Success("connected")
-    var testConnectionCallCount = 0
-        private set
 
     fun setEnabled(value: Boolean) {
         enabled.value = value
@@ -299,10 +284,7 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
     override suspend fun getStatus(): WebDavSyncStatus =
         WebDavSyncStatus(remoteFileCount = 0, localFileCount = 0, pendingChanges = 0, lastSyncTime = null)
 
-    override suspend fun testConnection(): WebDavSyncResult {
-        testConnectionCallCount += 1
-        return nextTestConnectionResult
-    }
+    override suspend fun testConnection(): WebDavSyncResult = WebDavSyncResult.Success("connected")
 
     override fun syncState(): Flow<WebDavSyncState> = syncState.asStateFlow()
 }
@@ -360,9 +342,6 @@ class FakeS3SyncRepository : S3SyncRepository {
     var encryptionPasswordConfigured = false
     var encryptionPassword2Configured = false
     var nextSyncResult: S3SyncResult = S3SyncResult.Success("synced")
-    var nextTestConnectionResult: S3SyncResult = S3SyncResult.Success("connected")
-    var testConnectionCallCount = 0
-        private set
 
     fun setEnabled(value: Boolean) {
         enabled.value = value
@@ -550,10 +529,7 @@ class FakeS3SyncRepository : S3SyncRepository {
     override suspend fun getStatus(): S3SyncStatus =
         S3SyncStatus(remoteFileCount = 0, localFileCount = 0, pendingChanges = 0, lastSyncTime = null)
 
-    override suspend fun testConnection(): S3SyncResult {
-        testConnectionCallCount += 1
-        return nextTestConnectionResult
-    }
+    override suspend fun testConnection(): S3SyncResult = S3SyncResult.Success("connected")
 
     override fun syncState(): Flow<S3SyncState> = syncState.asStateFlow()
 }

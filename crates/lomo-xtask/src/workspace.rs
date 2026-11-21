@@ -25,6 +25,7 @@ pub struct Workspace {
     pub kotlin_cli_cache: PathBuf,
     pub gradle_home: PathBuf,
     pub kotlin_build: PathBuf,
+    pub reports_dir: PathBuf,
 }
 
 impl Workspace {
@@ -84,6 +85,10 @@ impl Workspace {
             .or_else(|| env_path("ANDROID_SDK_ROOT"))
             .or_else(|| env_path("ANDROID_HOME"))
             .unwrap_or_else(|| kotlin_home.join("Android/Sdk"));
+        let reports_dir = absolute_path(
+            &root,
+            env_path("LOMO_REPORTS_DIR").unwrap_or_else(|| root.join("reports")),
+        );
 
         Ok(Self {
             rust,
@@ -119,6 +124,7 @@ impl Workspace {
                 env_path("LOMO_KOTLIN_BUILD_DIR")
                     .unwrap_or_else(|| lomo_output.join("build/kotlin")),
             ),
+            reports_dir,
             root,
         })
     }
@@ -234,7 +240,7 @@ impl Workspace {
 
     #[must_use]
     pub fn reports_dir(&self) -> PathBuf {
-        self.root.join("reports")
+        self.reports_dir.clone()
     }
 
     #[must_use]

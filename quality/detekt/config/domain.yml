@@ -77,11 +77,7 @@ style:
       - android.*
       - androidx.compose.*
       - androidx.lifecycle.*
-      - androidx.room.*
-      - dagger.*
-      - javax.inject.*
       - io.ktor.*
-      - org.eclipse.jgit.*
       - com.lomo.data.*
       - com.lomo.ui.*
   NullableBooleanCheck:
@@ -140,11 +136,6 @@ lomo-architecture:
       - VisibleForTesting
       - Keep
       - Preview
-      - Module
-      - Provides
-      - Binds
-      - Multibinds
-      - HiltViewModel
   NoSwallowedResult:
     active: true
   NoDeprecatedKept:
@@ -179,6 +170,12 @@ lomo-architecture:
     active: true
   NoMultipleEffectChannels:
     active: true
+  NoCollaboratorDefaultArg:
+    active: true
+    forbiddenTypeTokens:
+      - Bus
+      - Registry
+      - Coordinator
   AppSourceBoundary:
     active: true
   AppManifestBoundary:

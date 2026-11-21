@@ -38,7 +38,14 @@
 //! Excludes: Android provider execution, Compose layout, scheduling policy, and production DI.
 
 #[cfg(test)]
-mod support;
+#[path = "support/option_success.rs"]
+mod option_success;
+#[cfg(test)]
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 #[expect(
@@ -46,7 +53,9 @@ mod support;
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
-    use super::support::{OptionTestExt, ResultTestExt};
+    use super::option_success::OptionTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
     use lomo_core::ErrorCategory;
     use lomo_workspace::{
         DocumentPatchCommand, MAX_IR_STRING_UTF8_BYTES, MAX_RENDER_DOCUMENT_NODES,

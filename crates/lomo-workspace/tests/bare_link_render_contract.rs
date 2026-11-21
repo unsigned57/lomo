@@ -21,11 +21,12 @@
 //! Excludes: Android URI handlers, networking and map application availability.
 
 #[cfg(test)]
-mod support;
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 mod tests {
-    use super::support::ResultTestExt;
+    use super::result_success::ResultTestExt;
     use lomo_workspace::{RenderBlock, RenderInline, SourceBytes, render_markdown};
 
     fn links(markdown: &str) -> Vec<String> {

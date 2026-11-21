@@ -32,7 +32,8 @@
 //! codec framing (`lomo_record_contract`).
 
 #[cfg(test)]
-mod support;
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 mod tests {
@@ -43,7 +44,7 @@ mod tests {
         write_layout_head_v2,
     };
 
-    use super::support::ResultTestExt;
+    use super::result_success::ResultTestExt;
     use tempfile::tempdir;
 
     #[test]

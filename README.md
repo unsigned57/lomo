@@ -46,7 +46,7 @@
 - **Tags** — organize with `#tags`, including nested tags like `#tag1/tag2`
 - **Full-text search** — indexed local search
 - **Material 3** — clean UI with dynamic color
-- **Linux TUI** — `lomo` on a terminal: timeline, tasks, review, stats, media, trash, settings
+- **Desktop TUI** — `lomo` in a terminal: timeline, tasks, review, stats, media, trash, settings
 
 #### Review
 
@@ -102,7 +102,7 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
    - macOS Apple Silicon / Intel: `lomo-*-aarch64-apple-darwin.tar.gz` / `lomo-*-x86_64-apple-darwin.tar.gz` — untagged builds are unsigned; if Gatekeeper blocks the binary, clear it with `xattr -d com.apple.quarantine lomo` or allow it in System Settings
    - Windows x86_64: `lomo-*-x86_64-pc-windows-msvc.zip` — run `lomo.exe` in Windows Terminal, PowerShell, or a console host
    - Or run from a checkout on any platform: `cargo run -p lomo-tui --release --locked`
-2. Pass a directory on the command line to bind it as the workspace: `lomo /path/to/notes`. First run writes `config.toml` under the platform config dir with `workspace` set to `~/Notes`; you can still start from `config/config.toml.example`:
+2. Pass a directory on the command line to bind it as the workspace: `lomo /path/to/notes`. First run creates `config.toml` automatically under the platform config dir (default `workspace = ~/Notes`):
    - Linux: `$XDG_CONFIG_HOME/lomo/` (usually `~/.config/lomo/`)
    - macOS: `~/Library/Application Support/lomo/`
    - Windows: `%APPDATA%\lomo\`
@@ -118,7 +118,7 @@ The home screen is a centered, single-column memo feed.
 - `Esc` peels one layer at a time and the hint bar always names what it will do next
 - Terminals with an image protocol render images in full text
 
-The desktop TUI has no built-in Git/WebDAV/S3 sync or LAN sharing in this round; copy the Markdown workspace and attachments (including `.trash` to retain deleted memos), or use an external file sync tool. History, pins and internal control state stay private to each installation.
+The desktop TUI does not include built-in Git/WebDAV/S3 sync or LAN sharing; copy the Markdown workspace and attachments (including `.trash` to retain deleted memos), or use an external file sync tool. History, pins and internal control state stay private to each installation.
 
 Building from source is covered under **Building** below.
 
@@ -159,13 +159,18 @@ just build tui release
 # Run the TUI
 cargo run -p lomo-tui --release --locked
 
-# Worktree iteration gate (add --tests-only to skip static analysis)
+# Verify affected owners together for a broader change
 just dev
 
-# Optional local reproduction of CI; these are not required in sequence before each push
+# Reproduce the CI check locally when needed
 just check
+
+# Run complete integration verification locally when GitHub evidence is unavailable
 just ci
 ```
+
+For routine changes, use the focused check that shows the result. See
+[verification by change](quality/README.md#gate-selection-and-evidence).
 
 See the [directory map](docs/project-layout.md) for source ownership and packaged outputs.
 

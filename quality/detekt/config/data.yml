@@ -5,10 +5,7 @@ config:
 complexity:
   TooManyFunctions:
     ignoreOverridden: true
-    ignoreAnnotated:
-      - Database
     excludes:
-      - "**/com/lomo/data/s3/S3RcloneCryptCompatCodec.kt"
       - "**/StoreMemoRepositories.kt"
       - "**/SessionNativeBridge.kt"
       - "**/engine/sync/RemoteSyncRepository.kt"
@@ -67,10 +64,6 @@ naming:
   InvalidPackageDeclaration:
     rootPackage: com.lomo.data
 style:
-  MagicNumber:
-    excludes:
-      - "**/com/lomo/data/s3/Base32768SafeEncoding.kt"
-      - "**/com/lomo/data/s3/S3RcloneCryptCompatCodec.kt"
   ForbiddenMethodCall:
     active: true
     methods:
@@ -153,11 +146,6 @@ lomo-architecture:
       - VisibleForTesting
       - Keep
       - Preview
-      - Module
-      - Provides
-      - Binds
-      - Multibinds
-      - HiltViewModel
   NoSwallowedResult:
     active: true
   NoDeprecatedKept:

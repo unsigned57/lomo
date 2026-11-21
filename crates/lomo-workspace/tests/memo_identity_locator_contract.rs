@@ -33,7 +33,14 @@
 //! Excludes: platform I/O, database projection, cryptographic random source and UI presentation.
 
 #[cfg(test)]
-mod support;
+#[path = "support/option_success.rs"]
+mod option_success;
+#[cfg(test)]
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 mod tests {
@@ -45,7 +52,9 @@ mod tests {
         plan_document_patch,
     };
 
-    use super::support::{OptionTestExt, ResultTestExt};
+    use super::option_success::OptionTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
 
     fn document(raw: &str) -> WorkspaceDocument {
         parse_workspace_document(

@@ -1,9 +1,7 @@
 # Fixtures
 
-Current repository fixtures are grouped by responsibility:
-
 This is the fixture index. [Architecture](../ARCHITECTURE.md) owns module boundaries;
-[Meaningful Tests](../quality/testing/ai-meaningful-tests.md) owns test evidence. Markdown corpus
+[Meaningful tests](../quality/testing/meaningful-tests.md) owns test evidence. Markdown corpus
 files are byte-sensitive test inputs, not agent instructions or prose to reformat.
 
 | Directory | Purpose |

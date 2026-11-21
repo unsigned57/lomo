@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Behavior Contract
-# Capability: prove the real CLI, service loader, plugin jar and production configurations enforce
-# native ownership even when a Kotlin file attempts to suppress every Detekt finding.
-# Scenarios:
-# - Given every production config, when legal source is checked, then the CLI succeeds.
-# - Given a handwritten native declaration and a file-level suppression, when the same CLI runs,
-#   then native, mutable-flow and suppression ownership findings appear and the CLI fails.
-# Observable outcomes: CLI exit codes and rule IDs in the machine-readable checkstyle report.
-# TDD proof: before activation/unsuppressible policy, the real CLI omits these required rule IDs.
-# Excludes: product compilation, Android execution and type-resolution-dependent lint rules.
+# Contract test: the real Detekt CLI, service loader, plugin jar, and production configs
+# enforce native, mutable-flow, and suppression rules against negative/positive fixtures.
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"

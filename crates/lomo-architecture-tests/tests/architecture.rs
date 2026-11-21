@@ -602,24 +602,9 @@ mod tests {
     }
 
     #[test]
-    fn quality_entry_is_pinned_and_legacy_routes_are_absent() {
+    fn quality_entry_uses_the_workspace_toolchain_pin() {
         let justfile = read("Justfile");
         assert!(justfile.contains("RUSTUP_TOOLCHAIN") && justfile.contains("rust-toolchain.toml"));
-
-        for path in ["quality/testing/ai-rust-test-style.md", "quality/README.md"] {
-            let text = read(path);
-            for forbidden in [
-                "lomo-sync-core",
-                "rust-bindings",
-                "feasibility-device",
-                "sync_v1",
-            ] {
-                assert!(
-                    !text.contains(forbidden),
-                    "legacy route {forbidden} in {path}"
-                );
-            }
-        }
     }
 
     #[test]

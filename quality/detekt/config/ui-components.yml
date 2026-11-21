@@ -146,11 +146,6 @@ lomo-architecture:
       - VisibleForTesting
       - Keep
       - Preview
-      - Module
-      - Provides
-      - Binds
-      - Multibinds
-      - HiltViewModel
   NoSwallowedResult:
     active: true
   NoDeprecatedKept:
@@ -187,6 +182,12 @@ lomo-architecture:
     active: true
   NoMultipleEffectChannels:
     active: true
+  NoCollaboratorDefaultArg:
+    active: true
+    forbiddenTypeTokens:
+      - Bus
+      - Registry
+      - Coordinator
   AppManifestBoundary:
     active: true
   DomainLayerIsolation:

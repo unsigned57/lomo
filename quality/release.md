@@ -1,28 +1,22 @@
 # Release Contract
 
-Read for signing, release resources or publishing. Gate selection and JSON evidence are defined in
-[Quality Contract](README.md); module ownership remains in [Architecture](../ARCHITECTURE.md).
-Release builds use the same xtask graph as local development and pull-request CI.
+Read this file for release signing, artifact validation, and release tag workflows.
+[Quality](README.md) owns gate evidence; [Architecture](../ARCHITECTURE.md) owns module authority;
+[AGENTS.md](../AGENTS.md) owns authorization (documentation examples never authorize publishing or
+pushing release tags). Write user-facing release notes using
+[the format guide](../docs/release_notes_format_guide.md).
 
-This file describes release preparation and execution, not a blanket instruction to publish.
-Apply build/signing steps when producing a release; a resource review or prose change uses the
-applicable Quality checks. Local APK publication means copying a validated artifact into the
-repository's output directory; it is not a GitHub Release. Remote publication, release-tag pushes
-and system installation require applicable task authorization under [AGENTS](../AGENTS.md).
-Existing authorization remains valid; do not request it again for each documented step.
-Write user-facing release notes using the [format guide](../docs/release_notes_format_guide.md).
+## Android release
 
-## Prerequisites
+### Prerequisites and signing
 
 ```bash
 just bootstrap
-# Complete local delivery verification when no green CI receipt exists for this commit:
-just ci
+just ci   # required when no green CI receipt exists for the commit
 ```
 
-Release signing is owned by the Kotlin toolchain: `settings.android.signing` in
-`apps/android/app/module.yaml` signs the release APK during the build. Its single input is
-`apps/android/app/keystore.properties` with the camelCase keys:
+`settings.android.signing` in [`apps/android/app/module.yaml`](../apps/android/app/module.yaml)
+signs the release APK during build using `apps/android/app/keystore.properties`:
 
 ```text
 storeFile=<path>        # relative paths resolve from apps/android/app/
@@ -31,144 +25,67 @@ keyAlias=<alias>
 keyPassword=<password>
 ```
 
-Partial or missing configuration fails before the release build. No default key, interactive guess,
-or debug signing fallback exists; the release workflow materializes the same file from secrets.
+Missing or incomplete `keystore.properties` fails closed before building (no debug signing or
+interactive fallback). Release workflows materialize the same file from repository secrets.
 
-## Build
+### Build and validation
 
 ```bash
 just build android release all
 ```
 
-Use an explicit ABI for split builds. Omission selects arm64 at the Just entrypoint.
-A JSON result is successful only after artifact validation and signature verification finish.
+Pass an explicit ABI (`arm64`, `armv7`, `x86`, `x86_64`) for split builds (default `arm64`).
+`lomo-xtask` executes one unified graph:
 
-xtask performs the following as one graph:
+1. validates measured Baseline/Startup Profile receipts/syntax (`profgen`) and `keystore.properties`;
+2. compiles `lomo-native` (`release-android`, immediate abort + `-Z build-std`);
+3. regenerates BoltFFI Kotlin/JNI (`native-bindings` / `com.lomo.nativebridge`) and stages `liblomo_native_jni.so`;
+4. builds and signs the APK via the Kotlin toolchain with non-destructive ABI stashing;
+5. verifies targeted ABI ELF files, absence of unselected ABIs or JNA/legacy libraries, and embedded
+   baseline profile assets (`assets/dexopt/baseline.prof`);
+6. verifies the APK signature via `apksigner verify` before publishing under `target/lomo/artifacts/android/release/`:
+   - Universal updater APK: `lomo-v<version>-vc<versionCode>.apk` (metadata parsed from `app/module.yaml`)
+   - Split APKs: `Lomo-<version>-<abi>.apk` (debug APKs use `artifacts/android/debug/Lomo-<version>-<abi>.apk`)
 
-1. validates measured Baseline/Startup Profile receipt hashes and SDK grammar, plus the `keystore.properties` signing configuration;
-2. builds `lomo-native` for the target ABI(s) with the pinned NDK/API and release-android profile;
-3. generates BoltFFI Kotlin/JNI into `native-bindings` / `com.lomo.nativebridge` and packages
-   only `liblomo_native_jni.so` per ABI;
-4. builds the Kotlin Toolchain release APK — signed in-build by `android.signing` — with
-   non-destructive ABI stashing isolation;
-5. verifies the single native library for every targeted ABI, absence of unselected ABIs or JNA/`libjnidispatch`/old
-   `liblomo_native.so`, ELF architecture and dependencies, and embedded baseline profile assets;
-6. verifies the toolchain-applied signature with `apksigner verify` before publishing.
+### Tag workflow and gate reuse
 
-The universal release artifact is
-`target/lomo/artifacts/android/release/lomo-v<version>-vc<versionCode>.apk`.
-Its name is the installed Android updater's metadata contract: both version fields come from
-`app/module.yaml`. Split release artifacts use
-`target/lomo/artifacts/android/release/Lomo-<version>-<abi>.apk`. Debug artifacts use
-`target/lomo/artifacts/android/debug/Lomo-<version>-<abi>.apk`, where `<version>` is the app `versionName`
-from `app/module.yaml` and `<abi>` is the ABI tag (`all` for universal packages), as reported by `data.apk` in the command result. Build intermediates stay in the single configured shared
-Kotlin build directory.
+Tag pushes (`v*`) trigger [`.github/workflows/android_release.yml`](../.github/workflows/android_release.yml),
+which requires `docs/releases/<tag>.md` and verifies via the Actions API that `architecture_checks.yml`
+(`check`, `rust-host`, `android-kotlin`, `native` matrix, `quality`) already succeeded on the exact
+commit (default branch pushes run full gates automatically; other refs need a manual full dispatch
+first). Active runs wait up to 90 minutes; missing/failed/cancelled runs block release without
+re-running checks. Never duplicate native/signing/validation logic outside xtask.
 
-Tag workflow `.github/workflows/android_release.yml` checks release notes first, then waits for
-the existing Quality Checks run for the same repository and exact commit. The default branch
-provides the complete integration gate once; feature branches/PRs retain selective iteration.
-The release verifies successful normal checks, Rust coverage, Android delivery/coverage, native
-jobs and aggregation through the read-only Actions API. It never invokes another quality graph.
-Push the commit to the default branch first; the branch and tag may be pushed together. Publishing
-from another ref requires a manual full Quality Checks run on that commit first. Missing, failed,
-cancelled or partial checks block the release rather than triggering duplicate compilation.
-Completed checks proceed immediately; active ones are awaited with a 90-minute bound, and missing
-runs fail after five minutes of discovery. Only then does the workflow build signed split and
-universal artifacts. The signed build restores compatible snapshots and saves completed
-compilation after failures; pinned tools are saved immediately after bootstrap.
-The universal package alone is discoverable by the in-app
-updater; split packages remain available for manual installation. It must not grow a second native,
-Kotlin, signing, or APK validation implementation.
+### In-place upgrade compatibility
 
-### Android 1.6.2 → 2.0.0
+Official releases keep package ID `com.lomo.app` and the original release signing certificate so
+in-app updates (`lomo-v<version>-vc<versionCode>.apk`) and `adb install -r` succeed in place. When
+validating an upgrade on device, compare `apksigner verify --print-certs` between the previous release
+and candidate APK, test `adb install -r`, and verify the installed version, launch, and data policy.
 
-The released 1.6.2 package is `com.lomo.app`, version code 46. The 2.0.0 manifest uses the same
-package and version code 47. Updating in place requires the original release signing certificate;
-a debug or newly generated key cannot update the installed release.
+## Resource review
 
-1. Run the release gates and `just build android release all` with the original signing key.
-   Compare `apksigner verify --print-certs` output for the released 1.6.2 APK and the built APK.
-2. Publish the verified `lomo-v2.0.0-vc47.apk` in the Android `v2.0.0` GitHub release. The old
-   updater reads `/releases/latest`, so this must be a published stable release, not a draft or
-   prerelease. Remote publication requires task authorization.
-3. In 1.6.2, use Settings → Check for updates, download the update, allow installation from Lomo
-   if Android requests it, and confirm the system update dialog. Cancellation leaves 1.6.2 installed.
-   A manual download of the same universal APK uses the same Android package update checks.
-4. Launch 2.0.0 and verify the installed version and a usable editor. This upgrade does not promise
-   migration of old application state. The user may configure the workspace and preferences again;
-   there is no automatic deletion of user workspace documents or app data.
+`just ci` checks `values` / `values-zh-rCN` parity via
+[the parity checker](scripts/check_string_resource_parity.sh) across modules owning strings. Do not
+create empty resource directories to satisfy a stale list.
 
-For device evidence, install the released 1.6.2 APK on a dedicated test device, launch it, then use
-`adb install -r <2.0.0 APK>` and launch again. Record the signer digests, install result, installed
-version, launch outcome and whether app data was retained or explicitly cleared. This proves package
-replacement and startup; it does not prove GitHub download or system installer consent UI.
+| Resource area | Owner | Release check |
+| --- | --- | --- |
+| FileProvider paths | App release, share/update | Confirm `file_paths.xml` exposes only share images and validated update APKs with cleanup |
+| Backup & extraction | App release, data/security | Inspect merged manifest `allowBackup`, `fullBackupContent`, `dataExtractionRules`; verify credential/sync/workspace scope before shipping backup/restore changes |
+| Locale & string parity | App release, i18n | Verify complete locale keys and equivalent meaning for permission, sync, recovery, update, and destructive copy |
+| Permission & recovery | App release, capability owner | Verify every permission documents purpose, denial fallback, and settings recovery path |
+| Widget previews | Widget, app release | Validate supported sizes, localized strings, entry actions, and launcher rendering |
+| Shader & fallback | Update, UI | Verify API 33 gate, reduced-animation handling, and pre-33 fallback |
 
-## Resource Review
+## TUI release (desktop)
 
-`just ci` includes string-resource key parity. `just build android release` additionally validates the selected
-native ABIs, ELF metadata, BoltFFI-only packaging (`liblomo_native_jni.so`), baseline profile
-assets, signing, and the final APK signature.
+TUI releases use `tui-v<semver>` tags and [`.github/workflows/tui_release.yml`](../.github/workflows/tui_release.yml),
+which runs host checks on Linux and builds/verifies `lomo-platform-fs` contracts per target OS/kernel
+before packaging archives (`lomo` + `LICENSE` + shell completions + `.sha256`). Unsigned macOS
+archives require user Gatekeeper clearance (`xattr -d com.apple.quarantine lomo`). `workflow_dispatch`
+repackages the `apps/tui/Cargo.toml` version without publishing a release.
 
-The [parity checker](scripts/check_string_resource_parity.sh) owns the module/resource-root mapping.
-It compares `string`, `plurals` and `string-array` keys between `values` and `values-zh-rCN` for
-modules that own string resources. Do not create empty resource trees to satisfy a stale inventory.
-
-No allowlist is currently needed. Key parity does not prove translation quality, placeholder
-semantics, unused-resource cleanup, or Android resource merge behavior.
-
-| Resource area | Owner | Risk | Release review |
-| --- | --- | --- | --- |
-| FileProvider paths | App release and share/update owners | Overbroad paths or stale cache files can expose unintended content. | Verify `file_paths.xml` exposes only generated share images and validated update APKs; grants are user-driven and stale files are cleaned. |
-| Backup and data extraction | App release and data/security owners | Source extraction rules can be mistaken for active backup policy. | Inspect the merged manifest for `allowBackup`, `fullBackupContent`, and `dataExtractionRules`; record the intended cloud-backup and device-transfer behavior. |
-| Locale config and string parity | App release and i18n reviewer | Locale declarations and cross-module copy can drift. | Verify every shipped locale has complete keys and that permission, sync, recovery, update, and destructive-action copy has equivalent meaning. |
-| Permission and recovery strings | App release and capability owner | Copy can promise behavior unavailable after OS denial. | Verify every permission has an owner, purpose, denial/retry path, and settings recovery route. |
-| Widget preview resources | Widget and app release owners | Launcher previews can diverge from Glance behavior or localized copy. | Validate supported sizes, localized strings, entry actions, and launcher rendering. |
-| Shader and visual fallback resources | Update and UI owners | API 33 shader loading or compilation can break update progress. | Verify the API gate, reduced-animation behavior, pre-33 path, and usable fallback when the shader is unavailable. |
-
-These are evidence checks performed by the reviewer, not requests for a new user approval per row.
-Product consent and permission flows remain part of the behavior being verified.
-
-Before shipping backup, migration, credential, or restore changes:
-
-1. Inspect the merged release manifest for backup and extraction attributes.
-2. Record whether cloud backup and device transfer are intentionally disabled or scoped.
-3. Re-check every credential, sync, migration, and workspace setting that would enter that scope.
-
-## TUI Release (Desktop)
-
-`v*` tags belong to Android. TUI releases use `tui-v<semver>` tags and the
-`TUI Release` workflow, which runs the `ci-rust fast` host gate once on Linux, then
-builds and packages `lomo-tui` natively per target. Each matrix job runs the
-`lomo-platform-fs` contract suite on the real kernel before packaging, so a backend
-that only compiles cannot ship.
-
-The target/runner matrix is owned by
-[the TUI workflow](../.github/workflows/tui_release.yml); do not duplicate it in agent instructions.
-
-Every archive carries the binary, `LICENSE`, shell completions (bash/zsh/fish,
-plus PowerShell on Windows), and a `<file>.sha256` checksum; the `publish` job
-attaches all of them to the GitHub Release.
-
-Once a TUI release is authorized and its artifacts are verified, create and push the corresponding
-`tui-v<semver>` tag. A tag command example does not itself authorize publication.
-
-`workflow_dispatch` repackages the Cargo.toml version without publishing a release.
-macOS archives are unsigned — Gatekeeper quarantine is cleared by the user
-(`xattr -d com.apple.quarantine lomo`); notarization is a future step, not a gate.
-
-`apps/tui/packaging/arch/lomo-bin/PKGBUILD` (`lomo-bin`) repackages that tarball. After each
-release bump `pkgver` and refresh `sha256sums` with `updpkgsums` (pacman-contrib) before pushing
-to AUR.
-
-`apps/tui/packaging/arch/lomo-local/PKGBUILD` (`lomo-local`) packages the worktree build at
-`target/lomo/artifacts/tui/release/lomo` for local iteration — `pkgver()` tracks `HEAD`, no network fetch:
-
-Build/package explicitly when local packaging is requested:
-
-```bash
-just build tui release
-(cd apps/tui/packaging/arch/lomo-local && makepkg -f)
-```
-
-`install-tui` is retired: quality commands do not enter sudo/pacman installation prompts.
-Installing the resulting package is a separate system operation.
+Arch packaging recipes live under `apps/tui/packaging/arch/`:
+- `lomo-bin/PKGBUILD`: after a release, update `pkgver` and `updpkgsums`.
+- `lomo-local/PKGBUILD`: packages local `target/lomo/artifacts/tui/release/lomo` (`just build tui release && (cd apps/tui/packaging/arch/lomo-local && makepkg -f)`). Installing system packages is always a separate manual step.

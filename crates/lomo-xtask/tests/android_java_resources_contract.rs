@@ -55,6 +55,7 @@ mod tests {
             kotlin_cli_cache: root.join("kotlin-cli"),
             gradle_home: root.join("gradle"),
             kotlin_build: root.join("shared-kotlin-build"),
+            reports_dir: root.join("reports"),
         };
         fs::write(
             root.join("kotlin"),

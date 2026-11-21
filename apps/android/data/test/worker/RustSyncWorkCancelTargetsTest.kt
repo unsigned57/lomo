@@ -35,11 +35,11 @@ import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 
 class RustSyncWorkCancelTargetsTest :
     FunSpec({
-        test("cancel targets include periodic oneshot and deferred unique work") {
+        test("cancel targets include the persisted names of periodic oneshot and deferred work") {
             RustSyncWorker.cancelTargets().shouldContainExactlyInAnyOrder(
-                RustSyncWorker.WORK_NAME,
-                RustSyncWorker.ONESHOT_WORK_NAME,
-                RustSyncWorker.DEFERRED_WORK_NAME,
+                "com.lomo.data.worker.RustSyncWorker",
+                "com.lomo.data.worker.RustSyncWorker:oneshot",
+                "com.lomo.data.worker.RustSyncWorker:deferred",
             )
         }
     })

@@ -206,14 +206,6 @@ class RustSyncWorkerTest :
             ).shouldBeNull()
         }
 
-        test("RustSyncWorker companion delegates to disposition policy") {
-            RustSyncWorker
-                .mapRetryHint(
-                    RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Transient),
-                ).shouldBeInstanceOf<ListenableWorker.Result.Retry>()
-            RustSyncWorker.WORK_NAME shouldBe "com.lomo.data.worker.RustSyncWorker"
-        }
-
         test("doWork fail-closed when workspace root is blank") {
             runTest {
                 val workerParams = RustSyncWorkerParamsFixture(workDataOf())

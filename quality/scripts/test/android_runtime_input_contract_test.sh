@@ -1,18 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Behavior Contract: successful Amper task states own the packaged Android runtime inputs.
-# Given selected runtime modules plus stale/test/release archives, collection returns only the
-# selected compiled outputs and runtime archives, and rejects missing selected inputs.
-# TDD proof: regression preservation of runtime selection after removing static profile expansion.
-# Test Change Justification:
-# Reason category: device-measured profiles replace static class enumeration.
-# Old behavior/assertion being replaced: static profile generation and merged-class parsing.
-# Why old assertion is no longer correct: SDK profgen owns HRF syntax; measured hotness is not
-# equivalent to all methods in the JVM class graph. This helper now owns only runtime selection.
-# Coverage preserved by: selected/stale/missing runtime input controls below and measured_profiles_contract.
-# Why this is not fitting the test to the implementation: independent successful task-state fixtures
-# still reject unrelated archives and missing outputs; device profile validation is tested at its owner.
-# Excludes: ART hotness, profile parsing and device startup benefit.
+# Contract test: successful Amper task states select only active compiled outputs and
+# runtime archives while rejecting stale/unrelated caches and missing declared inputs.
 repo_root="$(git rev-parse --show-toplevel)"
 python3 - "$repo_root" <<'PY'
 import json

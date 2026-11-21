@@ -19,7 +19,6 @@ and timezone-dependent absolute epoch values are not golden authority.
 ## Update procedure
 
 Missing or malformed goldens fail closed. Normal test runs never invent or overwrite expected data.
-There is no implemented `LOMO_UPDATE_CHARACTERIZATION` regeneration switch in the current tree.
 
 For an intentional external-contract change, first describe the expected semantic difference and
 its independently checked oracle in DECISIONS. Update only the affected expectations from that

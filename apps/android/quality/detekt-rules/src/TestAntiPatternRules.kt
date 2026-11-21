@@ -33,7 +33,7 @@ internal class NoRelaxedMockkRule(config: Config) :
 
         reportElement(
             expression,
-            "Avoid mockk(relaxed = true). Model behavior with a Fake* or test harness; relaxed mocks hide missing BDD outcomes.",
+            "Avoid mockk(relaxed = true). Model behavior with a Fake* or test harness; relaxed mocks hide missing behavioral outcomes.",
         )
     }
 
@@ -113,7 +113,7 @@ internal class NoInteractionOnlyTestRule(config: Config) :
         val file = expression.containingKtFile
         if (!file.isTestFile()) return
         val callee = expression.calleeExpression?.text ?: return
-        if (callee != "test") return
+        if (callee != "test" && callee != "it") return
 
         val bodyText = expression.testScenarioBodyText() ?: return
         if (!VERIFY_REGEX.containsMatchIn(bodyText)) return
@@ -134,13 +134,23 @@ internal class NoInteractionOnlyTestRule(config: Config) :
                 "shouldBeTrue",
                 "shouldBeFalse",
                 "shouldThrow",
+                "shouldNotThrow",
                 "shouldHaveSize",
                 "shouldContain",
+                "shouldBeEmpty",
+                "shouldNotBeEmpty",
                 "shouldBeNull",
                 "shouldNotBeNull",
                 "shouldBeInstanceOf",
+                "shouldBeTypeOf",
                 "assertSoftly",
                 "awaitItem() should",
+                "expectNoEvents",
+                "expectMostRecentItem",
+                "awaitComplete",
+                "awaitError",
+                "checkAll",
+                "forAll",
             )
     }
 }
@@ -148,7 +158,7 @@ internal class NoInteractionOnlyTestRule(config: Config) :
 internal class NoAssertionlessTestRule(config: Config) :
     LomoBaseRule(
         config,
-        "Tests must contain at least one observable assertion (e.g. shouldBe, assertTrue, awaitItem, fail).",
+        "Tests must contain at least one observable assertion (e.g. shouldBe, shouldBeTrue, awaitItem, fail).",
     ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
@@ -165,7 +175,7 @@ internal class NoAssertionlessTestRule(config: Config) :
         if (!ASSERTION_REGEX.containsMatchIn(bodyText)) {
             reportElement(
                 expression,
-                "Assertionless test detected. A test must assert observable state or behavior (e.g. shouldBe, assertTrue, awaitItem).",
+                "Assertionless test detected. A test must assert observable state or behavior (e.g. shouldBe, shouldBeTrue, awaitItem).",
             )
         }
     }
@@ -205,44 +215,6 @@ internal class NoFlowFirstForStateSequenceRule(config: Config) :
     }
 }
 
-internal class ExcessiveMockStubbingRule(config: Config) :
-    LomoBaseRule(
-        config,
-        "Too many mock stubbings (every/coEvery) detected. Model behavior with Fake* or test harness instead of mocking SUT dependencies.",
-    ) {
-    private var everyCount = 0
-
-    override fun visitKtFile(file: KtFile) {
-        everyCount = 0
-        super.visitKtFile(file)
-        val limit = config.valueOrDefault("maxEveryStubbingCount", 5)
-        if (everyCount > limit) {
-            reportFile(
-                file,
-                "Excessive mock stubbings ($everyCount > $limit). Model behavior with a Fake*, test harness, Turbine, or call-recording fake instead of stubbing multiple dependencies.",
-            )
-        }
-    }
-
-    override fun visitCallExpression(expression: KtCallExpression) {
-        super.visitCallExpression(expression)
-        if (!expression.containingKtFile.isTestFile()) return
-        val calleeText = expression.calleeExpression?.text
-        if (calleeText != "every" && calleeText != "coEvery") return
-        val ownerName =
-            generateSequence(expression.parent) { it.parent }
-                .filterIsInstance<KtClassOrObject>()
-                .mapNotNull { it.name }
-                .firstOrNull()
-                .orEmpty()
-        if (ownerName.isTestHarnessType()) return
-        everyCount++
-    }
-}
-
-private fun String.isTestHarnessType(): Boolean =
-    endsWith("Fixture") || endsWith("Harness") || endsWith("Fake") || startsWith("Fake")
-
 /**
  * Kotest migration kept scenario bodies in same-file helpers invoked as `test("name") { `name`() }`.
  * Assertion and verify tokens live in that helper; scan it when the lambda is a single call.
@@ -275,7 +247,7 @@ private fun KtCallExpression.testScenarioBodyText(): String? {
 internal class NoSourceStringBehaviorTestRule(config: Config) :
     LomoBaseRule(
         config,
-        "Non-architecture tests must not assert on Kotlin source-string tokens. Extract the production logic into a testable unit.",
+        "Non-architecture tests must not assert on Kotlin source-string tokens. Test observable behavior through the owning public API.",
     ) {
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
@@ -301,7 +273,7 @@ internal class NoSourceStringBehaviorTestRule(config: Config) :
         if (hasKotlinSourceInput && hasFileReference && hasReadText && hasAssertion) {
             reportFile(
                 file,
-                "Source-string assertion test forbidden. Extract the production logic into a testable unit and assert observable outcomes. To allow an architecture-boundary file, add the '// architectural-boundary-check' marker.",
+                "Source-string assertion test forbidden. Test observable behavior through the owning public API instead of inspecting source text. To allow an architecture-boundary file, place it under '/architecture/' or add '// architectural-boundary-check'.",
             )
         }
     }

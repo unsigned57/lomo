@@ -98,7 +98,11 @@ mod tests {
 
         let stale_scratch = write(&target.join("lomo/tmp/old/probe.bin"), STALE_AGE)?;
         let fresh_scratch = write(&target.join("lomo/tmp/current/probe.bin"), Duration::ZERO)?;
-        let historical_report = write(&target.join("lomo/reports/archive.json"), STALE_AGE)?;
+        let reports = fixture.join("reports");
+        let baseline_report = write(
+            &reports.join("device-perf-engine-baseline.v2.json"),
+            STALE_AGE,
+        )?;
 
         fingerprint(&target.join("debug"), "stale-aaaaaaaaaaaaaaaa", STALE_AGE)?;
         fingerprint(
@@ -120,6 +124,7 @@ mod tests {
             .args(["cache", "prune"])
             .env("CARGO_TARGET_DIR", &target)
             .env("LOMO_GENERATED_ROOT", target.join("lomo"))
+            .env("LOMO_REPORTS_DIR", &reports)
             .output()
             .context("run lomo-xtask cache prune")?;
         if !output.status.success() {
@@ -141,8 +146,52 @@ mod tests {
             &dwp,
             &release_output,
             &fresh_scratch,
-            &historical_report,
+            &baseline_report,
         ] {
+            ensure!(kept.exists(), "{} should be kept", kept.display());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn prune_bounds_verification_runs_and_stale_detekt_symbols() -> Result<()> {
+        let fixture = tempfile::tempdir()?;
+        let reports = fixture.path().join("reports");
+        let mut verification_runs = Vec::new();
+        for ts in 1_u128..=12 {
+            let run_dir = reports.join(format!("verification/{ts}-100"));
+            write(&run_dir.join("results.json"), STALE_AGE)?;
+            verification_runs.push(run_dir);
+        }
+        let active_symbols = reports.join("detekt/symbols/app.active");
+        write(&active_symbols.join("facts.json"), STALE_AGE)?;
+        fs::write(
+            reports.join("detekt/symbols/index-app.json"),
+            serde_json::json!({"schema_version": 1, "directory": active_symbols}).to_string(),
+        )?;
+        let stale_symbols = reports.join("detekt/symbols/app.stale");
+        write(&stale_symbols.join("facts.json"), STALE_AGE)?;
+
+        let output = Command::new(env!("CARGO_BIN_EXE_lomo-xtask"))
+            .args(["cache", "prune"])
+            .env("CARGO_TARGET_DIR", fixture.path().join("target"))
+            .env("LOMO_GENERATED_ROOT", fixture.path().join("lomo"))
+            .env("LOMO_REPORTS_DIR", &reports)
+            .output()
+            .context("run lomo-xtask cache prune")?;
+        ensure!(
+            output.status.success(),
+            "cache prune failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        for removed in [
+            &stale_symbols,
+            verification_runs.first().context("run 1")?,
+            verification_runs.get(1).context("run 2")?,
+        ] {
+            ensure!(!removed.exists(), "{} should be pruned", removed.display());
+        }
+        for kept in std::iter::once(&active_symbols).chain(verification_runs.iter().skip(2)) {
             ensure!(kept.exists(), "{} should be kept", kept.display());
         }
         Ok(())
@@ -167,6 +216,7 @@ mod tests {
             .args(["cache", "prune"])
             .env("CARGO_TARGET_DIR", &target)
             .env("LOMO_GENERATED_ROOT", fixture.path().join("lomo"))
+            .env("LOMO_REPORTS_DIR", fixture.path().join("reports"))
             .output()?;
         ensure!(
             !output.status.success(),
@@ -182,6 +232,7 @@ mod tests {
             .args(["cache", "prune"])
             .env("CARGO_TARGET_DIR", &target)
             .env("LOMO_GENERATED_ROOT", fixture.path().join("lomo"))
+            .env("LOMO_REPORTS_DIR", fixture.path().join("reports"))
             .output()?;
         ensure!(
             output.status.success(),
@@ -212,6 +263,7 @@ mod tests {
             .args(["cache", "prune"])
             .env("CARGO_TARGET_DIR", &target)
             .env("LOMO_GENERATED_ROOT", target.join("lomo"))
+            .env("LOMO_REPORTS_DIR", fixture.path().join("reports"))
             .output()?;
         ensure!(output.status.success());
         ensure!(
@@ -239,6 +291,7 @@ mod tests {
             .args(["cache", "prune"])
             .env("CARGO_TARGET_DIR", fixture.path().join("target"))
             .env("LOMO_GENERATED_ROOT", fixture.path().join("lomo"))
+            .env("LOMO_REPORTS_DIR", fixture.path().join("reports"))
             .env("LOMO_CARGO_TOOLS_DIR", fixture.path().join("tools"))
             .output()?;
         ensure!(!output.status.success());

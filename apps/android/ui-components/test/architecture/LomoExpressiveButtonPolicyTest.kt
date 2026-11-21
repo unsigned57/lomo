@@ -7,36 +7,8 @@ import io.kotest.matchers.shouldBe
 import java.io.File
 
 /*
- * Behavior Contract:
- * - Capability: UI production sources use the shared expressive button API.
- * - Behavior focus: production sources must reach the M3 Expressive `shapes:` overloads through
- *   the Lomo* wrapper composables in component/common/LomoButtons.kt; direct calls to the
- *   platform button composables resolve to the legacy static-shape overload and are forbidden.
- *
- * Scenarios:
- * - Given the wrapper file, when it is inspected, then it forwards to the `shapes:` overloads
- *   with the expressive defaults.
- * - Given all ui-components production sources, when they are scanned for bare platform button
- *   calls, direct material3 button imports and fully-qualified calls, then zero offenders are
- *   found.
- *
- * Observable outcomes: the Lomo* wrappers exist and the forbidden-call scan reports zero
- *   offenders.
- *
- * TDD proof: fails before the expressive-button migration because the scan finds dozens of bare
- *   IconButton(/Button(/TextButton( call sites and material3 button imports.
- *
- * Production scope: apps/android/ui-components/src/component/common/LomoButtons.kt
- *
- * Excludes: test sources, generated code, third-party libraries, comments, and the wrapper file
- *   itself (it is the only place allowed to call the platform composables). ToggleButton and
- *   IconToggleButton are separate expressive APIs not covered by this contract.
- * Test Change Justification:
- * Reason category: architecture test relocation.
- * Old behavior/assertion being replaced: All wrapper and forbidden-call assertions remain unchanged.
- * Why old assertion is no longer correct: existing outcome assertions remain valid and retained.
- * Coverage preserved by: The wrapper exemption and all remaining UI production files are still checked.
- * Why this is not fitting the test to the implementation: no expected product outcome is weakened.
+ * Production UI calls the shared Lomo button wrappers. The wrapper file owns the direct
+ * Material3 calls, and legal and forbidden fixtures validate the call-site scan.
  */
 class LomoExpressiveButtonPolicyTest : UiComponentsFunSpec() {
     private val moduleRoot = resolveModuleRoot("ui-components")
@@ -44,27 +16,6 @@ class LomoExpressiveButtonPolicyTest : UiComponentsFunSpec() {
 
     init {
         registerPolicyControls()
-        test("LomoButtons.kt forwards to the expressive shapes overloads") {
-            val source = sourceRoot.resolve("component/common/LomoButtons.kt")
-            withClue("component/common/LomoButtons.kt must exist") { source.exists() shouldBe true }
-            val content = source.readText()
-            listOf(
-                "LomoIconButton", "LomoFilledIconButton", "LomoFilledTonalIconButton",
-                "LomoOutlinedIconButton", "LomoButton", "LomoTextButton",
-                "LomoFilledTonalButton", "LomoOutlinedButton", "LomoElevatedButton",
-            ).forEach { wrapper ->
-                withClue("LomoButtons.kt must define $wrapper") {
-                    content.contains("fun $wrapper(") shouldBe true
-                }
-            }
-            withClue("wrappers must default to the expressive IconButton shapes") {
-                content.contains("IconButtonDefaults.shapes()") shouldBe true
-            }
-            withClue("wrappers must default to the expressive Button shapes") {
-                content.contains("ButtonDefaults.shapes()") shouldBe true
-            }
-        }
-
         test("no production source calls platform button composables directly") {
             val kotlinFiles =
                 sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()

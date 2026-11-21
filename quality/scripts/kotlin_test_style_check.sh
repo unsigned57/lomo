@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test-style Detekt (parity with old testStyleCheck).
+# Test-style Detekt for Android module test suites.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,8 +10,10 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 build_dir="${LOMO_KOTLIN_BUILD_DIR:-${LOMO_GENERATED_ROOT:-$repo_root/target/lomo}/build/kotlin}"
 
-report_root="$repo_root/reports/detekt-test-style"
+report_root="${LOMO_REPORTS_DIR:-$repo_root/reports}/detekt-test-style"
 mkdir -p "$report_root"
+
+export LOMO_DETEKT_INCLUDE_CUSTOM_RULES=1
 
 echo "kotlin-test-style-check: ensuring detekt-rules jar exists"
 if [ ! -f "$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar" ]; then
@@ -39,7 +41,7 @@ for module in app domain data ui-components; do
 
   echo "kotlin-test-style-check: analyzing $module (${inputs[*]})"
   if ! lomo_detekt_run \
-    --input "$(IFS=,; echo "${inputs[*]}")" \
+    --input "$(IFS=:; echo "${inputs[*]}")" \
     --config "$config" \
     --disable-default-rulesets \
     --report "html:$report_root/${module}.html"; then

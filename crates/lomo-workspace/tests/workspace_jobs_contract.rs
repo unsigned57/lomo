@@ -74,7 +74,14 @@
 //! Excludes: `BoltFFI` generation (P2-06), production DI dual-stack (P2-09), Kotlin IR presentation.
 
 #[cfg(test)]
-mod support;
+#[path = "support/option_success.rs"]
+mod option_success;
+#[cfg(test)]
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 #[expect(
@@ -82,7 +89,9 @@ mod support;
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
-    use super::support::{OptionTestExt, ResultTestExt};
+    use super::option_success::OptionTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
     use sha2::{Digest, Sha256};
     use std::fs;
     use std::os::unix::fs::PermissionsExt;

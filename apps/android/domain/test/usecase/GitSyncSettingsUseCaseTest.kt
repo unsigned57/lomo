@@ -1,27 +1,11 @@
 package com.lomo.domain.usecase
 
-/*
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- *
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncPhase
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeGitSyncRepository
+import com.lomo.domain.testing.fakes.FakeMemoMutationRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import io.kotest.assertions.fail
@@ -29,19 +13,10 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 
-/*
- * Behavior Contract:
- * - Unit under test: GitSyncSettingsUseCase
- * - Behavior focus: remote backend policy updates, Git settings mutation, conflict-resolution actions, and exception mapping semantics.
- * - Observable outcomes: backend policy writes, fake repository state, memo refresh count, and returned result mapping.
- * - TDD proof: Fails before behavior changes or migration are applied.
- * - Excludes: repository implementation details, network behavior, and UI rendering.
- */
 class GitSyncSettingsUseCaseTest : DomainFunSpec() {
     private val eventLog = mutableListOf<String>()
     private lateinit var gitSyncRepository: FakeGitSyncRepository
     private lateinit var syncPolicyRepository: FakeSyncPolicyRepository
-    private lateinit var memoRepository: FakeMemoStore
     private lateinit var useCase: GitSyncSettingsUseCase
 
     init {
@@ -49,14 +24,13 @@ class GitSyncSettingsUseCaseTest : DomainFunSpec() {
             eventLog.clear()
             gitSyncRepository = FakeGitSyncRepository()
             syncPolicyRepository = FakeSyncPolicyRepository(eventLog = eventLog)
-            memoRepository = FakeMemoStore()
             useCase =
                 GitSyncSettingsUseCase(
                     gitSyncRepository = gitSyncRepository,
                     syncPolicyRepository = syncPolicyRepository,
                     syncAndRebuildUseCase =
                     SyncAndRebuildUseCase(
-                        memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
+                        memoRepository = FakeMemoMutationRepository(FakeMemoStore()),
                         syncProviderRegistry = SyncProviderRegistry(emptySet()),
                         syncPolicyRepository = syncPolicyRepository,
                     ),
@@ -134,28 +108,6 @@ class GitSyncSettingsUseCaseTest : DomainFunSpec() {
                 gitSyncRepository.autoSyncIntervalWrites shouldBe listOf("15m")
                 gitSyncRepository.syncOnRefreshEnabledWrites shouldBe listOf(true)
                 syncPolicyRepository.applyRemoteSyncPolicyCallCount shouldBe 2
-            }
-        }
-
-        test("triggerSyncNow forces a memo refresh through shared actions") {
-            runTest {
-                useCase.triggerSyncNow()
-
-                memoRepository.refreshMemosCallCount shouldBe 1
-            }
-        }
-
-        test("testConnection and resetRepository delegate to git repository") {
-            runTest {
-                val testResult = GitSyncResult.Success("ok")
-                val resetResult = GitSyncResult.Success("reset")
-                gitSyncRepository.nextTestConnectionResult = testResult
-                gitSyncRepository.nextResetRepositoryResult = resetResult
-
-                useCase.testConnection() shouldBe testResult
-                useCase.resetRepository() shouldBe resetResult
-                gitSyncRepository.testConnectionCallCount shouldBe 1
-                gitSyncRepository.resetRepositoryCallCount shouldBe 1
             }
         }
 

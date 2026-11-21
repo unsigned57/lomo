@@ -7,10 +7,3 @@ indent_style = space
 indent_size = 4
 insert_final_newline = true
 trim_trailing_whitespace = true
-
-[*.{kt,kts}]
-# Compose convention: Composable functions are PascalCase
-ktlint_function_naming_ignore_when_annotated_with = Composable
-
-# Allow backing properties to not match strict naming if needed (standard is usually fine but sometimes flagging _prop)
-# We can disable specific rules if they are too noisy, but let's try just the Composable one first.

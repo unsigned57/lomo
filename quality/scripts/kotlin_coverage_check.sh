@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Coverage verification via JaCoCo runtime agent (parity with koverVerifyQuality minBound 70).
+# Coverage verification via JaCoCo runtime agent (minBound 70).
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 read -r -a toolchain_test_modules <<< "${LOMO_KOTLIN_TEST_MODULE_ARGS:?xtask must provide LOMO_KOTLIN_TEST_MODULE_ARGS}"
 
-JACOCO_VERSION="${LOMO_JACOCO_VERSION:-0.8.14}"
+JACOCO_VERSION="0.8.14"
+JACOCO_AGENT_SHA256="3fb76eea65f81bd9415202bab34b6571728841dff1ab8e6bbe81adc2e299face"
+JACOCO_CLI_SHA256="811c7f8c6b358c5d68a8973cfa867f6892be7a671b697a4b13c4b447e6daf75c"
 coverage_min_bound="${LOMO_COVERAGE_MIN_BOUND:-70}"
 cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
 cache_dir="${LOMO_JACOCO_CACHE_DIR:-$cache_root/lomo/jacoco}"
@@ -18,26 +20,40 @@ case "$generated_root" in
   *) generated_root="$repo_root/$generated_root" ;;
 esac
 work_dir="$generated_root/tmp/jacoco"
-report_dir="$repo_root/reports/kover"
+report_dir="${LOMO_REPORTS_DIR:-$repo_root/reports}/jacoco"
 exec_file="$work_dir/jacoco.exec"
 xml_report="$report_dir/coverage.xml"
 html_report="$report_dir/html"
 build_dir="${LOMO_COVERAGE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-${LOMO_GENERATED_ROOT:-$repo_root/target/lomo}/build/kotlin}}"
 mkdir -p "$cache_dir" "$work_dir" "$report_dir"
 
+verify_sha256() {
+  local path="$1"
+  local expected="$2"
+  local actual
+  actual="$(sha256sum "$path" | awk '{print $1}')"
+  if [ "$actual" != "$expected" ]; then
+    echo "kotlin-coverage-check: checksum mismatch for $path (expected $expected, got $actual)" >&2
+    exit 1
+  fi
+}
+
 download() {
   local url="$1"
   local dest="$2"
-  if [ -f "$dest" ]; then
-    return 0
+  local expected_sha256="$3"
+  if [ ! -f "$dest" ]; then
+    echo "kotlin-coverage-check: downloading $(basename "$dest")"
+    curl -fsSL -o "$dest.partial" "$url" \
+      || { rm -f "$dest.partial"; echo "kotlin-coverage-check: failed to download $url" >&2; exit 1; }
+    verify_sha256 "$dest.partial" "$expected_sha256"
+    mv "$dest.partial" "$dest"
   fi
-  echo "kotlin-coverage-check: downloading $(basename "$dest")"
-  curl -fsSL -o "$dest.partial" "$url"
-  mv "$dest.partial" "$dest"
+  verify_sha256 "$dest" "$expected_sha256"
 }
 
-download "https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/${JACOCO_VERSION}/org.jacoco.agent-${JACOCO_VERSION}-runtime.jar" "$agent_jar"
-download "https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/${JACOCO_VERSION}/org.jacoco.cli-${JACOCO_VERSION}-nodeps.jar" "$cli_jar"
+download "https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/${JACOCO_VERSION}/org.jacoco.agent-${JACOCO_VERSION}-runtime.jar" "$agent_jar" "$JACOCO_AGENT_SHA256"
+download "https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/${JACOCO_VERSION}/org.jacoco.cli-${JACOCO_VERSION}-nodeps.jar" "$cli_jar" "$JACOCO_CLI_SHA256"
 
 echo "kotlin-coverage-check: building modules"
 "${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
@@ -45,12 +61,22 @@ echo "kotlin-coverage-check: building modules"
 
 rm -f "$exec_file"
 echo "kotlin-coverage-check: running host tests under JaCoCo agent"
+had_java_tool_options=0
+prev_java_tool_options=""
+if [ "${JAVA_TOOL_OPTIONS+set}" = set ]; then
+  had_java_tool_options=1
+  prev_java_tool_options="$JAVA_TOOL_OPTIONS"
+fi
 export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -javaagent:${agent_jar}=destfile=${exec_file},append=true,excludes=jdk.*:java.*:sun.*:com.sun.*:org.gradle.*:worker.org.gradle.*"
 set +e
 "$LOMO_KOTLIN_WRAPPER" --log-level=warn test "${toolchain_test_modules[@]}" --build-dir "$build_dir"
 test_status=$?
 set -e
-unset JAVA_TOOL_OPTIONS || true
+if [ "$had_java_tool_options" -eq 1 ]; then
+  export JAVA_TOOL_OPTIONS="$prev_java_tool_options"
+else
+  unset JAVA_TOOL_OPTIONS || true
+fi
 
 if [ ! -f "$exec_file" ] || [ ! -s "$exec_file" ]; then
   echo "kotlin-coverage-check: JaCoCo exec file missing or empty at $exec_file" >&2
@@ -130,6 +156,7 @@ java -jar "$cli_jar" report "$exec_file" \
   --html "$html_report" \
   --name "Lomo quality coverage"
 
+set +e
 python3 - "$xml_report" "$coverage_min_bound" <<'PY'
 import fnmatch
 import sys
@@ -139,7 +166,7 @@ xml_path, min_bound_s = sys.argv[1], sys.argv[2]
 min_bound = float(min_bound_s)
 root = ET.parse(xml_path).getroot()
 
-# Historical filters from pre-Toolchain root build.gradle.kts (kover quality variant).
+# Excluded framework, UI-boilerplate, and platform-binding surfaces.
 packages_excl = [
     "com.lomo.ui",
     "com.lomo.app.util",
@@ -155,13 +182,6 @@ class_patterns = [
     "*.R",
     "*.R$*",
     "*.ComposableSingletons*",
-    "*_Factory",
-    "*_Factory$*",
-    "*_Provide*Factory",
-    "*_MembersInjector",
-    "*_GeneratedInjector",
-    "*Dao_Impl*",
-    "*Database_Impl*",
     "com.lomo.ui.util.AppHapticFeedback*",
     "com.lomo.app.MainActivity*",
     "com.lomo.app.LomoApplication*",
@@ -255,9 +275,6 @@ class_patterns = [
     "com.lomo.data.engine.lan.AndroidLanRuntimeNetworkMonitor*",
     "com.lomo.data.local.datastore.LomoDataStoreKeys*",
     "com.lomo.data.local.datastore.LomoDataStoreKt*",
-    "com.lomo.data.git.SafGitMirrorBridge*",
-    "com.lomo.data.webdav.Dav4jvmWebDavClient*",
-    "com.lomo.data.git.GitSyncQueryTestCoordinator*",
     "com.lomo.data.source.FileMediaStorageDataSourceDelegate*",
     "com.lomo.data.media.AudioRecorder*",
     "com.lomo.data.media.AudioPlaybackUriResolverImpl*",
@@ -328,10 +345,15 @@ if pct + 1e-9 < min_bound:
     print("kotlin-coverage-check: coverage below bound", file=sys.stderr)
     sys.exit(1)
 PY
+coverage_status=$?
+set -e
 
 if [ "$test_status" -ne 0 ]; then
   echo "kotlin-coverage-check: tests failed with exit $test_status" >&2
   exit "$test_status"
+fi
+if [ "$coverage_status" -ne 0 ]; then
+  exit "$coverage_status"
 fi
 
 echo "kotlin-coverage-check: ok"

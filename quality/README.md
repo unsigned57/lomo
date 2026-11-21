@@ -1,305 +1,154 @@
 # Quality Contract
 
-Read this file for command output, gate selection, build inputs or failure triage.
-[AGENTS.md](../AGENTS.md) owns the task workflow and completion requirements;
-[ARCHITECTURE.md](../ARCHITECTURE.md) owns module authority. Test authoring starts at
-[Meaningful Tests](testing/ai-meaningful-tests.md); signing and publishing use
-[Release](release.md). Read only the contract needed for the current task.
+Read this file for command output, gate selection, canonical build inputs, and failure triage.
+[AGENTS.md](../AGENTS.md) owns task scope and completion; [ARCHITECTURE.md](../ARCHITECTURE.md) owns
+module authority; [Meaningful tests](testing/meaningful-tests.md) owns test evidence;
+[Release](release.md) owns signing and publishing.
 
 ## Command protocol
 
-Run commands from the repository root. `just` and `just commands` return the command catalog.
-`Justfile` delegates to `lomo-xtask`; its dispatch registry also generates discovery. There is no
-separate agent command implementation or manually maintained command inventory.
-
-Every invocation that reaches xtask writes exactly one JSON document to stdout:
+Run commands from the repository root. `just` and `just commands` emit the canonical command catalog
+generated from `lomo-xtask`. Every xtask invocation writes exactly one JSON document to stdout:
 
 ```json
 {"schema_version":1,"command":"cache","status":"succeeded","data":{"paths":{"cargo_target":"/checkout/target/cargo"}}}
 ```
 
-- `schema_version` identifies the result envelope. Consumers must reject unsupported versions.
-- `command` is the requested xtask command; no arguments means `commands`.
-- `status` is `succeeded` or `failed`. Exit 0 means that operation succeeded; it does not promote
-  a plan, diagnostic or scoped iteration to a completed handoff gate.
-- `data` is command-specific. `null` means the command has no additional payload, or a failure
-  occurred before evidence was produced. Never treat it as an empty successful plan.
-- Failed operations include `error.message` and `error.causes`, return nonzero, and retain
-  available evidence in `data`. A failed verification includes its results and report path.
-- Progress and child-tool diagnostics go to stderr. Child commands cannot read interactive stdin.
-  Keep stdout and stderr separate when saving evidence; do not merge them with `2>&1`.
-- If Cargo cannot build xtask, Just rejects a recipe, or a process is killed before completion,
-  there may be no final JSON. A missing or malformed result is incomplete, never success.
+- `schema_version` identifies the result envelope; consumers must reject unsupported versions.
+- `status` is `succeeded` or `failed`. Exit `0` does not promote a `--plan`, diagnostic, or scoped run
+  into an integration handoff.
+- `data` is command-specific (`null` when empty or failed before producing evidence). Failed commands
+  populate `error.message` and `error.causes`, exit nonzero, and retain any produced `data`.
+- Progress and child-tool diagnostics go to stderr; child commands cannot read interactive stdin.
+  Keep stdout and stderr separate (never merge with `2>&1`).
+- Missing or malformed stdout JSON (e.g., Cargo failed to build xtask, or process killed) is
+  incomplete, never success.
 
 | Operation | `data` |
 | --- | --- |
-| `just` / `just commands` | command names, arguments, purposes and protocol location |
-| `just dev --plan` | task graph, selected scope, `complete_worktree`, excluded owners |
+| `just` / `just commands` | command names, arguments, purposes, and protocol location |
+| `just dev --plan` | task graph, selected scope, `complete_worktree`, `excluded_owners` |
 | `just dev`, `just check` | `plan`, `results`, `report_path`, task-id-to-file `logs` |
-| push hook | `policy_only: true`, comparison `base`, and `verification` containing the formatting/policy results; this is not test evidence |
+| push hook (`_preflight`) | `policy_only: true`, comparison `base`, formatting/policy results (not test evidence) |
 | `just ci` | completed `verification` evidence and published `apk` |
-| `just cache paths` | resolved absolute `paths` |
-| `just cache audit` | entries with `present` plus bytes, or `absent` without invented bytes |
-| `just cache prune` / `clean` | Cargo sweep summary, removed scratch counts, or removed paths |
-| `just build android ...` / `just build tui` / `native ...` / `bindings` | published APK, `lomo` binary, or generated output directory |
-| `just build android benchmark [scenario] [--redroid]` | `reports/android-benchmark/android-benchmark.v1.json` plus raw androidx `*-benchmarkData.json`; an attached device is required (`--redroid` provisions the pinned container, evidence is emulator-grade) and the run never claims a scenario it did not execute |
-| `just uitest` | `reports/android-uitest/android-uitest.v1.json` plus per-flow screenshots, hierarchies, logs and JUnit XML; an attached device is required (`--redroid` provisions one) and the run never claims a flow it did not execute |
-| `just tuitest` | `reports/tui-uitest/tui-uitest.v1.json` plus per-flow screen snapshots and step logs; each flow runs the real `lomo` binary in an isolated 100x36 PTY and never claims a step it did not execute |
-| `just perf` | baseline/performance JSON paths and the measured conclusion |
-| `just perf device [startup\|cuj\|engine\|workspace\|system\|sync\|profile\|release\|all]... [--corpus device] [--backend saf\|direct] [--redroid] [--trace]` | `reports/android-device-perf/device-perf.v1.json` plus raw `*-benchmarkData.json`, gfxinfo/meminfo dumps and engine-probe JSON; needs an attached device (`--redroid` provisions the pinned container). `--corpus device` injects the deterministic workspace-shaped corpus (SAF under `/sdcard/Documents` granted through DocumentsUI, or Direct via `run-as` on debuggable builds — host-tier corpus layouts are rejected at parse since only dated `yyyy_MM_dd` documents reconcile under a workspace root), normalizes animation scales to 1.0, and debug planes declare `suppressed_errors=EMULATOR,DEBUGGABLE`; release planes record their own target and compilation provenance. Emulator evidence never establishes physical-device truth; the run fails closed on unknown planes/flags and never claims a scenario it did not execute (`sync` is explicit and requires `--corpus device --backend direct`; `profile` supports `--write`; `release` explicitly measures the SAF corpus) |
+| `just cache paths` / `audit` / `prune` / `clean` | resolved absolute paths, byte counts (`present`/`absent`), sweep/prune counts, or removed paths |
+| `just build android\|tui` / `native` / `bindings` | published APK, `lomo` binary, or generated output directory |
+| `just build android benchmark` / `just perf device` | see [Android performance](android-performance.md) |
+| `just uitest` / `just uishot` | `android-uitest.v1.json` or `uisnap.v1.json` + screenshots/hierarchies/logs ([Android UI test](android-uitest.md)) |
+| `just tuitest` | `tui-uitest.v1.json` + PTY screen snapshots/logs ([TUI UI test](tui-uitest.md)) |
+| `just perf` | feasibility baseline JSON paths and measured conclusion |
 
-Verification task statuses are `Passed`, `Failed`, `Cancelled` and `NotScheduled`. Read `logs`
-for captured subprocess output; tasks executed inside xtask may have no separate log file.
-`report_path` is durable evidence for that invocation, not a reusable success cache.
-Planning starts no compiler/test tasks, but still reads Git and Cargo metadata.
+Task statuses are `Passed`, `Failed`, `Cancelled`, and `NotScheduled`. `report_path` records the
+durable evidence of that run, not a reusable success cache.
 
 ## Gate selection and evidence
 
-This is the sole command and applicability matrix. AGENTS owns authorization and task completion;
-the word "review" alone does not require a build. Classify the actual change before selecting gates.
+Classify the actual change before running checks:
 
 | Task or changed surface | Required evidence |
 | --- | --- |
-| Read-only review or investigation | Findings and inspected evidence; run tests only when needed to establish a finding |
-| Non-behavior documentation or mechanical prose change | Content, local links, referenced paths/commands and `git diff --check`; no invented RED or full build |
-| Feature, fix or executable contract/quality-rule change | The evidence its [tier](testing/ai-meaningful-tests.md#decide-what-the-change-owes) owes, followed by the applicable package and code-delivery checks |
-| Rust package code or tests | `cargo clippy -p <crate> --all-targets --locked -- -D warnings` and relevant `cargo test -p <crate> … --locked` |
-| Kotlin code or behavior-affecting tests | `./kotlin test --include-module=<module> --include-classes='…'` for changed specs, or the module suite for a broad change |
-| Native, FFI, lock or packaging inputs | Regenerate and validate the affected generated/pack surface |
-| Dependency manifests | `just deps check`; explicit task-related updates follow [Dependency Selection](dependencies.md) |
-| Code changes delivered for local review | Applicable owner checks and `just dev` with `complete_worktree: true`; shared orchestration, toolchain or cross-language graph changes require `just check` |
-| Code pushed for integration | Lightweight pre-push policies, then the CI `check` job for the exact commit; local affected-owner results do not establish CI success |
-| Workflow-only path selection/cache keys, with unchanged toolchain and xtask task graph | Workflow syntax validation and actual path-selection/cache regression checks; run the architecture contract too. After a full gate, these checks suffice for subsequent edits confined to workflow configuration, its tests and process documentation |
-| Code merge/shared-branch delivery | Successful GitHub `quality` aggregation for the exact commit, or local `just ci` when remote evidence is unavailable; pre-push runs policy checks only |
+| Read-only review or investigation | Findings and inspected evidence; run tests only to establish a finding |
+| Prose and documentation | Verify content, local links, referenced paths/commands, and `git diff --check` |
+| Routine source or UI change | Direct evidence (resource check, screen snapshot, or targeted compile/smoke check); add a focused test if a consequential risk remains |
+| Critical guarantee, consequential behavior, or executable rule | [Behavior evidence](testing/meaningful-tests.md#decide-what-the-change-owes) at the owner; run the smallest relevant target or flow, widening only for additional affected behavior |
+| Test cleanup | Run the surviving owning suite and any cited covering scenarios |
+| Broad module refactor | Affected suites and static checks, or `just dev` (`--scope <owner>` when isolated) |
+| Native, FFI, lock, or packaging inputs | Regenerate and validate the affected generated/packaged surface |
+| Dependency manifests | `just deps check`; additions/replacements follow [Dependency selection](dependencies.md) |
+| Shared verification graph or toolchain | `just check` plus applicable generated/pack evidence |
+| Pre-push / feature branch integration | Pre-push policy checks, then CI `check` for the exact commit |
+| Workflow-only path/cache edits | Workflow syntax, targeted selection/cache regression tests, and affected architecture contract |
+| Shared-branch merge / delivery | Green GitHub `quality` aggregation for the commit, or local `just ci` when remote CI is unavailable |
 
-Documentation that changes an executable rule or a fixture's expected behavior is not a prose-only
-change. Use narrow tests during implementation; do not run the full release gate after each edit.
-`just dev --tests-only` is the worktree test sweep without static analysis. `just perf` and
-`just cache audit` are manual diagnostics.
+Focused commands:
+- Rust scenario: `cargo test -p <crate> --locked --test <target> <case-filter>`
+- Rust package lint: `cargo clippy -p <crate> --all-targets --locked -- -D warnings`
+- Kotlin spec/module: `./kotlin test --include-module=<module> --include-classes=<fqcn>` (see [Kotlin focused runs](testing/kotlin-test-style.md#focused-local-runs))
+- Worktree scoping: `--scope <owner>` excludes unrelated owners; inspect `complete_worktree` and `excluded_owners` when reporting scope.
 
 | Gate | Includes | Intentionally omits |
 | --- | --- | --- |
-| pre-commit | staged source formatting; no formatter bootstrap for prose-only commits | compile, test and native gates |
-| `just dev` | affected worktree owners, including untracked/deleted files | coverage, fat LTO |
-| `just dev --tests-only` | test tasks from the same worktree plan | static analysis, coverage |
-| `just _preflight` (pre-push) | fast policy self-tests, resource parity and affected-language formatting; no remote base formats both languages | product compile/tests, cache pruning, coverage, native builds |
-| `just check` | fast policy prerequisites; Rust fmt, strict Clippy, nextest, rustdoc link checks, architecture tests, machete; dev bindings; Kotlin format, Detekt light/full, test style, Android Lint, shell contracts and host tests | doctests, property fuzz, cargo-deny, coverage, packaged Kotlin build, fat-LTO release native, device install |
-| `just ci` | check, then only delivery evidence: doctests, property fuzz, cargo-deny, Rust/Kotlin coverage, four-ABI release native, packaged Kotlin build and APK/ELF/dependency validation | device execution |
+| pre-commit | staged `.rs`/`.kt`/`.kts` formatting (skips prose-only commits) | compile, test, native |
+| `just dev` | affected worktree owners (including untracked/deleted files); `--tests-only` skips static checks | coverage, fat LTO |
+| `just _preflight` (pre-push) | quick policy contracts, string parity, affected-language formatting | product compile/tests, cache prune, coverage, native |
+| `just check` | quick contracts, Rust fmt/Clippy/nextest/rustdoc/machete, architecture + FFI contract, dev bindings, Kotlin format, Detekt light/full, test style, Android Lint, shell contracts, host Kotlin tests, baseline profile syntax/receipt | doctests, property fuzz, cargo-deny, coverage, packaged Kotlin build, fat-LTO release native, device execution |
+| `just ci` | `check` + doctests, property fuzz, cargo-deny, Rust/Kotlin coverage, 4-ABI release native, packaged Kotlin build, APK/ELF/dependency checks | device execution |
 
-The verification graph dispatches continuously: a task starts as soon as its prerequisites pass
-and none of its resources (`Cargo`, `KotlinBuild`, `Bindings`, `Reports`) is held, so the Rust,
-Kotlin-build and analysis lanes overlap instead of waiting for the slowest task of a batch.
-Detekt runs with `--parallel`. Quick policy self-tests must pass before any other task starts.
-The first failure is reported immediately and stops queued tasks, including independent ones;
-already-running tasks finish so their child processes and evidence remain owned. The final error
-names the failed task rather than an earlier task that was skipped. `just ci` adds delivery
-checks to `check`; instrumented coverage intentionally executes tests again with instrumentation.
+The verification DAG dispatches continuously once prerequisites pass and resource locks (`Cargo`,
+`KotlinBuild`, `Bindings`, `Reports`) are free. Policy self-tests run first. Any failure cancels
+queued tasks while allowing already-running processes to finish and clean up; the final error names
+the failed task rather than cancelled peers. Zero-test results in a required test task, input drift,
+and missing outputs fail closed.
 
-### Delivery pipeline
+### CI and delivery pipeline
 
-Each stage catches the failures it can before the slower next stage runs:
-
-| Stage | Runs | Typical failures caught |
+| Stage | Trigger / runner | What runs |
 | --- | --- | --- |
-| commit | pre-commit: staged formatting | formatting |
-| iterate | narrow `cargo test -p` / `./kotlin test`, then `just dev` | behavior regressions in the touched owners |
-| push | pre-push `just _preflight` over the pushed commits | formatting and policy errors, without another product build/test sweep |
-| hand-off | affected-owner evidence for local review; `just check` for shared inputs; merge requires the same commit's CI `quality` or local `just ci` | affected-owner correctness locally, complete checks and coverage before integration |
-| GitHub push/PR | compiler-free policies first, then Quality Checks jobs in parallel (below) | the same graph plus coverage, cargo-deny, natives, APK |
-| release tag | wait for the same commit's completed full Quality Checks run, then signed APKs | failed/missing/incomplete verification blocks signing; checks are not executed again |
+| Commit / push | `.githooks/pre-commit`, `.githooks/pre-push` | Staged formatting (`fmt staged`), then `_preflight` policy/formatting checks |
+| PR / feature branch | `.github/workflows/architecture_checks.yml` | `changes` runs compiler-free parity checks before bootstrap, skips builds on pure prose outside executable paths, otherwise runs `check` + affected delivery lanes |
+| Default branch / manual | `.github/workflows/architecture_checks.yml` | Complete `check`, `rust-host` (`ci-rust delivery`), 4-ABI `native` (`release-ci`), `android-kotlin` (`ci-android coverage`), and `quality` aggregation |
+| Release tag | `.github/workflows/android_release.yml`, `tui_release.yml` | See [Release](release.md) |
 
-Default-branch pushes and manual Quality Checks runs cover every surface once. Feature branches
-and PRs retain path selection. A release tag reads the existing run's GitHub result and verifies
-that `check`, Rust coverage, Android delivery/coverage, the native matrix and `quality` aggregation
-actually succeeded for the same repository and commit. PR results, failed/cancelled runs and
-skipped delivery jobs cannot authorize a release. No reusable-workflow call starts a second gate.
-Push the commit to the default branch first; tagging in the same push is supported because the
-release waits for its matching gate. Other refs need a manual full Quality Checks run first.
-Missing runs fail after five minutes of discovery; active runs have a bounded 90-minute wait.
-New default-branch commits do not cancel an older release candidate's run; PR iterations still
-cancel superseded checks. A saved local report cannot substitute for GitHub's completed evidence.
-
-During a feature, run the narrow changed specs, use `just dev` for the affected owners, and
-commit/push normally. There is no need to run `dev`, `check` and `ci` in succession before every
-push: CI supplies the full commit-level evidence. Run `just check` when a local reproduction of
-that gate is useful; reserve local `just ci` for complete delivery verification.
-
-Device engine trend snapshots use `device-perf-engine-baseline.v2.json`, keyed by backend
-and metric. SAF and Direct update independent histories; missing history reports `no_baseline`,
-malformed history or samples fail with an error, and sample counts below five or p50 deltas
-beyond 15% remain `inconclusive`. The unscoped v1 snapshot is historical evidence and is not
-migrated because its backend cannot be established. Compare runs on the same device and corpus;
-the backend key alone does not establish cross-device comparability. A requested corpus must
-activate successfully before measuring any plane or updating its baseline.
-
-Workspace performance is an explicit, corpus-resetting diagnostic:
-`just perf device workspace --corpus device --backend saf --trace` (or `--backend direct`).
-It measures five fresh-index samples, five cold reopens of the existing index, five actual
-switches between distinct seeded workspaces, and five reconciles each preceded by an external
-append plus a new dated document. The fixed test-owned directories are reset; this plane is
-excluded from bare/`all` sweeps. Memo/task counts and corpus markers must match before results
-are accepted. SAF first index measures grant confirmation through the first indexed card;
-Direct first index and both backends' switching/reconcile timings measure production data calls
-through Ready, with first-page reads reported separately. These endpoints must not be compared
-as if they measured identical UI work. Original samples and p50/p95 remain in the device report.
-The engine plane also changes the workspace before every dirty-rebuild sample; the new
-`engine-rebuild-dirty-each-sample` metric identity keeps these samples separate from the old
-one-dirty/four-idle distribution in persisted history.
-
-`--scope <owner>` deliberately excludes other owners. Inspect `complete_worktree` and
-`excluded_owners`; a passed scoped plan does not close the whole worktree.
-Zero/unreported tests in a required test task, changes to its verification inputs, failed
-prerequisites, missing outputs and unavailable required tools cannot pass. A prose-only task with
-no required test is not a zero-test failure.
-
-GitHub Quality Checks first runs compiler-free policy fixtures and resource parity in `changes`,
-before any tool bootstrap. On feature branches/PRs, pure documentation
-outside executable-policy paths skips build jobs; executable changes run `check` (the same graph
-as local `just check`). The default branch and manual dispatch run the complete integration gate.
-Delivery jobs run in parallel: `rust-host`
-(`ci-rust delivery`, without repeating check's formatting/Clippy/normal tests), the four-ABI
-`native` matrix (`release-ci`) and, after it, `android-kotlin`
-(`ci-android coverage`: packaged build, Kotlin coverage, APK validation, benchmark harness). TUI-only feature changes skip Android native packaging and delivery; the shared
-`check` graph still validates repository-wide boundaries. Unknown executable/configuration paths
-conservatively select every lane; malformed path inventories fail rather than becoming a docs-only
-success. Shipping native outputs use the release pack path. The `quality` aggregation
-job governs branch protection. The Android release workflow only consumes the same commit's
-completed result through the read-only Actions API; it does not execute Quality Checks again.
-Pinned cargo tools are cached by their pins alone
-and saved right after bootstrap. Build caches use a compatible toolchain/dependency prefix and
-a unique run/attempt suffix, restore the newest matching snapshot, and save even when a gate
-fails. Thus a retry can retain compilation completed during the failed attempt; immutable fixed
-keys cannot trap future runs on an old snapshot. OS/architecture and native profile remain
-isolated. Workflows invoke xtask rather than implementing another build graph.
+CI caches cargo tools by pin alone and keys build caches by toolchain/manifests plus `run_id`/`run_attempt`,
+restoring the newest prefix snapshot and saving with `!cancelled()` so failed attempts retain
+completed compilation. Workflows invoke `lomo-xtask` rather than maintaining a second build graph.
 
 ## Canonical build inputs
 
-Read current values from their owners; do not add pins to agent configuration or copy them here.
+Read versions from their authoritative manifests; never duplicate pins elsewhere:
 
 | Fact | Authoritative input |
 | --- | --- |
-| Rust channel and components | [`rust-toolchain.toml`](../rust-toolchain.toml); MSRV in [`Cargo.toml`](../Cargo.toml); update via `just rust-toolchain-bump` |
-| JDK and Android SDK levels | [`apps/android/app/module.yaml`](../apps/android/app/module.yaml) is the single declaration (including compile API major/minor, Kotlin compiler and Compose runtime); Amper has no cross-module settings inheritance, so sibling `module.yaml` copies are verified by `just kotlin-toolchain-check` (also checks workflow `java-version`/`ndk` literals against `jdk.version`/`NDK_VERSION`) |
+| Rust channel and MSRV | [`rust-toolchain.toml`](../rust-toolchain.toml) + [`Cargo.toml`](../Cargo.toml); bump via `just rust-toolchain-bump` |
+| JDK, Kotlin, Android SDKs, app version | [`apps/android/app/module.yaml`](../apps/android/app/module.yaml); sibling copies checked by `just kotlin-toolchain-check` (including workflow `java-version` / `ndk`) |
 | Cargo tools and BoltFFI CLI | [`tools.toml`](tools.toml), installed by `just bootstrap` |
-| Crate/module dependencies and app version | Cargo manifests/lock and `apps/android/**/module.yaml` |
-| External dependency capabilities | [`dependency-capabilities.toml`](dependency-capabilities.toml); classification workflow in [Dependency Selection](dependencies.md#capability-boundaries-instead-of-library-allowlists) |
-| NDK, native API and standard paths | [`workspace.rs`](../crates/lomo-xtask/src/workspace.rs) |
-| ABI selectors, library identity and native profiles | [`native.rs`](../crates/lomo-xtask/src/native.rs) |
-| Rust coverage threshold | `RUST_COVERAGE_MINIMUM` in [`quality.rs`](../crates/lomo-xtask/src/quality.rs); xtask/architecture tests are excluded |
-| Kotlin analysis configuration | [`quality/detekt/config`](detekt/config) and the owning single-purpose scripts |
+| Dependencies and capability catalogue | Manifests/lockfiles + [`dependency-capabilities.toml`](dependency-capabilities.toml) |
+| NDK, native API, ABIs, profiles | [`workspace.rs`](../crates/lomo-xtask/src/workspace.rs) and [`native.rs`](../crates/lomo-xtask/src/native.rs) |
+| Rust coverage threshold | `RUST_COVERAGE_MINIMUM` in [`quality.rs`](../crates/lomo-xtask/src/quality.rs) |
+| Detekt, Android Lint, Rust deny | [`detekt/config`](detekt/config), [`android/lint.xml`](android/lint.xml), [`rust/deny.toml`](rust/deny.toml) |
 
-`just native` and `just build android debug/release` default to arm64; pass `all`
-for a universal/four-ABI build. Native release packaging uses the canonical release-android
-profile and xtask's immediate-abort/build-std policy. Dependency version changes follow
-[Dependency Selection](dependencies.md#version-changes). No production dual stack, compatibility
-alias or UniFFI fallback is permitted.
+`just native` and `just build android debug|release` default to `arm64` (`all` builds four ABIs).
+No production dual stack, compatibility alias, or UniFFI fallback is permitted.
 
 ## Policy coverage and limits
 
-Rust denies warnings, unsafe code, unused must-use values and the configured Clippy groups.
-Cargo-deny checks advisories/sources/duplicates; machete checks unused dependencies.
-[`lomo-architecture-tests`](../crates/lomo-architecture-tests/tests) checks Cargo metadata,
-parsed Amper scopes and Rust syntax, including conditional/optional edges and untracked files.
-Malformed policy input and unknown owners fail closed.
-
-External libraries are classified by capability, independently of version. The architecture gate
-reads the shared catalogue and current manifests; it does not keep a second per-owner library list.
-All declared capabilities must fit the owner. This covers Cargo production/build declarations even
-when optional or target-specific, and Amper production dependency scopes. Internal direction/path
-locks, actual host/JNI closure checks and test-only dependency separation remain in force.
-
-Kotlin scripts remain single-purpose implementations invoked by xtask. Detekt activation fixtures
-prove legal and forbidden inputs reach the real CLI. Source suppressions cannot disable ownership
-checks; module configuration parity is architecture-locked. The CLI currently uses light/syntax
-analysis: listing a type-dependent rule in YAML does not establish full semantic coverage.
-
-The recurring policy invariants are: owner-issued identity; typed failures; one publishing owner
-per business fact; required collaborators without placeholders; bounded reads before allocation;
-secret handles rather than plaintext work payloads; checked wire constructors; exact identity for
-destructive selection; injected domain time; and immutable, single-owner UDF state.
-Their enforcement lives in the Detekt rule sources and architecture policy tests, rather than an
-audit-history inventory. [UDF Contract](udf-contract.md) owns presentation semantics and exceptions.
-
-A `// behavior-contract: <id>: <reason>` exception must use a registered marker beside its owner.
-A syntactically accepted marker does not prove its reason: the Behavior Contract and tests must.
-Cryptographic nonce/AAD domains, crash ordering, mount/GC TOCTOU, lock-held network IO and peak-byte
-budgets still require task-specific behavior evidence; static checks do not prove them.
+- **Rust**: denies warnings, `unsafe_code`, unused `must_use`, and workspace Clippy lints; `cargo-deny`
+  validates advisories/sources/licenses; `cargo-machete` detects unused dependencies.
+- **Architecture locks**: [`lomo-architecture-tests`](../crates/lomo-architecture-tests/tests)
+  validates Cargo metadata, Amper dependency scopes, capability boundaries, host/JNI isolation, and
+  Rust syntax (including untracked files).
+- **Kotlin static analysis**: `kotlin_detekt_check.sh` runs both `light` (syntax) and `full`
+  (type-resolved via `kotlin_analysis_input.py`) modes, each guarded by real CLI canary tests
+  (`detekt_activation_contract_test.sh`, `detekt_full_analysis_contract_test.sh`). Baselines and
+  source `@Suppress` annotations cannot bypass ownership rules. Kotlin formatting resolves the
+  official Detekt ktlint wrapper into the standard user cache.
+- **Android Lint**: runs against the packaged runtime module closure without widening `app`'s compile
+  classpath (`android_lint_runtime_contract_test.py`).
+- **Behavior exceptions**: `// behavior-contract: <id>: <reason>` markers require a registered rule
+  owner and a valid domain reason backed by tests ([UDF contract](udf-contract.md)); static checks
+  cannot prove crypto nonces/AAD, crash ordering, TOCTOU, lock-held IO, or memory budgets without
+  behavior tests.
 
 ## Generated state and failure triage
 
-`just cache paths` reports resolved paths. Reuse caller-owned Cargo, Gradle, Kotlin and XDG caches;
-explicit `LOMO_KOTLIN_*` overrides retain precedence. Every Kotlin gate uses the same configured
-shared build directory. Do not create task-specific cache/build trees or another bootstrap script.
+`just cache paths` prints resolved paths. Standard user caches (`CARGO_HOME`, `GRADLE_USER_HOME`,
+`XDG_*`, Kotlin CLI cache) are always reused across gates; `target/cargo/` holds Cargo artifacts
+(`CARGO_TARGET_DIR`) and `target/lomo/` holds Lomo packages, shared Kotlin build outputs
+(`LOMO_KOTLIN_BUILD_DIR`), datasets, and temp files (`LOMO_GENERATED_ROOT`). See
+[Project layout](../docs/project-layout.md) and [Cache cleanup](../docs/development/cache-cleanup.md).
 
-The root `target/` has two responsibilities: `cargo/` holds Cargo's build graph, as declared in
-`.cargo/config.toml`; `lomo/` holds packages, generated datasets and build state.
-`CARGO_TARGET_DIR` and `LOMO_GENERATED_ROOT` override those roots independently. The shared Kotlin
-build defaults to `target/lomo/build/kotlin`; `LOMO_KOTLIN_BUILD_DIR` retains precedence.
-User dependency caches remain in their standard locations. Before each APK build, xtask removes
-only the selected variant's Java resource merger snapshot/zip cache and merged resource archives.
-Amper rewrites module archives in place, so AGP's retained entry index can reference removed
-`META-INF` entries. Debug and release use this same preparation even without an ABI change;
-compiler, native and shared dependency caches remain reusable. Cleanup errors stop the build
-before Kotlin starts; the build is not retried automatically.
+`reports/` at the repository root (overridable via `LOMO_REPORTS_DIR`) is **strictly tool-owned**
+and gitignored:
 
-Reports live independently at repository-root `reports/<tool-or-task>/` and are ignored by Git.
-Manual command logs use `reports/manual/<task>/`; stdout JSON and stderr logs remain separate.
-`LOMO_GENERATED_ROOT` only relocates build outputs, never this evidence directory.
-Within the Lomo namespace:
+- `verification/` retains the newest 10 runs; `android-uisnap/` retains the newest 20 timestamped
+  snapshots; `detekt/symbols/` keeps only active indexed directories; `jacoco/` holds Kotlin
+  coverage; `device-perf-engine-baseline.v2.json` persists engine baselines.
+- Never write manual logs, `reports/manual/`, or AI handoff markdown files into `reports/`.
 
-| Directory | Responsibility |
-| --- | --- |
-| `artifacts/android/<debug\|release>/` | Validated APKs, named by app version and ABI |
-| `artifacts/tui/<debug\|release>/` | Published desktop executable, copied from the successful Cargo build |
-| `artifacts/tui/dist/` | Desktop distribution archives and checksums |
-| `build/` | Shared Kotlin output, binding/JNI provenance, JNI ABI stash and benchmark intermediates |
-| `corpora/` | Generated large test datasets |
-| `tmp/<command>/` | Resettable command-owned scratch space |
+Before APK builds, xtask clears only the selected variant's stale Java resource merger state (Amper
+rewrites module archives in place). `just build android|tui` runs `just cache prune` before compiling
+using cargo-lock-guarded `cargo-sweep --time 7` and 7-day scratch expiry.
 
-Do not put logs, provenance stamps or intermediate files in `artifacts/` or directly in `lomo/`.
-The [directory map](../docs/project-layout.md) includes the source tree and package lookup examples.
-Kotlin/binding/native outputs remain
-ignored. Builds must be reproducible from a clean checkout; an existing dirty worktree is also a
-valid development input. Preserve other edits and record the inputs actually verified. Small golden
-format fixtures belong in `fixtures/`; large seeded corpora are generated by `just perf`.
-
-`just build tui` and `just build android` run the same `prune` operation before compiling.
-Push hooks preserve warm caches. Pruning delegates Cargo artifact retention to the pinned `cargo-sweep --time 7` (fingerprint access
-time) and coverage build-tree deletion to `cargo clean --target-dir`. Project scratch files
-use a seven-day modification-time cutoff. Recent caches,
-packages, corpora and reports remain. Cargo profile locks are held throughout pruning; a competing
-build stops cleanup with an actionable error rather than racing the compiler. Symlinks are never
-traversed. Cleanup failures stop the build; it is not retried silently. Direct `cargo build` and
-`./kotlin` invocations do not run the xtask hook. `just cache prune` runs it explicitly. Tool selection and the maintenance limitation are
-recorded in [the cleanup decision](../docs/development/cache-cleanup.md). `clean` deletes the existing allowlisted build outputs, preserving root `reports/` and global
-user caches. Neither command is a repair for incorrect ownership or stale source configuration.
-Baseline and Startup Profiles are device-collected packaging inputs. The sole publisher is
-`just perf device profile --corpus device --backend saf --write`; it writes the measured
-`baselineProfiles/generated.txt`, `baselineProfiles/startup-prof.txt` and `baseline-profile.json`
-collection receipt under the app module. The receipt binds the complete profile bytes to the
-captured APK SHA-256, corpus digest, device fingerprint and source revision. `baseline-profile`
-validates the receipt hashes and the HRF syntax with Android SDK `profgen validate`, including
-error diagnostics emitted with exit 0. It rejects empty profiles and caps each HRF at 32 MiB.
-It does not expand profiles into every runtime method or claim fresh workload coverage after a
-source change. Recollect when critical journeys, dependencies or startup paths change; do not
-hand-edit measured inputs. The required-profile release mode verifies ART installation. Check
-the release build's R8 metadata for `dexFiles[].startup: true` and match its checksum to the APK
-DEX before claiming Startup Profile layout coverage.
-Profile collection resets only the fixed test-owned SAF corpus before seeding, so memos created
-by an earlier journey cannot enter the next capture's initial workspace.
-
-`just perf device release --corpus device --backend saf --trace` independently measures cold,
-warm and hot startup plus scrolling on the signed, profileable release APK under
-`none|partialRequire|full`. The plane resets only its test-owned corpus and grants the same SAF
-folder through DocumentsUI after both install swaps. It restores the debug install and its grant.
-Missing cards or a scroll that never moves the first card out of view fail the journey. Combine
-`profile release ... --write` to collect, publish and measure in one invocation. Release results
-carry their own APK digest and compilation-mode/suppression metadata; redroid's unavailable
-frame/TTID/TTFD metrics remain unavailable. Compose runtime tracing uses the current AndroidX
-in-process tracing integration with Macrobenchmark; it adds no tracing native binary to the app.
-
-On failure, inspect the structured error and the first failed task's log. Distinguish task-related
-failures from existing or unrelated worktree failures. Fix authorized tool/pin/NDK/binding or pack
-failures at their owner; do not silently expand into unrelated repairs. Preserve failed evidence
-and report which required verification remains open while continuing independent work.
-Do not add compatibility recipes, tracked generated artifacts or fallback build paths.
+On failure, inspect the structured JSON `error` and the first failed task log under `logs`.
+Distinguish task regressions from unrelated worktree state, fix failures at their owner, and preserve
+failed evidence while continuing independent work.

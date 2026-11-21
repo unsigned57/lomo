@@ -25,11 +25,16 @@
 //! production dual-stack wiring.
 
 #[cfg(test)]
-mod support;
+#[path = "support/result_failure.rs"]
+mod result_failure;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 mod tests {
-    use super::support::ResultTestExt;
+    use super::result_failure::ResultFailureTestExt;
+    use super::result_success::ResultTestExt;
     use lomo_core::ErrorCategory;
     use lomo_workspace::{
         BomKind, ByteSpan, DominantNewline, MAX_EDITABLE_MEMO_UTF8_CHARS,

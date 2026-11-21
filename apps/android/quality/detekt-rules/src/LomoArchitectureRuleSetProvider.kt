@@ -613,11 +613,6 @@ private class NoUnreferencedTopLevelDeclarationRule(config: Config) :
                 "VisibleForTesting",
                 "Keep",
                 "Preview",
-                "Module",
-                "Provides",
-                "Binds",
-                "Multibinds",
-                "HiltViewModel",
             ),
         ).toSet()
     private val moduleStates = mutableMapOf<String, ModuleDeadDeclarationState>()

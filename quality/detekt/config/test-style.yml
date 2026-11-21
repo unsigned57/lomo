@@ -21,9 +21,6 @@ lomo-test-style:
     active: true
   NoFlowFirstForStateSequence:
     active: true
-  ExcessiveMockStubbing:
-    active: true
-    maxEveryStubbingCount: 5
   NoSourceStringBehaviorTest:
     active: true
   NoAssertionlessTest:

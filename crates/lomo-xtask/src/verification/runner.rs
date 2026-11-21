@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     io::Read as _,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     sync::mpsc,
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -12,7 +12,10 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::{Artifact, Resource, Task, TaskAction, VerificationPlan, git_paths};
+use super::{
+    ARCHITECTURE_PACKAGE, ArchitectureScope, Artifact, Resource, Task, TaskAction,
+    VerificationPlan, git_paths,
+};
 use crate::{native, quality, tools, util, workspace::Workspace};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -193,7 +196,7 @@ fn execute_task(task: &Task, expected: &str, runner: &impl CommandRunner) -> Tas
                 task.action,
                 TaskAction::RustTests { .. }
                     | TaskAction::KotlinTests { .. }
-                    | TaskAction::Architecture
+                    | TaskAction::Architecture { .. }
                     | TaskAction::FfiContract
             ) {
                 ensure!(
@@ -227,6 +230,59 @@ fn execute_task(task: &Task, expected: &str, runner: &impl CommandRunner) -> Tas
     }
 }
 
+/// Verification runs are unbounded by nature; keep the newest `VERIFICATION_RETAINED_RUNS`
+/// timestamped directories (`<nanos>-<pid>`) and remove older ones.
+pub const VERIFICATION_RETAINED_RUNS: usize = 10;
+
+/// Prunes old timestamped verification run directories beyond `VERIFICATION_RETAINED_RUNS`.
+///
+/// # Errors
+/// Returns an error if reading or removing verification report directories fails.
+pub fn prune_verification_reports(reports_dir: &Path, keep_current: Option<&Path>) -> Result<u64> {
+    let root = reports_dir.join("verification");
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", root.display()));
+        }
+    };
+    let mut runs: Vec<((u128, u32), PathBuf)> = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to stat {}", path.display()))?;
+        if !metadata.is_dir() {
+            continue;
+        }
+        if let Some(name) = path.file_name().and_then(|name| name.to_str())
+            && let Some(key) = parse_verification_run_id(name)
+        {
+            runs.push((key, path));
+        }
+    }
+    runs.sort_by(|(left, _), (right, _)| right.cmp(left));
+    let mut removed = 0_u64;
+    for (_, path) in runs.into_iter().skip(VERIFICATION_RETAINED_RUNS) {
+        if keep_current.is_some_and(|current| current == path) {
+            continue;
+        }
+        fs::remove_dir_all(&path)
+            .with_context(|| format!("failed to remove {}", path.display()))?;
+        removed += 1;
+    }
+    Ok(removed)
+}
+
+fn parse_verification_run_id(name: &str) -> Option<(u128, u32)> {
+    let (nanos, pid) = name.split_once('-')?;
+    match (nanos.parse::<u128>(), pid.parse::<u32>()) {
+        (Ok(nanos), Ok(pid)) => Some((nanos, pid)),
+        (Err(_), _) | (_, Err(_)) => None,
+    }
+}
+
 pub(super) struct RepositoryRunner<'a> {
     workspace: &'a Workspace,
     report_dir: PathBuf,
@@ -239,8 +295,10 @@ impl<'a> RepositoryRunner<'a> {
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),
             std::process::id()
         );
-        let report_dir = workspace.reports_dir().join("verification").join(run_id);
+        let reports_root = workspace.reports_dir();
+        let report_dir = reports_root.join("verification").join(run_id);
         fs::create_dir_all(&report_dir)?;
+        prune_verification_reports(&reports_root, Some(&report_dir))?;
         Ok(Self {
             workspace,
             report_dir,
@@ -278,7 +336,7 @@ impl<'a> RepositoryRunner<'a> {
             | TaskAction::KotlinLight { .. }
             | TaskAction::KotlinFull { .. }
             | TaskAction::AnalysisInput { .. } => self.kotlin_command(task),
-            TaskAction::Architecture
+            TaskAction::Architecture { .. }
             | TaskAction::FfiContract
             | TaskAction::RustFmt
             | TaskAction::RustClippy { .. }
@@ -301,22 +359,19 @@ impl<'a> RepositoryRunner<'a> {
         let workspace = self.workspace;
         let mut cargo = util::cargo(workspace);
         match &task.action {
-            TaskAction::Architecture => {
-                cargo.args([
-                    "test",
-                    "-p",
-                    "lomo-architecture-tests",
-                    "--test",
-                    "architecture",
-                    "--locked",
-                ]);
+            TaskAction::Architecture { scope } => {
+                cargo.args(["test", "-p", ARCHITECTURE_PACKAGE, "--locked"]);
+                match scope {
+                    ArchitectureScope::Repository => cargo.args(["--test", "architecture"]),
+                    ArchitectureScope::Package => cargo.arg("--tests"),
+                };
             }
             TaskAction::FfiContract => {
                 cargo
                     .args([
                         "test",
                         "-p",
-                        "lomo-architecture-tests",
+                        ARCHITECTURE_PACKAGE,
                         "--test",
                         "architecture",
                         "--locked",
@@ -446,13 +501,14 @@ impl<'a> RepositoryRunner<'a> {
             }
             TaskAction::AnalysisInput { modules } => {
                 let mut command =
-                    util::policy_script(workspace, "quality/scripts/kotlin_analysis_input.sh");
+                    util::policy_script(workspace, "quality/scripts/kotlin_analysis_input.py");
                 command
                     .env("LOMO_KOTLIN_BUILD_DIR", &workspace.kotlin_build)
+                    .arg("prepare")
                     .args(modules);
                 Ok(command)
             }
-            TaskAction::Architecture
+            TaskAction::Architecture { .. }
             | TaskAction::FfiContract
             | TaskAction::RustFmt
             | TaskAction::RustClippy { .. }
@@ -566,7 +622,7 @@ impl CommandRunner for RepositoryRunner<'_> {
                 crate::toolchain_parity::check_kotlin_toolchain_parity(&self.workspace.root)?;
                 return Ok(TaskOutcome::Success { tests: None });
             }
-            TaskAction::Architecture
+            TaskAction::Architecture { .. }
             | TaskAction::FfiContract
             | TaskAction::RustFmt
             | TaskAction::RustClippy { .. }

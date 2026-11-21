@@ -65,4 +65,4 @@ directories; package declarations remain `com.lomo.*`. Test conventions belong t
 guides. The sole source-layout exception is the pair of Android baseline profile inputs:
 `apps/android/app/src/main/baselineProfiles/startup-prof.txt` and
 `apps/android/app/src/main/baselineProfiles/generated.txt`. Device collection and validation belong to
-the [Quality Contract](quality/README.md#generated-state-and-failure-triage).
+[Android performance](quality/android-performance.md#baseline-and-startup-profiles-profile).

@@ -6,34 +6,26 @@ set -euo pipefail
 # Scenarios:
 # - Given remote sync cutover owns WebDAV in Rust, when data dependencies are declared, then no JVM
 #   XML parser implementation or dav4jvm dependency enters the Android runtime graph.
-# - Given Kotlin WebDAV transport is deleted after P5-13, when the data tree is inspected, then
-#   OkHttpWebDavClient must not return as a dual-stack owner.
 # - Given the dependency boundary is correct, when R8 rules are inspected, then no xmlpull warning
 #   suppression or keep workaround remains.
-# Observable outcomes: invalid dependency coordinates, a restored Kotlin WebDAV transport owner, or
-# stale R8 workarounds fail this contract with a specific diagnostic.
+# Observable outcomes: invalid dependency coordinates and R8 workarounds fail with specific
+# diagnostics.
 # Excludes: WebDAV protocol behavior and Kotlin Toolchain execution.
 
 repo_root="$(git rev-parse --show-toplevel)"
 data_module="$repo_root/apps/android/data/module.yaml"
-[ -f "$data_module" ] || data_module="$repo_root/data/module.yaml"
 proguard_rules="$repo_root/apps/android/app/proguard-rules.pro"
-[ -f "$proguard_rules" ] || proguard_rules="$repo_root/app/proguard-rules.pro"
-webdav_transport="$repo_root/apps/android/data/src/webdav/OkHttpWebDavClient.kt"
 
 fail() {
   echo "android-runtime-dependency-boundary: $1" >&2
   exit 1
 }
 
+[ -f "$data_module" ] || fail "missing $data_module"
+[ -f "$proguard_rules" ] || fail "missing $proguard_rules"
+
 if grep -Eq -- "dav4jvm|org\.ogce:xpp3" "$data_module"; then
   fail "data Android dependencies must not include dav4jvm or xpp3"
-fi
-
-# Post P5-13: Kotlin WebDAV transport is deleted; Rust owns WebDAV. Restoring the client would re-open
-# dual-stack ownership and platform XML-parser dependency risk (stage_five forbids this path).
-if [ -f "$webdav_transport" ]; then
-  fail "Kotlin WebDAV transport must stay deleted after Rust remote-sync cutover ($webdav_transport)"
 fi
 
 if grep -Fq -- "org.xmlpull.v1" "$proguard_rules"; then

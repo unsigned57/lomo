@@ -275,8 +275,6 @@ impl PtySession {
         let reply_writer = Arc::clone(&writer);
         let reader = thread::spawn(move || {
             let mut buf = [0_u8; 8192];
-            // Short carry-over so a query split across reads is still matched.
-            let mut tail: Vec<u8> = Vec::new();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
@@ -284,13 +282,22 @@ impl PtySession {
                         let Some(chunk) = buf.get(..count) else {
                             break;
                         };
-                        answer_terminal_queries(&tail, chunk, &reply_writer);
-                        tail.clear();
-                        if let Some(end) = chunk.get(chunk.len().saturating_sub(8)..) {
-                            tail.extend_from_slice(end);
-                        }
-                        if let Ok(mut term) = sink.lock() {
-                            term.feed(chunk);
+                        let replies = match sink.lock() {
+                            Ok(mut term) => term.feed(chunk),
+                            Err(error) => {
+                                emit_stderr(format_args!(
+                                    "xtask: warning: PTY screen lock poisoned: {error}"
+                                ));
+                                break;
+                            }
+                        };
+                        if !replies.is_empty()
+                            && let Err(error) = write_pty(&reply_writer, &replies)
+                        {
+                            emit_stderr(format_args!(
+                                "xtask: warning: terminal query reply failed: {error}"
+                            ));
+                            break;
                         }
                     }
                 }
@@ -424,44 +431,6 @@ fn write_pty(writer: &Mutex<Box<dyn Write + Send>>, bytes: &[u8]) -> Result<()> 
         .map_err(|error| anyhow!("pty writer lock poisoned: {error}"))?;
     guard.write_all(bytes).context("pty write failed")?;
     guard.flush().context("pty flush failed")
-}
-
-/// Answers the terminal-capability queries a well-behaved terminal replies to.
-/// `lomo`'s graphics probe writes kitty/sixel/cell-size/DSR queries to the PTY
-/// and blocks stdin until the DSR `\x1b[5n` is answered — without a reply the
-/// probe's timed-out reader keeps consuming stdin and eats every keystroke.
-/// We claim no graphics capability: `\x1b[0n` ends the probe fast, and the
-/// cell-size reply `\x1b[6;<h>;<w>t` supplies a real font size.
-fn answer_terminal_queries(tail: &[u8], chunk: &[u8], writer: &Mutex<Box<dyn Write + Send>>) {
-    let mut window = Vec::with_capacity(tail.len() + chunk.len());
-    window.extend_from_slice(tail);
-    window.extend_from_slice(chunk);
-    let replies: [(&[u8], &[u8]); 2] = [
-        // 100x36 cells at a 10x20px cell — consistent with PTY_COLS/PTY_ROWS.
-        (b"\x1b[16t", b"\x1b[6;720;1000t"),
-        (b"\x1b[5n", b"\x1b[0n"),
-    ];
-    for (query, reply) in replies {
-        if !contains_subslice(&window, query) {
-            continue;
-        }
-        match writer.lock() {
-            Ok(mut guard) => {
-                if let Err(error) = guard.write_all(reply) {
-                    emit_stderr(format_args!(
-                        "xtask: warning: terminal query reply failed: {error}"
-                    ));
-                }
-            }
-            Err(error) => emit_stderr(format_args!(
-                "xtask: warning: pty writer lock poisoned: {error}"
-            )),
-        }
-    }
-}
-
-fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
-    !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
 }
 
 /// Named key → bytes written to the PTY master (`ctrl+<ch>` is the control
@@ -612,10 +581,11 @@ impl Term {
         }
     }
 
-    fn feed(&mut self, bytes: &[u8]) {
+    fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
         // Split-borrow fields of self so the parser can drive the screen directly.
         let Self { parser, screen } = self;
         parser.advance(screen, bytes);
+        std::mem::take(&mut screen.terminal_replies)
     }
 }
 
@@ -624,6 +594,7 @@ impl Term {
 /// and alt-screen bookkeeping are intentionally ignored — evidence is text-only.
 struct Screen {
     cells: Vec<Vec<char>>,
+    terminal_replies: Vec<u8>,
     col: usize,
     row: usize,
     saved: (usize, usize),
@@ -641,6 +612,7 @@ impl Screen {
     fn new(cols: usize, rows: usize) -> Self {
         Self {
             cells: vec![vec![' '; cols]; rows],
+            terminal_replies: Vec::new(),
             col: 0,
             row: 0,
             saved: (0, 0),
@@ -872,8 +844,8 @@ impl vte::Perform for Screen {
     fn csi_dispatch(
         &mut self,
         params: &vte::Params,
-        _intermediates: &[u8],
-        _ignore: bool,
+        intermediates: &[u8],
+        ignore: bool,
         action: char,
     ) {
         let arg = |index: usize, default: usize| -> usize {
@@ -884,6 +856,19 @@ impl vte::Perform for Screen {
                 .map_or(default, |v| if v == 0 { default } else { v as usize })
         };
         match action {
+            // The startup probe waits for terminal status. Inline redraws and
+            // shutdown also query the cursor before reserving terminal rows.
+            'n' if !ignore && intermediates.is_empty() => match arg(0, 0) {
+                5 => self.terminal_replies.extend_from_slice(b"\x1b[0n"),
+                6 => {
+                    let position = format!("\x1b[{};{}R", self.row + 1, self.col + 1);
+                    self.terminal_replies.extend_from_slice(position.as_bytes());
+                }
+                _ => {}
+            },
+            't' if !ignore && intermediates.is_empty() && arg(0, 0) == 16 => {
+                self.terminal_replies.extend_from_slice(b"\x1b[6;720;1000t");
+            }
             'H' | 'f' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | '`' | 'd' => {
                 self.csi_cursor(action, &arg);
             }

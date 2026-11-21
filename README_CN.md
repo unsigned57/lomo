@@ -46,7 +46,7 @@
 - **标签** — 使用 `#tags` 组织笔记，支持嵌套如 `#tag1/tag2`
 - **全文搜索** — 本地索引加速检索
 - **Material 3** — 简洁现代 UI，支持动态取色
-- **Linux TUI** — 终端程序 `lomo`：时间流、任务、回顾、统计、附件、回收站、设置
+- **桌面 TUI** — 终端程序 `lomo`：时间流、任务、回顾、统计、附件、回收站、设置
 
 #### 回顾
 
@@ -102,7 +102,7 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
    - macOS Apple Silicon / Intel：`lomo-*-aarch64-apple-darwin.tar.gz` / `lomo-*-x86_64-apple-darwin.tar.gz`——构建未签名，若被 Gatekeeper 拦截可用 `xattr -d com.apple.quarantine lomo` 或在系统设置中放行
    - Windows x86_64：`lomo-*-x86_64-pc-windows-msvc.zip`——在 Windows Terminal、PowerShell 或控制台中运行 `lomo.exe`
    - 也可在任意平台从源码运行：`cargo run -p lomo-tui --release --locked`
-2. 启动时指定目录可将其绑定为工作区：`lomo /path/to/notes`。首次运行会在平台配置目录写入 `config.toml`，默认 `workspace` 为 `~/Notes`；仍可从 `config/config.toml.example` 复制后自行修改：
+2. 启动时指定目录可将其绑定为工作区：`lomo /path/to/notes`。首次运行会自动在平台配置目录生成 `config.toml`（默认 `workspace` 为 `~/Notes`）：
    - Linux：`$XDG_CONFIG_HOME/lomo/`（通常是 `~/.config/lomo/`）
    - macOS：`~/Library/Application Support/lomo/`
    - Windows：`%APPDATA%\lomo\`
@@ -118,7 +118,7 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 - `Esc` 每次只退回一层，提示行始终写明它接下来会做什么
 - 支持图片协议的终端可在全文页显示图片
 
-本轮桌面 TUI 不含内置 Git/WebDAV/S3 同步与局域网分享；跨端交换请复制 Markdown 工作区和附件（需要保留已删除 memo 时包含 `.trash`），或使用外部文件同步。历史、置顶和内部控制状态保留在各端应用内部。
+桌面 TUI 暂不含内置 Git/WebDAV/S3 同步与局域网分享；跨端交换请复制 Markdown 工作区和附件（需要保留已删除 memo 时包含 `.trash`），或使用外部文件同步。历史、置顶和内部控制状态保留在各端应用内部。
 
 从源码构建见下方 **构建指南**。
 
@@ -159,13 +159,17 @@ just build tui release
 # 运行 TUI
 cargo run -p lomo-tui --release --locked
 
-# 工作树迭代门禁（加 --tests-only 跳过静态分析）
+# 改动范围较大时，集中验证受影响的模块
 just dev
 
-# 代码移交 / 合并门禁（适用范围见 Quality）
+# 需要时在本地复现 CI 检查
 just check
+
+# 无法取得 GitHub 验证结果时，在本地运行完整的集成验证
 just ci
 ```
+
+日常小改动用能直接验证结果的检查即可。具体范围见[验证规则](quality/README.md#gate-selection-and-evidence)。
 
 目录职责和成品位置见[目录说明](docs/project-layout.md)。
 

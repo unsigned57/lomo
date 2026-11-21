@@ -19,9 +19,6 @@
 //! Excludes: magic-byte/mime identity (lomo-media), Kotlin transport shape (lomo-native).
 
 #[cfg(test)]
-mod support;
-
-#[cfg(test)]
 mod tests {
     use lomo_workspace::{MediaClass, attachment_media_class, is_audio_attachment_destination};
 

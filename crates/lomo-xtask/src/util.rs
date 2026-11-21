@@ -162,6 +162,7 @@ pub fn policy_script(workspace: &Workspace, relative: &str) -> Command {
         .env("LOMO_KOTLIN_ANDROID_SDK", &workspace.android_sdk)
         .env("LOMO_KOTLIN_WRAPPER", workspace.root.join("kotlin"))
         .env("LOMO_GENERATED_ROOT", workspace.lomo_output_dir())
+        .env("LOMO_REPORTS_DIR", workspace.reports_dir())
         .env(
             "LOMO_KOTLIN_TEST_MODULE_ARGS",
             "--include-module=app --include-module=data --include-module=detekt-rules --include-module=domain --include-module=ui-components",

@@ -91,22 +91,6 @@ class DomainPurityTest : DomainFunSpec() {
             ) { (offenders.isEmpty()) shouldBe true }
         }
 
-        test("domain source does not keep compatibility typealias") {
-            val sourceRoot = moduleRoot.resolve("src")
-            val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-            val offenders =
-                kotlinFiles.filter { file ->
-                    file
-                        .readLines()
-                        .any { line -> line.trimStart().startsWith("typealias ") }
-                }
-
-            withClue(
-                "Domain source must not declare typealias compatibility shims. Offenders: " +
-                    offenders.joinToString { it.path },
-            ) { (offenders.isEmpty()) shouldBe true }
-        }
-
         test("domain module does not use Android build plugin") {
             val buildFile = moduleRoot.resolve("module.yaml")
             val text = buildFile.readText()

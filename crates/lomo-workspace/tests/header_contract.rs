@@ -15,11 +15,16 @@
 //! Excludes: full document segmentation (covered by `document_model_contract`).
 
 #[cfg(test)]
-mod support;
+#[path = "support/option_success.rs"]
+mod option_success;
+#[cfg(test)]
+#[path = "support/result_success.rs"]
+mod result_success;
 
 #[cfg(test)]
 mod tests {
-    use super::support::{OptionTestExt, ResultTestExt};
+    use super::option_success::OptionTestExt;
+    use super::result_success::ResultTestExt;
     use lomo_workspace::header::{parse_memo_header_line, validate_filename_stem};
 
     #[test]

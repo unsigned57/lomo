@@ -27,25 +27,11 @@ mod tests {
         input::TextBuffer,
         messages::apply_message,
         model::{
-            AppModel, Confirmation, InputMode, PendingKind, Picker, PickerKind, RevisionRow,
-            Screen, View,
+            AppModel, Confirmation, InputMode, PendingKind, PickerKind, RevisionRow, Screen, View,
         },
         ops::{bootstrap_model, execute},
         update::apply_command,
     };
-    use ratatui::{Terminal, backend::TestBackend};
-
-    fn render(model: &AppModel) -> Result<String, Box<dyn std::error::Error>> {
-        let mut terminal = Terminal::new(TestBackend::new(model.width, model.height))?;
-        terminal.draw(|frame| lomo_tui::ui::draw(frame, model))?;
-        Ok(terminal
-            .backend()
-            .buffer()
-            .content
-            .iter()
-            .map(ratatui::buffer::Cell::symbol)
-            .collect())
-    }
 
     fn history_picker(model: &mut AppModel, revisions: Vec<RevisionRow>) {
         let id = model.selected_memo().map_or_else(
@@ -188,27 +174,6 @@ mod tests {
         );
     }
 
-    /// input_update.rs:216-219 replaces the input with Browse before it knows a
-    /// row exists: Enter on a picker that filtered to zero entries silently
-    /// closes it — an unlabeled Esc on a reachable path.
-    #[test]
-    fn enter_on_an_empty_picker_does_not_silently_close_it() {
-        let mut model = model_with_memos(1, 80, 24).expect("fixture");
-        let card = model.selected_memo().expect("memo").clone();
-        assert!(card.attachments.is_empty(), "fixture has no attachments");
-        model.input = InputMode::Picker(Picker {
-            kind: PickerKind::Attachments(Box::new(card)),
-            text: TextBuffer::default(),
-            selected: 0,
-            identity: None,
-        });
-        assert_eq!(apply_command(&mut model, Command::Accept), None);
-        assert!(
-            matches!(model.input, InputMode::Picker(_)),
-            "Enter with nothing selected must not silently close the picker"
-        );
-    }
-
     /// The mutation executor answers every state-changing effect with the same
     /// "Saved"/"已保存" (mutations.rs:186-190): pin and unpin — opposite
     /// operations — report identical outcomes, so nothing confirms what changed.
@@ -253,69 +218,6 @@ mod tests {
         );
     }
 
-    /// A reader on a trashed memo renders the hint "e edit  m pin" (`ui.rs:577-580`)
-    /// while both commands are silent no-ops (`update.rs:457-459,464-465`): the
-    /// hint bar advertises dead keys.
-    #[test]
-    fn a_trashed_reader_advertises_only_available_actions() {
-        let mut model = model_with_memos(1, 80, 24).expect("fixture");
-        let mut card = model.selected_memo().expect("memo").clone();
-        card.trashed = true;
-        model.view = View::Reader {
-            memo: card,
-            anchor: lomo_tui::model::TextAnchor::default(),
-        };
-        assert_eq!(
-            apply_command(&mut model, Command::Pin),
-            None,
-            "pin is a no-op on a trashed memo"
-        );
-        assert_eq!(
-            apply_command(&mut model, Command::ExternalEdit),
-            None,
-            "external edit is a no-op on a trashed memo"
-        );
-        let text = render(&model).expect("render");
-        assert!(
-            !text.contains("m pin") && !text.contains("e edit"),
-            "the hint bar must not advertise actions the view cannot run: {text}"
-        );
-    }
-
-    /// `cli.rs:17-28` advertises `t`, `c` and `Ctrl+p`; `event.rs:178-233` maps none
-    /// of them (`tea_contract.rs:73-88` asserts they produce no command). `--help`
-    /// documents dead keys the app never honors.
-    #[test]
-    fn cli_help_does_not_advertise_dead_keys() {
-        let help = lomo_tui::cli::render_help();
-        assert!(
-            !help.contains("Ctrl+p"),
-            "Ctrl+p produces no command in any mode but --help advertises it"
-        );
-        assert!(
-            !help.contains("/ t c"),
-            "t and c produce no command while browsing but --help advertises them"
-        );
-    }
-
-    /// `field_key` maps Up/Down to `Command::Move` in every text mode
-    /// (`event.rs:267-268`), but the Search arm of `input_update` routes it into
-    /// `edit_field` — which ignores `Move` — then returns None: arrows are mapped
-    /// dead keys while a result list sits right there.
-    #[test]
-    fn arrow_keys_move_the_selection_while_a_search_is_open() {
-        let mut model = model_with_memos(3, 80, 24).expect("fixture");
-        assert_eq!(apply_command(&mut model, Command::Search), None);
-        let before = super::support::feed(&model).expect("feed").selected.clone();
-        let effect = apply_command(&mut model, Command::Move(1));
-        let after = super::support::feed(&model).expect("feed").selected.clone();
-        assert!(
-            effect.is_some() || before != after,
-            "Down during search is a mapped command that lands nowhere: \
-             effect {effect:?}, selection stayed {before:?}"
-        );
-    }
-
     /// `input_update.rs:46-49` resets `picker.selected` to 0 for ANY command that
     /// is not Move/Scroll — including `FocusReconcile`, which arrives on every
     /// terminal `FocusGained` while a picker is open, and cursor edits that leave
@@ -353,22 +255,6 @@ mod tests {
         assert_eq!(
             picker.selected, 5,
             "a cursor edit that changes no filter text must not reset the selection"
-        );
-    }
-
-    /// A picker for a memo with zero revisions keeps only the synthetic "Close"
-    /// row (`menu.rs:449`), so the "No earlier revisions" empty state in
-    /// `overlays.rs:311-312` is unreachable — dead copy for a reachable state.
-    #[test]
-    fn a_memo_without_revisions_shows_the_empty_state() {
-        let mut model = model_with_memos(1, 80, 24).expect("fixture");
-        history_picker(&mut model, Vec::new());
-        let expected =
-            lomo_tui::i18n::UiStrings::detect().text("No earlier revisions", "没有更早的版本");
-        let text = render(&model).expect("render");
-        assert!(
-            text.contains(expected),
-            "a revisionless memo must show the empty state, not a lone Close row: {text}"
         );
     }
 

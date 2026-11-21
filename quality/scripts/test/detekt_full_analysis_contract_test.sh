@@ -1,18 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Behavior Contract:
-# Capability: full Detekt resolves actual cross-file types and method identities on the real
-# compile model of every analyzed module; owner: quality; P0.
-# Given a factory-inferred mutable flow and an aliased forbidden function, when full analysis runs
-# with a module's own compiler arguments, then both target diagnostics appear; the same
-# type-dependent rules are absent in light mode.
-# Given an Android module, when a forbidden call is reached only through an android.jar type, then
-# full analysis still reports it (the module's Android boot classpath resolves).
-# Given a read-only projection, when full analysis runs, then no mutable-flow diagnostic appears.
-# Observable outcomes: checkstyle rule identities per fixture, using each production module config.
-# TDD proof: RED omits NoInferredMutableFlowExposure before semantic registration; GREEN same script.
-# The per-module scenarios were added after an audit found only domain (pure JVM) was proven.
-# Excludes: proving arbitrary program reachability or concurrency by syntax alone.
+# Contract test: full Detekt resolves cross-file and Android SDK types via each module's
+# real compile model (type-dependent rules fire in full mode but not light mode).
 
 repo_root="$(git rev-parse --show-toplevel)"
 source "$repo_root/quality/scripts/kotlin_detekt_env.sh"

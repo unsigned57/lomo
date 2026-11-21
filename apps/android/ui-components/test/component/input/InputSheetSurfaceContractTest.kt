@@ -1,64 +1,14 @@
-// architectural-boundary-check
 package com.lomo.ui.component.input
 
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.testing.UiComponentsFunSpec
-import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.persistentListOf
-import java.io.File
 
-/*
- * Behavior Contract:
- * - Unit under test: InputSheet surface model.
- * - Owning layer: ui-components input/editor surface.
- * - Priority tier: P1.
- * - Capability: expose one typed editor surface and command sink instead of flattened memo/tool callbacks.
- *
- * Scenarios:
- * - Given core text, preview, hints, tags, recording, and toolbar action metadata, when an
- *   InputSheetState is created, then the state is grouped under a typed editor surface with generic actions.
- * - Given editor commands are dispatched, when InputSheetCallbacks receives typed commands, then one
- *   command sink owns tool actions and no default tool no-op callback is required.
- *
- * Observable outcomes:
- * - InputSheetState has `surface` and no flattened toolbar order field.
- * - InputSheetCallbacks has `commands` and no flattened media/recording/location/reminder callbacks.
- * - Typed command dispatch records observable command values.
- *
- * TDD proof:
- * - RED: `./kotlin test --include-classes='com.lomo.ui.component.input.InputSheetSurfaceContractTest'`
- *   fails before M2 because InputSheet still exposes flattened callbacks/default no-op and state fields.
- *
- * Excludes:
- * - Compose rendering, focus timing, lifecycle effects, Android permission result behavior.
-
- * Test Change Justification:
- * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
- * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
- *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
- * - Why old assertion is no longer correct: production storage analysis and presentation consume
- *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
- * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
- *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
- * - Why this is not fitting the test to the implementation: assertions still check public behavior and
- *   fail-closed boundaries, not private parser implementation details.
- *
- * Test Change Justification:
- * Reason category: interface consolidation in the same change as the expansion owner.
- * Old behavior/assertion being replaced: the callbacks fixture supplied onToggleExpanded, onCollapse and
- *   onConsumeBackPress.
- * Why old assertion is no longer correct: one onExpandedChange(Boolean) commits the long-form target; back
- *   handling reads the committed target directly, so the duplicate back-press query was deleted.
- * Coverage preserved by: the typed command sink scenario is unchanged and still asserts the dispatched commands.
- * Why this is not fitting the test to the implementation: only the fixture's construction changed.
- */
 class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
-    private val uiSourceRoot = resolveModuleRoot("ui-components").resolve("src")
-
     init {
         test("given input sheet state when constructed then editor state lives behind typed surface") {
             val state =
@@ -106,47 +56,6 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
                     InputEditorCommand.CancelRecording,
                 )
         }
-
-        test(
-            "given input component sources when inspected then flattened callbacks and string toolbar ids are deleted",
-        ) {
-            val sheetSource = uiSource("component/input/InputSheet.kt").readText()
-            val toolbarSource = uiSource("component/input/InputEditorToolbarComponents.kt").readText()
-
-            withClue("InputSheetState must expose typed editor surface") {
-                sheetSource.contains("val surface: InputEditorSurfaceState") shouldBe true
-            }
-            withClue("InputSheetCallbacks must expose typed command sink") {
-                sheetSource.contains("val commands: InputEditorCommandHandler") shouldBe true
-            }
-            listOf(
-                "onUndo:",
-                "onRedo:",
-                "onImageClick:",
-                "onCameraClick:",
-                "onStartRecording:",
-                "onStopRecording:",
-                "onCancelRecording:",
-                "onLocationClick:",
-                "onBackfillClick:",
-                "onInsertReminder:",
-                "onInputToolbarToolOrderChanged:",
-                "inputToolbarToolOrder:",
-            ).forEach { forbidden ->
-                withClue("InputSheet surface must not expose flattened callback $forbidden") {
-                    sheetSource.contains(forbidden) shouldBe false
-                }
-                withClue("InputEditorToolbar surface must not expose flattened callback $forbidden") {
-                    toolbarSource.contains(forbidden) shouldBe false
-                }
-            }
-            withClue("InputEditorToolbar must consume registry tools rather than string ids") {
-                toolbarSource.contains("tools: ImmutableList<InputToolbarTool>") shouldBe true
-            }
-            withClue("InputEditorToolbar must not keep string-id ordering helpers") {
-                toolbarSource.contains("resolveInputToolbarToolIds") shouldBe false
-            }
-        }
     }
 
     private fun contractTool(id: String): InputToolbarTool = InputToolbarTool(
@@ -156,29 +65,6 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
         command = InputEditorCommand.Action(InputToolbarActionId(id)),
         enabled = true,
     )
-
-    private fun uiSource(relativePath: String): File = uiSourceRoot.resolve(relativePath).also { file ->
-        withClue("Expected ui source file exists: ${file.path}") {
-            file.isFile shouldBe true
-        }
-    }
-
-    private fun resolveModuleRoot(moduleName: String): File {
-        val currentDirPath = System.getProperty("user.dir") ?: "."
-        val currentDir = File(currentDirPath)
-        val candidateRoots =
-            listOf(
-                currentDir,
-                currentDir.resolve(moduleName),
-            )
-        return checkNotNull(
-            candidateRoots.firstOrNull { dir ->
-                dir.name == moduleName && dir.resolve("module.yaml").exists()
-            },
-        ) {
-            "Failed to resolve $moduleName module root from $currentDirPath"
-        }
-    }
 }
 
 private fun emptyPreviewDocument() = MarkdownRenderDocument(

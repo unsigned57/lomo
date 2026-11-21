@@ -623,8 +623,7 @@ const fn hard_gate_max_bytes(apk_compressed_bytes: u64) -> u64 {
 }
 
 fn measure_sqlite_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
-    let root = workspace.reports_dir().join("feasibility/measure-sqlite");
-    fs::create_dir_all(&root)?;
+    let root = workspace.temp_dir("feasibility-sqlite")?;
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
     for index in 0..(WARMUP + SAMPLE_COUNT) {
         let path = root.join(format!("probe-{index}.sqlite"));
@@ -852,7 +851,7 @@ fn measure_http_metric() -> Result<BaselineMetricV1> {
 }
 
 fn measure_git_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
-    let root = workspace.reports_dir().join("feasibility/measure-git");
+    let root = workspace.temp_dir("feasibility-git")?;
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
     for index in 0..(WARMUP + SAMPLE_COUNT) {
         let path = root.join(format!("round-{index}"));

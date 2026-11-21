@@ -13,9 +13,14 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 pub use graph::{ImpactGraph, Owner, OwnerKind};
-pub use runner::{CommandRunner, TaskOutcome, TaskReport, TaskStatus, execute, parse_test_count};
+pub use runner::{
+    CommandRunner, TaskOutcome, TaskReport, TaskStatus, execute, parse_test_count,
+    prune_verification_reports,
+};
 
 use crate::{util, workspace::Workspace};
+
+const ARCHITECTURE_PACKAGE: &str = "lomo-architecture-tests";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChangeSource {
@@ -195,9 +200,16 @@ pub enum Artifact {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArchitectureScope {
+    Repository,
+    Package,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum TaskAction {
-    Architecture,
+    Architecture { scope: ArchitectureScope },
     FfiContract,
     RustFmt,
     RustClippy { package: String },
@@ -335,10 +347,15 @@ impl VerificationPlan {
             return Ok(plan);
         }
         if mode != PlanMode::Tests {
+            let scope = if rust.contains(ARCHITECTURE_PACKAGE) {
+                ArchitectureScope::Package
+            } else {
+                ArchitectureScope::Repository
+            };
             plan.tasks.push(
                 Task::new(
                     "architecture",
-                    TaskAction::Architecture,
+                    TaskAction::Architecture { scope },
                     "repository ownership and source contracts",
                 )
                 .using(RequiredTool::Rust, Resource::Cargo),
@@ -649,7 +666,7 @@ impl VerificationPlan {
                 TaskAction::BaselineProfile => {
                     task.outputs.insert(Artifact::BaselineProfile);
                 }
-                TaskAction::Architecture
+                TaskAction::Architecture { .. }
                 | TaskAction::FfiContract
                 | TaskAction::RustFmt
                 | TaskAction::RustClippy { .. }
@@ -683,6 +700,9 @@ impl VerificationPlan {
                     .after("architecture")
                     .using(RequiredTool::Rust, Resource::Cargo),
                 );
+                if package == ARCHITECTURE_PACKAGE {
+                    continue;
+                }
             }
             let mut tests = Task::new(
                 format!("rust-tests:{package}"),

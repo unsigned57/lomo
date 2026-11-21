@@ -91,20 +91,6 @@ class AppLayerBoundaryTest : AppFunSpec() {
                 source.contains("processDuty.ownsNativeEngine") shouldBe true
             }
         }
-
-        test("main list keeps one paged stack and deletes dead viewport snapshot helpers") {
-            withClue("TopViewportMemoId is an unused Room-era helper and must not exist") {
-                sourceRoot.resolve("feature/main/TopViewportMemoId.kt").exists() shouldBe false
-            }
-            val memoCardList = sourceRoot.resolve("feature/memo/MemoCardListAnimation.kt").readText()
-            withClue("MemoCardList must delegate to MemoListContent so search/tag inherit contentType") {
-                memoCardList.contains("MemoListContent(") shouldBe true
-            }
-            val pagedList = sourceRoot.resolve("feature/main/PagedMemoListContent.kt").readText()
-            withClue("the paged list stack must bucket rows by contentType") {
-                pagedList.contains("contentType") shouldBe true
-            }
-        }
     }
 
     init {

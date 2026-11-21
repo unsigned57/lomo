@@ -18,12 +18,9 @@
 //!   supported vocabulary (`expect`/`send`/`key`/`sleep_ms`/`snap`/`expect_exit`)
 //!   appears and every `key` name resolves — a typo'd step or unknown key must fail
 //!   at parse time, never silently no-op.
-//! - Given the xtask sources, when inspected, then the command pins the committed
-//!   flow directory, the PTY geometry, the probe-answering reader and the
-//!   `tui-uitest.v1.json` report.
 //!
 //! Observable outcomes: resolved flow lists, CLI non-zero exits for bad arguments,
-//! and the source-level pins between xtask, flows and the TUI binary.
+//! and validation of the committed flow vocabulary.
 //!
 //! TDD proof: `cargo test -p lomo-xtask --test tui_uitest_contract --locked`.
 //! RED: before this command no `tuitest` entry existed and no committed PTY flow
@@ -193,34 +190,6 @@ mod tests {
                 }
             }
         }
-        Ok(())
-    }
-
-    #[test]
-    fn source_wiring_pins_flow_dir_pty_and_report_layout() -> Result<()> {
-        let root = repository_root()?;
-        let source = read(&root.join("crates/lomo-xtask/src/tui_uitest.rs"))?;
-        for pin in [
-            "apps/tui/uitest/flows",
-            "tui-uitest.v1.json",
-            "pty_uitest",
-            "native_pty_system",
-            // The graphics probe answer — without it the app's leaked reader
-            // thread consumes stdin and every keystroke starves.
-            "\\x1b[0n",
-            "XDG_RUNTIME_DIR",
-        ] {
-            ensure!(source.contains(pin), "tui_uitest.rs missing wiring: {pin}");
-        }
-        let cli = read(&root.join("crates/lomo-xtask/src/cli.rs"))?;
-        for pin in ["\"tuitest\"", "tuitest_command", "--skip-build"] {
-            ensure!(cli.contains(pin), "cli.rs missing tuitest wiring: {pin}");
-        }
-        let justfile = read(&root.join("Justfile"))?;
-        ensure!(
-            justfile.contains("tuitest *args:"),
-            "Justfile missing the tuitest recipe"
-        );
         Ok(())
     }
 }
