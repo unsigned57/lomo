@@ -101,7 +101,7 @@ sha2.workspace = true
 scrypt.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
-url = { version = "=2.5.8", default-features = false, features = ["std"] }
+url = { version = "=2.5.9", default-features = false, features = ["std"] }
 percent-encoding = { version = "=2.3.2", default-features = false, features = ["alloc"] }
 crypto_secretbox.workspace = true
 # SigV4 HMAC-SHA256 (P-48): aws-lc-rs is already linked via rustls/reqwest; direct edge adds no new native code.
