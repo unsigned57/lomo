@@ -23,7 +23,7 @@
 //! - Given a supported date-format token, when the session opens, then memo filenames are minted in
 //!   that format instead of `DateFormat::default()`.
 //! - Given a foreign date-format token, when the session opens, then the boundary fails closed with
-//!   `invalid_calendar_input` and installs no session.
+//!   `storage_date_format_invalid` and installs no session.
 //!
 //! Observable outcomes: structured `EngineError` codes, workspace Markdown bytes, session DTOs.
 //! TDD proof: RED because `open_workspace_session` / `session_create_memo` / `session_search`
@@ -706,7 +706,7 @@ mod tests {
                 session.workspace.to_string_lossy().into_owned(),
             )
             .test_err("foreign date format token");
-        assert_eq!(error.code(), "invalid_calendar_input");
+        assert_eq!(error.code(), "storage_date_format_invalid");
         assert!(
             !workspace_has_markdown(&session.workspace),
             "a rejected token must not write markdown"

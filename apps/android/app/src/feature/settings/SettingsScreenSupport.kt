@@ -6,7 +6,9 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -23,7 +25,9 @@ import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.WorkspaceFailureStage
+import com.lomo.ui.component.common.LomoTextButton
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -39,13 +43,17 @@ internal fun rememberStoragePickerActions(
         snackbarHostState = snackbarHostState,
     ),
     openImage =
-    rememberTreePickerAction(
+    rememberAttachmentDirectoryAction(
+        title = stringResource(R.string.settings_image_storage),
         onUriSelected = storageFeature::updateImageUri,
+        onFollowNotes = { storageFeature.followNotesDirectory(StorageArea.IMAGE) },
         snackbarHostState = snackbarHostState,
     ),
     openVoice =
-    rememberTreePickerAction(
+    rememberAttachmentDirectoryAction(
+        title = stringResource(R.string.settings_voice_storage),
         onUriSelected = storageFeature::updateVoiceUri,
+        onFollowNotes = { storageFeature.followNotesDirectory(StorageArea.VOICE) },
         snackbarHostState = snackbarHostState,
     ),
     openSyncInbox =
@@ -59,6 +67,36 @@ internal fun rememberStoragePickerActions(
         snackbarHostState = snackbarHostState,
     ),
 )
+
+@Composable
+private fun rememberAttachmentDirectoryAction(
+    title: String,
+    onUriSelected: (String) -> Unit,
+    onFollowNotes: () -> Unit,
+    snackbarHostState: SnackbarHostState,
+): () -> Unit {
+    val openPicker = rememberTreePickerAction(onUriSelected, snackbarHostState)
+    val visible = remember { mutableStateOf(false) }
+    if (visible.value) {
+        AlertDialog(
+            onDismissRequest = { visible.value = false },
+            title = { Text(title) },
+            confirmButton = {
+                LomoTextButton(onClick = {
+                    visible.value = false
+                    openPicker()
+                }) { Text(stringResource(R.string.settings_storage_choose_independent)) }
+            },
+            dismissButton = {
+                LomoTextButton(onClick = {
+                    visible.value = false
+                    onFollowNotes()
+                }) { Text(stringResource(R.string.settings_storage_use_notes_folder)) }
+            },
+        )
+    }
+    return { visible.value = true }
+}
 
 @Composable
 private fun rememberTreePickerAction(

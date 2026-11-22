@@ -247,16 +247,6 @@ fn session_input(memo_id: &str, reminder: &ReminderReference) -> ReminderSession
 /// reminder owner — resolution coverage is the zone's entire history, so no platform-supplied
 /// transition window or coverage bound is constructed here.
 fn time_zone(zone_id: &str) -> Result<jiff::tz::TimeZone, LomoError> {
-    if zone_id == "UTC" || zone_id == "Etc/UTC" {
-        return Ok(jiff::tz::TimeZone::UTC);
-    }
-    let zone = jiff::tz::TimeZone::get(zone_id)
-        .map_err(|error| validation("unknown_time_zone", error.to_string()))?;
-    if zone.is_unknown() {
-        return Err(validation(
-            "unknown_time_zone",
-            format!("IANA timezone is unknown: {zone_id}"),
-        ));
-    }
-    Ok(zone)
+    crate::calendar::resolve_zone(zone_id)
+        .map_err(|error| validation("unknown_time_zone", error.to_string()))
 }

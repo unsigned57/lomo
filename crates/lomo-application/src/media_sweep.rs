@@ -157,11 +157,12 @@ impl WorkspaceSession {
                 };
                 match item.kind() {
                     DocumentKind::Directory => pending_dirs.push(path),
-                    DocumentKind::File => {
+                    DocumentKind::File if !crate::rebuild::has_extension(path.as_str(), "md") => {
                         if let Some(metadata) = verified_metadata(io, &path, item, report) {
                             candidates.push(SweepCandidate { path, metadata });
                         }
                     }
+                    DocumentKind::File => {}
                 }
             }
         }

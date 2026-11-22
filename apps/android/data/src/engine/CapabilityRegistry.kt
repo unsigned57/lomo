@@ -26,6 +26,13 @@ internal class CapabilityRegistry {
 
     fun registerDirect(rootPath: File, token: String = newCapabilityToken()): DirectCapabilityGrant {
         val grant = DirectCapabilityGrant.bind(token = token, rootPath = rootPath)
+        if (!grant.directoryAtBind) {
+            throw CapabilityRegistryException(
+                category = "validation",
+                code = "workspace_root_not_directory",
+                diagnostic = "direct workspace root must be a directory",
+            )
+        }
         return putGrant(grant) as DirectCapabilityGrant
     }
 
@@ -164,11 +171,13 @@ internal class DirectCapabilityGrant private constructor(
     override val capabilityToken: String,
     override val stableWorkspaceId: StableWorkspaceId,
     val canonicalRoot: File,
+    val directoryAtBind: Boolean,
 ) : RootCapabilityGrant {
     override fun hasSameBindingAs(other: RootCapabilityGrant): Boolean = other is DirectCapabilityGrant &&
         capabilityToken == other.capabilityToken &&
         stableWorkspaceId == other.stableWorkspaceId &&
-        canonicalRoot == other.canonicalRoot
+        canonicalRoot == other.canonicalRoot &&
+        directoryAtBind == other.directoryAtBind
 
     companion object {
         fun bind(token: String, rootPath: File): DirectCapabilityGrant {
@@ -184,17 +193,11 @@ internal class DirectCapabilityGrant private constructor(
                         cause = error,
                     )
                 }
-            if (!canonical.isDirectory) {
-                throw CapabilityRegistryException(
-                    category = "validation",
-                    code = "workspace_root_not_directory",
-                    diagnostic = "direct workspace root must be a directory",
-                )
-            }
             return DirectCapabilityGrant(
                 capabilityToken = token,
                 stableWorkspaceId = DirectWorkspaceIdentity.fromCanonicalRoot(canonical),
                 canonicalRoot = canonical,
+                directoryAtBind = canonical.isDirectory,
             )
         }
     }

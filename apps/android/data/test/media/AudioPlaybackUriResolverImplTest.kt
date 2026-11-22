@@ -23,8 +23,11 @@ package com.lomo.data.media
 import android.content.Context
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceAttachmentDirectories
+import com.lomo.domain.model.WorkspaceMount
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import kotlin.io.path.createTempDirectory
@@ -33,10 +36,7 @@ class AudioPlaybackUriResolverImplTest : DataFunSpec() {
     private val context: Context = mockk()
 
     private fun resolver(root: File?, voice: File? = null): AudioPlaybackUriResolverImpl =
-        AudioPlaybackUriResolverImpl(context).apply {
-            setRootLocation(root?.let { StorageLocation(it.absolutePath) })
-            setVoiceLocation(voice?.let { StorageLocation(it.absolutePath) })
-        }
+        AudioPlaybackUriResolverImpl(context, { audioMount(root?.absolutePath, voice?.absolutePath) })
 
     init {
         test("given a selected voice root when a relative path escapes it then playback cannot read the outside file") {
@@ -82,9 +82,10 @@ class AudioPlaybackUriResolverImplTest : DataFunSpec() {
                 File(root, "voice/take.m4a").writeBytes(byteArrayOf(1))
                 val fresh = File(selected, "take.m4a").apply { writeBytes(byteArrayOf(2)) }
                 runTest {
-                    val resolver = resolver(root)
+                    val mount = MutableStateFlow(audioMount(root.absolutePath))
+                    val resolver = AudioPlaybackUriResolverImpl(context, mount::value)
                     resolver.resolve("take.m4a") shouldBe File(root, "voice/take.m4a").absolutePath
-                    resolver.setVoiceLocation(StorageLocation(selected.absolutePath))
+                    mount.value = audioMount(root.absolutePath, selected.absolutePath)
                     resolver.resolve("take.m4a") shouldBe fresh.absolutePath
                     fresh.delete()
                     resolver.resolve("take.m4a") shouldBe null
@@ -193,3 +194,8 @@ class AudioPlaybackUriResolverImplTest : DataFunSpec() {
         }
     }
 }
+
+internal fun audioMount(root: String?, voice: String? = null): WorkspaceMount = WorkspaceMount.Opening.copy(
+    location = root?.let(::StorageLocation),
+    attachments = WorkspaceAttachmentDirectories(recordings = voice?.let(::StorageLocation)),
+)

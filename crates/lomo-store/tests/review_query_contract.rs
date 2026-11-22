@@ -82,18 +82,26 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["dec-b", "dec-a"]
         );
-        spec.sort.time_zone = "+08:00".to_owned();
-        let offset_page = store
+        for zone in ["+08:00", "GMT+08:00", "UTC+08:00"] {
+            spec.sort.time_zone = zone.to_owned();
+            let offset_page = store
+                .query_memos(&spec, None, PageSize::new(2).expect("page size"))
+                .expect("fixed-offset query");
+            assert_eq!(
+                offset_page
+                    .items
+                    .into_iter()
+                    .map(|memo| memo.memo_id)
+                    .collect::<Vec<_>>(),
+                ["dec-b", "dec-a"],
+                "zone {zone}"
+            );
+        }
+        spec.sort.time_zone = "Z".to_owned();
+        let z_page = store
             .query_memos(&spec, None, PageSize::new(2).expect("page size"))
-            .expect("fixed-offset query");
-        assert_eq!(
-            offset_page
-                .items
-                .into_iter()
-                .map(|memo| memo.memo_id)
-                .collect::<Vec<_>>(),
-            ["dec-b", "dec-a"]
-        );
+            .expect("Z query");
+        assert_eq!(z_page.items.len(), 2);
         let cursor = page.next_cursor.expect("continuation");
         spec.sort.time_zone = "UTC".to_owned();
         let error = store

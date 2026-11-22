@@ -28,6 +28,7 @@ appId: com.lomo.app
     timeout: 10000
 - waitForAnimationToEnd
 - tapOn: "Image Storage"
+- tapOn: "Choose a separate folder"
 - tapOn: "USE THIS FOLDER"
 - tapOn: "Allow"
 - extendedWaitUntil:
@@ -35,6 +36,7 @@ appId: com.lomo.app
     timeout: 10000
 - waitForAnimationToEnd
 - tapOn: "Voice Storage"
+- tapOn: "Choose a separate folder"
 - tapOn: "USE THIS FOLDER"
 - tapOn: "Allow"
 - extendedWaitUntil:

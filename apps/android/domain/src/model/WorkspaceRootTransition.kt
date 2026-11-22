@@ -28,12 +28,13 @@ data class WorkspaceRootTransition(
 data class MediaDirectoryChange(
     val area: StorageArea,
     val previous: StorageLocation?,
-    val candidate: StorageLocation,
+    /** A missing override follows the mounted notes tree. */
+    val candidate: StorageLocation?,
 ) {
     init {
         require(area == StorageArea.IMAGE || area == StorageArea.VOICE) { "Only attachment roots can be rebound" }
         require(previous != candidate) { "Media directory candidate must differ from previous selection" }
-        require(candidate.raw.isNotBlank() && (previous == null || previous.raw.isNotBlank())) {
+        require((candidate == null || candidate.raw.isNotBlank()) && (previous == null || previous.raw.isNotBlank())) {
             "Media directory locations must not be blank"
         }
     }

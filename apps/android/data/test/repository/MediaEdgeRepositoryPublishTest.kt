@@ -22,6 +22,7 @@ import com.lomo.domain.model.MemoCreateDraft
 import com.lomo.domain.model.MemoEditDraft
 import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceAttachmentDirectories
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.repository.MemoCreateDraftRepository
@@ -101,8 +102,9 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                 val workspace = createTempDirectory("lomo-image-receipt-").toFile()
                 try {
                     val source = FakeFileDataSource()
-                    source.setRoot(StorageRootType.IMAGE, "/selected-images")
-                    val mounted = MutableStateFlow(imageMount(StorageLocation(workspace.path)))
+                    val mounted = MutableStateFlow(
+                        imageMount(StorageLocation(workspace.path), image = "/selected-images"),
+                    )
                     val committed = File(workspace, "images/a.png")
                     var scans = 0
                     val storage = object : com.lomo.data.source.MediaStorageDataSource {
@@ -147,9 +149,8 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                 val workspace = createTempDirectory("lomo-media-generation-").toFile()
                 try {
                     val root = StorageLocation(workspace.path)
-                    val mounted = MutableStateFlow(imageMount(root))
+                    val mounted = MutableStateFlow(imageMount(root, image = "/old-images"))
                     val source = FakeFileDataSource()
-                    source.setRoot(StorageRootType.IMAGE, "/old-images")
                     val repository = mediaEdgeRepository(workspace, fileDataSource = source, activeMount = mounted)
                     repository.readyImageLocations().test {
                         awaitItem() shouldBe emptyMap()
@@ -163,9 +164,7 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                         )
                         awaitItem().getValue(id).contentId shouldBe "e".repeat(64)
 
-                        mounted.value = imageMount(root, generation = 2)
-                        // Production promotes the candidate before committing its directory preference.
-                        source.setRoot(StorageRootType.IMAGE, "/new-images")
+                        mounted.value = imageMount(root, generation = 2, image = "/new-images")
                         awaitItem() shouldBe emptyMap()
                         cancelAndIgnoreRemainingEvents()
                     }
@@ -181,7 +180,8 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                 val workspace = createTempDirectory("lomo-image-retry-").toFile()
                 try {
                     val source = FakeFileDataSource()
-                    source.setRoot(StorageRootType.IMAGE, "/images")
+                    val root = StorageLocation(workspace.path)
+                    val mounted = MutableStateFlow(imageMount(root, image = "/images"))
                     var unavailable = true
                     val storage = object : com.lomo.data.source.MediaStorageDataSource {
                         override suspend fun listImageFiles(
@@ -191,7 +191,12 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                             return listOf("photo.png" to "file:///images/photo.png")
                         }
                     }
-                    val repository = mediaEdgeRepository(workspace, fileDataSource = source, mediaStorage = storage)
+                    val repository = mediaEdgeRepository(
+                        workspace,
+                        fileDataSource = source,
+                        mediaStorage = storage,
+                        activeMount = mounted,
+                    )
                     repository.observeImageLocations().test {
                         awaitItem() shouldBe ImageLocationSnapshot.Loading
                         awaitItem().shouldBeInstanceOf<ImageLocationSnapshot.Unavailable>()
@@ -214,7 +219,8 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                 val workspace = createTempDirectory("lomo-image-cancel-").toFile()
                 try {
                     val source = FakeFileDataSource()
-                    source.setRoot(StorageRootType.IMAGE, "/old")
+                    val root = StorageLocation(workspace.path)
+                    val mounted = MutableStateFlow(imageMount(root, image = "/old"))
                     val entered = CompletableDeferred<Unit>()
                     val cancelled = CompletableDeferred<Unit>()
                     val oldListing = CompletableDeferred<List<Pair<String, String>>>()
@@ -233,44 +239,21 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                             return listOf("new.png" to "file:///new/new.png")
                         }
                     }
-                    val repository = mediaEdgeRepository(workspace, fileDataSource = source, mediaStorage = storage)
+                    val repository = mediaEdgeRepository(
+                        workspace,
+                        fileDataSource = source,
+                        mediaStorage = storage,
+                        activeMount = mounted,
+                    )
                     repository.observeImageLocations().test {
                         awaitItem() shouldBe ImageLocationSnapshot.Loading
                         entered.await()
-                        source.setRoot(StorageRootType.IMAGE, "/new")
+                        mounted.value = imageMount(root, generation = 2, image = "/new")
                         cancelled.await()
                         awaitItem().shouldBeInstanceOf<ImageLocationSnapshot.Ready>()
                             .entries.keys shouldBe setOf(MediaEntryId("new.png"))
                         oldListing.complete(listOf("old.png" to "file:///old/old.png"))
                         expectNoEvents()
-                        cancelAndIgnoreRemainingEvents()
-                    }
-                } finally {
-                    workspace.deleteRecursively()
-                }
-            }
-        }
-        test("given only voice storage changes when inventory is observed then it uses the captured voice selection") {
-            runTest {
-                val workspace = createTempDirectory("lomo-voice-scan-").toFile()
-                try {
-                    val source = FakeFileDataSource()
-                    source.setRoot(StorageRootType.VOICE, "/voice-first")
-                    val storage = object : com.lomo.data.source.MediaStorageDataSource {
-                        override suspend fun listImageFiles(
-                            selection: MediaStorageSelection,
-                        ): List<Pair<String, String>> =
-                            listOf("voice/cover.png" to "file://${selection.voiceLocation}/cover.png")
-                    }
-                    val repository = mediaEdgeRepository(workspace, fileDataSource = source, mediaStorage = storage)
-                    repository.readyImageLocations().test {
-                        awaitItem().getValue(
-                            MediaEntryId("voice/cover.png"),
-                        ).location.raw shouldBe "file:///voice-first/cover.png"
-                        source.setRoot(StorageRootType.VOICE, "/voice-next")
-                        awaitItem().getValue(
-                            MediaEntryId("voice/cover.png"),
-                        ).location.raw shouldBe "file:///voice-next/cover.png"
                         cancelAndIgnoreRemainingEvents()
                     }
                 } finally {
@@ -285,7 +268,8 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                 val workspace = createTempDirectory("lomo-image-recovery-").toFile()
                 try {
                     val source = FakeFileDataSource()
-                    source.setRoot(StorageRootType.IMAGE, "/images/first")
+                    val root = StorageLocation(workspace.path)
+                    val mounted = MutableStateFlow(imageMount(root, image = "/images/first"))
                     var failure: java.io.IOException? = null
                     val storage = object : com.lomo.data.source.MediaStorageDataSource {
                         override suspend fun listImageFiles(
@@ -295,18 +279,23 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                             return source.listImageFiles(selection)
                         }
                     }
-                    val repository = mediaEdgeRepository(workspace, fileDataSource = source, mediaStorage = storage)
+                    val repository = mediaEdgeRepository(
+                        workspace,
+                        fileDataSource = source,
+                        mediaStorage = storage,
+                        activeMount = mounted,
+                    )
                     repository.observeImageLocations().test {
                         awaitItem() shouldBe ImageLocationSnapshot.Loading
                         awaitItem() shouldBe ImageLocationSnapshot.Ready(emptyMap())
                         failure = java.io.IOException("Selected image directory listing is incomplete")
-                        source.setRoot(StorageRootType.IMAGE, "/images/unavailable")
+                        mounted.value = imageMount(root, generation = 2, image = "/images/unavailable")
                         awaitItem() shouldBe ImageLocationSnapshot.Loading
                         val unavailable = awaitItem().shouldBeInstanceOf<ImageLocationSnapshot.Unavailable>()
                         unavailable.diagnostic shouldBe "Selected image directory listing is incomplete"
                         failure = null
                         source.imageLocations["recovered.png"] = "file:///images/final/recovered.png"
-                        source.setRoot(StorageRootType.IMAGE, "/images/final")
+                        mounted.value = imageMount(root, generation = 3, image = "/images/final")
                         awaitItem() shouldBe ImageLocationSnapshot.Loading
                         awaitItem().shouldBeInstanceOf<ImageLocationSnapshot.Ready>().entries.getValue(
                             MediaEntryId("recovered.png"),
@@ -414,14 +403,15 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                 val workspace = createTempDirectory(prefix = "lomo-media-roots-").toFile()
                 try {
                     val source = FakeFileDataSource()
-                    source.setRoot(StorageRootType.IMAGE, "/images/old")
+                    val root = StorageLocation(workspace.path)
+                    val mounted = MutableStateFlow(imageMount(root, image = "/images/old"))
                     source.imageLocations["photo.png"] = "file:///images/old/photo.png"
-                    val repository = mediaEdgeRepository(workspace, fileDataSource = source)
+                    val repository = mediaEdgeRepository(workspace, fileDataSource = source, activeMount = mounted)
                     repository.readyImageLocations().test {
                         awaitItem()[MediaEntryId("photo.png")]?.location?.raw shouldBe "file:///images/old/photo.png"
                         source.imageLocations.clear()
                         source.imageLocations["new.png"] = "file:///images/new/new.png"
-                        source.setRoot(StorageRootType.IMAGE, "/images/new")
+                        mounted.value = imageMount(root, generation = 2, image = "/images/new")
                         val changed = awaitItem()
                         changed[MediaEntryId("photo.png")] shouldBe null
                         changed[MediaEntryId("new.png")]?.location?.raw shouldBe "file:///images/new/new.png"
@@ -639,9 +629,11 @@ private class RecordingManifestMediaPort(private val file: File) : MediaPort by 
 private fun com.lomo.domain.repository.MediaRepository.readyImageLocations() =
     observeImageLocations().filterIsInstance<ImageLocationSnapshot.Ready>().map { it.entries }
 
-private fun imageMount(location: StorageLocation?, generation: Long = 1): WorkspaceMount = WorkspaceMount(
-    readiness = if (location == null) EngineReadiness.AwaitingWorkspaceSelection else EngineReadiness.Ready,
-    location = location,
-    authority = location?.let { WorkspaceAuthority(it.raw, generation, 0uL) },
-    freshness = if (location == null) ProjectionFreshness.Unavailable else ProjectionFreshness.Verified(0uL),
-)
+private fun imageMount(location: StorageLocation?, generation: Long = 1, image: String? = null): WorkspaceMount =
+    WorkspaceMount(
+        readiness = if (location == null) EngineReadiness.AwaitingWorkspaceSelection else EngineReadiness.Ready,
+        location = location,
+        authority = location?.let { WorkspaceAuthority(it.raw, generation, 0uL) },
+        freshness = if (location == null) ProjectionFreshness.Unavailable else ProjectionFreshness.Verified(0uL),
+        attachments = WorkspaceAttachmentDirectories(images = image?.let(::StorageLocation)),
+    )

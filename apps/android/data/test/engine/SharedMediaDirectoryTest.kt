@@ -1,6 +1,7 @@
 package com.lomo.data.engine
 
 import com.lomo.nativebridge.ActionOutcome
+import com.lomo.nativebridge.ListingView
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
 import com.lomo.nativebridge.WorkspaceTarget
@@ -44,6 +45,7 @@ class SharedMediaDirectoryTest :
                         WorkspaceTarget.Root,
                         null,
                         64u,
+                        ListingView.WORKSPACE,
                     ),
                 ).shouldBeInstanceOf<ActionOutcome.Applied>()
                     .output.shouldBeInstanceOf<PlatformActionOutput.Listed>().page

@@ -69,9 +69,9 @@ open class SwitchRootStorageUseCase(
     /** Rebinds an attachment grant after draining writes and retiring the workspace's sole owner. */
     open suspend fun updateMediaLocation(update: StorageAreaUpdate) {
         require(update.area == StorageArea.IMAGE || update.area == StorageArea.VOICE)
-        val location = requireNotNull(update.location) { "A selected media directory is required" }
+        val location = update.location
         completeWorkspaceTransition {
-            workspaceCandidateValidator.validate(location)
+            location?.let { workspaceCandidateValidator.validate(it) }
             workspaceMutationLease.withExclusiveTransition {
                 val workspace = engineReadinessRepository.activeWorkspaceLocation.value
                 if (workspace == null) {
@@ -80,7 +80,7 @@ open class SwitchRootStorageUseCase(
                 }
                 val previous = directorySettingsRepository.currentLocation(update.area)
                 if (previous == location) {
-                    if (engineReadinessRepository.readiness.value !is EngineReadiness.Ready) {
+                    if (location != null || engineReadinessRepository.readiness.value !is EngineReadiness.Ready) {
                         engineReadinessRepository.activateWorkspace(workspace, mediaChange = null)
                     }
                     return@withExclusiveTransition

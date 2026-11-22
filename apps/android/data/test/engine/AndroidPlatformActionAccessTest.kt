@@ -59,6 +59,7 @@ import com.lomo.nativebridge.ContentDigest
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.ExchangeArtifact
 import com.lomo.nativebridge.ExpectedFingerprint
+import com.lomo.nativebridge.ListingView
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
 import com.lomo.nativebridge.StagedArtifactSource
@@ -554,6 +555,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
                             WorkspaceTarget.Root,
                             null,
                             16u,
+                            ListingView.WORKSPACE,
                         ),
                     )
 

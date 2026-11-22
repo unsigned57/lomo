@@ -12,6 +12,7 @@ import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.RecoveryWorkspaceKind
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceAttachmentDirectories
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.model.WorkspaceProcessDuty
@@ -85,17 +86,6 @@ internal class ManagedEngineSession(
 ) : ManagedEngineCapabilities(),
     EngineReadinessRepository,
     AutoCloseable {
-    internal val mediaRootLocations: Map<String, StorageLocation>
-        get() = adapterLease.read {
-            val token = activeCapabilityToken ?: return@read emptyMap()
-            capabilityRegistry.mediaRoots(token).mapValues { (_, grant) ->
-                when (grant) {
-                    is SafCapabilityGrant -> StorageLocation(grant.treeUri)
-                    is DirectCapabilityGrant -> StorageLocation(grant.canonicalRoot.path)
-                }
-            }
-        }
-
     private val closed = AtomicBoolean(false)
     private val activationMutex = Mutex()
     private val adapterLease = ReentrantReadWriteLock()
@@ -263,6 +253,14 @@ internal class ManagedEngineSession(
         withContext(engineDispatcher) {
             activationMutex.withLock {
                 check(!closed.get()) { "Managed engine session is closed" }
+                val current = _mount.value
+                if (mediaChange == null && current.location == location &&
+                    current.freshness is ProjectionFreshness.Retained
+                ) {
+                    val adapter = adapterLease.read { checkNotNull(activeAdapter) }
+                    revalidateRetainedProjection(adapter, checkNotNull(current.authority))
+                    return@withLock
+                }
                 val previousVerified = WorkspaceMountTransitions.verifiedOrNull(_mount.value)
                 val reopening = retireWorkspaceForReopen(location)
                 if (!reopening) WorkspaceMountTransitions.revalidating(previousVerified)?.let(::publishMount)
@@ -270,7 +268,7 @@ internal class ManagedEngineSession(
                     promoteWorkspace(
                         location,
                         directorySettingsRepository.mediaRootsFor(mediaChange),
-                        allowRetainedProjection = false,
+                        allowRetainedProjection = mediaChange != null,
                     )
                 } catch (failure: Exception) {
                     if (reopening) {
@@ -367,35 +365,44 @@ internal class ManagedEngineSession(
         val authority = promoteCandidate(candidate = prepared, location = location)
         if (!prepared.projectionVerified && authority != null) {
             appScope.launch(engineDispatcher) {
-                revalidateRetainedProjection(prepared.adapter, authority)
+                activationMutex.withLock { revalidateRetainedProjection(prepared.adapter, authority) }
             }
         }
     }
 
-    private suspend fun revalidateRetainedProjection(adapter: RustEngineAdapter, authority: WorkspaceAuthority) {
-        activationMutex.withLock {
-            if (adapterLease.read { activeAdapter !== adapter } || closed.get()) return@withLock
-            val result = try {
-                adapterLease.read { adapter.startRebuild(64u) }
-            } catch (failure: Exception) {
-                if (failure is kotlinx.coroutines.CancellationException) throw failure
-                adapterLease.read {
-                    if (!closed.get() && activeAdapter === adapter) {
-                        holdRecoveryAuthority(recoveryFromThrowable(failure))
-                    }
-                }
-                return@withLock
-            }
-            adapterLease.read {
+    /** The activation mutex keeps the same installed adapter throughout retry. */
+    private fun revalidateRetainedProjection(adapter: RustEngineAdapter, authority: WorkspaceAuthority) {
+        if (adapterLease.read { activeAdapter !== adapter } || closed.get()) return
+        val result = try {
+            adapterLease.read { adapter.startRebuild(64u) }
+        } catch (failure: Exception) {
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+            adapterLease.write {
                 if (!closed.get() && activeAdapter === adapter) {
-                    invalidation.reanchorProjection(result.highWaterRevision.toStoreLong("projection_revision"))
+                    val recovery = recoveryFromThrowable(failure)
+                        .copy(workspaceStage = com.lomo.domain.model.WorkspaceFailureStage.INDEX)
+                    recoveryAuthority.set(recovery)
                     publishMount(
                         _mount.value.copy(
-                            authority = authority.copy(projectionRevision = result.highWaterRevision),
-                            freshness = ProjectionFreshness.Verified(result.highWaterRevision),
+                            readiness = recovery,
+                            freshness = ProjectionFreshness.Retained(authority.projectionRevision),
                         ),
                     )
                 }
+            }
+            return
+        }
+        adapterLease.write {
+            if (!closed.get() && activeAdapter === adapter) {
+                invalidation.reanchorProjection(result.highWaterRevision.toStoreLong("projection_revision"))
+                recoveryAuthority.set(null)
+                publishMount(
+                    _mount.value.copy(
+                        readiness = EngineReadiness.Ready,
+                        authority = authority.copy(projectionRevision = result.highWaterRevision),
+                        freshness = ProjectionFreshness.Verified(result.highWaterRevision),
+                    ),
+                )
             }
         }
     }
@@ -572,6 +579,7 @@ internal class ManagedEngineSession(
             }
             // Ready install clears any prior recovery authority and becomes sole publisher.
             recoveryAuthority.set(null)
+            val media = candidate.capabilityToken?.let(capabilityRegistry::mediaRoots)
             installAdapterLocked(
                 candidate.adapter,
                 candidate.capabilityToken,
@@ -579,6 +587,10 @@ internal class ManagedEngineSession(
                     readiness = candidateReadiness,
                     location = location,
                     authority = authority,
+                    attachments = WorkspaceAttachmentDirectories(
+                        images = media?.get("images")?.storageLocation(),
+                        recordings = media?.get("voice")?.storageLocation(),
+                    ),
                     freshness =
                     if (authority == null) {
                         ProjectionFreshness.Unavailable
@@ -634,11 +646,17 @@ internal class ManagedEngineSession(
         activeCapabilityToken = null
     }
 
-    protected override fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T {
+    protected override fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T =
+        withWorkspaceAdapter(WorkspaceMount::admitsProjectionWrites, block)
+
+    protected override fun <T> withProjectionAdapter(block: (RustEngineAdapter) -> T): T =
+        withWorkspaceAdapter(WorkspaceMount::admitsProjectionReads, block)
+
+    private fun <T> withWorkspaceAdapter(admits: (WorkspaceMount) -> Boolean, block: (RustEngineAdapter) -> T): T {
         check(!closed.get()) { "Managed engine session is closed" }
         return adapterLease.read {
-            check(_readiness.value is EngineReadiness.Ready) {
-                "Workspace engine is not Ready"
+            check(admits(_mount.value)) {
+                "Workspace projection does not permit this operation"
             }
             val adapter = activeAdapter ?: error("Managed engine session has no active adapter")
             block(adapter)
@@ -685,6 +703,11 @@ internal class ManagedEngineSession(
     }
 }
 
+private fun RootCapabilityGrant.storageLocation(): StorageLocation = when (this) {
+    is SafCapabilityGrant -> StorageLocation(treeUri)
+    is DirectCapabilityGrant -> StorageLocation(canonicalRoot.path)
+}
+
 private suspend fun DirectorySettingsRepository.mediaRootsFor(change: MediaDirectoryChange?): Map<String, String> =
     buildMap {
         currentLocation(StorageArea.IMAGE)?.let { put("images", it.raw) }
@@ -698,6 +721,7 @@ private suspend fun DirectorySettingsRepository.mediaRootsFor(change: MediaDirec
                 StorageArea.ROOT, StorageArea.SYNC_INBOX ->
                     error("Invalid media transition area")
             }
-            put(namespace, change.candidate.raw)
+            val candidate = change.candidate
+            if (candidate == null) remove(namespace) else put(namespace, candidate.raw)
         }
     }

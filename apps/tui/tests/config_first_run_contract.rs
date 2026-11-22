@@ -26,7 +26,7 @@
 // (env marker/paths), `messages.rs`/`host.rs` (reload landing/coalescing).
 //
 // Given/When/Then (probe catalogue):
-// - Boundary parsing: non-IANA zones, Windows zone names, case mutations,
+// - Boundary parsing: malformed/non-tzdb zones, Windows zone names, case mutations,
 //   whitespace padding; `$ENV`/`..`/relative workspace forms; control
 //   characters through the minted-file round trip; duplicate keys, nested
 //   tables, type confusion, BOM and CRLF; quoted/env/empty command specs.
@@ -291,9 +291,10 @@ mod tests {
 
     // ---------- boundary: time_zone ----------
 
-    /// `time_zone` must be a real IANA/tzdb name — not a POSIX offset string,
-    /// not a Windows display name, not a look-alike. `UTC+8` reads like
-    /// UTC+8 to a user but is not a zone; `Asia/Beijing` never existed.
+    /// `time_zone` must be a real IANA/tzdb name or a canonical fixed-offset zone
+    /// (`±HH:MM` with optional `UTC`/`GMT`/`UT` prefix) — not a shorthand POSIX
+    /// offset like `UTC+8`, not a Windows display name, not a look-alike.
+    /// `Asia/Beijing` never existed.
     #[test]
     fn time_zone_rejects_non_iana_forms() {
         for zone in [
@@ -302,13 +303,14 @@ mod tests {
             "Asia/Beijing",
             "China Standard Time",
             "W. Europe Standard Time",
-            "+08:00",
+            "+8:00",
+            "+08",
             "utc+8",
             "CST",
         ] {
             assert!(
                 parse(&format!("workspace = \"/n\"\ntime_zone = \"{zone}\"\n")).is_err(),
-                "non-IANA zone '{zone}' must be a config error at parse"
+                "invalid zone '{zone}' must be a config error at parse"
             );
         }
         // Legal controls that must keep parsing.
@@ -321,10 +323,14 @@ mod tests {
             "GMT",
             "Etc/UTC",
             "EST5EDT",
+            "+08:00",
+            "-05:30",
+            "UTC+08:00",
+            "GMT+05:30",
         ] {
             assert!(
                 parse(&format!("workspace = \"/n\"\ntime_zone = \"{zone}\"\n")).is_ok(),
-                "a real tzdb zone '{zone}' must parse"
+                "a valid tzdb or fixed-offset zone '{zone}' must parse"
             );
         }
     }

@@ -42,7 +42,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
 
                 FileMediaStorageDataSourceDelegate(
                     resolver,
-                ).listImageFiles(MediaStorageSelection(null, root.path, null)) shouldBe
+                ).listImageFiles(MediaStorageSelection(null, root.path)) shouldBe
                     listOf("images/cover.jpg" to "file:///images/cover.jpg", "cover.jpg" to "file:///images/cover.jpg")
 
                 root.deleteRecursively()
@@ -53,7 +53,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
 
 private fun fakeBackend(imageFiles: List<Pair<String, String>> = emptyList()): MediaStorageBackend =
     object : MediaStorageBackend {
-        override suspend fun listImageFiles(): List<Pair<String, String>> = imageFiles
+        override suspend fun listImageFiles(scope: ImageScanScope): List<Pair<String, String>> = imageFiles
 
         override suspend fun getImageLocation(filename: String): String? = imageFiles.toMap()[filename]
     }

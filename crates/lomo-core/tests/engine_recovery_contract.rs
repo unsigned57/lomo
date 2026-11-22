@@ -63,8 +63,8 @@ mod tests {
     use std::sync::{Arc, Barrier};
 
     use lomo_core::{
-        CapabilityToken, EngineConfig, EngineState, ErrorCategory, LomoEngine, WorkspaceDescriptor,
-        WorkspaceId,
+        CapabilityToken, EngineConfig, EngineState, ErrorCategory, JobStep, ListingView,
+        LomoEngine, PlatformAction, WorkspaceDescriptor, WorkspaceId,
     };
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
@@ -306,6 +306,17 @@ mod tests {
             panic!("reopened SAF engine must recover its bootstrap job");
         };
         assert_eq!(reopened_job, first_job);
+        let JobStep::NeedsPlatformBatch { batch } = reopened
+            .poll_job(&reopened_job)
+            .must_succeed("resumed probe")
+        else {
+            panic!("expected resumed bootstrap actions");
+        };
+        assert!(batch.actions().iter().any(|action| matches!(
+            action,
+            PlatformAction::ListChildren { capability, view: ListingView::Notes, .. }
+                if capability.as_str() == "cap-process-two"
+        )));
     }
 
     #[test]

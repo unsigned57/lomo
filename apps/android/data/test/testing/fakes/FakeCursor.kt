@@ -7,9 +7,16 @@ import android.database.Cursor
 import android.database.DataSetObserver
 import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
+import io.mockk.every
+import io.mockk.mockk
 
 /** In-memory provider result with real positioning, column validation and close semantics. */
-class FakeCursor(private val columns: Array<String>, private val rows: List<List<Any?>>) : Cursor {
+class FakeCursor(
+    private val columns: Array<String>,
+    private val rows: List<List<Any?>>,
+    private val cursorExtras: Bundle = completeDirectoryExtras,
+) : Cursor {
     private var rowIndex = -1
     private var closed = false
 
@@ -81,8 +88,13 @@ class FakeCursor(private val columns: Array<String>, private val rows: List<List
     override fun getNotificationUri(): Uri = unsupported()
     override fun getWantsAllOnMoveCalls() = false
     override fun setExtras(extras: Bundle): Unit = unsupported()
-    override fun getExtras(): Bundle = unsupported()
+    override fun getExtras(): Bundle = cursorExtras
     override fun respond(extras: Bundle): Bundle = unsupported()
 
     private fun unsupported(): Nothing = error("Provider observation and extras are outside this cursor fixture")
+}
+
+internal val completeDirectoryExtras: Bundle = mockk<Bundle>().also { extras ->
+    every { extras.getBoolean(DocumentsContract.EXTRA_LOADING) } returns false
+    every { extras.containsKey(DocumentsContract.EXTRA_ERROR) } returns false
 }

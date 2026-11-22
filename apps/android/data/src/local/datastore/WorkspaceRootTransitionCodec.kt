@@ -59,7 +59,8 @@ internal fun Preferences.readRootTransition(): WorkspaceRootTransition? {
 private fun Preferences.hasMediaTransitionFields(): Boolean = contains(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_AREA) ||
     contains(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_PREVIOUS) ||
     contains(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_PREVIOUS_PRESENT) ||
-    contains(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_CANDIDATE)
+    contains(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_CANDIDATE) ||
+    contains(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_FOLLOWS_NOTES)
 
 private fun Preferences.readMediaChange(): MediaDirectoryChange? {
     val areaRaw = this[LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_AREA]
@@ -78,16 +79,19 @@ private fun Preferences.readMediaChange(): MediaDirectoryChange? {
         requireTransitionCondition(previous == null, "Media previous value contradicts its marker")
         null
     }
-    return MediaDirectoryChange(
-        area = StorageArea.valueOf(areaRaw),
-        previous = previousLocation,
-        candidate = StorageLocation(
-            requireTransitionString(
-                this[LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_CANDIDATE],
-                "Media candidate is missing",
-            ),
-        ),
-    )
+    val candidate = this[LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_CANDIDATE]
+    val followsNotes = this[LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_FOLLOWS_NOTES]
+    val location = when (followsNotes) {
+        true -> {
+            requireTransitionCondition(candidate == null, "Media follow mode contradicts its candidate")
+            null
+        }
+
+        null -> StorageLocation(requireTransitionString(candidate, "Media candidate is missing"))
+
+        false -> throw transitionCorruption("Media follow marker is invalid")
+    }
+    return MediaDirectoryChange(StorageArea.valueOf(areaRaw), previousLocation, location)
 }
 
 internal fun MutablePreferences.clearRootTransition() {
@@ -100,6 +104,7 @@ internal fun MutablePreferences.clearRootTransition() {
     remove(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_PREVIOUS)
     remove(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_PREVIOUS_PRESENT)
     remove(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_CANDIDATE)
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_FOLLOWS_NOTES)
 }
 
 internal fun transitionCorruption(

@@ -275,6 +275,16 @@ pub enum WorkspaceTarget {
     Relative(RelativeWorkspacePath),
 }
 
+/// Selects the directory namespace before the platform observes any children.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ListingView {
+    /// User documents and mounted attachments, as seen by export and media operations.
+    #[default]
+    Workspace,
+    /// The physical notes tree, without independently mounted attachments.
+    Notes,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum DocumentKind {
     File,
@@ -456,6 +466,8 @@ pub enum PlatformAction {
         target: WorkspaceTarget,
         cursor: Option<String>,
         page_size: PageSize,
+        #[serde(default)]
+        view: ListingView,
     },
     EnsureDirectory {
         action_id: ActionId,
@@ -565,13 +577,14 @@ impl PlatformAction {
         cursor: Option<String>,
         page_size: PageSize,
     ) -> Self {
-        Self::ListChildren {
+        Self::list_directory(
             action_id,
             capability,
-            target: WorkspaceTarget::Relative(path),
+            WorkspaceTarget::Relative(path),
             cursor,
             page_size,
-        }
+            ListingView::Workspace,
+        )
     }
 
     #[must_use]
@@ -581,12 +594,32 @@ impl PlatformAction {
         cursor: Option<String>,
         page_size: PageSize,
     ) -> Self {
+        Self::list_directory(
+            action_id,
+            capability,
+            WorkspaceTarget::Root,
+            cursor,
+            page_size,
+            ListingView::Workspace,
+        )
+    }
+
+    #[must_use]
+    pub const fn list_directory(
+        action_id: ActionId,
+        capability: CapabilityToken,
+        target: WorkspaceTarget,
+        cursor: Option<String>,
+        page_size: PageSize,
+        view: ListingView,
+    ) -> Self {
         Self::ListChildren {
             action_id,
             capability,
-            target: WorkspaceTarget::Root,
+            target,
             cursor,
             page_size,
+            view,
         }
     }
 

@@ -28,10 +28,10 @@ pub use native_task::{
 };
 pub use platform::{
     ActionEvidence, ActionOutcome, ActionResult, ContentDigest, DocumentHandle, DocumentKind,
-    DocumentLocator, DocumentMetadata, ExchangeArtifact, ExpectedFingerprint, MetadataPage,
-    PlatformAction, PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput,
-    PlatformBatchResult, Sha256Digest, StagedArtifactSource, VerifiedAbsence, WorkspaceTarget,
-    WriteMode,
+    DocumentLocator, DocumentMetadata, ExchangeArtifact, ExpectedFingerprint, ListingView,
+    MetadataPage, PlatformAction, PlatformActionBatch, PlatformActionExecutor,
+    PlatformActionOutput, PlatformBatchResult, Sha256Digest, StagedArtifactSource, VerifiedAbsence,
+    WorkspaceTarget, WriteMode,
 };
 pub use secret::{EphemeralSecretVault, SecretLeaseId, SecretMaterial, SharedSecretVault};
 pub use types::{

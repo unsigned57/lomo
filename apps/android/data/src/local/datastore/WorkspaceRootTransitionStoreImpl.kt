@@ -39,7 +39,12 @@ internal class WorkspaceRootTransitionStoreImpl(private val dataStore: DataStore
                 this[LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_AREA] = change.area.name
                 this[LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_PREVIOUS_PRESENT] = change.previous != null
                 setOrRemove(LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_PREVIOUS, change.previous?.raw)
-                this[LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_CANDIDATE] = change.candidate.raw
+                val selected = change.candidate
+                if (selected == null) {
+                    this[LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_FOLLOWS_NOTES] = true
+                } else {
+                    this[LomoDataStoreKeys.ROOT_TRANSITION_MEDIA_CANDIDATE] = selected.raw
+                }
             }
         }
         return transition
@@ -72,7 +77,7 @@ internal class WorkspaceRootTransitionStoreImpl(private val dataStore: DataStore
             requireCommittedRoot(this, current.previous)
             requireCommittedMedia(this, current.mediaChange)
             putCommittedRoot(current.candidate)
-            current.mediaChange?.let { this[mediaLocationKey(it.area)] = it.candidate.raw }
+            current.mediaChange?.let { setOrRemove(mediaLocationKey(it.area), it.candidate?.raw) }
             clearRootTransition()
         }
     }

@@ -113,7 +113,17 @@ impl std::error::Error for CalendarError {}
 
 impl From<CalendarError> for lomo_core::LomoError {
     fn from(err: CalendarError) -> Self {
-        crate::error::validation("invalid_calendar_input", err.to_string())
+        let code = match &err {
+            CalendarError::UnknownTimeZone(_) => "workspace_time_zone_unknown",
+            CalendarError::InvalidDateFormat { .. } => "storage_date_format_invalid",
+            CalendarError::InvalidDateKey { .. } => "memo_date_invalid",
+            CalendarError::InvalidTimeToken { .. } => "memo_time_invalid",
+            CalendarError::InvalidEpochMs(_) => "calendar_epoch_out_of_range",
+            CalendarError::DisambiguationFailed { .. } | CalendarError::Overflow { .. } => {
+                "calendar_calculation_failed"
+            }
+        };
+        crate::error::validation(code, err.to_string())
     }
 }
 
@@ -588,22 +598,114 @@ pub fn parse_time_token(raw: &str) -> Result<CivilTime, CalendarError> {
     CivilTime::new(hour, minute, second)
 }
 
-fn resolve_zone(zone: &str) -> Result<TimeZone, CalendarError> {
-    let timezone =
-        TimeZone::get(zone).map_err(|_err| CalendarError::UnknownTimeZone(zone.to_owned()))?;
+pub(crate) fn resolve_zone(zone: &str) -> Result<TimeZone, CalendarError> {
+    let unknown = || CalendarError::UnknownTimeZone(zone.to_owned());
+    if matches!(
+        zone,
+        "Z" | "UT"
+            | "UTC"
+            | "GMT"
+            | "GMT0"
+            | "UCT"
+            | "Etc/UTC"
+            | "Etc/GMT"
+            | "Etc/GMT+0"
+            | "Etc/GMT-0"
+            | "Etc/GMT0"
+    ) {
+        return Ok(TimeZone::UTC);
+    }
+    let offset = ["UTC", "GMT", "UT"]
+        .into_iter()
+        .find_map(|prefix| zone.strip_prefix(prefix))
+        .unwrap_or(zone);
+    if offset.starts_with(['+', '-']) {
+        return Ok(TimeZone::fixed(parse_fixed_offset(offset, zone)?));
+    }
+    let timezone = TimeZone::get(zone).map_err(|_error| unknown())?;
     if timezone.is_unknown() {
-        return Err(CalendarError::UnknownTimeZone(zone.to_owned()));
+        return Err(unknown());
     }
     Ok(timezone)
 }
 
-/// Validates an IANA timezone name at a configuration boundary.
+fn parse_fixed_offset(raw: &str, original_zone: &str) -> Result<jiff::tz::Offset, CalendarError> {
+    let unknown = || CalendarError::UnknownTimeZone(original_zone.to_owned());
+    let (sign, rest) = if let Some(tail) = raw.strip_prefix('+') {
+        (1i32, tail)
+    } else {
+        let tail = raw.strip_prefix('-').ok_or_else(unknown)?;
+        (-1i32, tail)
+    };
+    let (hours, minutes, seconds) = if rest.contains(':') {
+        let mut parts = rest.split(':');
+        let h_str = parts.next().ok_or_else(unknown)?;
+        let m_str = parts.next().ok_or_else(unknown)?;
+        let s_str = parts.next();
+        if parts.next().is_some() || h_str.len() != 2 || m_str.len() != 2 {
+            return Err(unknown());
+        }
+        let h = parse_ascii_digits(h_str).ok_or_else(unknown)?;
+        let m = parse_ascii_digits(m_str).ok_or_else(unknown)?;
+        let s = match s_str {
+            Some(sec) => {
+                if sec.len() != 2 {
+                    return Err(unknown());
+                }
+                parse_ascii_digits(sec).ok_or_else(unknown)?
+            }
+            None => 0,
+        };
+        (h, m, s)
+    } else {
+        match *rest.as_bytes() {
+            [h0, h1, m0, m1] => (
+                parse_two_ascii_digits(h0, h1).ok_or_else(unknown)?,
+                parse_two_ascii_digits(m0, m1).ok_or_else(unknown)?,
+                0,
+            ),
+            [h0, h1, m0, m1, s0, s1] => (
+                parse_two_ascii_digits(h0, h1).ok_or_else(unknown)?,
+                parse_two_ascii_digits(m0, m1).ok_or_else(unknown)?,
+                parse_two_ascii_digits(s0, s1).ok_or_else(unknown)?,
+            ),
+            _ => return Err(unknown()),
+        }
+    };
+    if hours > 25 || minutes >= 60 || seconds >= 60 {
+        return Err(unknown());
+    }
+    let total_seconds = sign * (hours * 3600 + minutes * 60 + seconds);
+    jiff::tz::Offset::from_seconds(total_seconds).map_err(|_error| unknown())
+}
+
+fn parse_ascii_digit(byte: u8) -> Option<i32> {
+    byte.is_ascii_digit().then(|| i32::from(byte - b'0'))
+}
+
+fn parse_two_ascii_digits(tens: u8, ones: u8) -> Option<i32> {
+    Some(parse_ascii_digit(tens)? * 10 + parse_ascii_digit(ones)?)
+}
+
+fn parse_ascii_digits(raw: &str) -> Option<i32> {
+    if raw.is_empty() {
+        return None;
+    }
+    let mut acc = 0i32;
+    for byte in raw.bytes() {
+        acc = acc.checked_mul(10)?.checked_add(parse_ascii_digit(byte)?)?;
+    }
+    Some(acc)
+}
+
+/// Validates a timezone identifier at a configuration or session boundary.
 ///
-/// Configuration parsers call this so an unknown zone fails where it is read —
-/// never later, inside session math (I8).
+/// Accepts IANA/tzdb zone names as well as canonical fixed-offset zone IDs (`±HH:MM`, optional
+/// `UTC`/`GMT`/`UT` prefix, `Z`, or `UT`). Configuration and session parsers call this so an
+/// unknown zone fails where it is read — never later, inside session math (I8).
 ///
 /// # Errors
-/// [`CalendarError::UnknownTimeZone`] when the name is not a known IANA zone.
+/// [`CalendarError::UnknownTimeZone`] when the identifier is not a known IANA or fixed-offset zone.
 pub fn validate_zone(zone: &str) -> Result<(), CalendarError> {
     resolve_zone(zone).map(|_| ())
 }

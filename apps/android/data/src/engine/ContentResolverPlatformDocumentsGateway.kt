@@ -178,6 +178,7 @@ private class SafDocumentOperations(
     ): PlatformMetadataPage {
         SafDirectoryPages.requirePageSize(pageSize)
         if (cursor != null) return state.pages.resume(treeUri, target, cursor, pageSize)
+        val targetLabel = target.listingLabel()
         val root = treeUri.toAndroidUri()
         val parentDocId =
             when (target) {
@@ -185,36 +186,32 @@ private class SafDocumentOperations(
 
                 is WorkspaceTarget.Relative ->
                     paths.resolveObserved(root, treeUri, target.path) { it.documentId }
-                        ?: return PlatformMetadataPage(emptyList(), null, incomplete = true)
+                        ?: throw incompleteDirectory(targetLabel)
             }
         val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(root, parentDocId)
-        contentResolver
-            .query(childUri, ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION, null, null, null)
-            ?.use { queryCursor ->
-                val indices = DocumentColumnIndices.from(queryCursor)
-                val items = state.pages.capture(
-                    sequence {
-                        while (queryCursor.moveToNext()) {
-                            yield(
-                                indices.extractChildSnapshot(queryCursor, target)
-                                    ?: errorIo("Provider returned a child without its name or document id"),
-                            )
-                        }
-                    },
-                )
-                // The entire provider observation is complete even when the FFI page is small.
-                // Reuse every sibling name; large directories must not fall back to re-listing.
-                paths.listings.rememberCompleteListing(
-                    treeUri,
-                    parentDocId,
-                    items.associate { snapshot ->
-                        val path = (snapshot.target as WorkspaceTarget.Relative).path
-                        path.substringAfterLast('/') to snapshot.documentId
-                    },
-                )
-                return state.pages.first(treeUri, target, items, pageSize)
-            }
-        return PlatformMetadataPage(emptyList(), null, incomplete = true)
+        return contentResolver.withCompleteDirectory(
+            childUri,
+            ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION,
+            targetLabel,
+        ) { queryCursor ->
+            val indices = DocumentColumnIndices.from(queryCursor)
+            val siblings = HashMap<String, String>()
+            val items = state.pages.capture(
+                sequence {
+                    while (queryCursor.moveToNext()) {
+                        val snapshot = indices.extractChildSnapshot(queryCursor, target)
+                            ?: throw incompleteDirectory(targetLabel)
+                        val name = checkNotNull(snapshot.displayName)
+                        addDirectoryChild(siblings, name, snapshot.documentId, targetLabel)
+                        yield(snapshot)
+                    }
+                },
+            )
+            // The entire provider observation is complete even when the FFI page is small.
+            // Reuse every sibling name; large directories must not fall back to re-listing.
+            paths.listings.rememberCompleteListing(treeUri, parentDocId, siblings)
+            state.pages.first(treeUri, target, items, pageSize)
+        }
     }
 
     override fun ensureDirectory(treeUri: String, path: String): PlatformDocumentSnapshot =
@@ -378,7 +375,7 @@ private class DocumentPathResolver(
         for (segment in segments.dropLast(1)) {
             parentDocId = verifiedParent(root, treeUri, parentDocId, segment) ?: return null
         }
-        return liveListing(root, treeUri, parentDocId)?.get(segments.last())?.let { resolvedDocument(root, it) }
+        return liveListing(root, treeUri, parentDocId)[segments.last()]?.let { resolvedDocument(root, it) }
     }
 
     private fun directoryStillNamed(root: Uri, hop: MemoHop): Boolean {
@@ -438,7 +435,7 @@ private class DocumentPathResolver(
             // repair arbitrate external creates; replacement/deletion must resolve live.
             return null
         }
-        return liveListing(root, treeUri, parentDocId)?.get(name)?.let { resolvedDocument(root, it) }
+        return liveListing(root, treeUri, parentDocId)[name]?.let { resolvedDocument(root, it) }
     }
 
     private fun verifiedParent(root: Uri, treeUri: String, parentDocId: String, name: String): String? {
@@ -454,7 +451,7 @@ private class DocumentPathResolver(
         }
         // A missing, renamed or replaced handle cannot anchor a write. Resolve the name
         // from the provider again; never turn a stale cached miss into directory creation.
-        return liveListing(root, treeUri, parentDocId)?.get(name)
+        return liveListing(root, treeUri, parentDocId)[name]
     }
 
     fun findChild(
@@ -472,7 +469,7 @@ private class DocumentPathResolver(
                 return resolvedDocument(root, documentId)
             }
         }
-        val listing = liveListing(root, treeUri, parentDocId) ?: return null
+        val listing = liveListing(root, treeUri, parentDocId)
         return listing[name]?.let { resolvedDocument(root, it) }
     }
 
@@ -480,35 +477,24 @@ private class DocumentPathResolver(
      * Live listing of one parent. The provider's answer is always memoized — live data is the
      * freshest evidence for this parent whether or not the current walk trusted the memo.
      */
-    private fun liveListing(root: Uri, treeUri: String, parentDocId: String): Map<String, String>? {
+    private fun liveListing(root: Uri, treeUri: String, parentDocId: String): Map<String, String> {
         val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(root, parentDocId)
-        val listing =
-            contentResolver
-                .query(
-                    childUri,
-                    arrayOf(
-                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    ),
-                    null,
-                    null,
-                    null,
-                )?.use { cursor ->
-                    val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                    val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                    val names = HashMap<String, String>()
-                    while (cursor.moveToNext()) {
-                        val name = cursor.getString(nameIndex)
-                        val documentId = cursor.getString(idIndex)
-                        if (name != null && documentId != null) {
-                            names[name] = documentId
-                        }
-                    }
-                    names
-                }
-        if (listing != null) {
-            listings.rememberCompleteListing(treeUri, parentDocId, listing)
+        val listing = contentResolver.withCompleteDirectory(
+            childUri,
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            "parent directory",
+        ) { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val names = HashMap<String, String>()
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameIndex) ?: throw incompleteDirectory("parent directory")
+                val documentId = cursor.getString(idIndex) ?: throw incompleteDirectory("parent directory")
+                addDirectoryChild(names, name, documentId, "parent directory")
+            }
+            names
         }
+        listings.rememberCompleteListing(treeUri, parentDocId, listing)
         return listing
     }
 
@@ -1104,6 +1090,42 @@ private fun errorNotFound(message: String): Nothing = throw PlatformActionAccess
     code = "document_not_found",
     diagnostic = message,
 )
+
+private fun incompleteDirectory(target: String) = PlatformActionAccessException(
+    category = "storage",
+    code = "metadata_enumeration_incomplete",
+    diagnostic = "Directory could not be fully enumerated: $target",
+    retryDisposition = "after_user_action",
+)
+
+private fun addDirectoryChild(names: MutableMap<String, String>, name: String, id: String, target: String) {
+    if (names.putIfAbsent(name, id) != null) {
+        throw PlatformActionAccessException(
+            category = "conflict",
+            code = "metadata_directory_name_conflict",
+            diagnostic = "Directory contains multiple documents with the same name: $target",
+        )
+    }
+}
+
+private inline fun <T : Any> ContentResolver.withCompleteDirectory(
+    uri: Uri,
+    projection: Array<String>,
+    target: String,
+    observe: (Cursor) -> T,
+): T = query(uri, projection, null, null, null)?.use { cursor ->
+    val extras = cursor.extras
+    if (extras.getBoolean(DocumentsContract.EXTRA_LOADING)) {
+        throw PlatformActionAccessException(
+            category = "storage",
+            code = "metadata_enumeration_loading",
+            diagnostic = "Document provider is still listing: $target",
+            retryDisposition = "transient",
+        )
+    }
+    if (extras.containsKey(DocumentsContract.EXTRA_ERROR)) throw incompleteDirectory(target)
+    observe(cursor)
+} ?: throw incompleteDirectory(target)
 
 private fun errorIo(message: String): Nothing = throw PlatformActionAccessException(
     category = "storage",

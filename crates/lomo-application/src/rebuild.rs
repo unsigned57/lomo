@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use lomo_core::{
-    ActionId, DocumentKind, DocumentMetadata, LomoError, PageSize, PlatformAction,
+    ActionId, DocumentKind, DocumentMetadata, ListingView, LomoError, PageSize, PlatformAction,
     PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput, RelativeWorkspacePath,
     WorkspaceTarget,
 };
@@ -24,6 +24,7 @@ use crate::{
     config::WorkspaceSessionConfig,
     csprng::{generate_hex_token, mint_memo_id},
     error::{corruption, storage, validation},
+    types::is_attachment_namespace,
     workspace_io::{FileSnapshot, MAX_WORKSPACE_READ_BATCH, WorkspaceIo, deadline},
 };
 
@@ -378,7 +379,8 @@ pub(crate) fn refresh_listing_tokens(
     let mut parents: BTreeMap<WorkspaceTarget, BTreeSet<RelativeWorkspacePath>> = BTreeMap::new();
     for path in written {
         let rel = path.as_str();
-        if rel == lomo_workspace::GIT_ROOT_NAME
+        if is_attachment_namespace(rel)
+            || rel == lomo_workspace::GIT_ROOT_NAME
             || rel.starts_with(".git/")
             || rel == lomo_rel::LOCAL
             || rel.starts_with(lomo_rel::LOCAL_PREFIX)
@@ -411,10 +413,12 @@ pub(crate) fn refresh_listing_tokens(
         }
     }
     let targets: Vec<_> = bulk.iter().map(|(target, _)| target.clone()).collect();
-    for ((_, paths), page) in bulk
-        .into_iter()
-        .zip(list_targets_pages(config, executor, &targets)?)
-    {
+    for ((_, paths), page) in bulk.into_iter().zip(list_targets_pages(
+        config,
+        executor,
+        &targets,
+        ListingView::Notes,
+    )?) {
         let items = match page {
             ListingPage::Items(items) => items,
             ListingPage::Rejected(error) => return Err(error),
@@ -692,12 +696,7 @@ fn scan_document(
     let config = io.config;
     let mut scanned = ScannedDocument::default();
     let source = SourceBytes::try_from_bytes(snapshot.bytes)?;
-    let filename = md_path
-        .as_str()
-        .rsplit('/')
-        .next()
-        .ok_or_else(|| validation("invalid_workspace_path", "document needs a filename"))?;
-    let stem = filename.strip_suffix(".md").unwrap_or(filename);
+    let stem = crate::document_plan::filename_stem(md_path)?;
     let document = parse_workspace_document(&source, stem)?;
     let chronologies = document
         .memos()
@@ -988,15 +987,17 @@ struct ListingChain {
     /// target index; the recursive walk does not correlate).
     tag: usize,
     target: WorkspaceTarget,
+    view: ListingView,
     cursor: Option<String>,
     items: Vec<DocumentMetadata>,
 }
 
 impl ListingChain {
-    const fn new(tag: usize, target: WorkspaceTarget) -> Self {
+    const fn new(tag: usize, target: WorkspaceTarget, view: ListingView) -> Self {
         Self {
             tag,
             target,
+            view,
             cursor: None,
             items: Vec::new(),
         }
@@ -1005,21 +1006,14 @@ impl ListingChain {
     fn next_action(&self, config: &WorkspaceSessionConfig) -> Result<PlatformAction, LomoError> {
         let action_id = ActionId::parse(&format!("list-{}", generate_hex_token(8)?))?;
         let page_size = PageSize::new(WORKSPACE_SCAN_PAGE_SIZE)?;
-        Ok(match &self.target {
-            WorkspaceTarget::Root => PlatformAction::list_root(
-                action_id,
-                config.capability.clone(),
-                self.cursor.clone(),
-                page_size,
-            ),
-            WorkspaceTarget::Relative(rel) => PlatformAction::list_children(
-                action_id,
-                config.capability.clone(),
-                rel.clone(),
-                self.cursor.clone(),
-                page_size,
-            ),
-        })
+        Ok(PlatformAction::list_directory(
+            action_id,
+            config.capability.clone(),
+            self.target.clone(),
+            self.cursor.clone(),
+            page_size,
+            self.view,
+        ))
     }
 }
 
@@ -1093,6 +1087,7 @@ fn list_targets_pages(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
     targets: &[WorkspaceTarget],
+    view: ListingView,
 ) -> Result<Vec<ListingPage>, LomoError> {
     let mut settled: Vec<Option<ListingPage>> = targets.iter().map(|_| None).collect();
     let mut seeds: Vec<usize> = (0..targets.len()).collect();
@@ -1105,7 +1100,7 @@ fn list_targets_pages(
             let Some(target) = targets.get(index) else {
                 break;
             };
-            chains.push(ListingChain::new(index, target.clone()));
+            chains.push(ListingChain::new(index, target.clone(), view));
         }
         if chains.is_empty() {
             break;
@@ -1139,17 +1134,20 @@ pub(crate) fn list_target_pages(
     executor: &Arc<dyn PlatformActionExecutor>,
     target: &WorkspaceTarget,
 ) -> Result<ListingPage, LomoError> {
-    Ok(
-        list_targets_pages(config, executor, std::slice::from_ref(target))?
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| {
-                ListingPage::Rejected(storage(
-                    "list_empty_result",
-                    "missing action result for list",
-                ))
-            }),
-    )
+    Ok(list_targets_pages(
+        config,
+        executor,
+        std::slice::from_ref(target),
+        ListingView::Workspace,
+    )?
+    .into_iter()
+    .next()
+    .unwrap_or_else(|| {
+        ListingPage::Rejected(storage(
+            "list_empty_result",
+            "missing action result for list",
+        ))
+    }))
 }
 
 /// Admits one entry of a completed directory listing: files join the workspace listing,
@@ -1160,8 +1158,12 @@ fn admit_listing_item(
     files: &mut Vec<DocumentMetadata>,
     pending: &mut Vec<WorkspaceTarget>,
     skipped_sync_subtrees: &mut u64,
+    view: ListingView,
 ) {
     if let WorkspaceTarget::Relative(path) = item.target() {
+        if view == ListingView::Notes && outside_projection(path.as_str(), item.kind()) {
+            return;
+        }
         match path.as_str() {
             lomo_workspace::GIT_ROOT_NAME
             | lomo_rel::ROOT
@@ -1184,6 +1186,25 @@ fn admit_listing_item(
     }
 }
 
+fn outside_projection(path: &str, kind: DocumentKind) -> bool {
+    if is_attachment_namespace(path) {
+        return true;
+    }
+    if kind != DocumentKind::File || !has_extension(path, "md") {
+        return false;
+    }
+    if path.starts_with(lomo_rel::TRASH_PREFIX) {
+        return !lomo_workspace::is_trash_record_path(path);
+    }
+    if path.starts_with(lomo_rel::ROOT_PREFIX) {
+        return false;
+    }
+    std::path::Path::new(path)
+        .file_stem()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_none_or(|stem| crate::calendar::parse_date_key(stem).is_err())
+}
+
 #[derive(Clone, Copy)]
 enum ListingScope {
     Documents,
@@ -1202,6 +1223,10 @@ fn list_recursive(
     executor: &Arc<dyn PlatformActionExecutor>,
     scope: ListingScope,
 ) -> Result<ScanEvidence, LomoError> {
+    let view = match scope {
+        ListingScope::Documents => ListingView::Workspace,
+        ListingScope::WorkspaceFacts => ListingView::Notes,
+    };
     if matches!(scope, ListingScope::WorkspaceFacts) {
         normalize_plain_trash(config, executor)?;
     }
@@ -1224,7 +1249,7 @@ fn list_recursive(
     loop {
         while chains.len() < LISTING_BATCH_WIDTH {
             match pending.pop() {
-                Some(target) => chains.push(ListingChain::new(0, target)),
+                Some(target) => chains.push(ListingChain::new(0, target, view)),
                 None => break,
             }
         }
@@ -1240,6 +1265,7 @@ fn list_recursive(
                             &mut files,
                             &mut pending,
                             &mut skipped_sync_subtrees,
+                            view,
                         );
                     }
                 }
@@ -1294,7 +1320,9 @@ fn normalize_plain_trash(
                 {
                     normalize_trash_record_name(&io, path)?;
                 }
-            } else {
+            } else if crate::calendar::parse_date_key(crate::document_plan::filename_stem(path)?)
+                .is_ok()
+            {
                 normalize_plain_trash_document(&io, path)?;
             }
         }

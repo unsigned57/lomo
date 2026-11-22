@@ -82,7 +82,7 @@ class FileWorkspaceConfigSourceDelegate(
                 transition?.previous?.raw,
                 transition?.let { it.candidate.raw },
                 transition?.mediaChange?.previous?.raw,
-                transition?.mediaChange?.let { it.candidate.raw },
+                transition?.mediaChange?.candidate?.raw,
             ).map(String::trim).filter { it.isNotEmpty() && isContentStorageUri(it) }.toSet()
 
         val releaseFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION

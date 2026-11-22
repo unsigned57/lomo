@@ -68,7 +68,7 @@ internal object BoltFfiNativeEngineFactory {
         }
         port.openWorkspaceSession(
             host = SessionPlatformBatchHost(executor),
-            timeZone = ZoneId.systemDefault().id,
+            timeZone = normalizeEngineTimeZone(ZoneId.systemDefault()),
             // The configured storage filename token crosses unchanged; Rust `DateFormat`
             // is the only authority that resolves or rejects it. A workspace request that
             // lost its token is a programming error, not a recoverable preference.
@@ -225,6 +225,11 @@ internal sealed interface NativeWorkspaceSelection {
         val capabilityToken: String
             get() = grant.capabilityToken
     }
+}
+
+internal fun normalizeEngineTimeZone(zone: ZoneId): String {
+    val normalized = zone.normalized()
+    return if (normalized == java.time.ZoneOffset.UTC) "UTC" else normalized.id
 }
 
 private fun NativeWorkspaceSelection.toBridge(): WorkspaceDescriptor = when (this) {

@@ -252,5 +252,12 @@ class BoltFfiNativeEngineFactoryTest : DataFunSpec() {
                 filesDir.deleteRecursively()
             }
         }
+
+        test("normalizes fixed-offset and UTC ZoneIds for Rust engine open") {
+            normalizeEngineTimeZone(java.time.ZoneId.of("GMT+11:00")) shouldBe "+11:00"
+            normalizeEngineTimeZone(java.time.ZoneId.of("UTC+00:00")) shouldBe "UTC"
+            normalizeEngineTimeZone(java.time.ZoneId.of("Z")) shouldBe "UTC"
+            normalizeEngineTimeZone(java.time.ZoneId.of("Australia/Sydney")) shouldBe "Australia/Sydney"
+        }
     }
 }

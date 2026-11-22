@@ -6,9 +6,8 @@ import androidx.core.net.toUri
 import com.lomo.data.engine.ContentResolverPlatformDocumentsGateway
 import com.lomo.data.engine.SnapshotDigestMode
 import com.lomo.data.engine.isValidWorkspacePath
-import com.lomo.data.engine.storageDirectoryIdentity
 import com.lomo.data.util.runNonFatalCatching
-import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
@@ -17,6 +16,7 @@ import com.lomo.nativebridge.WorkspaceTarget
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
+import java.nio.file.Files
 
 /** Managed attachment roots a bare basename may claim — Kotlin mirror of the
  * `lomo-workspace` `ATTACHMENT_LOOKUP_DIRS` vocabulary (media/images/voice). */
@@ -31,25 +31,10 @@ private const val PATH_SEPARATOR = '/'
 
 class AudioPlaybackUriResolverImpl(
     private val context: Context,
+    private val workspaceMount: () -> WorkspaceMount,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : AudioPlaybackResolverRepository {
     private val documents by lazy { ContentResolverPlatformDocumentsGateway(context.contentResolver) }
-
-    @Volatile
-    // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
-    private var rootLocation: StorageLocation? = null
-
-    @Volatile
-    // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
-    private var voiceLocation: StorageLocation? = null
-
-    override fun setRootLocation(location: StorageLocation?) {
-        rootLocation = location
-    }
-
-    override fun setVoiceLocation(location: StorageLocation?) {
-        voiceLocation = location
-    }
 
     /**
      * A dedicated voice root owns voice/ recordings and selected bare names.
@@ -62,10 +47,16 @@ class AudioPlaybackUriResolverImpl(
             Timber.e("Cannot resolve invalid relative audio path: %s", source)
             return null
         }
-        return if (PATH_SEPARATOR in source) {
-            resolveQualifiedSource(source)
+        val mount = workspaceMount()
+        val resolved = if (PATH_SEPARATOR in source) {
+            resolveQualifiedSource(source, mount)
         } else {
-            resolveBareSource(source)
+            resolveBareSource(source, mount)
+        }
+        val installed = workspaceMount()
+        return resolved.takeIf {
+            installed.authority?.generation == mount.authority?.generation &&
+                installed.location == mount.location && installed.attachments == mount.attachments
         }
     }
 
@@ -73,26 +64,23 @@ class AudioPlaybackUriResolverImpl(
         it.startsWith("/") || it.startsWith("content:") || it.startsWith("http")
     }
 
-    private suspend fun resolveQualifiedSource(source: String): String? = withContext(dispatcherProvider.io) {
-        val selected = dedicatedVoiceLocation()?.takeIf { source.startsWith("voice/") }
-        val baseDir = selected?.raw ?: rootLocation?.raw ?: return@withContext missingBaseDir(source)
-        val path = if (selected != null) source.removePrefix("voice/") else source
-        resolveUnderBase(baseDir, path)
-    }
+    private suspend fun resolveQualifiedSource(source: String, mount: WorkspaceMount): String? =
+        withContext(dispatcherProvider.io) {
+            val selected = mount.attachments.recordings?.takeIf { source.startsWith("voice/") }
+            val baseDir = selected?.raw ?: mount.location?.raw ?: return@withContext missingBaseDir(source)
+            val path = if (selected != null) source.removePrefix("voice/") else source
+            resolveUnderBase(baseDir, path)
+        }
 
-    private fun dedicatedVoiceLocation(): StorageLocation? {
-        val selected = voiceLocation ?: return null
-        val workspace = rootLocation ?: return selected
-        return selected.takeUnless { storageDirectoryIdentity(it.raw) == storageDirectoryIdentity(workspace.raw) }
-    }
-
-    private suspend fun resolveBareSource(source: String): String? = withContext(dispatcherProvider.io) {
+    private suspend fun resolveBareSource(source: String, mount: WorkspaceMount): String? = withContext(
+        dispatcherProvider.io,
+    ) {
         val claims = LinkedHashSet<String>()
-        val selectedVoice = dedicatedVoiceLocation()
+        val selectedVoice = mount.attachments.recordings
         if (selectedVoice != null) {
             collectVoiceClaims(selectedVoice.raw, source, claims)
         } else {
-            rootLocation?.let { location ->
+            mount.location?.let { location ->
                 val base = location.raw
                 // The bare spelling is itself the root claim.
                 collectBaseRootClaim(base, source, claims)
@@ -125,7 +113,10 @@ class AudioPlaybackUriResolverImpl(
     private fun collectBaseRootClaim(baseDir: String, name: String, out: MutableSet<String>) {
         val fileBase = usableFileBase(baseDir)
         if (fileBase != null) {
-            File(fileBase, name).takeIf { it.isFile }?.let { out += it.absolutePath }
+            File(
+                fileBase,
+                name,
+            ).takeIf { it.isFile && !Files.isSymbolicLink(it.toPath()) }?.let { out += it.absolutePath }
         } else {
             resolveSafUri(baseDir = baseDir, uri = name)?.let(out::add)
         }
@@ -136,8 +127,11 @@ class AudioPlaybackUriResolverImpl(
         if (!rootDir.isDirectory) return
         rootDir
             .walkTopDown()
-            .onEnter { entry -> entry == rootDir || entry.name !in MEDIA_LIFECYCLE_LANE_NAMES }
-            .filter { entry -> entry.isFile && entry.name == name }
+            .onEnter { entry ->
+                !Files.isSymbolicLink(entry.toPath()) && (entry == rootDir || entry.name !in MEDIA_LIFECYCLE_LANE_NAMES)
+            }
+            .onFail { _, failure -> throw failure }
+            .filter { entry -> entry.isFile && entry.name == name && !Files.isSymbolicLink(entry.toPath()) }
             .forEach { entry -> out += entry.absolutePath }
     }
 
@@ -159,7 +153,11 @@ class AudioPlaybackUriResolverImpl(
         resolveSafUri(baseDir = baseDir, uri = source)
     } else {
         val file = File(baseDir, source)
-        if (file.exists()) file.absolutePath else null
+        file.takeIf {
+            it.isFile && it.canonicalFile.toPath().startsWith(
+                File(baseDir).canonicalFile.toPath(),
+            )
+        }?.absolutePath
     }
 
     /** A non-content base reduced to a usable `File` root, else null. */

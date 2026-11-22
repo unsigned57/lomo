@@ -17,6 +17,9 @@ sealed interface ProjectionFreshness {
      */
     data class Revalidating(val lastVerifiedRevision: ULong) : ProjectionFreshness
 
+    /** Revalidation failed and the previous same-workspace projection remains readable. */
+    data class Retained(val lastVerifiedRevision: ULong) : ProjectionFreshness
+
     /** The published projection was atomically verified at [revision]. */
     data class Verified(val revision: ULong) : ProjectionFreshness
 }
@@ -33,5 +36,6 @@ fun ProjectionFreshness.permitsWrites(): Boolean = this is ProjectionFreshness.V
 fun ProjectionFreshness.permitsReadsAt(revision: ULong): Boolean = when (this) {
     ProjectionFreshness.Unavailable -> false
     is ProjectionFreshness.Revalidating -> lastVerifiedRevision == revision
+    is ProjectionFreshness.Retained -> lastVerifiedRevision == revision
     is ProjectionFreshness.Verified -> this.revision == revision
 }

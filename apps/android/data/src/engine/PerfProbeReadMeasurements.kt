@@ -3,6 +3,7 @@ package com.lomo.data.engine
 import android.content.Intent
 import com.lomo.data.source.isContentStorageUri
 import com.lomo.nativebridge.ActionOutcome
+import com.lomo.nativebridge.ListingView
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
 import com.lomo.nativebridge.SessionSearchMode
@@ -231,6 +232,7 @@ internal suspend fun EnginePerfProbe.listChildren(intent: Intent, run: String): 
                             target = WorkspaceTarget.Relative(path),
                             cursor = cursor,
                             pageSize = pageSize.toUInt(),
+                            view = ListingView.WORKSPACE,
                         ),
                     )
                 val listed =

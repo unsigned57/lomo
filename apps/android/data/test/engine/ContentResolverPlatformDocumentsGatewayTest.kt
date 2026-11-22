@@ -149,6 +149,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.fakes.FakeCursor
+import com.lomo.data.testing.fakes.completeDirectoryExtras
 import com.lomo.nativebridge.ActionOutcome
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.PlatformActionOutput
@@ -189,20 +190,19 @@ class ContentResolverPlatformDocumentsGatewayTest : DataFunSpec() {
             fixture.inputStreamOpenCount shouldBe 0
         }
 
-        test("given a provider that cannot enumerate when children are listed then the page is incomplete") {
+        test("given a provider that cannot enumerate when children are listed then no page is issued") {
             val fixture = ResolverFixture(FILE_BYTES)
             fixture.stubUnreadableProvider()
 
-            val page =
+            val failure = shouldThrow<PlatformActionAccessException> {
                 fixture.gateway.listChildren(
                     treeUri = TREE_URI,
                     target = WorkspaceTarget.Root,
                     cursor = null,
                     pageSize = 16u,
                 )
-
-            page.items shouldBe emptyList()
-            page.incomplete shouldBe true
+            }
+            failure.code shouldBe "metadata_enumeration_incomplete"
         }
 
         test("given a SAF file when it is read then the content stream is opened exactly once") {
@@ -1393,6 +1393,7 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
     }
 
     private fun absentLookup(): Cursor = mockk<Cursor>().also { cursor ->
+        every { cursor.extras } returns completeDirectoryExtras
         every {
             cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
         } returns 0
@@ -1414,6 +1415,7 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
     }
 
     private fun displayNameCursor(name: String): Cursor = mockk<Cursor>().also { cursor ->
+        every { cursor.extras } returns completeDirectoryExtras
         every { cursor.moveToFirst() } returns true
         every { cursor.getString(0) } returns name
         every { cursor.close() } returns Unit
@@ -1428,6 +1430,7 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
     }
 
     private fun lookupCursor(): Cursor = mockk<Cursor>().also { cursor ->
+        every { cursor.extras } returns completeDirectoryExtras
         every {
             cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
         } returns 0
@@ -1442,6 +1445,7 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
 
     private fun documentCursor(includeDisplayName: Boolean, name: String = FILE_NAME): Cursor =
         mockk<Cursor>().also { cursor ->
+            every { cursor.extras } returns completeDirectoryExtras
             every {
                 cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             } returns 0
@@ -1471,6 +1475,7 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
         }
 
     private fun dirRowLookup(): Cursor = mockk<Cursor>().also { cursor ->
+        every { cursor.extras } returns completeDirectoryExtras
         every {
             cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
         } returns 0
@@ -1484,6 +1489,7 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
     }
 
     private fun directoryCursor(docId: String, name: String): Cursor = mockk<Cursor>().also { cursor ->
+        every { cursor.extras } returns completeDirectoryExtras
         every {
             cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
         } returns 0
@@ -1509,6 +1515,7 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
     }
 
     private fun documentSnapshotCursor(row: ListingRow): Cursor = mockk<Cursor>().also { cursor ->
+        every { cursor.extras } returns completeDirectoryExtras
         every {
             cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
         } returns 0
@@ -1534,6 +1541,7 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
     }
 
     private fun movedDocumentCursor(): Cursor = mockk<Cursor>().also { cursor ->
+        every { cursor.extras } returns completeDirectoryExtras
         every {
             cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
         } returns 0

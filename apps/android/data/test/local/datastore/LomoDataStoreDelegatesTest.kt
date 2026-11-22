@@ -3,6 +3,9 @@ package com.lomo.data.local.datastore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.domain.model.MediaDirectoryChange
+import com.lomo.domain.model.StorageArea
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.StorageTimestampFormats
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
@@ -58,6 +61,31 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
         test(
             "git webdav and create draft stores persist configuration and clear empty draft",
         ) { `git webdav and create draft stores persist configuration and clear empty draft`() }
+
+        test("a follow-notes transition survives the journal and preserves the other attachment directory") {
+            runTest {
+                val dataStore = newDataStore(backgroundScope)
+                val root = StorageLocation("/vault")
+                val images = StorageLocation("/photos")
+                val voice = StorageLocation("/recordings")
+                RootLocationStoreImpl(dataStore).updateRootDirectory(root.raw)
+                val media = MediaLocationStoreImpl(dataStore)
+                media.updateImageDirectory(images.raw)
+                media.updateVoiceDirectory(voice.raw)
+                val store = WorkspaceRootTransitionStoreImpl(dataStore)
+                val change = MediaDirectoryChange(StorageArea.IMAGE, images, null)
+
+                val prepared = store.prepareRootTransition(root, root, change)
+                store.pendingRootTransition() shouldBe prepared
+                media.imageDirectory.first() shouldBe images.raw
+                store.markRootTransitionActivated(prepared.id)
+                store.commitRootTransition(prepared.id)
+
+                store.pendingRootTransition().shouldBeNull()
+                media.imageDirectory.first().shouldBeNull()
+                media.voiceDirectory.first() shouldBe voice.raw
+            }
+        }
     }
 
     private fun `root and media stores prefer uris over old directory values`() = runTest {

@@ -566,11 +566,7 @@ pub fn calculate_statistics(
     snapshot: &StatisticsSnapshot,
     facts: &[StatisticsMemoFact],
 ) -> Result<MemoStatistics, StatisticsError> {
-    let tz = jiff::tz::TimeZone::get(&snapshot.zone)
-        .map_err(|_err| CalendarError::UnknownTimeZone(snapshot.zone.clone()))?;
-    if tz.is_unknown() {
-        return Err(CalendarError::UnknownTimeZone(snapshot.zone.clone()).into());
-    }
+    let tz = crate::calendar::resolve_zone(&snapshot.zone)?;
 
     let as_of_date = snapshot.as_of;
     let bounds = compute_period_boundaries(as_of_date)?;

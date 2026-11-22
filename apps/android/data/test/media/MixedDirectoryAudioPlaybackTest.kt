@@ -1,9 +1,9 @@
 package com.lomo.data.media
 
-import com.lomo.domain.model.StorageLocation
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlin.io.path.createTempDirectory
 
@@ -37,11 +37,10 @@ class MixedDirectoryAudioPlaybackTest :
                         requireNotNull(parentFile).mkdirs()
                         writeText("voice")
                     }
-                    val player = AudioPlaybackUriResolverImpl(mockk())
-                    player.setRootLocation(StorageLocation(workspace.path))
-                    player.setVoiceLocation(StorageLocation(selected.path))
+                    val mount = MutableStateFlow(audioMount(workspace.path, selected.path))
+                    val player = AudioPlaybackUriResolverImpl(mockk(), mount::value)
                     player.resolve("media/old.m4a") shouldBe legacy.path
-                    player.setVoiceLocation(StorageLocation(workspace.path))
+                    mount.value = audioMount(workspace.path)
                     player.resolve("voice/a.m4a") shouldBe voice.path
                 } finally {
                     workspace.deleteRecursively()

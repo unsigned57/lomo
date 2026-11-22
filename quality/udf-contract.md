@@ -41,7 +41,8 @@ comment cannot change it.
    version before saving to replace the version the user saw.
 7. Engine-session mount views (readiness, location, authority, freshness) are slices of one
    `WorkspaceMount` publication, driven by a single publish point. A consumer that needs cross-field
-   coherence collects `mount`; opening/recovery intermediates never appear as usable projections.
+   coherence collects `mount`. Recovery can expose a retained projection for reads from the same
+   workspace. Write admission resumes after verification.
 
 ## 3. Rules and bounded exceptions
 

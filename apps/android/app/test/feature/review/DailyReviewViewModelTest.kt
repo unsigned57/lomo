@@ -119,6 +119,9 @@ class DailyReviewViewModelTest : AppFunSpec() {
             ),
             appConfigStateProvider =
             com.lomo.app.feature.common.AppConfigStateProvider(
+                workspaceSession = com.lomo.domain.usecase.ObserveWorkspaceSessionUseCase(
+                    com.lomo.app.testing.fakes.FakeEngineReadinessRepository(),
+                ),
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                 appPreferencesSnapshotRepository = appConfigRepository,
                 customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),

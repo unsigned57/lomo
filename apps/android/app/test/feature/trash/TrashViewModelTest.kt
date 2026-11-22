@@ -231,6 +231,7 @@ class TrashViewModelTest : AppFunSpec() {
         ),
         appConfigStateProvider =
         com.lomo.app.feature.common.AppConfigStateProvider(
+            workspaceSession = com.lomo.domain.usecase.ObserveWorkspaceSessionUseCase(engineReadinessRepository),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             appPreferencesSnapshotRepository = appConfigRepository,
             customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),

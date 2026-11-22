@@ -1876,7 +1876,7 @@ impl DeviceRun<'_> {
     /// `makeWorkspaceDirty`: every `.md` under a workspace root is parsed as a `yyyy_MM_dd`
     /// date key during reconcile, so the fresh document's name must itself be a valid date —
     /// a decorative `zz_bench_dirty_*` name would fail the rebuild it is meant to dirty
-    /// (`invalid_calendar_input`). The reserved `8xxx` year range keeps dirty docs distinct
+    /// (`calendar_epoch_out_of_range`). The reserved `8xxx` year range keeps dirty docs distinct
     /// from corpus dates and lets the mutation remove the previous run's leftovers first,
     /// so exactly one unindexed add exists per run.
     fn mutate_workspace(&self) -> Result<()> {

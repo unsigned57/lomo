@@ -9,17 +9,20 @@ import com.lomo.data.media.AudioPlaybackUriResolverImpl
 import com.lomo.data.media.AudioRecorder
 import com.lomo.data.share.NsdDiscoveryService
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
+import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.VoiceRecordingRepository
 import org.koin.android.ext.koin.androidContext
-import org.koin.core.module.dsl.singleOf
 import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
 
 val mediaShareModule = module {
     single { AudioRecorder(androidContext(), get()) } bind VoiceRecordingRepository::class
-    singleOf(::AudioPlaybackUriResolverImpl) bind AudioPlaybackResolverRepository::class
+    single {
+        val session = get<EngineReadinessRepository>()
+        AudioPlaybackUriResolverImpl(androidContext(), { session.mount.value }, get())
+    } bind AudioPlaybackResolverRepository::class
 
     single<LanDeviceKey> { AndroidLanDeviceKey() }
     single { NsdDiscoveryService(androidContext()) }

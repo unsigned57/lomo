@@ -41,6 +41,9 @@
     <string name="settings_storage_switching_workspace">Switching workspace…</string>
     <string name="settings_storage_scanning_workspace">Indexing workspace…</string>
     <string name="settings_storage_applying_directory">Applying folder…</string>
+    <string name="settings_storage_choose_independent">Choose a separate folder</string>
+    <string name="settings_storage_use_notes_folder">Follow notes folder</string>
+    <string name="settings_storage_follows_notes_folder">Follows notes folder</string>
     <string name="settings_storage_index_failed">Workspace selected; indexing failed</string>
     <string name="settings_image_storage">Image Storage</string>
     <string name="settings_voice_storage">Voice Storage</string>
@@ -214,6 +217,12 @@
     <string name="failure_workspace_unreadable">Lomo could not read all files in the folder.</string>
     <string name="failure_workspace_unwritable">Lomo needs a writable folder.</string>
     <string name="failure_workspace_probe">Checking folder access timed out. Try selecting the folder again.</string>
+    <string name="failure_workspace_loading">The storage provider is still listing the folder. Try again when it finishes.</string>
+    <string name="failure_workspace_name_conflict">A folder contains multiple files with the same name. Rename or remove duplicates and retry.</string>
+    <string name="failure_media_root_unavailable">The selected image or voice folder is unavailable. Reselect it or follow the notes folder.</string>
+    <string name="failure_workspace_time_zone">Lomo could not use the device time zone. Check your system time zone settings.</string>
+    <string name="failure_workspace_date_format">Choose a supported file date format in storage settings, then retry.</string>
+    <string name="failure_workspace_memo_date">A note has an invalid date or time. Check the workspace files and retry.</string>
     <string name="failure_file_unavailable">Lomo could not open the selected file.</string>
     <string name="failure_document_utf8">A Markdown file uses invalid UTF-8 encoding.</string>
     <string name="failure_document_render_limit">The Markdown content exceeds the rendering limit.</string>
@@ -854,6 +863,7 @@
     <string name="engine_recovery_body">Lomo could not open this workspace for writing. Retry or choose another workspace.</string>
     <string name="engine_recovery_code_label">Code: %1$s</string>
     <string name="engine_recovery_retry">Retry</string>
+    <string name="engine_recovery_retained_notes">Showing previously indexed notes. Editing will resume after the workspace is verified.</string>
     <string name="engine_recovery_retry_unavailable">No workspace location is available to retry</string>
     <string name="engine_recovery_reselect">Choose workspace</string>
     <string name="engine_recovery_rebuild_index">Rebuild derived index</string>

@@ -125,7 +125,7 @@ use lomo_core::{
     ActionEvidence, ActionOutcome, ActionResult, CapabilityToken, DocumentKind, DocumentMetadata,
     ErrorCategory, LomoError, MetadataPage, OperationId, PlatformAction, PlatformActionBatch,
     PlatformActionExecutor, PlatformActionOutput, PlatformBatchResult, RelativeWorkspacePath,
-    RetryDisposition,
+    RetryDisposition, WorkspaceTarget,
 };
 use lomo_platform_fs::FsPlatformActionExecutor;
 use lomo_store::MemoQuery;
@@ -1860,18 +1860,19 @@ mod tests {
 
     struct IncompleteListing {
         inner: Arc<FsPlatformActionExecutor>,
-        fail_lists: AtomicBool,
+        rejected_target: Mutex<Option<WorkspaceTarget>>,
     }
 
     impl PlatformActionExecutor for IncompleteListing {
         fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
-            if self.fail_lists.load(Ordering::SeqCst)
-                && batch
-                    .actions()
-                    .iter()
-                    .any(|action| matches!(action, PlatformAction::ListChildren { .. }))
-            {
-                let action = batch.actions().first().expect("list batch has an action");
+            let rejected = self
+                .rejected_target
+                .lock()
+                .expect("rejected listing target");
+            if let Some(action) = batch.actions().iter().find(|action| {
+                matches!(action, PlatformAction::ListChildren { target, .. } if Some(target) == rejected.as_ref())
+            }) {
+                let observed = self.inner.execute(batch)?;
                 let failure = LomoError::from_platform_boundary(
                     ErrorCategory::Storage,
                     "metadata_enumeration_incomplete",
@@ -1885,14 +1886,101 @@ mod tests {
                     batch.job_id().clone(),
                     batch.batch_id().clone(),
                     batch.attempt(),
-                    vec![ActionResult::new(
-                        action.id().clone(),
-                        ActionOutcome::Failed(failure),
-                    )],
+                    observed.action_results().iter().map(|result| {
+                        if result.action_id() == action.id() {
+                            ActionResult::new(action.id().clone(), ActionOutcome::Failed(failure.clone()))
+                        } else {
+                            result.clone()
+                        }
+                    }).collect(),
                 ));
             }
             self.inner.execute(batch)
         }
+    }
+
+    #[test]
+    fn note_projection_opens_without_enumerating_the_attachment_namespaces() {
+        let ctx = setup_test_context();
+        drop(ctx.session);
+        fs::create_dir(ctx.workspace_path.join("images")).expect("image directory");
+        fs::write(
+            ctx.workspace_path.join("images/2026_09_12.md"),
+            "## 12:00:00\n\nattachment text\n",
+        )
+        .expect("attachment fixture");
+        fs::write(
+            ctx.workspace_path.join("2026_09_12.md"),
+            "## 12:00:00\n\nnote text\n",
+        )
+        .expect("note fixture");
+        fs::write(
+            ctx.workspace_path.join("README.md"),
+            "Workspace documentation",
+        )
+        .expect("unrelated Markdown fixture");
+        let executor = Arc::new(IncompleteListing {
+            inner: ctx.executor.clone(),
+            rejected_target: Mutex::new(Some(WorkspaceTarget::Relative(
+                RelativeWorkspacePath::parse("images").expect("image path"),
+            ))),
+        });
+        let session = WorkspaceSession::open(ctx.config.clone(), executor)
+            .expect("open despite an unavailable attachment listing");
+        let result = session.rebuild_projection().expect("refresh notes");
+        assert_eq!(result.memos_indexed, 1);
+    }
+
+    #[test]
+    fn workspace_open_ignores_non_daily_and_invalid_date_markdown_including_in_trash() {
+        let ctx = setup_test_context();
+        drop(ctx.session);
+        fs::write(
+            ctx.workspace_path.join("2026_09_12.md"),
+            "## 12:00:00\n\nnote text\n",
+        )
+        .expect("note fixture");
+        fs::write(
+            ctx.workspace_path.join("12345678.md"),
+            "8-digit non-date Markdown fixture",
+        )
+        .expect("8-digit non-date fixture");
+        fs::write(
+            ctx.workspace_path.join("2024-02-30.md"),
+            "Invalid calendar date Markdown fixture",
+        )
+        .expect("invalid calendar date fixture");
+        fs::create_dir(ctx.workspace_path.join(".trash")).expect("trash directory");
+        fs::write(
+            ctx.workspace_path.join(".trash/README.md"),
+            "Foreign Markdown inside trash",
+        )
+        .expect("foreign trash fixture");
+        fs::write(
+            ctx.workspace_path.join(".trash/2026_09_13.md"),
+            "- 11:00:00 trashed daily note\n",
+        )
+        .expect("valid plain trash fixture");
+
+        let session = WorkspaceSession::open(ctx.config.clone(), ctx.executor.clone())
+            .expect("open workspace with non-daily markdown and foreign trash file");
+        let page = session
+            .query_memos_page(
+                &MemoQuery {
+                    search_text: None,
+                    filters: lomo_store::MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
+                },
+                None,
+                None,
+                lomo_core::PageSize::new(10).expect("page"),
+            )
+            .expect("query active memos");
+        assert_eq!(page.items.len(), 1);
+        assert!(
+            ctx.workspace_path.join(".trash/README.md").exists(),
+            "foreign trash markdown must stay untouched"
+        );
     }
 
     #[test]
@@ -2005,7 +2093,7 @@ mod tests {
             .expect("bind root");
         let executor = Arc::new(IncompleteListing {
             inner: posix,
-            fail_lists: AtomicBool::new(false),
+            rejected_target: Mutex::new(None),
         });
         let config = WorkspaceSessionConfig {
             capability,
@@ -2039,7 +2127,10 @@ mod tests {
         session
             .settle_workspace()
             .expect("committed writes converge");
-        executor.fail_lists.store(true, Ordering::SeqCst);
+        *executor
+            .rejected_target
+            .lock()
+            .expect("rejected listing target") = Some(WorkspaceTarget::Root);
         let error = session
             .rebuild_projection()
             .expect_err("incomplete enumeration cannot rebuild");

@@ -622,6 +622,7 @@ internal object LomoDataStoreKeys {
     val ROOT_TRANSITION_MEDIA_PREVIOUS = stringPreferencesKey("root_transition_media_previous")
     val ROOT_TRANSITION_MEDIA_PREVIOUS_PRESENT = booleanPreferencesKey("root_transition_media_previous_present")
     val ROOT_TRANSITION_MEDIA_CANDIDATE = stringPreferencesKey("root_transition_media_candidate")
+    val ROOT_TRANSITION_MEDIA_FOLLOWS_NOTES = booleanPreferencesKey("root_transition_media_follows_notes")
     val IMAGE_URI = stringPreferencesKey(PreferenceKeys.IMAGE_URI)
     val IMAGE_DIRECTORY = stringPreferencesKey(PreferenceKeys.IMAGE_DIRECTORY)
     val IMAGE_LOCATION = stringPreferencesKey(PreferenceKeys.IMAGE_LOCATION)

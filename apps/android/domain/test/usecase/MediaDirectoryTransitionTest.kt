@@ -40,6 +40,30 @@ import kotlinx.coroutines.test.runTest
  */
 class MediaDirectoryTransitionTest :
     FunSpec({
+        test("given independent images when following notes then only the image override is removed") {
+            runTest {
+                val directories = FakeDirectorySettingsRepository()
+                val workspace = StorageLocation("/workspace")
+                val images = StorageLocation("/pictures")
+                val recordings = StorageLocation("/recordings")
+                directories.setLocation(StorageArea.ROOT, workspace)
+                directories.setLocation(StorageArea.IMAGE, images)
+                directories.setLocation(StorageArea.VOICE, recordings)
+                val engine = FakeEngineReadinessRepository()
+                engine.activateWorkspace(workspace, mediaChange = null)
+                val useCase = SwitchRootStorageUseCase(
+                    directories,
+                    FakeWorkspaceStateResolver(),
+                    FakeWorkspaceMutationLease(engine),
+                    engine,
+                )
+                useCase.updateMediaLocation(StorageAreaUpdate(StorageArea.IMAGE, null))
+                directories.currentLocation(StorageArea.IMAGE) shouldBe null
+                directories.currentLocation(StorageArea.VOICE) shouldBe recordings
+                directories.pendingRootTransition() shouldBe null
+                engine.activeWorkspaceLocation.value shouldBe workspace
+            }
+        }
         test(
             "given a mounted workspace when selecting images then the same workspace reopens after configuration changes",
         ) {

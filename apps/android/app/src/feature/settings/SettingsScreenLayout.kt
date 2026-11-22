@@ -377,6 +377,10 @@ private fun SettingsStorageSection(
         }
     val pendingMediaAreas by storage.pendingMediaAreas.collectAsStateWithLifecycle()
     val applyingDirectoryLabel = stringResource(R.string.settings_storage_applying_directory)
+    val attachmentDefaultLabel = when ((directories.rootDirectory as? DirectoryDisplayState.Resolved)?.value) {
+        null -> notSetLabel
+        else -> stringResource(R.string.settings_storage_follows_notes_folder)
+    }
 
     SettingsStorageQuickGroup(
         memoDirectoryLabel = memoDirectoryLabel,
@@ -384,13 +388,13 @@ private fun SettingsStorageSection(
         if (StorageArea.IMAGE in pendingMediaAreas) {
             applyingDirectoryLabel
         } else {
-            directories.imageDirectory.subtitle(notSetLabel)
+            directories.imageDirectory.subtitle(attachmentDefaultLabel)
         },
         voiceDirectoryLabel =
         if (StorageArea.VOICE in pendingMediaAreas) {
             applyingDirectoryLabel
         } else {
-            directories.voiceDirectory.subtitle(notSetLabel)
+            directories.voiceDirectory.subtitle(attachmentDefaultLabel)
         },
         onMemoDirectoryClick = storagePickers.openRoot,
         onImageDirectoryClick = storagePickers.openImage,

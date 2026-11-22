@@ -4,9 +4,11 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.UriPermission
 import android.net.Uri
+import android.os.Bundle
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.testing.fakes.FakeCursor
+import com.lomo.data.testing.fakes.completeDirectoryExtras
 import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.StorageLocation
 import io.kotest.assertions.throwables.shouldNotThrowAny
@@ -82,11 +84,28 @@ class SelectedDirectoryCandidateTest :
                 }
             }
         }
+        test("given a loading cursor when validated then its rows cannot certify the directory") {
+            runTest {
+                val extras = mockk<Bundle>()
+                every { extras.getBoolean(DocumentsContract.EXTRA_LOADING) } returns true
+                val provider = CandidateProviderFixture(childAvailable = true, listingAvailable = true, extras = extras)
+                val failure = shouldThrow<EngineCommandFailureException> {
+                    WorkspaceCandidateProbe(provider.context, com.lomo.domain.usecase.DefaultDispatcherProvider())
+                        .validate(StorageLocation(CANDIDATE))
+                }.failure
+                failure.code shouldBe "metadata_enumeration_loading"
+                failure.retryDisposition shouldBe com.lomo.domain.model.EngineRetryDisposition.TRANSIENT
+            }
+        }
     })
 
 private const val CANDIDATE = "content://provider/tree/parent/document/selected-child"
 
-private class CandidateProviderFixture(childAvailable: Boolean, listingAvailable: Boolean) {
+private class CandidateProviderFixture(
+    childAvailable: Boolean,
+    listingAvailable: Boolean,
+    extras: Bundle = completeDirectoryExtras,
+) {
     val context = mockk<Context>()
 
     init {
@@ -124,6 +143,7 @@ private class CandidateProviderFixture(childAvailable: Boolean, listingAvailable
                 FakeCursor(
                     ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION,
                     emptyList(),
+                    extras,
                 )
             } else {
                 null

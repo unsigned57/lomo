@@ -12,9 +12,7 @@ import com.lomo.data.engine.media.MediaSweepDraftGuard
 import com.lomo.data.engine.media.PendingMediaStageRegistry
 import com.lomo.data.source.MediaStorageDataSource
 import com.lomo.data.source.MediaStorageSelection
-import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
-import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.DraftMediaReconciliation
 import com.lomo.domain.model.DraftStagedMediaRef
@@ -37,9 +35,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -120,13 +118,9 @@ constructor(
 
     private val inventoryRefresh = MutableStateFlow(0L)
 
-    private val mediaSelections: Flow<MediaInventoryRequest> = combine(
-        workspaceMount,
-        workspaceConfigSource.getRootFlow(StorageRootType.IMAGE),
-        workspaceConfigSource.getRootFlow(StorageRootType.VOICE),
-    ) { mount, image, voice ->
-        MediaInventoryRequest(MediaStorageSelection(mount.location?.raw, image, voice), mount.mediaGeneration())
-    }.distinctUntilChanged()
+    private val mediaSelections: Flow<MediaInventoryRequest> = workspaceMount
+        .map(WorkspaceMount::mediaInventoryRequest)
+        .distinctUntilChanged()
 
     /**
      * Applies an entry change under the installed workspace. Entries recorded under another
@@ -210,9 +204,7 @@ constructor(
                 }
                 return@mediaWrite
             }
-            // Drop UI/path cache + sync journal; permanent FS authority is media-trash / orphan sweep.
-            updateCommittedEntries { current -> current - entryId }
-            runOrphanSweepAtOperationBoundary()
+            // A committed link in a discarded draft does not confer deletion authority.
         }
     }
 
@@ -304,7 +296,7 @@ constructor(
         val mount = workspaceMount.value
         val workspace = mount.location
         val generation = mount.mediaGeneration()
-        if (mediaSelections.first().directories.needsProviderInventory()) {
+        if (mount.mediaInventoryRequest().directories.needsProviderInventory()) {
             // The inventory loader is the sole provider-scan path, including explicit retry.
             inventoryRefresh.update { it + 1 }
             return
@@ -340,16 +332,10 @@ constructor(
     override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? = mediaWrite {
         when (category) {
             MediaCategory.IMAGE ->
-                createDefaultWorkspace(
-                    folderName = IMAGE_DIRECTORY_NAME,
-                    setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.IMAGE, uri) },
-                )
+                createDefaultWorkspace(IMAGE_DIRECTORY_NAME)
 
             MediaCategory.VOICE ->
-                createDefaultWorkspace(
-                    folderName = VOICE_DIRECTORY_NAME,
-                    setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.VOICE, uri) },
-                )
+                createDefaultWorkspace(VOICE_DIRECTORY_NAME)
         }
     }
 
@@ -477,10 +463,10 @@ constructor(
         mediaWrite {
             val released = pendingStages.releaseDraft(draftId)
             if (released.isNotEmpty()) {
-                updateCommittedEntries { current ->
-                    released.fold(current) { acc, record ->
-                        acc - MediaEntryId(record.suggestedFinalRelativePath)
-                    }
+                val releasedKeys = released.mapTo(mutableSetOf()) { MediaEntryId(it.suggestedFinalRelativePath) }
+                committedMedia.update { current ->
+                    val removed = current.previews.intersect(releasedKeys)
+                    current.copy(entries = current.entries - removed, previews = current.previews - removed)
                 }
             }
         }
@@ -637,21 +623,8 @@ constructor(
         require(File(path).isFile) { "voice recording path is not a file: $path" }
     }
 
-    private suspend fun createDefaultWorkspace(
-        folderName: String,
-        setRoot: suspend (String) -> Unit,
-    ): StorageLocation? = runNonFatalCatching {
-        val uri = workspaceConfigSource.createDirectory(folderName)
-        setRoot(uri)
-        StorageLocation(uri)
-    }.getOrElse { error ->
-        Timber.tag(TAG).w(
-            error,
-            "Failed to create default media workspace: folder=%s",
-            folderName,
-        )
-        null
-    }
+    private suspend fun createDefaultWorkspace(folderName: String): StorageLocation =
+        StorageLocation(workspaceConfigSource.createDirectory(folderName))
 
     private data class StageSourcePrep(
         val path: String,
@@ -661,7 +634,6 @@ constructor(
     )
 
     companion object {
-        private const val TAG = "MediaEdgeRepository"
         private const val IMAGE_DIRECTORY_NAME = "images"
         private const val VOICE_DIRECTORY_NAME = "voice"
         private const val COPY_BUFFER_BYTES = 64 * 1024
@@ -716,7 +688,7 @@ private fun buildProviderImageLocationMap(
     }
 }
 
-private fun MediaStorageSelection.needsProviderInventory(): Boolean = imageLocation != null || voiceLocation != null ||
+private fun MediaStorageSelection.needsProviderInventory(): Boolean = imageLocation != null ||
     workspaceLocation?.startsWith("content:", ignoreCase = true) == true
 
 /** Cache provenance is the installed native generation; ordinary projection revisions do not change bindings. */
@@ -729,3 +701,8 @@ private data class MediaInventoryRequest(
 
 private fun WorkspaceMount.mediaGeneration(): MediaInventoryGeneration? =
     authority?.let { MediaInventoryGeneration(it.workspaceId, it.generation) }
+
+private fun WorkspaceMount.mediaInventoryRequest(): MediaInventoryRequest = MediaInventoryRequest(
+    directories = MediaStorageSelection(location?.raw, attachments.images?.raw),
+    generation = mediaGeneration(),
+)

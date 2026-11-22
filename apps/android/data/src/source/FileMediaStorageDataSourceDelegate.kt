@@ -4,25 +4,22 @@ class FileMediaStorageDataSourceDelegate(private val backendResolver: FileStorag
     MediaStorageDataSource {
     override suspend fun listImageFiles(selection: MediaStorageSelection): List<Pair<String, String>> {
         val workspace = selection.workspaceLocation?.let(backendResolver::mediaRootAt)
-        val mounts = buildMap {
-            for ((name, location) in listOf("images" to selection.imageLocation, "voice" to selection.voiceLocation)) {
-                val selected = location?.let(backendResolver::mediaRootAt) ?: continue
-                if (workspace == null || !selected.vfs.sameDirectoryAs(workspace.vfs)) put(name, selected)
+        val selected =
+            selection.imageLocation?.run {
+                backendResolver
+                    .mediaRootAt(this)
+                    .takeUnless { workspace != null && it.vfs.sameDirectoryAs(workspace.vfs) }
             }
-        }
-        val files = workspace?.run { backend.listImageFiles() }.orEmpty().filterNot { (path, _) ->
-            path.substringBefore('/') in mounts
-        }.toMutableList()
-        for ((name, selected) in mounts) {
-            val entries = selected.backend.listImageFiles()
-            files += entries.map { (path, location) -> "$name/$path" to location }
-            if (name == "images") {
-                // A bare selected filename is a display alias only when one selected file owns it.
-                // Qualified workspace identities never acquire aliases under another namespace.
-                val unique = entries.groupBy { (path, _) -> path.substringAfterLast('/') }.filterValues { it.size == 1 }
-                files += unique.map { (basename, matches) -> basename to matches.single().second }
-            }
-        }
-        return files
+        val workspaceFiles =
+            workspace?.run {
+                backend.listImageFiles(ImageScanScope.Notes(includeWorkspaceImages = selected == null))
+            }.orEmpty()
+        if (selected == null) return workspaceFiles
+        val mounted = selected.backend.listImageFiles()
+        // A bare filename aliases only a unique claim inside its selected image directory.
+        val unique = mounted.groupBy { (path, _) -> path.substringAfterLast('/') }
+            .filterValues { it.size == 1 }
+        return workspaceFiles + mounted.map { (path, location) -> "images/$path" to location } +
+            unique.map { (basename, matches) -> basename to matches.single().second }
     }
 }

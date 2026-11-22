@@ -2,7 +2,6 @@ package com.lomo.data.source
 
 import android.provider.DocumentsContract
 import com.lomo.data.engine.ContentResolverPlatformDocumentsGateway
-import com.lomo.data.engine.PlatformActionAccessException
 import com.lomo.data.engine.PlatformDocumentSnapshot
 import com.lomo.data.engine.SnapshotDigestMode
 import com.lomo.nativebridge.DocumentKind
@@ -15,7 +14,9 @@ import kotlinx.coroutines.withContext
 internal class SafMediaStorageBackendDelegate(private val documentAccess: SafDocumentAccess) : MediaStorageBackend {
     private val documents = ContentResolverPlatformDocumentsGateway(documentAccess.contentResolver)
 
-    override suspend fun listImageFiles(): List<Pair<String, String>> = withContext(documentAccess.ioDispatcher) {
+    override suspend fun listImageFiles(scope: ImageScanScope): List<Pair<String, String>> = withContext(
+        documentAccess.ioDispatcher,
+    ) {
         val root = documentAccess.treeUri.toString()
         val directories = ArrayDeque<WorkspaceTarget>().apply { add(WorkspaceTarget.Root) }
         val images = mutableListOf<Pair<String, String>>()
@@ -25,22 +26,17 @@ internal class SafMediaStorageBackendDelegate(private val documentAccess: SafDoc
             var cursor: String? = null
             do {
                 val page = documents.listChildren(root, directory, cursor, MEDIA_PAGE_SIZE)
-                if (page.incomplete) {
-                    throw PlatformActionAccessException(
-                        category = "storage",
-                        code = "metadata_enumeration_incomplete",
-                        diagnostic = "Cannot completely enumerate selected image directory: $directory",
-                    )
-                }
                 currentCoroutineContext().ensureActive()
                 for (entry in page.items) {
                     val path = (entry.target as WorkspaceTarget.Relative).path
                     when (entry.kind) {
-                        DocumentKind.DIRECTORY -> if (path.substringAfterLast('/') !in MEDIA_PRIVATE_LANES) {
+                        DocumentKind.DIRECTORY -> if (path.substringAfterLast('/') !in MEDIA_PRIVATE_LANES &&
+                            scope.includesDirectory(path)
+                        ) {
                             directories.add(entry.target)
                         }
 
-                        DocumentKind.FILE -> if (isImageAttachmentFileName(path)) {
+                        DocumentKind.FILE -> if (scope.includesFile(path) && isImageAttachmentFileName(path)) {
                             images += path to location(entry)
                         }
                     }

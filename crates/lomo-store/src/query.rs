@@ -151,8 +151,28 @@ fn review_random_key(memo_id: &str, seed: i64) -> i64 {
 }
 
 fn review_time_zone(name: &str) -> Result<jiff::tz::TimeZone, lomo_core::LomoError> {
+    if matches!(
+        name,
+        "Z" | "UT"
+            | "UTC"
+            | "GMT"
+            | "GMT0"
+            | "UCT"
+            | "Etc/UTC"
+            | "Etc/GMT"
+            | "Etc/GMT+0"
+            | "Etc/GMT-0"
+            | "Etc/GMT0"
+    ) {
+        return Ok(jiff::tz::TimeZone::UTC);
+    }
+    let normalized = ["UTC", "GMT", "UT"]
+        .into_iter()
+        .find_map(|prefix| name.strip_prefix(prefix))
+        .filter(|tail| tail.starts_with(['+', '-']))
+        .unwrap_or(name);
     jiff::fmt::temporal::DateTimeParser::new()
-        .parse_time_zone(name)
+        .parse_time_zone(normalized)
         .map_err(|error| validation("invalid_review_time_zone", &error.to_string()))
 }
 

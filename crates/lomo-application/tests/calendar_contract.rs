@@ -414,6 +414,50 @@ mod tests {
     }
 
     #[test]
+    fn fixed_offset_ids_from_android_preserve_civil_time() {
+        let utc = test_ok(memo_chronology("2026_09_09", "09:00:00", "UTC"));
+        for zone in ["+05:30", "GMT+05:30", "UTC+05:30", "UT+05:30"] {
+            let offset = test_ok(memo_chronology("2026_09_09", "09:00:00", zone));
+            assert_eq!(utc - offset, 19_800_000, "{zone}");
+        }
+        for zone in ["GMT+0800", "GMT+08:00:00", "+0800", "UTC+08:00:00"] {
+            let offset = test_ok(memo_chronology("2026_09_09", "09:00:00", zone));
+            assert_eq!(utc - offset, 28_800_000, "{zone}");
+        }
+        for zone in [
+            "Z",
+            "UT",
+            "GMT",
+            "GMT0",
+            "UCT",
+            "Etc/UTC",
+            "Etc/GMT",
+            "Etc/GMT+0",
+            "Etc/GMT-0",
+            "Etc/GMT0",
+        ] {
+            let zero = test_ok(memo_chronology("2026_09_09", "09:00:00", zone));
+            assert_eq!(zero, utc, "{zone}");
+        }
+        for invalid in [
+            "GMT+8",
+            "UTC+8",
+            "GMT+08",
+            "+08",
+            "+8:00",
+            "GMT+0",
+            "GMT+99:00",
+            "GMT+12:99",
+            "GMT+",
+            "UTC-26:00",
+            "GMT+12:00:60",
+        ] {
+            let error = test_err(memo_chronology("2026_09_09", "09:00:00", invalid));
+            assert_eq!(error, CalendarError::UnknownTimeZone(invalid.to_owned()));
+        }
+    }
+
+    #[test]
     fn unknown_timezone_sentinel_is_not_accepted_as_utc() {
         let error = test_err(memo_chronology("2026_09_09", "09:00:00", "Etc/Unknown"));
         assert_eq!(

@@ -4,7 +4,7 @@
 //! Scenarios: Given two independent seeded roots, when repeated samples run, then each fresh
 //! index has the requested memo count, switches reopen the other root, and every dirty refresh adds a
 //! distinct memo. Returned bodies and counts must match before recording success.
-//! Usage: `workspace_path_probe [documents=120] [memos_per_document=2] [samples=5]`.
+//! Usage: `workspace_path_probe [documents=120] [memos_per_document=2] [samples=5] [attachment_subdirectories=0]`.
 //! Observable outcomes: JSON samples in milliseconds and platform action counts per path.
 //! TDD proof: diagnostic only; asserts real session outcomes, no timing pass threshold.
 //! Excludes: SAF/JNI, UI readiness, physical-device latency and durability fault injection.
@@ -147,6 +147,20 @@ fn seed_root(
             body,
         )?;
     }
+    for (index, lane) in lomo_workspace::ATTACHMENT_LOOKUP_DIRS
+        .iter()
+        .copied()
+        .cycle()
+        .take(shape.attachment_subdirectories)
+        .enumerate()
+    {
+        let folder = workspace.join(lane).join(index.to_string());
+        fs::create_dir_all(&folder)?;
+        fs::write(
+            folder.join("attachment.bin"),
+            b"external attachment fixture",
+        )?;
+    }
     let capability = CapabilityToken::parse(root)?;
     executor.inner.bind_root(capability.clone(), &workspace)?;
     let private = directory.join(format!("private-{root}"));
@@ -169,6 +183,7 @@ struct CorpusShape {
     documents: usize,
     memos_per_document: usize,
     samples: usize,
+    attachment_subdirectories: usize,
 }
 
 impl CorpusShape {
@@ -196,9 +211,13 @@ fn corpus_shape() -> Result<CorpusShape> {
         documents: size(120)?,
         memos_per_document: size(2)?,
         samples: size(5)?,
+        attachment_subdirectories: args.next().map_or(Ok(0), |raw| raw.parse::<usize>())?,
     };
     if args.next().is_some() {
-        return Err(io::Error::other("expected [documents] [memos_per_document] [samples]").into());
+        return Err(io::Error::other(
+            "expected [documents] [memos_per_document] [samples] [attachment_subdirectories]",
+        )
+        .into());
     }
     Ok(shape)
 }

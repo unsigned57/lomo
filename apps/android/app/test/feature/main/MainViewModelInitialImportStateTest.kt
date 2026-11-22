@@ -322,7 +322,6 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                     ),
                 ),
                 switchRootStorageUseCase = switchRootStorageUseCase,
-                mediaRepository = mediaRepository,
                 engineReadinessRepository = engineReadinessRepository,
             ),
             startupCoordinator =
@@ -348,9 +347,6 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                         syncInboxRepository = syncInboxRepository,
                     )
                 },
-                appConfigStateProvider =
-                createAppConfigStateProvider(),
-                audioPlayerManager = audioPlayerManager,
                 observeWorkspaceSessionUseCase =
                 ObserveWorkspaceSessionUseCase(engineReadinessRepository),
             ),
@@ -381,6 +377,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
 
     private fun createAppConfigStateProvider(): com.lomo.app.feature.common.AppConfigStateProvider =
         com.lomo.app.feature.common.AppConfigStateProvider(
+            workspaceSession = com.lomo.domain.usecase.ObserveWorkspaceSessionUseCase(engineReadinessRepository),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             appPreferencesSnapshotRepository = appConfigRepository,
             customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),

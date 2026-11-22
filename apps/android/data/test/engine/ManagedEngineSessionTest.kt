@@ -449,7 +449,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     ).plainText shouldBe "rendered:draft before workspace"
                     session.workspaceAuthority.value shouldBe null
                     shouldThrow<IllegalStateException> { session.sessionListTasks() }.message shouldBe
-                        "Workspace engine is not Ready"
+                        "Workspace projection does not permit this operation"
                 } finally {
                     session.close()
                     filesDir.deleteRecursively()
@@ -470,7 +470,9 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     ),
                     invalidation = com.lomo.data.repository.StoreInvalidationBus(),
                     capabilityRegistry = CapabilityRegistry(),
-                    directorySettingsRepository = FakeDirectorySettingsRepository(),
+                    directorySettingsRepository = FakeDirectorySettingsRepository().apply {
+                        setLocation(StorageArea.ROOT, StorageLocation(filesDir.path))
+                    },
                     appScope = backgroundScope,
                     engineDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler),
                 )
@@ -1684,7 +1686,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     session.workspaceAuthority.value shouldBe null
                     session.renderMarkdown("in-flight preview").plainText shouldBe "rendered:in-flight preview"
                     shouldThrow<IllegalStateException> { session.sessionListTasks() }.message shouldBe
-                        "Workspace engine is not Ready"
+                        "Workspace projection does not permit this operation"
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()
@@ -1968,7 +1970,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                                 is ProjectionFreshness.Revalidating ->
                                     freshness.lastVerifiedRevision shouldBe authority.projectionRevision
 
-                                ProjectionFreshness.Unavailable ->
+                                ProjectionFreshness.Unavailable, is ProjectionFreshness.Retained ->
                                     error("Ready mount published unreadable freshness: $mount")
                             }
                         }
@@ -2393,7 +2395,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
         }
 
         test(
-            "given retained SAF projection when cold restore runs then reads precede verification and writes stay closed",
+            "given retained SAF projection when verification fails then notes stay readable and a retry restores writes",
         ) {
             runTest {
                 val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-cold-refresh").toFile()
@@ -2401,6 +2403,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                 val settings = FakeDirectorySettingsRepository()
                 settings.setLocation(StorageArea.ROOT, tree)
                 val observed = mutableListOf<ProjectionFreshness>()
+                var providerUnavailable = true
                 lateinit var session: ManagedEngineSession
                 val candidate =
                     SessionFakeNativeEnginePort(
@@ -2412,6 +2415,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             observed += session.mount.value.freshness
                             session.mount.value.admitsProjectionReads shouldBe true
                             session.mount.value.freshness.permitsWrites() shouldBe false
+                            if (providerUnavailable) throw java.io.IOException("provider unavailable")
                         }
                     }
                 session =
@@ -2442,10 +2446,16 @@ class ManagedEngineSessionTest : DataFunSpec() {
                 session.requestEngineStart()
                 testScheduler.runCurrent()
                 try {
+                    val retained = session.mount.value
+                    retained.freshness shouldBe ProjectionFreshness.Retained(41uL)
+                    retained.admitsProjectionReads shouldBe true
+                    retained.admitsProjectionWrites shouldBe false
+                    providerUnavailable = false
+                    session.activateWorkspace(tree, mediaChange = null)
                     session.readiness.value shouldBe
                         EngineReadiness.Ready
                     session.activeWorkspaceLocation.value shouldBe tree
-                    observed shouldBe listOf(ProjectionFreshness.Revalidating(41uL))
+                    observed shouldBe listOf(ProjectionFreshness.Revalidating(41uL), ProjectionFreshness.Retained(41uL))
                     checkNotNull(session.workspaceAuthority.value).projectionRevision shouldBe 3uL
                     session.projectionFreshness.value shouldBe ProjectionFreshness.Verified(3uL)
                 } finally {
@@ -2498,16 +2508,16 @@ class ManagedEngineSessionTest : DataFunSpec() {
                 )
                 try {
                     session.activateWorkspace(root, mediaChange = null)
-                    session.mediaRootLocations["images"] shouldBe StorageLocation(previous.path)
+                    session.mount.value.attachments.images shouldBe StorageLocation(previous.path)
                     settings.prepareRootTransition(root, change)
                     session.clearWorkspace()
                     session.activateWorkspace(root, change)
-                    session.mediaRootLocations["images"] shouldBe StorageLocation(candidate.path)
+                    session.mount.value.attachments.images shouldBe StorageLocation(candidate.path)
                     settings.currentLocation(StorageArea.IMAGE) shouldBe StorageLocation(previous.path)
 
                     // Keep the durable candidate present, as when journal rollback itself fails.
                     session.activateWorkspace(root, mediaChange = null)
-                    session.mediaRootLocations["images"] shouldBe StorageLocation(previous.path)
+                    session.mount.value.attachments.images shouldBe StorageLocation(previous.path)
                     settings.pendingRootTransition()?.mediaChange shouldBe change
                 } finally {
                     session.close()
@@ -3770,7 +3780,9 @@ private suspend fun readySession(
     ),
     invalidation = com.lomo.data.repository.StoreInvalidationBus(),
     capabilityRegistry = CapabilityRegistry(),
-    directorySettingsRepository = FakeDirectorySettingsRepository(),
+    directorySettingsRepository = FakeDirectorySettingsRepository().apply {
+        setLocation(StorageArea.ROOT, StorageLocation(filesDir.path))
+    },
     appScope = CoroutineScope(UnconfinedTestDispatcher(scheduler)),
 ).apply {
     requestEngineStart()

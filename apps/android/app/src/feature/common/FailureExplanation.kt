@@ -23,6 +23,18 @@ internal fun failureExplanation(code: String): String? {
 
         "workspace_probe_incomplete" -> R.string.failure_workspace_probe
 
+        "metadata_enumeration_loading" -> R.string.failure_workspace_loading
+
+        "metadata_directory_name_conflict" -> R.string.failure_workspace_name_conflict
+
+        "media_root_unavailable" -> R.string.failure_media_root_unavailable
+
+        "workspace_time_zone_unknown" -> R.string.failure_workspace_time_zone
+
+        "storage_date_format_invalid" -> R.string.failure_workspace_date_format
+
+        "memo_date_invalid", "memo_time_invalid", "calendar_epoch_out_of_range" -> R.string.failure_workspace_memo_date
+
         "file_unavailable" -> R.string.failure_file_unavailable
 
         "source_not_utf8" -> R.string.failure_document_utf8

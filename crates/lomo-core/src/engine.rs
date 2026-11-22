@@ -2006,6 +2006,10 @@ impl PersistedRequestIdentity {
 }
 
 impl JobRecord {
+    const fn is_bootstrap(&self) -> bool {
+        self.is_bootstrap || self.driver_kind.is_none()
+    }
+
     fn step(&self) -> JobStep {
         match &self.status {
             PersistedJobStatus::WaitingPlatform => JobStep::NeedsPlatformBatch {
@@ -2084,8 +2088,29 @@ fn ensure_bootstrap(
     workspace: &WorkspaceDescriptor,
     deadline: Duration,
 ) -> Result<(), LomoError> {
-    if !journal.jobs.is_empty() {
-        return Ok(());
+    let journal_has_jobs = !journal.jobs.is_empty();
+    match journal.jobs.iter_mut().rev().find(|job| job.is_bootstrap()) {
+        Some(job) => match job.status {
+            PersistedJobStatus::WaitingPlatform => {
+                // A reopened workspace has a new process capability, even when the durable
+                // attempt still has time remaining. Keep its receipt and deadline.
+                job.batch = PlatformActionBatch::new(
+                    job.job_id.clone(),
+                    job.batch.batch_id().clone(),
+                    job.batch.attempt(),
+                    job.deadline_epoch_millis,
+                    bootstrap_actions(workspace)?,
+                )?;
+                return Ok(());
+            }
+            PersistedJobStatus::Failed(_) => {}
+            PersistedJobStatus::QueuedNative
+            | PersistedJobStatus::RunningNative
+            | PersistedJobStatus::BlockedByConflict
+            | PersistedJobStatus::Completed => return Ok(()),
+        },
+        None if journal_has_jobs => return Ok(()),
+        None => {}
     }
     let counter = journal.next_id;
     journal.next_id = counter.checked_add(1).ok_or_else(|| {
@@ -2110,26 +2135,9 @@ fn ensure_bootstrap(
                 "bootstrap deadline overflows wall-clock representation",
             )
         })?;
-    let (actions, status) = match workspace {
-        WorkspaceDescriptor::Saf { capability, .. } => (
-            vec![
-                PlatformAction::stat_root(ActionId::parse("action-root-stat")?, capability.clone()),
-                PlatformAction::list_root(
-                    ActionId::parse("action-root-list")?,
-                    capability.clone(),
-                    None,
-                    PageSize::new(512)?,
-                ),
-            ],
-            PersistedJobStatus::WaitingPlatform,
-        ),
-        WorkspaceDescriptor::Direct { capability, .. } => (
-            vec![PlatformAction::stat_root(
-                ActionId::parse("action-direct-root")?,
-                capability.clone(),
-            )],
-            PersistedJobStatus::Completed,
-        ),
+    let status = match workspace {
+        WorkspaceDescriptor::Saf { .. } => PersistedJobStatus::WaitingPlatform,
+        WorkspaceDescriptor::Direct { .. } => PersistedJobStatus::Completed,
     };
     let pending_effect = if matches!(status, PersistedJobStatus::Completed) {
         PendingEffect::Done
@@ -2140,7 +2148,13 @@ fn ensure_bootstrap(
         job_id: job_id.clone(),
         operation_id,
         deadline_epoch_millis,
-        batch: PlatformActionBatch::new(job_id, batch_id, 1, deadline_epoch_millis, actions)?,
+        batch: PlatformActionBatch::new(
+            job_id,
+            batch_id,
+            1,
+            deadline_epoch_millis,
+            bootstrap_actions(workspace)?,
+        )?,
         status,
         driver_kind: None,
         request_identity: PersistedRequestIdentity::Unique,
@@ -2153,42 +2167,50 @@ fn ensure_bootstrap(
     Ok(())
 }
 
+fn bootstrap_actions(workspace: &WorkspaceDescriptor) -> Result<Vec<PlatformAction>, LomoError> {
+    let capability = workspace.capability();
+    Ok(match workspace {
+        WorkspaceDescriptor::Saf { .. } => vec![
+            PlatformAction::stat_root(ActionId::parse("action-root-stat")?, capability.clone()),
+            PlatformAction::list_directory(
+                ActionId::parse("action-root-list")?,
+                capability.clone(),
+                crate::WorkspaceTarget::Root,
+                None,
+                PageSize::new(512)?,
+                crate::ListingView::Notes,
+            ),
+        ],
+        WorkspaceDescriptor::Direct { .. } => vec![PlatformAction::stat_root(
+            ActionId::parse("action-direct-root")?,
+            capability.clone(),
+        )],
+    })
+}
+
+fn latest_bootstrap(journal: &JournalState) -> Option<&JobRecord> {
+    journal.jobs.iter().rev().find(|job| job.is_bootstrap())
+}
+
 fn lifecycle_for(journal: &JournalState) -> PersistedLifecycle {
-    // Bootstrap jobs have no driver_kind (including journals recovered from schema v1).
-    let is_bootstrap = |job: &JobRecord| job.is_bootstrap || job.driver_kind.is_none();
-    let bootstrap_waiting = journal
-        .jobs
-        .iter()
-        .any(|job| is_bootstrap(job) && matches!(job.status, PersistedJobStatus::WaitingPlatform));
-    if bootstrap_waiting {
-        PersistedLifecycle::Opening
-    } else if journal.jobs.iter().any(|job| {
-        is_bootstrap(job)
-            && matches!(
-                job.status,
-                PersistedJobStatus::Failed(ref error)
-                    if matches!(
-                        error.category(),
-                        crate::ErrorCategory::Cancelled | crate::ErrorCategory::Timeout
-                    )
-            )
-    }) {
-        PersistedLifecycle::ReadOnlyRecovery
-    } else {
-        PersistedLifecycle::Ready
+    match latest_bootstrap(journal).map(|job| &job.status) {
+        Some(PersistedJobStatus::WaitingPlatform) => PersistedLifecycle::Opening,
+        Some(PersistedJobStatus::Failed(_)) => PersistedLifecycle::ReadOnlyRecovery,
+        None
+        | Some(
+            PersistedJobStatus::QueuedNative
+            | PersistedJobStatus::RunningNative
+            | PersistedJobStatus::BlockedByConflict
+            | PersistedJobStatus::Completed,
+        ) => PersistedLifecycle::Ready,
     }
 }
 
 fn snapshot_for(journal: &JournalState) -> Result<EngineState, LomoError> {
     Ok(match journal.lifecycle {
         PersistedLifecycle::Opening => {
-            let job_id = journal
-                .jobs
-                .iter()
-                .find(|job| {
-                    (job.is_bootstrap || job.driver_kind.is_none())
-                        && matches!(job.status, PersistedJobStatus::WaitingPlatform)
-                })
+            let job_id = latest_bootstrap(journal)
+                .filter(|job| matches!(job.status, PersistedJobStatus::WaitingPlatform))
                 .ok_or_else(|| {
                     LomoError::corruption(
                         "opening_job_missing",
@@ -2204,11 +2226,8 @@ fn snapshot_for(journal: &JournalState) -> Result<EngineState, LomoError> {
             event_sequence: EventSequence::from_persisted(journal.event_sequence),
         },
         PersistedLifecycle::ReadOnlyRecovery => {
-            let error = journal
-                .jobs
-                .iter()
-                .rev()
-                .find_map(|job| {
+            let error = latest_bootstrap(journal)
+                .and_then(|job| {
                     if let PersistedJobStatus::Failed(error) = &job.status {
                         Some(error.clone())
                     } else {

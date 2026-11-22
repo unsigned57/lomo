@@ -42,6 +42,9 @@
     <string name="settings_storage_switching_workspace">正在切换工作区…</string>
     <string name="settings_storage_scanning_workspace">正在为工作区建立索引…</string>
     <string name="settings_storage_applying_directory">正在应用文件夹…</string>
+    <string name="settings_storage_choose_independent">选择独立目录</string>
+    <string name="settings_storage_use_notes_folder">跟随笔记目录</string>
+    <string name="settings_storage_follows_notes_folder">跟随笔记目录</string>
     <string name="settings_storage_index_failed">已切换工作区，但建立索引失败</string>
     <string name="settings_image_storage">图片存储</string>
     <string name="settings_voice_storage">语音存储</string>
@@ -223,6 +226,12 @@
     <string name="failure_workspace_unreadable">Lomo 无法读取目录中的全部文件。</string>
     <string name="failure_workspace_unwritable">请选择可写的目录。</string>
     <string name="failure_workspace_probe">检查目录访问权限超时。请重试选择目录。</string>
+    <string name="failure_workspace_loading">存储提供方仍在读取目录，请等待读取完成后重试。</string>
+    <string name="failure_workspace_name_conflict">目录中存在多个同名文件，请重命名或清理重复项后重试。</string>
+    <string name="failure_media_root_unavailable">所选的图片或语音目录不可用，请重新选择或切换为跟随笔记目录。</string>
+    <string name="failure_workspace_time_zone">Lomo 无法使用设备的时区，请检查系统时区设置。</string>
+    <string name="failure_workspace_date_format">请在存储设置中选择受支持的文件日期格式，然后重试。</string>
+    <string name="failure_workspace_memo_date">有笔记的日期或时间无效，请检查工作区文件后重试。</string>
     <string name="failure_file_unavailable">Lomo 无法打开选中的文件。</string>
     <string name="failure_document_utf8">有 Markdown 文件使用了无效的 UTF-8 编码。</string>
     <string name="failure_document_render_limit">Markdown 内容超出了渲染限制。</string>
@@ -842,6 +851,7 @@
     <string name="engine_recovery_body">Lomo 无法以可写方式打开此工作区。请重试或选择另一个工作区。</string>
     <string name="engine_recovery_code_label">代码：%1$s</string>
     <string name="engine_recovery_retry">重试</string>
+    <string name="engine_recovery_retained_notes">正在显示上次索引的笔记。工作区校验通过后可继续编辑。</string>
     <string name="engine_recovery_retry_unavailable">没有可用于重试的工作区位置</string>
     <string name="engine_recovery_reselect">选择工作区</string>
     <string name="engine_recovery_rebuild_index">重建派生索引</string>

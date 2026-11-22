@@ -41,6 +41,8 @@ internal abstract class ManagedEngineCapabilities :
 
     protected abstract fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T
 
+    protected abstract fun <T> withProjectionAdapter(block: (RustEngineAdapter) -> T): T
+
     protected abstract fun <T> withActiveEngineAdapter(block: (RustEngineAdapter) -> T): T
 
     /**
@@ -56,7 +58,7 @@ internal abstract class ManagedEngineCapabilities :
     override fun renderMarkdown(content: String) =
         renderMarkdown(content = content, schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION)
 
-    override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> = withActiveWorkspaceAdapter { adapter ->
+    override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> = withProjectionAdapter { adapter ->
         adapter
             .requireMemoSnapshot(memoIdentity)
             .summary
@@ -220,18 +222,18 @@ internal abstract class ManagedEngineCapabilities :
         pageSize: UInt,
         startMemoId: String?,
         backward: Boolean,
-    ): com.lomo.nativebridge.StoreMemoPage = withActiveWorkspaceAdapter { adapter ->
+    ): com.lomo.nativebridge.StoreMemoPage = withProjectionAdapter { adapter ->
         adapter.queryMemos(query, cursor, pageSize, startMemoId, backward)
     }
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
-        withActiveWorkspaceAdapter { adapter -> adapter.getMemo(memoId) }
+        withProjectionAdapter { adapter -> adapter.getMemo(memoId) }
 
     override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong =
-        withActiveWorkspaceAdapter { adapter -> adapter.queryCount(query) }
+        withProjectionAdapter { adapter -> adapter.queryCount(query) }
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
-        withActiveWorkspaceAdapter { adapter -> adapter.sidebarProjection() }
+        withProjectionAdapter { adapter -> adapter.sidebarProjection() }
 
     override fun openWorkspaceSession(
         host: com.lomo.nativebridge.PlatformBatchHost,
@@ -264,11 +266,10 @@ internal abstract class ManagedEngineCapabilities :
 
     override fun sessionSearch(
         request: com.lomo.nativebridge.SessionSearchRequest,
-    ): com.lomo.nativebridge.SessionSearchOutcome =
-        withActiveWorkspaceAdapter { adapter -> adapter.sessionSearch(request) }
+    ): com.lomo.nativebridge.SessionSearchOutcome = withProjectionAdapter { adapter -> adapter.sessionSearch(request) }
 
     override fun sessionListTasks(): List<com.lomo.nativebridge.SessionTaskItem> =
-        withActiveWorkspaceAdapter { adapter -> adapter.sessionListTasks() }
+        withProjectionAdapter { adapter -> adapter.sessionListTasks() }
 
     override fun sessionToggleTask(
         request: com.lomo.nativebridge.SessionToggleTaskRequest,
@@ -278,14 +279,14 @@ internal abstract class ManagedEngineCapabilities :
     override fun sessionStatistics(
         snapshot: com.lomo.nativebridge.SessionStatisticsSnapshot,
     ): com.lomo.nativebridge.SessionStatistics =
-        withActiveWorkspaceAdapter { adapter -> adapter.sessionStatistics(snapshot) }
+        withProjectionAdapter { adapter -> adapter.sessionStatistics(snapshot) }
 
     override fun sessionListHistory(
         memoId: String,
         cursor: String?,
         limit: UInt,
     ): com.lomo.nativebridge.StoreMemoHistoryPage =
-        withActiveWorkspaceAdapter { adapter -> adapter.sessionListHistory(memoId, cursor, limit) }
+        withProjectionAdapter { adapter -> adapter.sessionListHistory(memoId, cursor, limit) }
 
     override fun sessionRestoreMemo(
         request: com.lomo.nativebridge.SessionRestoreRequest,
@@ -313,7 +314,7 @@ internal abstract class ManagedEngineCapabilities :
         withActiveWorkspaceAdapter { adapter -> adapter.sessionPlanReminderRewrite(request) }
 
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =
-        withActiveWorkspaceAdapter { adapter -> adapter.sessionReminderPlan(nowUtcMs) }
+        withProjectionAdapter { adapter -> adapter.sessionReminderPlan(nowUtcMs) }
 
     override fun sessionSnoozeReminder(opaqueId: String, interval: com.lomo.nativebridge.ReminderSnoozeInterval) =
         withActiveWorkspaceAdapter { adapter -> adapter.sessionSnoozeReminder(opaqueId, interval) }

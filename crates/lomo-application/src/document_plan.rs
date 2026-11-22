@@ -244,7 +244,10 @@ pub fn filename_stem(path: &RelativeWorkspacePath) -> Result<&str, LomoError> {
         .rsplit('/')
         .next()
         .ok_or_else(|| validation("invalid_document_path", "missing filename"))?;
-    Ok(filename.strip_suffix(".md").unwrap_or(filename))
+    Ok(match filename.rsplit_once('.') {
+        Some((stem, extension)) if extension.eq_ignore_ascii_case("md") => stem,
+        _ => filename,
+    })
 }
 
 pub fn project_memo(

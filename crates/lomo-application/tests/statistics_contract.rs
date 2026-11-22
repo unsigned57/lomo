@@ -375,6 +375,19 @@ mod tests {
     }
 
     #[test]
+    fn test_fixed_offset_timezones_supported_in_statistics() {
+        let as_of = test_ok(CivilDate::new(2026, 5, 8));
+        // 2026-05-07 20:00:00 UTC is 2026-05-08 in GMT+08:00 and +11:00
+        let fact = StatisticsMemoFact::new(1_778_184_000_000, 10, 50, vec![]);
+        for zone in ["GMT+08:00", "+11:00"] {
+            let snapshot = StatisticsSnapshot::new(zone, as_of);
+            let stats = test_ok(calculate_statistics(&snapshot, std::slice::from_ref(&fact)));
+            assert_eq!(stats.active_days, 1, "{zone}");
+            assert_eq!(stats.current_streak, 1, "{zone}");
+        }
+    }
+
+    #[test]
     fn test_arithmetic_overflow_rejection() {
         let as_of = test_ok(CivilDate::new(2026, 5, 8));
         let snapshot = StatisticsSnapshot::new("UTC", as_of);

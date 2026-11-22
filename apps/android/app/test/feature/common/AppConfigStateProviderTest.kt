@@ -32,15 +32,14 @@ import app.cash.turbine.turbineScope
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
-import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceAttachmentDirectories
+import com.lomo.domain.model.WorkspaceMount
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
-import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppConfigStateProviderTest : AppFunSpec() {
@@ -49,25 +48,20 @@ class AppConfigStateProviderTest : AppFunSpec() {
     init {
         extension(MainDispatcherExtension(testDispatcher))
 
-        test("root directory shares a single upstream subscription across collectors") {
+        test("directory consumers observe the installed notes and independent image roots") {
             runTest {
-                val upstreamCollectors = AtomicInteger(0)
-                val rootDirectoryUpstream =
-                    MutableSharedFlow<StorageLocation?>(replay = 1).apply {
-                        tryEmit(StorageLocation("/root/one"))
-                    }
-                val appConfigRepository =
-                    object : FakeAppConfigRepository() {
-                        override fun observeLocation(area: StorageArea) = when (area) {
-                            StorageArea.ROOT ->
-                                rootDirectoryUpstream.onSubscription { upstreamCollectors.incrementAndGet() }
-
-                            else -> super.observeLocation(area)
-                        }
-                    }
+                val initial = WorkspaceMount.Opening.copy(location = StorageLocation("/root/one"))
+                val mounted = MutableStateFlow(initial)
+                val appConfigRepository = FakeAppConfigRepository()
 
                 val provider =
                     AppConfigStateProvider(
+                        workspaceSession = com.lomo.domain.usecase.ObserveWorkspaceSessionUseCase(
+                            object : com.lomo.domain.repository.EngineReadinessRepository by
+                            com.lomo.app.testing.fakes.FakeEngineReadinessRepository() {
+                                override val mount: kotlinx.coroutines.flow.StateFlow<WorkspaceMount> = mounted
+                            },
+                        ),
                         appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                         appPreferencesSnapshotRepository = appConfigRepository,
                         customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
@@ -79,20 +73,21 @@ class AppConfigStateProviderTest : AppFunSpec() {
                     )
 
                 turbineScope {
-                    val firstCollector = provider.rootDirectory.testIn(backgroundScope)
-                    (firstCollector.awaitItem()) shouldBe null
-                    (firstCollector.awaitItem()) shouldBe ("/root/one")
+                    val root = provider.rootDirectory.testIn(backgroundScope)
+                    val images = provider.imageDirectory.testIn(backgroundScope)
+                    root.awaitItem() shouldBe null
+                    images.awaitItem() shouldBe null
+                    root.awaitItem() shouldBe "/root/one"
+                    images.awaitItem() shouldBe "/root/one"
 
-                    val secondCollector = provider.rootDirectory.testIn(backgroundScope)
-                    (secondCollector.awaitItem()) shouldBe ("/root/one")
-                    (upstreamCollectors.get()) shouldBe (1)
-
-                    rootDirectoryUpstream.emit(StorageLocation("/root/two"))
-                    (firstCollector.awaitItem()) shouldBe ("/root/two")
-                    (secondCollector.awaitItem()) shouldBe ("/root/two")
-
-                    firstCollector.cancel()
-                    secondCollector.cancel()
+                    mounted.value = initial.copy(
+                        location = StorageLocation("/root/two"),
+                        attachments = WorkspaceAttachmentDirectories(images = StorageLocation("/independent/images")),
+                    )
+                    root.awaitItem() shouldBe "/root/two"
+                    images.awaitItem() shouldBe "/independent/images"
+                    root.cancel()
+                    images.cancel()
                 }
             }
         }

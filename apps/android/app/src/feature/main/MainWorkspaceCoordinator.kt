@@ -4,7 +4,6 @@ import com.lomo.domain.model.DerivedIndexRebuildSummary
 import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.EngineReadinessRepository
-import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
@@ -13,7 +12,6 @@ class MainWorkspaceCoordinator(
     private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
     private val refreshMemosUseCase: RefreshMemosUseCase,
     private val switchRootStorageUseCase: SwitchRootStorageUseCase,
-    private val mediaRepository: MediaRepository,
     private val engineReadinessRepository: EngineReadinessRepository,
 ) {
     /**
@@ -45,10 +43,6 @@ class MainWorkspaceCoordinator(
 
     suspend fun refreshMemos() {
         refreshMemosUseCase()
-    }
-
-    suspend fun syncImageCache() {
-        mediaRepository.refreshImageLocations()
     }
 
     /**

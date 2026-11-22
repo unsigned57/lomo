@@ -210,6 +210,9 @@ class StatisticsViewModelTest : AppFunSpec() {
     private fun createAppConfigStateProvider(): com.lomo.app.feature.common.AppConfigStateProvider {
         val appConfigRepository = FakeAppConfigRepository()
         return com.lomo.app.feature.common.AppConfigStateProvider(
+            workspaceSession = com.lomo.domain.usecase.ObserveWorkspaceSessionUseCase(
+                com.lomo.app.testing.fakes.FakeEngineReadinessRepository(),
+            ),
             appConfigUiCoordinator = com.lomo.app.feature.common.AppConfigUiCoordinator(appConfigRepository),
             appPreferencesSnapshotRepository = appConfigRepository,
             customFontStore = FakeCustomFontStore(),

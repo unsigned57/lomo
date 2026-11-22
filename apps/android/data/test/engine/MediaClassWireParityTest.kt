@@ -127,6 +127,7 @@ private fun imageParagraph(mediaClass: com.lomo.nativebridge.MediaClass?): List<
         actionStart = null,
         actionEnd = null,
         mediaClass = null,
+        alignment = null,
     ),
     imageNode(depth = 2u, mediaClass = mediaClass),
 )
@@ -146,4 +147,5 @@ private fun imageNode(depth: UInt, mediaClass: com.lomo.nativebridge.MediaClass?
     actionStart = null,
     actionEnd = null,
     mediaClass = mediaClass,
+    alignment = null,
 )

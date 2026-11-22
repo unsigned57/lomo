@@ -40,7 +40,7 @@ class MixedDirectoryImageInventoryTest :
                 every { resolver.mediaRootAt("/pictures") } returns inventoryRoot("/pictures", listOf(selected))
                 FileMediaStorageDataSourceDelegate(
                     resolver,
-                ).listImageFiles(MediaStorageSelection("/notes", "/pictures", null)).toMap() shouldBe mapOf(
+                ).listImageFiles(MediaStorageSelection("/notes", "/pictures")).toMap() shouldBe mapOf(
                     legacy,
                     "images/photo.png" to selected.second,
                     "photo.png" to selected.second,
@@ -55,7 +55,7 @@ class MixedDirectoryImageInventoryTest :
                 io.mockk.every { resolver.mediaRootAt("/notes") } returns root
                 FileMediaStorageDataSourceDelegate(
                     resolver,
-                ).listImageFiles(MediaStorageSelection("/notes", "/notes", "/notes")) shouldBe files
+                ).listImageFiles(MediaStorageSelection("/notes", "/notes")) shouldBe files
             }
         }
         test("given no image selection when scanned then workspace provider images remain available") {
@@ -65,14 +65,15 @@ class MixedDirectoryImageInventoryTest :
                 io.mockk.every { resolver.mediaRootAt("/notes") } returns inventoryRoot("/notes", files)
                 FileMediaStorageDataSourceDelegate(
                     resolver,
-                ).listImageFiles(MediaStorageSelection("/notes", null, null)) shouldBe files
+                ).listImageFiles(MediaStorageSelection("/notes", null)) shouldBe files
             }
         }
     })
 
 private fun inventoryRoot(path: String, files: List<Pair<String, String>>): ResolvedMediaRoot = ResolvedMediaRoot(
     object : MediaStorageBackend {
-        override suspend fun listImageFiles(): List<Pair<String, String>> = files
+        override suspend fun listImageFiles(scope: ImageScanScope): List<Pair<String, String>> =
+            files.filter { (path, _) -> scope.includesFile(path) && ('/' !in path || scope.includesDirectory(path)) }
         override suspend fun getImageLocation(filename: String): String? = files.toMap()[filename]
     },
     WorkspaceVfs.Direct(File(path)),

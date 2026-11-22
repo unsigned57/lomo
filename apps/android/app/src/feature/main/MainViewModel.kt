@@ -38,18 +38,13 @@ import com.lomo.ui.component.common.EnterAnimationRegistry
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -59,7 +54,6 @@ import timber.log.Timber
 import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicReference
 
-private const val IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS = 300L
 private const val MANUAL_REFRESH_TIMEOUT_MILLIS = 30_000L
 
 /** Collaborators of the main screen. */
@@ -95,7 +89,6 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
     private val imageMapProvider = dependencies.imageMapProvider
     private val mainMemoMutationCoordinator = dependencies.mainMemoMutationCoordinator
     private val workspaceCoordinator = dependencies.workspaceCoordinator
-    private val startupCoordinator = dependencies.startupCoordinator
     private val markReminderDoneUseCase = dependencies.markReminderDoneUseCase
     private val dispatcherProvider = dependencies.dispatcherProvider
     private val externalAppCommandStore = dependencies.externalAppCommandStore
@@ -153,6 +146,7 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
             val code: String,
             val canRebuildDerivedIndex: Boolean,
             val hasRecoveryTarget: Boolean,
+            val retainedProjection: Boolean = false,
         ) : MainScreenState
 
         data object Ready : MainScreenState
@@ -191,7 +185,6 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
 
     private val _hasResolvedInitialRoot = MutableStateFlow(false)
     private val _rootDirectory = MutableStateFlow<String?>(null)
-    private var imageCacheSyncJob: kotlinx.coroutines.Job? = null
     val rootDirectory: StateFlow<String?> = _rootDirectory.asStateFlow()
 
     val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
@@ -248,6 +241,7 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
                         code = readiness.code,
                         canRebuildDerivedIndex = readiness.canRebuildDerivedIndex(),
                         hasRecoveryTarget = mount.location != null || readiness.retryLocation != null,
+                        retainedProjection = mount.admitsProjectionReads,
                     )
 
                 directory == null -> MainScreenState.NoDirectory
@@ -292,8 +286,6 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
                 }
             }
         }
-
-        loadImageMap()
     }
 
     val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
@@ -593,26 +585,6 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
         collectionActionStateHolder.actions.toggleTodo(memo, actionSpan)
     }
 
-    private fun requestImageCacheSync(fallbackMessage: String) {
-        if (imageCacheSyncJob?.isActive == true) {
-            return
-        }
-        imageCacheSyncJob =
-            viewModelScope.launch {
-                try {
-                    try {
-                        workspaceCoordinator.syncImageCache()
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Exception) {
-                        _errorMessage.value = diagnostics.reportUserFailure("media.refresh", error, fallbackMessage)
-                    }
-                } finally {
-                    imageCacheSyncJob = null
-                }
-            }
-    }
-
     val loadVersionHistory: (Memo) -> Unit = { memo ->
         viewModelScope.launch(dispatcherProvider.io) {
             try {
@@ -681,19 +653,6 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
     private fun updateRootDirectoryUiState(directory: String?) {
         _rootDirectory.value = directory
         _hasResolvedInitialRoot.value = true
-    }
-
-    @OptIn(FlowPreview::class)
-    private fun loadImageMap() {
-        viewModelScope.launch {
-            val initialConfiguredImageDirectory = appConfigStateProvider.currentImageDirectory()
-            imageDirectory
-                .filterNotNull()
-                .distinctUntilChanged()
-                .filter { directory -> directory != initialConfiguredImageDirectory }
-                .debounce(IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS)
-                .collect { requestImageCacheSync("Failed to sync image cache") }
-        }
     }
 
     val retryEngineOpen: () -> Unit = {

@@ -7,6 +7,7 @@ import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.DocumentMetadata
 import com.lomo.nativebridge.EngineFailure
 import com.lomo.nativebridge.ExpectedFingerprint
+import com.lomo.nativebridge.ListingView
 import com.lomo.nativebridge.MetadataPage
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
@@ -90,7 +91,10 @@ internal class AndroidPlatformActionAccess(
     }
 
     private fun executeList(action: PlatformAction.ListChildren): ActionOutcome {
-        val tree = boundTree(action.capabilityToken)
+        val tree = when (action.view) {
+            ListingView.WORKSPACE -> boundTree(action.capabilityToken)
+            ListingView.NOTES -> treeFor(registry.resolve(action.capabilityToken))
+        }
         if (action.pageSize !in 1u..MAX_METADATA_PAGE_SIZE) {
             throw PlatformActionAccessException(
                 category = "resource_limit",
@@ -107,7 +111,7 @@ internal class AndroidPlatformActionAccess(
                     PlatformActionAccessException(
                         category = "storage",
                         code = "metadata_enumeration_incomplete",
-                        diagnostic = "the platform document provider could not enumerate the target",
+                        diagnostic = "Directory could not be fully enumerated: ${action.target.listingLabel()}",
                     )
 
                 page.items.size > action.pageSize.toInt() ->
@@ -457,8 +461,19 @@ private class SafBoundDocumentTree(private val documents: PlatformDocumentsGatew
 
 private class DirectBoundDocumentTree(
     private val documents: DirectRootDocumentsGateway,
-    private val grant: DirectCapabilityGrant,
+    private val binding: DirectCapabilityGrant,
 ) : BoundDocumentTree {
+    private val grant: DirectCapabilityGrant
+        get() {
+            if (binding.directoryAtBind) return binding
+            throw PlatformActionAccessException(
+                category = "storage",
+                code = "media_root_unavailable",
+                diagnostic = "The selected attachment directory was unavailable at mount",
+                retryDisposition = "after_user_action",
+            )
+        }
+
     override fun stat(target: WorkspaceTarget, digest: SnapshotDigestMode): PlatformDocumentSnapshot? =
         documents.stat(grant, target, digest)
 
@@ -557,22 +572,31 @@ private const val MAX_METADATA_PAGE_SIZE = 512u
 private const val MAX_WORKSPACE_PATH_BYTES = 4096
 private const val MAX_PATH_SEGMENT_BYTES = 255
 private const val FINGERPRINT_SHORT_HEX_LENGTH = 40
+private const val MAX_LISTING_DIAGNOSTIC_CHARS = 160
 
-internal class PlatformActionAccessException(val category: String, val code: String, val diagnostic: String) :
-    RuntimeException("$code: $diagnostic") {
+internal class PlatformActionAccessException(
+    val category: String,
+    val code: String,
+    val diagnostic: String,
+    private val retryDisposition: String = when (category) {
+        "conflict", "permission" -> "after_user_action"
+        "timeout" -> "transient"
+        else -> "never"
+    },
+) : RuntimeException("$code: $diagnostic") {
     fun toFailure(): EngineFailure = EngineFailure(
         category = category,
         code = code,
-        retryDisposition =
-        when (category) {
-            "conflict", "permission" -> "after_user_action"
-            "timeout" -> "transient"
-            else -> "never"
-        },
+        retryDisposition = retryDisposition,
         operationId = null,
         jobId = null,
         diagnostic = diagnostic,
     )
+}
+
+internal fun WorkspaceTarget.listingLabel(): String = when (this) {
+    WorkspaceTarget.Root -> "root"
+    is WorkspaceTarget.Relative -> path.take(MAX_LISTING_DIAGNOSTIC_CHARS)
 }
 
 private fun String.sha256Hex(): String = toByteArray(Charsets.UTF_8).sha256Hex()

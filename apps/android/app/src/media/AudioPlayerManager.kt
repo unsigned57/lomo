@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
@@ -69,16 +68,6 @@ open class AudioPlayerManager(private val context: Context, private val uriResol
             if (activeDuration != null && activeDuration > 0) {
                 _duration.value = activeDuration
             }
-        }
-
-    val setRootLocation: (String?) -> Unit =
-        { location ->
-            uriResolver.setRootLocation(location?.let(::StorageLocation))
-        }
-
-    val setVoiceLocation: (String?) -> Unit =
-        { location ->
-            uriResolver.setVoiceLocation(location?.let(::StorageLocation))
         }
 
     val cancelScope: () -> Unit =
@@ -168,7 +157,7 @@ open class AudioPlayerManager(private val context: Context, private val uriResol
             ensurePlayer()
             val currentPlayer = player ?: return@launch
 
-            if (_currentPlayingUri.value == uri) {
+            if (_currentPlayingUri.value == uri && currentPlayer.currentMediaItem?.mediaId == resolvedUri) {
                 togglePlayback(currentPlayer)
             } else {
                 startPlayback(currentPlayer, uri, resolvedUri)
@@ -190,7 +179,7 @@ open class AudioPlayerManager(private val context: Context, private val uriResol
             currentPlayer.stop()
             _playbackPosition.value = 0
             _duration.value = 0
-            currentPlayer.setMediaItem(MediaItem.fromUri(resolvedUri))
+            currentPlayer.setMediaItem(MediaItem.Builder().setUri(resolvedUri).setMediaId(resolvedUri).build())
             currentPlayer.prepare()
             currentPlayer.play()
             _currentPlayingUri.value = uri

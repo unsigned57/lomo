@@ -95,15 +95,25 @@ val appModule = module {
         com.lomo.app.feature.preferences.PlatformCanvasTypefaceLoader()
     }
     single { com.lomo.app.feature.preferences.CustomFontHost(get(), get(), get(), get()) }
-    single { AppConfigStateProvider(get(), get(), get(), get(), get(), get(named("AppScope"))) }
+    single {
+        AppConfigStateProvider(
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(named("AppScope")),
+            get(),
+        )
+    }
     single { AppConfigUiCoordinator(get()) }
     single { MemoCollectionProjectionMapper(get()) }
     single { WorkspaceProjectionStateProvider(get()) }
     single { MainMemoMutationCoordinator(get(), get()) }
     single { MainSidebarStateHolder() }
-    single { MainStartupCoordinator(get(), { get() }, get(), get(), get()) }
+    single { MainStartupCoordinator(get(), { get() }, get()) }
     single { MainVersionHistoryCoordinator(get(), get()) }
-    single { MainWorkspaceCoordinator(get(), get(), get(), get(), get()) }
+    single { MainWorkspaceCoordinator(get(), get(), get(), get()) }
     single {
         MemoUiMapper(
             dispatcherProvider = get(),

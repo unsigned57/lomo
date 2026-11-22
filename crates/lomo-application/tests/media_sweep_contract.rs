@@ -260,6 +260,7 @@ mod tests {
         let ctx = open_session();
         seed_media(&ctx, "media/img/keep.png", PNG);
         let orphan = seed_media(&ctx, "media/img/gone.png", b"orphan bytes");
+        let legacy_markdown = seed_media(&ctx, "media/2026_09_10.md", b"legacy workspace content");
         create_memo(
             &ctx,
             "memo-keep",
@@ -287,6 +288,10 @@ mod tests {
             moved.trash_path
         );
         assert!(!orphan.exists(), "collected file left its committed path");
+        assert!(
+            legacy_markdown.is_file(),
+            "Markdown outside the memo scan is preserved"
+        );
         assert!(
             report.failures.is_empty(),
             "unexpected failures: {:?}",

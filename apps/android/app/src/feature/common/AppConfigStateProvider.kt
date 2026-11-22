@@ -7,32 +7,34 @@ import com.lomo.domain.model.PreferencesCorruptionNotice
 import com.lomo.domain.repository.AppPreferencesSnapshotRepository
 import com.lomo.domain.repository.CustomFontStore
 import com.lomo.domain.repository.PreferencesHealthRepository
+import com.lomo.domain.usecase.ObserveWorkspaceSessionUseCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class AppConfigStateProvider(
-    private val appConfigUiCoordinator: AppConfigUiCoordinator,
+    appConfigUiCoordinator: AppConfigUiCoordinator,
     appPreferencesSnapshotRepository: AppPreferencesSnapshotRepository,
     private val customFontStore: CustomFontStore,
     private val customFontHost: CustomFontHost,
     private val preferencesHealthRepository: PreferencesHealthRepository,
     private val appScope: CoroutineScope,
+    workspaceSession: ObserveWorkspaceSessionUseCase,
 ) {
+    private val workspaceMount = workspaceSession.mount
     val rootDirectory: StateFlow<String?> =
-        appConfigUiCoordinator
-            .rootDirectory()
-            .stateIn(appScope, appWhileSubscribed(), null)
+        workspaceMount.map { it.location?.raw }.stateIn(appScope, appWhileSubscribed(), null)
 
     val imageDirectory: StateFlow<String?> =
-        appConfigUiCoordinator
-            .imageDirectory()
-            .stateIn(appScope, appWhileSubscribed(), null)
+        workspaceMount.map { (it.attachments.images ?: it.location)?.raw }.stateIn(appScope, appWhileSubscribed(), null)
 
     val voiceDirectory: StateFlow<String?> =
-        appConfigUiCoordinator
-            .voiceDirectory()
-            .stateIn(appScope, appWhileSubscribed(), null)
+        workspaceMount.map { (it.attachments.recordings ?: it.location)?.raw }.stateIn(
+            appScope,
+            appWhileSubscribed(),
+            null,
+        )
 
     val appPreferences: StateFlow<AppPreferencesState> =
         appPreferencesSnapshotRepository
@@ -48,6 +50,4 @@ class AppConfigStateProvider(
         appConfigUiCoordinator
             .appLockEnabled()
             .stateIn(appScope, appWhileSubscribed(), null)
-
-    suspend fun currentImageDirectory(): String? = appConfigUiCoordinator.currentImageDirectory()
 }

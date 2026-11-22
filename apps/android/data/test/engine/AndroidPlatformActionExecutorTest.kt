@@ -85,6 +85,7 @@ import com.lomo.nativebridge.DocumentMetadata
 import com.lomo.nativebridge.EngineFailure
 import com.lomo.nativebridge.ExchangeArtifact
 import com.lomo.nativebridge.ExpectedFingerprint
+import com.lomo.nativebridge.ListingView
 import com.lomo.nativebridge.MetadataPage
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionBatch
@@ -483,7 +484,7 @@ private fun batch(actions: List<PlatformAction>, deadline: ULong): PlatformActio
 
 private fun allActions(): List<PlatformAction> = listOf(
     PlatformAction.Stat("action-1", "root-capability", WorkspaceTarget.Root),
-    PlatformAction.ListChildren("action-2", "root-capability", WorkspaceTarget.Root, null, 256u),
+    PlatformAction.ListChildren("action-2", "root-capability", WorkspaceTarget.Root, null, 256u, ListingView.WORKSPACE),
     PlatformAction.EnsureDirectory("action-3", "root-capability", "images"),
     PlatformAction.ReadToExchange(
         "action-4",
@@ -523,6 +524,7 @@ private fun listAction(actionId: String, directory: String): PlatformAction.List
     target = WorkspaceTarget.Relative(directory),
     cursor = null,
     pageSize = 256u,
+    view = ListingView.WORKSPACE,
 )
 
 private fun readAction(actionId: String, path: String, exchangeToken: String): PlatformAction.ReadToExchange =

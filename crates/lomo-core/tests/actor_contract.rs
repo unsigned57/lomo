@@ -381,19 +381,33 @@ mod tests {
     }
 
     #[test]
-    fn persisted_deadline_expires_instead_of_restarting_on_reopen() {
+    fn reopening_retries_bootstrap_without_restarting_the_expired_attempt() {
         let fixture = Fixture::new(Duration::from_millis(30));
         let engine = LomoEngine::open(fixture.config.clone()).must_succeed("engine");
         let job_id = opening_job(&engine);
         drop(engine);
         std::thread::sleep(Duration::from_millis(60));
 
-        let reopened = LomoEngine::open(fixture.config).must_succeed("reopen after deadline");
+        let reopened = LomoEngine::open(
+            fixture
+                .config
+                .with_bootstrap_deadline(Duration::from_secs(30))
+                .must_succeed("new probe budget"),
+        )
+        .must_succeed("reopen after deadline");
         let JobStep::Failed { error } = reopened.poll_job(&job_id).must_succeed("expired job")
         else {
             panic!("expired job must be terminal");
         };
         assert_eq!(error.category(), ErrorCategory::Timeout);
         assert_eq!(error.code(), "job_deadline_exceeded");
+        let retry = opening_job(&reopened);
+        assert_ne!(retry, job_id);
+        let next = reopened.poll_job(&retry).must_succeed("new probe");
+        let output = reopened
+            .submit_platform_result(&retry, successful_result(&next))
+            .must_succeed("complete retry");
+        assert!(matches!(output, JobStep::Completed));
+        assert!(matches!(reopened.state(), EngineState::Ready { .. }));
     }
 }

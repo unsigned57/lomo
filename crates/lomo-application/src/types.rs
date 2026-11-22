@@ -364,14 +364,19 @@ fn validate_document_fingerprint(fingerprint: &str) -> Result<(), LomoError> {
 
 /// Workspace roots a memo document may never occupy: the committed-attachments namespace, the
 /// `.lomo` internal tree (trash records, state, journals), and the media lifecycle roots.
-const RESERVED_DOCUMENT_ROOTS: [&str; 6] = [
-    lomo_workspace::MEDIA_ROOT_NAME,
+const RESERVED_DOCUMENT_ROOTS: [&str; 5] = [
     lomo_workspace::LOMO_DIR_NAME,
     lomo_workspace::GIT_ROOT_NAME,
     lomo_media::STAGE_DIR_NAME,
     lomo_media::MEDIA_TRASH_DIR_NAME,
     lomo_media::MEDIA_DELETE_INTENT_DIR_NAME,
 ];
+
+pub(crate) fn is_attachment_namespace(path: &str) -> bool {
+    path.split('/')
+        .next()
+        .is_some_and(|root| lomo_workspace::ATTACHMENT_LOOKUP_DIRS.contains(&root))
+}
 
 /// Rejects a memo document path inside a reserved non-document namespace.
 ///
@@ -389,7 +394,7 @@ pub(crate) fn validate_document_path(path: &RelativeWorkspacePath) -> Result<(),
         .as_str()
         .rsplit_once('.')
         .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("md"));
-    if reserved || !markdown {
+    if reserved || is_attachment_namespace(path.as_str()) || !markdown {
         return Err(validation(
             "invalid_memo_document_path",
             "memo commands require a Markdown path outside control directories",

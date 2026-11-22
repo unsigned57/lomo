@@ -422,7 +422,7 @@ impl LomoEngine {
     ///
     /// `date_format` is the host's configured journal-date token. It is resolved strictly
     /// against [`DateFormat::ALL`] before any filesystem work runs: an unknown token fails
-    /// closed with `invalid_calendar_input` and installs no session.
+    /// closed with `storage_date_format_invalid` and installs no session.
     ///
     /// # Errors
     ///
@@ -442,6 +442,8 @@ impl LomoEngine {
         // Pure validation first: a foreign token must never reach `WorkspaceSessionConfig`
         // nor trigger the workspace migration below.
         let date_format = DateFormat::from_token(&date_format)
+            .map_err(|error| EngineError::from(LomoError::from(error)))?;
+        lomo_application::calendar::validate_zone(&time_zone)
             .map_err(|error| EngineError::from(LomoError::from(error)))?;
         let workspace = self.workspace.as_ref().ok_or_else(|| {
             session_err(
@@ -1089,12 +1091,14 @@ fn action_from_ffi(value: PlatformAction) -> Result<core::PlatformAction, Engine
             target,
             cursor,
             page_size,
+            view,
         } => core::PlatformAction::ListChildren {
             action_id: core::ActionId::parse(&action_id).map_err(EngineError::from)?,
             capability: CapabilityToken::parse(&capability_token).map_err(EngineError::from)?,
             target: target_from_ffi(target)?,
             cursor,
             page_size: PageSize::new(page_size).map_err(EngineError::from)?,
+            view: view.into(),
         },
         PlatformAction::EnsureDirectory {
             action_id,

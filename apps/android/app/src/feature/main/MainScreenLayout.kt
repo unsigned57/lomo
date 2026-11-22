@@ -3,11 +3,15 @@ package com.lomo.app.feature.main
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
@@ -19,6 +23,8 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -396,23 +402,29 @@ internal fun MainScreenBody(
             )
         }
 
-        is MainViewModel.MainScreenState.OpeningEngine -> {
+        uiState is MainViewModel.MainScreenState.OpeningEngine -> {
             MainInitialImportingState(modifier = Modifier.fillMaxSize())
         }
 
-        is MainViewModel.MainScreenState.ReadOnlyRecovery -> {
+        uiState is MainViewModel.MainScreenState.ReadOnlyRecovery && !uiState.retainedProjection -> {
             EngineReadOnlyRecoveryScreen(
-                code = state.code,
+                code = uiState.code,
                 onRetry = onRetryEngine,
-                retryEnabled = state.hasRecoveryTarget,
+                retryEnabled = uiState.hasRecoveryTarget,
                 onReselectWorkspace = onSettings,
-                canRebuildDerivedIndex = state.canRebuildDerivedIndex,
+                canRebuildDerivedIndex = uiState.canRebuildDerivedIndex,
                 onRebuildDerivedIndex = onRebuildDerivedIndex,
                 onExportDiagnostics = onExportDiagnostics,
             )
         }
 
-        is MainViewModel.MainScreenState.Ready -> {
+        else -> Column {
+            if (uiState is MainViewModel.MainScreenState.ReadOnlyRecovery) {
+                RetainedProjectionRecoveryBanner(
+                    retryEnabled = uiState.hasRecoveryTarget,
+                    onRetryEngine = onRetryEngine,
+                )
+            }
             MainReadyContent(
                 pagedUiMemos = pagedUiMemos,
                 searchQuery = searchQuery,
@@ -541,6 +553,40 @@ private fun MainReadyContent(
                     onShowMemoMenu = onShowMemoMenu,
                     onReminderClick = onReminderClick,
                 )
+        }
+    }
+}
+
+@Composable
+private fun RetainedProjectionRecoveryBanner(retryEnabled: Boolean, onRetryEngine: () -> Unit) {
+    Surface(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
+        shape = AppShapes.Medium,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Row(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppSpacing.MediumSmall, vertical = AppSpacing.Small),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+        ) {
+            Text(
+                text = stringResource(R.string.engine_recovery_retained_notes),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            LomoTextButton(
+                onClick = onRetryEngine,
+                enabled = retryEnabled,
+            ) {
+                Text(stringResource(R.string.engine_recovery_retry))
+            }
         }
     }
 }

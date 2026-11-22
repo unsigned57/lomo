@@ -72,7 +72,6 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -878,39 +877,13 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("image directory changes are debounced before syncing image cache") {
+        test("storage preference changes do not trigger a second image inventory") {
             runTest(testDispatcher) {
-                appConfigRepository.setLocation(StorageArea.IMAGE, null)
-                val viewModel = createViewModel()
+                createViewModel()
                 testDispatcher.scheduler.advanceUntilIdle()
                 mediaRepository.resetRecordedCalls()
 
-                appConfigRepository.setLocation(StorageArea.IMAGE, StorageLocation("/images/one"))
-                testDispatcher.scheduler.runCurrent()
-                testDispatcher.scheduler.advanceTimeBy(100L)
-                appConfigRepository.setLocation(StorageArea.IMAGE, StorageLocation("/images/two"))
-                testDispatcher.scheduler.runCurrent()
-                testDispatcher.scheduler.advanceTimeBy(100L)
-                appConfigRepository.setLocation(StorageArea.IMAGE, StorageLocation("/images/three"))
-                testDispatcher.scheduler.runCurrent()
-                testDispatcher.scheduler.advanceTimeBy(299L)
-
-                mediaRepository.verifyRefreshImageLocationsNotCalled()
-
-                testDispatcher.scheduler.advanceTimeBy(1L)
-                testDispatcher.scheduler.advanceUntilIdle()
-
-                mediaRepository.verifyRefreshImageLocationsCalled()
-                (viewModel.errorMessage.value) shouldBe null
-            }
-        }
-
-        test("initial non null image directory does not refresh from ViewModel") {
-            runTest(testDispatcher) {
-                val syncDebounceMillis = 300L
-                appConfigRepository.setLocation(StorageArea.IMAGE, StorageLocation("/images/initial"))
-                createViewModel()
-                testDispatcher.scheduler.advanceTimeBy(syncDebounceMillis)
+                appConfigRepository.setLocation(StorageArea.IMAGE, StorageLocation("/images/new"))
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 mediaRepository.refreshImageLocationsCallCount shouldBe 0
@@ -1305,7 +1278,6 @@ class MainViewModelTest : AppFunSpec() {
                         ),
                     ),
                     switchRootStorageUseCase = switchRootStorageUseCase,
-                    mediaRepository = mediaRepository,
                     engineReadinessRepository = engineReadinessRepository,
                 ),
                 startupCoordinator =
@@ -1331,9 +1303,6 @@ class MainViewModelTest : AppFunSpec() {
                             syncInboxRepository = syncInboxRepository,
                         )
                     },
-                    appConfigStateProvider =
-                    appConfigStateProvider,
-                    audioPlayerManager = audioPlayerManager,
                     observeWorkspaceSessionUseCase =
                     ObserveWorkspaceSessionUseCase(engineReadinessRepository),
                 ),
@@ -1373,6 +1342,9 @@ class MainViewModelTest : AppFunSpec() {
 
     private fun createAppConfigStateProvider(): com.lomo.app.feature.common.AppConfigStateProvider =
         com.lomo.app.feature.common.AppConfigStateProvider(
+            workspaceSession = com.lomo.domain.usecase.ObserveWorkspaceSessionUseCase(
+                com.lomo.app.testing.fakes.FakeEngineReadinessRepository(),
+            ),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             appPreferencesSnapshotRepository = appConfigRepository,
             customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),

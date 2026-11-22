@@ -11,10 +11,15 @@ data class WorkspaceMount(
     val location: StorageLocation?,
     val authority: WorkspaceAuthority?,
     val freshness: ProjectionFreshness,
+    /** Independent attachment roots installed with this generation. A missing override follows the notes tree. */
+    val attachments: WorkspaceAttachmentDirectories = WorkspaceAttachmentDirectories(),
 ) {
     val admitsProjectionReads: Boolean
         get() =
-            readiness is EngineReadiness.Ready &&
+            (
+                readiness is EngineReadiness.Ready ||
+                    (readiness is EngineReadiness.ReadOnlyRecovery && freshness is ProjectionFreshness.Retained)
+                ) &&
                 authority != null &&
                 freshness.permitsReadsAt(authority.projectionRevision)
 
@@ -36,3 +41,5 @@ data class WorkspaceMount(
             )
     }
 }
+
+data class WorkspaceAttachmentDirectories(val images: StorageLocation? = null, val recordings: StorageLocation? = null)

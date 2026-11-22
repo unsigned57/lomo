@@ -128,7 +128,13 @@ class BoltFfiWorkspaceNativeAdapterTest :
                     nodes =
                     listOf(
                         renderNode(kind = RenderNodeKind.TABLE, text = null, end = 12uL),
-                        renderNode(kind = RenderNodeKind.TABLE_HEADER_CELL, text = null, end = 4uL, depth = 2u),
+                        renderNode(
+                            kind = RenderNodeKind.TABLE_HEADER_CELL,
+                            text = null,
+                            end = 4uL,
+                            depth = 2u,
+                            alignment = com.lomo.nativebridge.TableAlignment.RIGHT,
+                        ),
                         renderNode(text = "head", end = 4uL, depth = 3u),
                         renderNode(
                             kind = RenderNodeKind.TABLE_CELL,
@@ -142,6 +148,7 @@ class BoltFfiWorkspaceNativeAdapterTest :
                 ).toDomainDocument(sourceContent = "x".repeat(12))
 
             val table = document.blocks.single().shouldBeInstanceOf<MarkdownRenderBlock.Table>()
+            table.alignments shouldBe listOf(com.lomo.domain.model.markdown.MarkdownTableAlignment.RIGHT)
             table.header.single().inlines.single().shouldBeInstanceOf<MarkdownRenderInline.Text>().text shouldBe "head"
             table.rows.single().single().inlines.single().shouldBeInstanceOf<MarkdownRenderInline.Text>().text shouldBe
                 "cell"
@@ -274,6 +281,7 @@ private fun renderNode(
     actionEnd: ULong? = null,
     mediaClass: com.lomo.nativebridge.MediaClass? =
         if (kind == RenderNodeKind.IMAGE) com.lomo.nativebridge.MediaClass.IMAGE else null,
+    alignment: com.lomo.nativebridge.TableAlignment? = null,
 ): RenderNode = RenderNode(
     kind = kind,
     sourceStart = 0uL,
@@ -289,4 +297,5 @@ private fun renderNode(
     actionStart = actionStart,
     actionEnd = actionEnd,
     mediaClass = mediaClass,
+    alignment = alignment,
 )

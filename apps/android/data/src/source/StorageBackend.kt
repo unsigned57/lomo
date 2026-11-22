@@ -44,7 +44,7 @@ interface MarkdownStorageBackend {
 }
 
 interface MediaStorageBackend {
-    suspend fun listImageFiles(): List<Pair<String, String>>
+    suspend fun listImageFiles(scope: ImageScanScope = ImageScanScope.SelectedDirectory): List<Pair<String, String>>
 
     suspend fun getImageLocation(filename: String): String?
 }

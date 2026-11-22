@@ -1,6 +1,7 @@
 package com.lomo.data.engine
 
 import com.lomo.nativebridge.ActionOutcome
+import com.lomo.nativebridge.ListingView
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
 import com.lomo.nativebridge.WorkspaceTarget
@@ -25,6 +26,35 @@ import java.nio.file.Files
  */
 class MediaDirectoryCapabilityTest :
     FunSpec({
+        test(
+            "given a missing selected image directory when notes are listed then only the physical notes tree is visited",
+        ) {
+            val root = Files.createTempDirectory("lomo-notes-root").toFile()
+            val exchange = Files.createTempDirectory("lomo-notes-exchange").toFile()
+            try {
+                root.resolve("2026_09_12.md").writeText("- 12:00\nNotes remain available\n")
+                val registry = CapabilityRegistry()
+                val grant = registry.registerDirect(root)
+                registry.bindMediaRoots(grant.capabilityToken, mapOf("images" to root.resolve("missing").path))
+                val access = AndroidPlatformActionAccess(registry, ExchangeResolver(exchange), mockk())
+                val request = PlatformAction.ListChildren(
+                    "list-notes",
+                    grant.capabilityToken,
+                    WorkspaceTarget.Root,
+                    null,
+                    64u,
+                    ListingView.NOTES,
+                )
+                val notes = access.execute(request).shouldBeInstanceOf<ActionOutcome.Applied>()
+                    .output.shouldBeInstanceOf<PlatformActionOutput.Listed>()
+                notes.page.items.map { it.target } shouldBe listOf(WorkspaceTarget.Relative("2026_09_12.md"))
+                access.execute(request.copy(view = ListingView.WORKSPACE))
+                    .shouldBeInstanceOf<ActionOutcome.Failed>().failure.code shouldBe "media_root_unavailable"
+            } finally {
+                root.deleteRecursively()
+                exchange.deleteRecursively()
+            }
+        }
         test("given a selected external image directory when reading then only selected bytes resolve") {
             val root = Files.createTempDirectory("lomo-media-workspace").toFile()
             val selected = Files.createTempDirectory("lomo-media-selected").toFile()
@@ -66,7 +96,14 @@ class MediaDirectoryCapabilityTest :
                 registry.bindMediaRoots(grant.capabilityToken, mapOf("images" to selected.path))
                 val access = AndroidPlatformActionAccess(registry, ExchangeResolver(exchange), mockk())
                 fun list(target: WorkspaceTarget) = access.execute(
-                    PlatformAction.ListChildren("list", grant.capabilityToken, target, null, 64u),
+                    PlatformAction.ListChildren(
+                        "list",
+                        grant.capabilityToken,
+                        target,
+                        null,
+                        64u,
+                        ListingView.WORKSPACE,
+                    ),
                 ).shouldBeInstanceOf<ActionOutcome.Applied>()
                     .output.shouldBeInstanceOf<PlatformActionOutput.Listed>().page
                 list(WorkspaceTarget.Root).items.map { it.target } shouldBe listOf(WorkspaceTarget.Relative("images"))

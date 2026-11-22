@@ -2,7 +2,6 @@ package com.lomo.app.testing.fakes
 
 import android.content.Context
 import com.lomo.app.media.AudioPlayerManager
-import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
 import io.mockk.mockk
 
@@ -20,16 +19,5 @@ class FakeAudioPlayerManager(
 }
 
 class FakeAudioPlaybackResolverRepository : AudioPlaybackResolverRepository {
-    private var rootLocation: StorageLocation? = null
-    private var voiceLocation: StorageLocation? = null
-
-    override fun setRootLocation(location: StorageLocation?) {
-        rootLocation = location
-    }
-
-    override fun setVoiceLocation(location: StorageLocation?) {
-        voiceLocation = location
-    }
-
     override suspend fun resolve(source: String): String? = source
 }

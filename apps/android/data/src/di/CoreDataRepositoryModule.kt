@@ -180,8 +180,7 @@ val coreDataRepositoryModule = module {
                 workspaceMount =
                 get<com.lomo.domain.repository.EngineReadinessRepository>().mount,
                 committedLocation = com.lomo.data.engine.CommittedMediaLocationResolver(
-                    mediaRoot = { namespace -> get<ManagedEngineSession>().mediaRootLocations[namespace] },
-                    workspaceLocation = { get<ManagedEngineSession>().activeWorkspaceLocation.value },
+                    workspaceMount = { get<ManagedEngineSession>().mount.value },
                     documents = get(),
                 )::resolve,
                 stageRoot = get(),

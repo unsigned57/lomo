@@ -4,6 +4,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceMount
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.WorkspaceTarget
 import io.kotest.matchers.shouldBe
@@ -51,7 +52,10 @@ class CommittedMediaLocationResolverTest : DataFunSpec() {
                     requireNotNull(parentFile).mkdirs()
                     writeBytes(byteArrayOf(1))
                 }
-                val resolver = CommittedMediaLocationResolver({ StorageLocation(root.absolutePath) }, mockk(), { null })
+                val resolver = CommittedMediaLocationResolver(
+                    { WorkspaceMount.Opening.copy(location = StorageLocation(root.absolutePath)) },
+                    mockk(),
+                )
                 val raw = requireNotNull(resolver.resolve("media/photo #1.png")).raw
                 java.net.URI(raw).path shouldBe file.absolutePath
                 java.net.URI(raw).fragment shouldBe null
@@ -89,9 +93,8 @@ class CommittedMediaLocationResolverTest : DataFunSpec() {
                 )
 
             CommittedMediaLocationResolver(
-                { StorageLocation(tree) },
+                { WorkspaceMount.Opening.copy(location = StorageLocation(tree)) },
                 gateway,
-                { null },
             ).resolve("media/photo.png") shouldBe
                 StorageLocation(location)
         }
@@ -108,9 +111,8 @@ class CommittedMediaLocationResolverTest : DataFunSpec() {
             } returns null
 
             CommittedMediaLocationResolver(
-                { StorageLocation(tree) },
+                { WorkspaceMount.Opening.copy(location = StorageLocation(tree)) },
                 gateway,
-                { null },
             ).resolve("media/missing.png") shouldBe null
         }
     }

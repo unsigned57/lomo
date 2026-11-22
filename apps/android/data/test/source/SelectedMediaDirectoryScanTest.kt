@@ -54,8 +54,10 @@ class SelectedMediaDirectoryScanTest :
                     backend.listImageFiles() shouldBe listOf("inside.png" to inside.toString())
                     backend.getImageLocation("inside.png") shouldBe inside.toString()
                     backend.getImageLocation("outside.png") shouldBe null
-                    val player = com.lomo.data.media.AudioPlaybackUriResolverImpl(context)
-                    player.setVoiceLocation(com.lomo.domain.model.StorageLocation(raw))
+                    val player = com.lomo.data.media.AudioPlaybackUriResolverImpl(
+                        context,
+                        { com.lomo.data.media.audioMount(null, raw) },
+                    )
                     player.resolve("voice/inside.png") shouldBe inside.toString()
                     player.resolve("voice/outside.png") shouldBe null
                 }

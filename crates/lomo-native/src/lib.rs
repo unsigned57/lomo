@@ -523,6 +523,31 @@ pub enum WorkspaceTarget {
 }
 
 #[data]
+#[derive(Clone, Copy, Debug)]
+pub enum ListingView {
+    Workspace,
+    Notes,
+}
+
+impl From<core::ListingView> for ListingView {
+    fn from(view: core::ListingView) -> Self {
+        match view {
+            core::ListingView::Workspace => Self::Workspace,
+            core::ListingView::Notes => Self::Notes,
+        }
+    }
+}
+
+impl From<ListingView> for core::ListingView {
+    fn from(view: ListingView) -> Self {
+        match view {
+            ListingView::Workspace => Self::Workspace,
+            ListingView::Notes => Self::Notes,
+        }
+    }
+}
+
+#[data]
 #[derive(Clone, Debug)]
 pub enum PlatformAction {
     Stat {
@@ -536,6 +561,7 @@ pub enum PlatformAction {
         target: WorkspaceTarget,
         cursor: Option<String>,
         page_size: u32,
+        view: ListingView,
     },
     EnsureDirectory {
         action_id: String,
@@ -2577,12 +2603,14 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             target,
             cursor,
             page_size,
+            view,
         } => PlatformAction::ListChildren {
             action_id: action_id.as_str().to_owned(),
             capability_token: capability.as_str().to_owned(),
             target: target_to_ffi(target),
             cursor: cursor.clone(),
             page_size: page_size.get(),
+            view: (*view).into(),
         },
         core::PlatformAction::EnsureDirectory {
             action_id,
