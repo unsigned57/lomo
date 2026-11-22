@@ -1,6 +1,7 @@
 package com.lomo.app.feature.memo
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.main.MemoUiModel
@@ -29,6 +30,35 @@ fun MemoCardEntry(
     anchoredAfterKey: String? = null,
 ) {
     val memo = uiModel.memo
+    val stableOnClick =
+        remember(memo, onMemoClick) {
+            {
+                onMemoClick?.invoke(memo)
+                Unit
+            }
+        }
+    val stableOnDoubleClick =
+        remember(memo, doubleTapEditEnabled, onMemoEdit) {
+            if (doubleTapEditEnabled) {
+                { onMemoEdit(memo) }
+            } else {
+                null
+            }
+        }
+    val stableOnMenuClick =
+        remember(memo, dateFormat, timeFormat, uiModel.imageUrls, anchoredAfterKey, onShowMenu) {
+            {
+                onShowMenu(
+                    memoMenuSelection(
+                        memo = memo,
+                        dateFormat = dateFormat,
+                        timeFormat = timeFormat,
+                        imageUrls = uiModel.imageUrls,
+                        anchoredAfterKey = anchoredAfterKey,
+                    ),
+                )
+            }
+        }
 
     MemoCard(
         content = memo.content,
@@ -48,13 +78,8 @@ fun MemoCardEntry(
         expandOnClick = true,
         isExpanded = isExpanded,
         onExpandedChange = onExpandedChange,
-        onClick = { onMemoClick?.invoke(memo) },
-        onDoubleClick =
-        if (doubleTapEditEnabled) {
-            { onMemoEdit(memo) }
-        } else {
-            null
-        },
+        onClick = stableOnClick,
+        onDoubleClick = stableOnDoubleClick,
         onTagClick = onTagClick,
         onTodoClick = onTodoClick,
         onImageClick = onImageClick,
@@ -62,17 +87,7 @@ fun MemoCardEntry(
         shouldShowExpand = uiModel.shouldShowExpand,
         collapsedSummary = uiModel.collapsedSummary,
         menuButtonModifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.memoMenu(memo.id)),
-        onMenuClick = {
-            onShowMenu(
-                memoMenuSelection(
-                    memo = memo,
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
-                    imageUrls = uiModel.imageUrls,
-                    anchoredAfterKey = anchoredAfterKey,
-                ),
-            )
-        },
+        onMenuClick = stableOnMenuClick,
         menuContent = {},
         mediaPresentationResolver = MemoMarkdownMediaAdapter.resolver,
         mediaContent = MemoMarkdownMediaAdapter.content,

@@ -33,7 +33,9 @@ import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
@@ -59,9 +61,9 @@ import com.lomo.ui.component.common.LomoListItemMotionSpecs
 import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.icon.LomoIcons
+import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 
@@ -81,6 +83,7 @@ internal fun MainScreenNavigationRender(
     onReminderClick: (String, String) -> Unit,
     onOpenEditor: (Memo) -> Unit,
     onSidebarTagReorder: (List<String>) -> Unit,
+    expandCoordinator: MemoListExpandCoordinator? = null,
     fab: @Composable () -> Unit,
 ) {
     MainScreenRenderHost(
@@ -116,6 +119,7 @@ internal fun MainScreenNavigationRender(
         onRetryEngine = listBindings.onRetryEngineOpen,
         onRebuildDerivedIndex = listBindings.onRebuildDerivedIndex,
         onExportDiagnostics = listBindings.onExportRecoveryDiagnostics,
+        expandCoordinator = expandCoordinator,
     )
 }
 
@@ -153,6 +157,7 @@ internal fun MainScreenRenderHost(
     onRetryEngine: () -> Unit,
     onRebuildDerivedIndex: () -> Unit,
     onExportDiagnostics: () -> Unit,
+    expandCoordinator: MemoListExpandCoordinator? = null,
     fab: @Composable () -> Unit,
 ) {
     MainScreenDrawerLayout(
@@ -197,6 +202,7 @@ internal fun MainScreenRenderHost(
             onRetryEngine = onRetryEngine,
             onRebuildDerivedIndex = onRebuildDerivedIndex,
             onExportDiagnostics = onExportDiagnostics,
+            expandCoordinator = expandCoordinator,
         )
     }
 }
@@ -208,9 +214,11 @@ private fun MainScreenDrawerLayout(
     content: @Composable () -> Unit,
 ) {
     // Placement changes on rotation or fold; the sidebar keeps its tag expansion and scroll.
+    val latestSidebarContent by rememberUpdatedState(sidebarContent)
+    val latestContent by rememberUpdatedState(content)
     val drawerSidebarContent =
-        remember(sidebarContent) { movableContentOf { containerColor: Color -> sidebarContent(containerColor) } }
-    val feedContent = remember(content) { movableContentOf { content() } }
+        remember { movableContentOf { containerColor: Color -> latestSidebarContent(containerColor) } }
+    val feedContent = remember { movableContentOf { latestContent() } }
     when (sidebar.placement) {
         MainSidebarPlacement.DockedPane -> {
             val canvasColor = MaterialTheme.colorScheme.surface
@@ -336,14 +344,15 @@ private fun MainScreenSidebarContent(
     onHeatmapDateLongPress: (LocalDate) -> Unit,
     onTagReorder: (List<String>) -> Unit,
 ) {
+    val today = remember(sidebarUiState.stats.dayCount) { LocalDate.now() }
     SidebarDrawer(
         stats = sidebarUiState.stats,
-        memoCountByDate = sidebarUiState.memoCountByDate.toImmutableMap(),
-        today = LocalDate.now(),
-        tags = sidebarUiState.tags.toImmutableList(),
+        memoCountByDate = sidebarUiState.memoCountByDate,
+        today = today,
+        tags = sidebarUiState.tags,
         calendarHeatmapThresholds = calendarHeatmapThresholds,
         containerColor = containerColor,
-        rootTagOrder = sidebarUiState.rootTagOrder.toImmutableList(),
+        rootTagOrder = sidebarUiState.rootTagOrder,
         onTagClick = actions.onSidebarTagClick,
         onTagReorder = onTagReorder,
         onSettingsClick = actions.onSettings,
@@ -387,14 +396,15 @@ internal fun MainScreenBody(
     onRetryEngine: () -> Unit,
     onRebuildDerivedIndex: () -> Unit,
     onExportDiagnostics: () -> Unit,
+    expandCoordinator: MemoListExpandCoordinator? = null,
 ) {
     // Readiness publishes available content immediately; navigation and rows own their motion.
-    when (val state = uiState) {
-        is MainViewModel.MainScreenState.Loading -> {
+    when {
+        uiState is MainViewModel.MainScreenState.Loading -> {
             com.lomo.ui.component.common.MemoListSkeleton(modifier = Modifier.fillMaxSize())
         }
 
-        is MainViewModel.MainScreenState.NoDirectory -> {
+        uiState is MainViewModel.MainScreenState.NoDirectory -> {
             MainEmptyState(
                 searchQuery = searchQuery,
                 hasDirectory = false,
@@ -445,6 +455,7 @@ internal fun MainScreenBody(
                 onShowMemoMenu = onShowMemoMenu,
                 onReminderClick = onReminderClick,
                 onSettings = onSettings,
+                expandCoordinator = expandCoordinator,
             )
         }
     }
@@ -476,6 +487,7 @@ private fun MainReadyContent(
     onShowMemoMenu: (MemoMenuSelection) -> Unit,
     onReminderClick: (String, String) -> Unit,
     onSettings: () -> Unit,
+    expandCoordinator: MemoListExpandCoordinator? = null,
 ) {
     val motionScheme = com.lomo.ui.theme.LocalLomoMotion.current.layout
     val activeExits by exitAnimationRegistry.entries.collectAsStateWithLifecycle()
@@ -552,6 +564,7 @@ private fun MainReadyContent(
                     onImageClick = onImageClick,
                     onShowMemoMenu = onShowMemoMenu,
                     onReminderClick = onReminderClick,
+                    expandCoordinator = expandCoordinator,
                 )
         }
     }

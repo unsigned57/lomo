@@ -1,6 +1,7 @@
 package com.lomo.app.feature.main
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -163,6 +164,7 @@ private fun createRefreshAction(scope: CoroutineScope, onRefreshMemos: suspend (
     scope.launch { onRefreshMemos() }
 }
 
+@Immutable
 data class MainScreenActions(
     val onSettings: () -> Unit,
     val onTrash: () -> Unit,

@@ -2,6 +2,7 @@ package com.lomo.app.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -13,6 +14,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.toRoute
+import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.app.PendingWidgetNavigationRequest
 import com.lomo.app.WidgetDestination
@@ -23,7 +25,9 @@ import com.lomo.app.feature.gallery.GalleryScreen
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.main.MainScreen
 import com.lomo.app.feature.main.MainViewModel
+import com.lomo.app.feature.main.MemoListExpandCoordinator
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.main.rememberMainMemoListExpandCoordinator
 import com.lomo.app.feature.search.SearchScreen
 import com.lomo.app.feature.settings.SettingsScreen
 import com.lomo.app.feature.share.ShareScreen
@@ -55,10 +59,7 @@ internal fun LomoNavHost(
 ) {
     val lanShareAvailabilityViewModel: LanShareAvailabilityViewModel = activityKoinViewModel()
     val lanShareEnabled by lanShareAvailabilityViewModel.lanShareEnabled.collectAsStateWithLifecycle()
-    val currentBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = currentBackStackEntry?.run { destination.route }
     var mainForegroundEntryId by remember { mutableLongStateOf(0L) }
-    var evaluatedForegroundEntryId by remember { mutableLongStateOf(0L) }
     val popBackStackSafely = rememberBackNavigationAction(navController = navController)
     val navigateToShare =
         rememberShareNavigationAction(
@@ -67,19 +68,12 @@ internal fun LomoNavHost(
         )
     val navigateToImage = rememberImageNavigationAction(navController = navController)
 
-    LaunchedEffect(foregroundEntryId, currentRoute, suppressForegroundAutoInput) {
-        val nextState =
-            MainForegroundEntryRoutingPolicy.resolve(
-                foregroundEntryId = foregroundEntryId,
-                evaluatedForegroundEntryId = evaluatedForegroundEntryId,
-                currentMainForegroundEntryId = mainForegroundEntryId,
-                hasVisibleDestination = currentRoute != null,
-                isMainVisible = currentRoute == MAIN_ROUTE_NAME,
-                suppressForegroundAutoInput = suppressForegroundAutoInput,
-            )
-        evaluatedForegroundEntryId = nextState.evaluatedForegroundEntryId
-        mainForegroundEntryId = nextState.mainForegroundEntryId
-    }
+    ForegroundMainEntryObserver(
+        navController = navController,
+        foregroundEntryId = foregroundEntryId,
+        suppressForegroundAutoInput = suppressForegroundAutoInput,
+        onResolvedMainForegroundEntryId = { resolved -> mainForegroundEntryId = resolved },
+    )
 
     LaunchedEffect(pendingWidgetNavigation) {
         val request = pendingWidgetNavigation ?: return@LaunchedEffect
@@ -104,6 +98,52 @@ internal fun LomoNavHost(
         mainForegroundEntryId = mainForegroundEntryId,
     )
 }
+
+@Composable
+private fun ForegroundMainEntryObserver(
+    navController: NavHostController,
+    foregroundEntryId: Long,
+    suppressForegroundAutoInput: Boolean,
+    onResolvedMainForegroundEntryId: (Long) -> Unit,
+) {
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.run { destination.route }
+    var evaluatedForegroundEntryId by remember { mutableLongStateOf(0L) }
+    var mainForegroundEntryId by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(foregroundEntryId, currentRoute, suppressForegroundAutoInput) {
+        val nextState =
+            MainForegroundEntryRoutingPolicy.resolve(
+                foregroundEntryId = foregroundEntryId,
+                evaluatedForegroundEntryId = evaluatedForegroundEntryId,
+                currentMainForegroundEntryId = mainForegroundEntryId,
+                hasVisibleDestination = currentRoute != null,
+                isMainVisible = currentRoute == MAIN_ROUTE_NAME,
+                suppressForegroundAutoInput = suppressForegroundAutoInput,
+            )
+        evaluatedForegroundEntryId = nextState.evaluatedForegroundEntryId
+        if (nextState.mainForegroundEntryId != mainForegroundEntryId) {
+            mainForegroundEntryId = nextState.mainForegroundEntryId
+            onResolvedMainForegroundEntryId(nextState.mainForegroundEntryId)
+        }
+    }
+}
+
+@Stable
+private class LomoNavigationContext(
+    val transitions: NavigationTransitions,
+    val navController: NavHostController,
+    val popBackStackSafely: () -> Unit,
+    val navigateToShare: (String, Long) -> Unit,
+    val navigateToImage: (ImageViewerRequest) -> Unit,
+    val lanShareEnabled: Boolean,
+)
+
+@Stable
+private class MainRouteHoistedState(
+    val pagedUiMemos: LazyPagingItems<MemoUiModel>,
+    val expandCoordinator: MemoListExpandCoordinator,
+)
 
 @Composable
 private fun rememberShareNavigationAction(
@@ -160,6 +200,34 @@ private fun LomoNavigationGraph(
         remember(motionScheme, layoutDirection, pageOffsetPx) {
             NavigationTransitions(motionScheme, layoutDirection, pageOffsetPx)
         }
+    val mainViewModel: MainViewModel = activityKoinViewModel()
+    val mainPagedUiMemos = mainViewModel.pagedUiMemos.collectAsLazyPagingItems()
+    val mainExpandCoordinator = rememberMainMemoListExpandCoordinator()
+    val navContext =
+        remember(
+            transitions,
+            navController,
+            popBackStackSafely,
+            navigateToShare,
+            navigateToImage,
+            lanShareEnabled,
+        ) {
+            LomoNavigationContext(
+                transitions = transitions,
+                navController = navController,
+                popBackStackSafely = popBackStackSafely,
+                navigateToShare = navigateToShare,
+                navigateToImage = navigateToImage,
+                lanShareEnabled = lanShareEnabled,
+            )
+        }
+    val mainRouteState =
+        remember(mainPagedUiMemos, mainExpandCoordinator) {
+            MainRouteHoistedState(
+                pagedUiMemos = mainPagedUiMemos,
+                expandCoordinator = mainExpandCoordinator,
+            )
+        }
     NavHost(
         navController = navController,
         startDestination = NavRoute.Main,
@@ -171,17 +239,13 @@ private fun LomoNavigationGraph(
         predictivePopExitTransition = { transitions.standardPopExit(this) },
     ) {
         addSharedTransitionDestinations(
-            transitions = transitions,
-            navController = navController,
-            popBackStackSafely = popBackStackSafely,
-            navigateToShare = navigateToShare,
-            navigateToImage = navigateToImage,
-            lanShareEnabled = lanShareEnabled,
+            navContext = navContext,
             mainForegroundEntryId = mainForegroundEntryId,
+            mainRouteState = mainRouteState,
         )
         addNonSharedDestinations(
-            navigateToImage = navigateToImage,
             transitions = transitions,
+            navigateToImage = navigateToImage,
             navController = navController,
             popBackStackSafely = popBackStackSafely,
             navigateToShare = navigateToShare,
@@ -199,13 +263,9 @@ private fun LomoNavigationGraph(
 
 @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 private fun NavGraphBuilder.addSharedTransitionDestinations(
-    transitions: NavigationTransitions,
-    navController: NavHostController,
-    popBackStackSafely: () -> Unit,
-    navigateToShare: (String, Long) -> Unit,
-    navigateToImage: (ImageViewerRequest) -> Unit,
-    lanShareEnabled: Boolean,
+    navContext: LomoNavigationContext,
     mainForegroundEntryId: Long,
+    mainRouteState: MainRouteHoistedState,
 ) {
     composable<NavRoute.Main> {
         // No SharedTransitionLayout: it creates a LookaheadScope around the whole feed, and any
@@ -213,18 +273,13 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
         // then crashes during fast fling ("LookaheadDelegate has not been measured yet"). The
         // image→viewer shared-element transition is given up in favor of the list size animations;
         // readers of LocalSharedTransitionScope degrade gracefully when it is null.
-        MainScreen(
-            onNavigateToSettings = { navController.navigate(NavRoute.Settings) },
-            onNavigateToTrash = { navController.navigate(NavRoute.Trash) },
-            onNavigateToSearch = { navController.navigate(NavRoute.Search) },
-            onNavigateToTag = { tag -> navController.navigate(NavRoute.Tag(tag)) },
-            onNavigateToImage = navigateToImage,
-            onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
-            onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
-            onNavigateToStatistics = { navController.navigate(NavRoute.Statistics) },
-            onNavigateToShare = navigateToShare,
-            lanShareEnabled = lanShareEnabled,
+        MainRouteEntry(
+            navController = navContext.navController,
+            navigateToImage = navContext.navigateToImage,
+            navigateToShare = navContext.navigateToShare,
+            lanShareEnabled = navContext.lanShareEnabled,
             foregroundEntryId = mainForegroundEntryId,
+            mainRouteState = mainRouteState,
         )
     }
 
@@ -235,13 +290,13 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
         val tag = backStackEntry.toRoute<NavRoute.Tag>()
         TagFilterScreen(
             tagName = tag.tagName,
-            onBackClick = popBackStackSafely,
-            onNavigateToImage = navigateToImage,
-            onNavigateToShare = navigateToShare,
+            onBackClick = navContext.popBackStackSafely,
+            onNavigateToImage = navContext.navigateToImage,
+            onNavigateToShare = navContext.navigateToShare,
             onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
-            onNavigateToMain = { navController.popBackStackOrNavigateMain() },
-            onNavigateToTag = { otherTag -> navController.navigate(NavRoute.Tag(otherTag)) },
-            lanShareEnabled = lanShareEnabled,
+            onNavigateToMain = { navContext.navController.popBackStackOrNavigateMain() },
+            onNavigateToTag = { otherTag -> navContext.navController.navigate(NavRoute.Tag(otherTag)) },
+            lanShareEnabled = navContext.lanShareEnabled,
         )
     }
 
@@ -254,12 +309,12 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
                 animatedVisibilityScope = animatedVisibilityScope,
             ) {
                 com.lomo.app.feature.review.DailyReviewScreen(
-                    onBackClick = popBackStackSafely,
-                    onNavigateToImage = navigateToImage,
-                    onNavigateToShare = navigateToShare,
-                    lanShareEnabled = lanShareEnabled,
+                    onBackClick = navContext.popBackStackSafely,
+                    onNavigateToImage = navContext.navigateToImage,
+                    onNavigateToShare = navContext.navigateToShare,
+                    lanShareEnabled = navContext.lanShareEnabled,
                     onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
-                    onNavigateToMain = { navController.popBackStackOrNavigateMain() },
+                    onNavigateToMain = { navContext.navController.popBackStackOrNavigateMain() },
                 )
             }
         }
@@ -272,7 +327,7 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
             val galleryMemos = mainViewModel.galleryPagedUiMemos.collectAsLazyPagingItems()
             val navigateToGalleryReel =
                 rememberGalleryReelNavigationAction(
-                    navController = navController,
+                    navController = navContext.navController,
                     galleryMemos = galleryMemos.itemSnapshotList.items,
                 )
             ProvideSharedAnimationLocals(
@@ -280,19 +335,45 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
                 animatedVisibilityScope = animatedVisibilityScope,
             ) {
                 GalleryScreen(
-                    onBackClick = popBackStackSafely,
+                    onBackClick = navContext.popBackStackSafely,
                     onNavigateToReel = navigateToGalleryReel,
-                    onNavigateToShare = navigateToShare,
-                    onNavigateToMain = { navController.popBackStackOrNavigateMain() },
-                    lanShareEnabled = lanShareEnabled,
+                    onNavigateToShare = navContext.navigateToShare,
+                    onNavigateToMain = { navContext.navController.popBackStackOrNavigateMain() },
+                    lanShareEnabled = navContext.lanShareEnabled,
                 )
             }
         }
     }
     addImageViewerDestination(
-        transitions = transitions,
-        popBackStackSafely = popBackStackSafely,
-        navController = navController,
+        transitions = navContext.transitions,
+        popBackStackSafely = navContext.popBackStackSafely,
+        navController = navContext.navController,
+    )
+}
+
+@Composable
+private fun MainRouteEntry(
+    navController: NavHostController,
+    navigateToImage: (ImageViewerRequest) -> Unit,
+    navigateToShare: (String, Long) -> Unit,
+    lanShareEnabled: Boolean,
+    foregroundEntryId: Long,
+    mainRouteState: MainRouteHoistedState,
+) {
+    MainScreen(
+        onNavigateToSettings = remember(navController) { { navController.navigate(NavRoute.Settings) } },
+        onNavigateToTrash = remember(navController) { { navController.navigate(NavRoute.Trash) } },
+        onNavigateToSearch = remember(navController) { { navController.navigate(NavRoute.Search) } },
+        onNavigateToTag = remember(navController) { { tag -> navController.navigate(NavRoute.Tag(tag)) } },
+        onNavigateToImage = navigateToImage,
+        onNavigateToDailyReview = remember(navController) { { navController.navigate(NavRoute.DailyReview) } },
+        onNavigateToGallery = remember(navController) { { navController.navigate(NavRoute.Gallery) } },
+        onNavigateToStatistics = remember(navController) { { navController.navigate(NavRoute.Statistics) } },
+        onNavigateToShare = navigateToShare,
+        lanShareEnabled = lanShareEnabled,
+        foregroundEntryId = foregroundEntryId,
+        pagedUiMemos = mainRouteState.pagedUiMemos,
+        expandCoordinator = mainRouteState.expandCoordinator,
     )
 }
 

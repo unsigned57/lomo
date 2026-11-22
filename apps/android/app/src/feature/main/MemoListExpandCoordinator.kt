@@ -1,6 +1,7 @@
 package com.lomo.app.feature.main
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -273,10 +274,35 @@ internal class MemoListExpandCoordinator(
     }
 }
 
+@Immutable
 internal class MemoListExpandPresentation(
     val states: PersistentMap<String, MemoExpandEntry>,
     val onRetry: (String) -> Unit,
 )
+
+@Composable
+internal fun rememberMainMemoListExpandCoordinator(): MemoListExpandCoordinator {
+    val repository = koinInject<MemoQueryRepository>()
+    val mapper = koinInject<MemoUiMapper>()
+    val appConfig = koinInject<AppConfigStateProvider>()
+    val imageMapProvider = koinInject<ImageMapProvider>()
+    val scope = rememberCoroutineScope()
+    return remember(scope, repository, mapper, appConfig, imageMapProvider) {
+        MemoListExpandCoordinator(
+            scope = scope,
+            loadFullMemo = repository::getMemoById,
+            mapFullMemo = { memo ->
+                mapper.mapToCachedUiModel(
+                    memo = memo,
+                    rootPath = appConfig.rootDirectory.value,
+                    imagePath = appConfig.imageDirectory.value,
+                    imageMap = imageMapProvider.imageMap.value,
+                    reminders = memo.reminders,
+                )
+            },
+        )
+    }
+}
 
 /**
  * Compose bridge: keeps the coordinator's desired set in sync with the expand intent and the
@@ -286,43 +312,38 @@ internal class MemoListExpandPresentation(
 internal fun rememberMemoListExpandStates(
     expandedMemoIds: Set<String>,
     previewMemos: List<MemoUiModel>,
+    coordinator: MemoListExpandCoordinator? = null,
 ): MemoListExpandPresentation {
-    val repository = koinInject<MemoQueryRepository>()
-    val mapper = koinInject<MemoUiMapper>()
-    val appConfig = koinInject<AppConfigStateProvider>()
-    val imageMapProvider = koinInject<ImageMapProvider>()
+    val resolvedCoordinator = coordinator ?: rememberMainMemoListExpandCoordinator()
     val readinessRepository = koinInject<EngineReadinessRepository>()
-    val scope = rememberCoroutineScope()
-    val coordinator =
-        remember(scope, repository, mapper, appConfig, imageMapProvider) {
-            MemoListExpandCoordinator(
-                scope = scope,
-                loadFullMemo = repository::getMemoById,
-                mapFullMemo = { memo ->
-                    mapper.mapToCachedUiModel(
-                        memo = memo,
-                        rootPath = appConfig.rootDirectory.value,
-                        imagePath = appConfig.imageDirectory.value,
-                        imageMap = imageMapProvider.imageMap.value,
-                        reminders = memo.reminders,
-                    )
-                },
-            )
-        }
     val mount by readinessRepository.mount.collectAsStateWithLifecycle()
     // contentRevision is the row-visible content identity: it changes on every write, while
     // updatedAt can survive a preserved-mtime sync apply or a same-millisecond edit.
-    val previewRevisions = previewMemos.associate { it.memo.id to it.memo.contentRevision }
+    val requestedRevisions =
+        remember(expandedMemoIds, previewMemos) {
+            if (expandedMemoIds.isEmpty()) {
+                emptyMap()
+            } else {
+                val previewById = previewMemos.associateBy { it.memo.id }
+                buildMap(expandedMemoIds.size) {
+                    expandedMemoIds.forEach { memoId ->
+                        put(memoId, previewById[memoId]?.run { memo.contentRevision })
+                    }
+                }
+            }
+        }
     val workspaceEpoch = mount.location?.raw.orEmpty()
-    LaunchedEffect(workspaceEpoch, expandedMemoIds, previewRevisions) {
-        coordinator.sync(
+    LaunchedEffect(resolvedCoordinator, workspaceEpoch, requestedRevisions) {
+        resolvedCoordinator.sync(
             workspaceEpoch = workspaceEpoch,
-            requestedRevisions = expandedMemoIds.associateWith { previewRevisions[it] },
+            requestedRevisions = requestedRevisions,
         )
     }
-    val states by coordinator.states.collectAsStateWithLifecycle()
-    return MemoListExpandPresentation(
-        states = states,
-        onRetry = coordinator::retryExpand,
-    )
+    val states by resolvedCoordinator.states.collectAsStateWithLifecycle()
+    return remember(resolvedCoordinator, states) {
+        MemoListExpandPresentation(
+            states = states,
+            onRetry = resolvedCoordinator::retryExpand,
+        )
+    }
 }

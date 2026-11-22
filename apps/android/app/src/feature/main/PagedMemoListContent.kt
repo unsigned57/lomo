@@ -20,6 +20,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +57,7 @@ import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toPersistentSet
 
+@Immutable
 private data class MemoPagedListDisplayConfig(
     val dateFormat: String,
     val timeFormat: String,
@@ -62,6 +65,7 @@ private data class MemoPagedListDisplayConfig(
     val freeTextCopyEnabled: Boolean,
 )
 
+@Immutable
 private data class MemoPagedListActions(
     val onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     val onReminderDone: (String, String) -> Unit,
@@ -90,6 +94,7 @@ internal fun MemoListContent(
     timeFormat: String,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
     enterAnimationRegistry: EnterAnimationRegistry = EnterAnimationRegistry(),
     exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel> =
         com.lomo.ui.component.common.ExitAnimationRegistry(),
@@ -99,7 +104,7 @@ internal fun MemoListContent(
     scrollbarEnabled: Boolean = true,
     pullToRefreshEnabled: Boolean = true,
     listContentPadding: PaddingValues? = null,
-    onShowMemoMenu: (MemoMenuSelection) -> Unit,
+    expandCoordinator: MemoListExpandCoordinator? = null,
 ) {
     val itemSnapshotList = pagedMemos.itemSnapshotList
     val rawLoadedSnapshot =
@@ -123,7 +128,18 @@ internal fun MemoListContent(
         rememberMemoListExpandStates(
             expandedMemoIds = expandedMemoIds,
             previewMemos = rawLoadedSnapshot.memos,
+            coordinator = expandCoordinator,
         )
+    val onExpandedMemoChange =
+        remember {
+            { memoId: String, isExpanded: Boolean ->
+                expandedMemoIds = updateExpandedMemoIds(
+                    expandedMemoIds = expandedMemoIds,
+                    memoId = memoId,
+                    isExpanded = isExpanded,
+                ).toPersistentSet()
+            }
+        }
 
     MemoListPreloadEffect(
         loadedWindow = preloadWindow,
@@ -137,13 +153,7 @@ internal fun MemoListContent(
             expandedMemoIds = expandedMemoIds,
             expandStates = expandPresentation.states,
             onExpandRetry = expandPresentation.onRetry,
-            onExpandedMemoChange = { memoId, isExpanded ->
-                expandedMemoIds = updateExpandedMemoIds(
-                    expandedMemoIds = expandedMemoIds,
-                    memoId = memoId,
-                    isExpanded = isExpanded,
-                ).toPersistentSet()
-            },
+            onExpandedMemoChange = onExpandedMemoChange,
             exitAnimationRegistry = exitAnimationRegistry,
             enterAnimationRegistry = enterAnimationRegistry,
             listState = listState,
@@ -234,10 +244,12 @@ private fun MemoPagedListColumn(
         )
 
     val visiblePagedMemos =
-        if (exitState.overlayIdle) {
-            snapshotMemos
-        } else {
-            exitState.renderList.map { it.item }
+        remember(exitState.overlayIdle, snapshotMemos, exitState.renderList) {
+            if (exitState.overlayIdle) {
+                snapshotMemos
+            } else {
+                exitState.renderList.map { it.item }
+            }
         }
 
     val onItemExitSettled = exitState.onExitSettled
@@ -340,6 +352,9 @@ private fun MemoPagedLazyColumn(
                     .asPaddingValues()
                     .calculateBottomPadding() + MEMO_LIST_BOTTOM_PADDING,
             )
+    val placementEnabled by remember(overlayIdle, enterState.structuralMotionActive, listState) {
+        derivedStateOf { overlayIdle && !enterState.structuralMotionActive && !listState.isScrollInProgress }
+    }
     LazyColumn(
         state = listState,
         contentPadding = contentPadding,
@@ -374,7 +389,7 @@ private fun MemoPagedLazyColumn(
                 onItemExitSettled = onItemExitSettled,
                 enterState = enterState,
                 renderWindow = renderWindow,
-                placementEnabled = overlayIdle && !enterState.structuralMotionActive && !listState.isScrollInProgress,
+                placementEnabled = placementEnabled,
             )
         }
     }
@@ -493,13 +508,19 @@ private fun MemoPagedListRow(
                         Text(stringResource(R.string.memo_expand_load_failed_retry))
                     }
 
-                else ->
+                MemoExpandEntry.Loading,
+                null,
+                ->
                     LinearWavyProgressIndicator(
                         modifier =
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = MEMO_LIST_ITEM_SPACING),
                     )
+
+                is MemoExpandEntry.Refreshing,
+                is MemoExpandEntry.Expanded,
+                -> Unit
             }
         }
     }
@@ -515,15 +536,25 @@ private fun MemoPagedListItem(
     modifier: Modifier = Modifier,
     anchoredAfterKey: String? = null,
 ) {
+    val memoId = uiModel.memo.id
+    val reminderClick =
+        remember(memoId, actions.onReminderDone) {
+            createMainReminderDoneClickAction(
+                memoId = memoId,
+                onReminderDone = actions.onReminderDone,
+            )
+        }
+    val onExpandedChange =
+        remember(memoId, actions.onExpandedMemoChange) {
+            { expanded: Boolean ->
+                actions.onExpandedMemoChange(memoId, expanded)
+            }
+        }
     MemoListItem(
         uiModel = uiModel,
         bottomSpacing = MEMO_LIST_ITEM_SPACING,
         onTodoClick = onTodoClick,
-        onReminderClick =
-        createMainReminderDoneClickAction(
-            memoId = uiModel.memo.id,
-            onReminderDone = actions.onReminderDone,
-        ),
+        onReminderClick = reminderClick,
         dateFormat = displayConfig.dateFormat,
         timeFormat = displayConfig.timeFormat,
         onMemoDoubleClick = actions.onMemoDoubleClick,
@@ -534,9 +565,7 @@ private fun MemoPagedListItem(
         onShowMemoMenu = actions.onShowMemoMenu,
         modifier = modifier,
         isExpanded = isExpanded,
-        onExpandedChange = { expanded ->
-            actions.onExpandedMemoChange(uiModel.memo.id, expanded)
-        },
+        onExpandedChange = onExpandedChange,
         anchoredAfterKey = anchoredAfterKey,
     )
 }
@@ -581,23 +610,36 @@ private fun PagedMemoLazyColumn(
             scrollbarItemCount = scrollbarItemCount,
         )
     val displayConfig =
-        MemoPagedListDisplayConfig(
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
-            doubleTapEditEnabled = doubleTapEditEnabled,
-            freeTextCopyEnabled = freeTextCopyEnabled,
-        )
+        remember(dateFormat, timeFormat, doubleTapEditEnabled, freeTextCopyEnabled) {
+            MemoPagedListDisplayConfig(
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                doubleTapEditEnabled = doubleTapEditEnabled,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+            )
+        }
     val actions =
-        MemoPagedListActions(
-            onTodoClick = onTodoClick,
-            onReminderDone = onReminderClick,
-            onMemoDoubleClick = onMemoDoubleClick,
-            onTagClick = onTagClick,
-            onImageClick = onImageClick,
-            onShowMemoMenu = onShowMemoMenu,
-            onExpandedMemoChange = onExpandedMemoChange,
-            onExpandRetry = onExpandRetry,
-        )
+        remember(
+            onTodoClick,
+            onReminderClick,
+            onMemoDoubleClick,
+            onTagClick,
+            onImageClick,
+            onShowMemoMenu,
+            onExpandedMemoChange,
+            onExpandRetry,
+        ) {
+            MemoPagedListActions(
+                onTodoClick = onTodoClick,
+                onReminderDone = onReminderClick,
+                onMemoDoubleClick = onMemoDoubleClick,
+                onTagClick = onTagClick,
+                onImageClick = onImageClick,
+                onShowMemoMenu = onShowMemoMenu,
+                onExpandedMemoChange = onExpandedMemoChange,
+                onExpandRetry = onExpandRetry,
+            )
+        }
     WithDraggableScrollbar(
         state = listState,
         modifier = Modifier.fillMaxSize(),

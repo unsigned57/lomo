@@ -83,33 +83,39 @@ private fun MemoCardBodyStateContent(
     state: MemoCardBodyState,
     selectionRegistrar: MemoTextSelectionRegistrar?,
 ) {
-    when (visualState) {
-        MemoCardBodyVisualState.Expanded -> {
-            MemoCardMarkdownContent(
-                state = state,
+    if (visualState == MemoCardBodyVisualState.CollapsedSummary) {
+        MemoCardCollapsedBody {
+            MemoCardCollapsedSummary(
+                collapsedSummary = collapsedSummary,
+                allowFreeTextCopy = state.allowFreeTextCopy,
+                onBodyClick = state.onBodyClick,
+                onLongClick = state.onLongClick,
                 selectionRegistrar = selectionRegistrar,
             )
         }
+        return
+    }
 
-        MemoCardBodyVisualState.CollapsedSummary -> {
-            MemoCardCollapsedBody {
-                MemoCardCollapsedSummary(
-                    collapsedSummary = collapsedSummary,
-                    allowFreeTextCopy = state.allowFreeTextCopy,
-                    onBodyClick = state.onBodyClick,
-                    onLongClick = state.onLongClick,
-                    selectionRegistrar = selectionRegistrar,
-                )
-            }
-        }
-
-        MemoCardBodyVisualState.CollapsedMarkdownPreview -> {
-            MemoCardCollapsedBody {
-                MemoCardMarkdownContent(
-                    state = state,
-                    selectionRegistrar = selectionRegistrar,
-                )
-            }
+    // Expanded and CollapsedMarkdownPreview share a single MarkdownIrRenderer slot so expanding,
+    // collapsing, or toggling todos never disposes and recreates the markdown subtree.
+    val isCollapsedPreview = visualState == MemoCardBodyVisualState.CollapsedMarkdownPreview
+    Box(
+        modifier =
+        if (isCollapsedPreview) {
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = MemoCardTokens.CollapsedBodyMaxHeight)
+                .clipToBounds()
+        } else {
+            Modifier.fillMaxWidth()
+        },
+    ) {
+        MemoCardMarkdownContent(
+            state = state,
+            selectionRegistrar = selectionRegistrar,
+        )
+        if (isCollapsedPreview) {
+            MemoCardCollapsedOverlay()
         }
     }
 }

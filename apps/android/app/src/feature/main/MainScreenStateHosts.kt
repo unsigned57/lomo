@@ -127,16 +127,27 @@ internal fun rememberMainScreenHostState(): MainScreenHostState {
             )
         }
     val editorController = rememberMemoEditorController()
+    val directoryGuideController = rememberMainDirectoryGuideController()
 
-    return MainScreenHostState(
-        sidebar = sidebar,
-        scope = scope,
-        snackbarHostState = snackbarHostState,
-        scrollBehavior = scrollBehavior,
-        listState = listState,
-        editorController = editorController,
-        directoryGuideController = rememberMainDirectoryGuideController(),
-    )
+    return remember(
+        sidebar,
+        scope,
+        snackbarHostState,
+        scrollBehavior,
+        listState,
+        editorController,
+        directoryGuideController,
+    ) {
+        MainScreenHostState(
+            sidebar = sidebar,
+            scope = scope,
+            snackbarHostState = snackbarHostState,
+            scrollBehavior = scrollBehavior,
+            listState = listState,
+            editorController = editorController,
+            directoryGuideController = directoryGuideController,
+        )
+    }
 }
 
 @OptIn(FlowPreview::class)
@@ -202,6 +213,7 @@ internal fun MainScreenContentHost(
     onNavigateToStatistics: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit,
     lanShareEnabled: Boolean,
+    expandCoordinator: MemoListExpandCoordinator? = null,
 ) {
     val allTags =
         remember(screenState.sidebarUiState.tags) {
@@ -250,22 +262,26 @@ internal fun MainScreenContentHost(
             onNavigateToStatistics = onNavigateToStatistics,
             onShowMemoMenu = showMenu,
             onOpenEditor = openEditor,
+            expandCoordinator = expandCoordinator,
         )
     }
 
+    val directoryGuideActions =
+        remember(contentBindings, hostState.editorController, onNavigateToSettings) {
+            MainDirectoryGuideActions(
+                onConfirmCreate = { type ->
+                    contentBindings.navigationActions.onCreateDefaultDirectories(
+                        type == DirectorySetupType.Image,
+                        type == DirectorySetupType.Voice,
+                    )
+                },
+                onBeforeGoToSettings = hostState.editorController::close,
+                onGoToSettings = onNavigateToSettings,
+            )
+        }
     MainDirectoryGuideHost(
         controller = hostState.directoryGuideController,
-        actions =
-        MainDirectoryGuideActions(
-            onConfirmCreate = { type ->
-                contentBindings.navigationActions.onCreateDefaultDirectories(
-                    type == DirectorySetupType.Image,
-                    type == DirectorySetupType.Voice,
-                )
-            },
-            onBeforeGoToSettings = hostState.editorController::close,
-            onGoToSettings = onNavigateToSettings,
-        ),
+        actions = directoryGuideActions,
     )
 }
 
@@ -290,16 +306,26 @@ private fun MainScreenNavigationContent(
     onNavigateToStatistics: () -> Unit,
     onShowMemoMenu: (MemoMenuSelection) -> Unit,
     onOpenEditor: (Memo) -> Unit,
+    expandCoordinator: MemoListExpandCoordinator? = null,
 ) {
     var isMemoFilterSheetVisible by rememberSaveable { mutableStateOf(false) }
-    val busyMessage = stringResource(R.string.quick_ball_busy)
-    val recordingFailureMessage = stringResource(R.string.quick_ball_record_failed)
     val onHeatmapDateLongPress =
         rememberMainScreenHeatmapLongPressAction(
             onFilterMemosByDate = contentBindings.navigationActions.onFilterMemosByDate,
             hostState = hostState,
         )
     val onScrollToTop = rememberMainScreenScrollToTopAction(hostState)
+    val isWorkspaceReady = screenState.uiState is MainViewModel.MainScreenState.Ready
+    val navigationCallbacks =
+        rememberMainNavigationCallbacks(
+            hostState = hostState,
+            contentBindings = contentBindings,
+            draftTextFlow = draftTextFlow,
+            isRecordingFlow = isRecordingFlow,
+            isWorkspaceReady = isWorkspaceReady,
+            onNavigateToSettings = onNavigateToSettings,
+            onOpenMemoFilterSheet = remember { { isMemoFilterSheetVisible = true } },
+        )
     MainScreenSessionRestoreEffect(
         sessionRestore = contentBindings.sessionRestore,
         listState = hostState.listState,
@@ -315,15 +341,9 @@ private fun MainScreenNavigationContent(
         scope = hostState.scope,
         sidebar = hostState.sidebar,
         canCreateMemo =
-        screenState.uiState is MainViewModel.MainScreenState.Ready &&
+        isWorkspaceReady &&
             screenState.pendingNewMemoCreationEvent == null,
-        onCreateMemoUnavailable = {
-            if (screenState.uiState !is MainViewModel.MainScreenState.Ready) {
-                onNavigateToSettings()
-            } else {
-                hostState.scope.launch { hostState.snackbarHostState.showSnackbar(busyMessage) }
-            }
-        },
+        onCreateMemoUnavailable = navigationCallbacks.onCreateMemoUnavailable,
         onNavigateToSettings = onNavigateToSettings,
         onNavigateToTrash = onNavigateToTrash,
         onNavigateToSearch = onNavigateToSearch,
@@ -333,21 +353,10 @@ private fun MainScreenNavigationContent(
         onNavigateToGallery = onNavigateToGallery,
         onNavigateToStatistics = onNavigateToStatistics,
         onClearMainFilters = contentBindings.navigationActions.onClearMemoFilter,
-        onOpenMemoFilterPanel = { isMemoFilterSheetVisible = true },
-        onOpenCreateMemo = {
-            hostState.editorController.openForCreate(draftTextFlow.value)
-        },
-        onOpenLongText = {
-            hostState.editorController.openForCreate(draftTextFlow.value)
-            hostState.editorController.setExpanded(true)
-        },
-        onStartRecording = {
-            if (isRecordingFlow.value) {
-                hostState.editorController.ensureVisible()
-            } else {
-                contentBindings.navigationActions.onRequestQuickBallRecording(recordingFailureMessage)
-            }
-        },
+        onOpenMemoFilterPanel = navigationCallbacks.onOpenMemoFilterPanel,
+        onOpenCreateMemo = navigationCallbacks.onOpenCreateMemo,
+        onOpenLongText = navigationCallbacks.onOpenLongText,
+        onStartRecording = navigationCallbacks.onStartRecording,
         onRefreshMemos = contentBindings.navigationActions.onRefreshMemos,
     ) { actions ->
         MainScreenNavigationRender(
@@ -358,8 +367,9 @@ private fun MainScreenNavigationContent(
             actions = actions,
             isRefreshing = isRefreshing,
             isMemoFilterSheetVisible = isMemoFilterSheetVisible,
-            onDismissMemoFilterSheet = { isMemoFilterSheetVisible = false },
+            onDismissMemoFilterSheet = remember { { isMemoFilterSheetVisible = false } },
             onHeatmapDateLongPress = onHeatmapDateLongPress,
+            expandCoordinator = expandCoordinator,
             fab = {
                 val ballVisible = !hostState.editorController.isVisible &&
                     !isMemoFilterSheetVisible && !hostState.sidebar.coversFeed
@@ -499,5 +509,63 @@ private fun rememberMainScreenScrollToTopAction(hostState: MainScreenHostState):
             }
             hostState.listState.animateScrollToItem(0)
         }
+    }
+}
+
+private class MainNavigationCallbacks(
+    val onCreateMemoUnavailable: () -> Unit,
+    val onOpenMemoFilterPanel: () -> Unit,
+    val onOpenCreateMemo: () -> Unit,
+    val onOpenLongText: () -> Unit,
+    val onStartRecording: () -> Unit,
+)
+
+@Composable
+private fun rememberMainNavigationCallbacks(
+    hostState: MainScreenHostState,
+    contentBindings: MainContentHostBindings,
+    draftTextFlow: StateFlow<String>,
+    isRecordingFlow: StateFlow<Boolean>,
+    isWorkspaceReady: Boolean,
+    onNavigateToSettings: () -> Unit,
+    onOpenMemoFilterSheet: () -> Unit,
+): MainNavigationCallbacks {
+    val busyMessage = stringResource(R.string.quick_ball_busy)
+    val recordingFailureMessage = stringResource(R.string.quick_ball_record_failed)
+    return remember(
+        hostState,
+        contentBindings,
+        draftTextFlow,
+        isRecordingFlow,
+        isWorkspaceReady,
+        busyMessage,
+        recordingFailureMessage,
+        onNavigateToSettings,
+        onOpenMemoFilterSheet,
+    ) {
+        MainNavigationCallbacks(
+            onCreateMemoUnavailable = {
+                if (!isWorkspaceReady) {
+                    onNavigateToSettings()
+                } else {
+                    hostState.scope.launch { hostState.snackbarHostState.showSnackbar(busyMessage) }
+                }
+            },
+            onOpenMemoFilterPanel = onOpenMemoFilterSheet,
+            onOpenCreateMemo = {
+                hostState.editorController.openForCreate(draftTextFlow.value)
+            },
+            onOpenLongText = {
+                hostState.editorController.openForCreate(draftTextFlow.value)
+                hostState.editorController.setExpanded(true)
+            },
+            onStartRecording = {
+                if (isRecordingFlow.value) {
+                    hostState.editorController.ensureVisible()
+                } else {
+                    contentBindings.navigationActions.onRequestQuickBallRecording(recordingFailureMessage)
+                }
+            },
+        )
     }
 }

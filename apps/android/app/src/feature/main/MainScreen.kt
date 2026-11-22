@@ -1,11 +1,13 @@
 package com.lomo.app.feature.main
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +32,7 @@ import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.app.feature.memo.MemoMenuContextAction
+import com.lomo.app.feature.memo.MemoMenuLanShareRequest
 import com.lomo.app.feature.memo.MemoMenuPresentationState
 import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.app.feature.memo.appendImageMarkdown
@@ -43,6 +46,7 @@ import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ImageLocationSnapshot
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.QuickBallConfig
 import com.lomo.domain.model.RecoveryDiagnosticReport
 import kotlinx.collections.immutable.ImmutableList
@@ -59,7 +63,7 @@ internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
 internal const val MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX = 10
 
 @Composable
-fun MainScreen(
+internal fun MainScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
@@ -77,6 +81,8 @@ fun MainScreen(
     recordingViewModel: RecordingViewModel = injectedKoinViewModel(),
     conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = injectedKoinViewModel(),
     conflictStateViewModel: SyncConflictStateViewModel = injectedKoinViewModel(),
+    pagedUiMemos: LazyPagingItems<MemoUiModel>? = null,
+    expandCoordinator: MemoListExpandCoordinator? = null,
 ) {
     val mainBindings = viewModel.hostBindings
     val screenState =
@@ -89,10 +95,8 @@ fun MainScreen(
         diagnosticBindings = mainBindings.diagnosticExport,
         snackbarHostState = hostState.snackbarHostState,
     )
-    val pagedUiMemos: LazyPagingItems<MemoUiModel> = viewModel.pagedUiMemos.collectAsLazyPagingItems()
-    val pagedItemSnapshotList = pagedUiMemos.itemSnapshotList
-    val displayedVisibleUiMemoStartIndex = pagedItemSnapshotList.placeholdersBefore
-    val displayedVisibleUiMemos = pagedItemSnapshotList.items
+    val resolvedPagedUiMemos: LazyPagingItems<MemoUiModel> =
+        pagedUiMemos ?: viewModel.pagedUiMemos.collectAsLazyPagingItems()
     val unknownErrorMessage = stringResource(R.string.error_unknown)
     val memoNotFoundMessage = stringResource(R.string.main_list_focus_memo_missing)
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -103,7 +107,7 @@ fun MainScreen(
     )
     MainScreenPendingNewMemoCreationEffect(
         listState = hostState.listState,
-        pagedUiMemos = pagedUiMemos,
+        pagedUiMemos = resolvedPagedUiMemos,
         creationBindings = mainBindings.creation,
         editorBindings = editorViewModel.hostBindings,
     )
@@ -112,8 +116,7 @@ fun MainScreen(
         effectBindings = mainBindings.effects,
         editorBindings = editorViewModel.hostBindings,
         recordingBindings = recordingViewModel.hostBindings,
-        visibleUiMemos = displayedVisibleUiMemos,
-        visibleUiMemoStartIndex = displayedVisibleUiMemoStartIndex,
+        pagedUiMemos = resolvedPagedUiMemos,
         searchQuery = screenState.searchQuery,
         memoListFilter = screenState.memoListFilter,
         canResolveOffscreenMainListFocus =
@@ -137,10 +140,10 @@ fun MainScreen(
         conflictController = conflictViewModel.dialogController,
         stateBindings = conflictStateViewModel.hostBindings,
     )
-    MainScreenFullyDrawnEffect(pagedUiMemos = pagedUiMemos)
+    MainScreenFullyDrawnEffect(pagedUiMemos = resolvedPagedUiMemos)
     MainScreenContentHost(
         screenState = screenState,
-        pagedUiMemos = pagedUiMemos,
+        pagedUiMemos = resolvedPagedUiMemos,
         hostState = hostState,
         contentBindings = mainBindings.content,
         sidebarBindings = sidebarViewModel.hostBindings,
@@ -158,6 +161,7 @@ fun MainScreen(
         onNavigateToStatistics = onNavigateToStatistics,
         onNavigateToShare = onNavigateToShare,
         lanShareEnabled = lanShareEnabled,
+        expandCoordinator = expandCoordinator,
     )
 }
 
@@ -329,6 +333,7 @@ private fun MainScreenPendingNewMemoCreationEffect(
 
 internal data class DraftAutosaveState(val editingMemoId: String?, val text: String, val isVisible: Boolean)
 
+@Stable
 internal data class MainScreenUiSnapshot(
     val searchQuery: String,
     val memoListFilter: MemoListFilter,
@@ -352,6 +357,7 @@ internal data class MainScreenUiSnapshot(
     val pendingNewMemoCreationEvent: PendingUiEvent<PendingNewMemoCreationRequest>?,
 )
 
+@Stable
 @OptIn(ExperimentalMaterial3Api::class)
 internal data class MainScreenHostState(
     val sidebar: MainSidebarState,
@@ -398,8 +404,7 @@ private fun MainScreenTransientEffects(
     effectBindings: MainEffectHostBindings,
     editorBindings: MemoEditorHostBindings,
     recordingBindings: MainRecordingBindings,
-    visibleUiMemos: List<MemoUiModel>,
-    visibleUiMemoStartIndex: Int,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>,
     searchQuery: String,
     memoListFilter: MemoListFilter,
     canResolveOffscreenMainListFocus: Boolean,
@@ -437,8 +442,7 @@ private fun MainScreenTransientEffects(
         editorBindings = editorBindings,
         onClearRecordingError = recordingBindings.actions.onClearError,
         recordingErrorFlow = recordingBindings.flows.errorMessage,
-        visibleUiMemos = visibleUiMemos,
-        visibleUiMemoStartIndex = visibleUiMemoStartIndex,
+        pagedUiMemos = pagedUiMemos,
         searchQuery = searchQuery,
         memoListFilter = memoListFilter,
         canResolveOffscreenMainListFocus = canResolveOffscreenMainListFocus,
@@ -458,8 +462,7 @@ private fun MainScreenEventEffectsSurface(
     editorBindings: MemoEditorHostBindings,
     onClearRecordingError: () -> Unit,
     recordingErrorFlow: kotlinx.coroutines.flow.StateFlow<String?>,
-    visibleUiMemos: List<MemoUiModel>,
-    visibleUiMemoStartIndex: Int,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>,
     searchQuery: String,
     memoListFilter: MemoListFilter,
     canResolveOffscreenMainListFocus: Boolean,
@@ -484,6 +487,56 @@ private fun MainScreenEventEffectsSurface(
     val imageDirectory by eventFlows.imageDirectory.collectAsStateWithLifecycle()
     val openFullMemoEditor =
         rememberFullMemoEditorOpener(editorController, editorBindings.actions.onReportError)
+    val pendingFocusMemoIds =
+        remember(appActionEvents) {
+            appActionEvents.mapNotNullTo(mutableSetOf()) { event ->
+                (event.payload as? MainViewModel.AppAction.FocusMemo)?.memoId
+            }
+        }
+    val focusRetryKey =
+        if (pendingFocusMemoIds.isEmpty()) {
+            null
+        } else {
+            val snapshot = pagedUiMemos.itemSnapshotList
+            resolveMainListFocusRetryKey(
+                searchQuery = searchQuery,
+                filter = memoListFilter,
+                windowStartIndex = snapshot.placeholdersBefore,
+                visibleMemos = snapshot.items,
+                pendingFocusMemoIds = pendingFocusMemoIds,
+            )
+        }
+    val onFocusMemoInList: suspend (String) -> MainScreenFocusAttempt =
+        remember(pagedUiMemos, canResolveOffscreenMainListFocus, eventActions, listState) {
+            { memoId ->
+                val snapshot = pagedUiMemos.itemSnapshotList
+                focusMemoInMainScreenWithFallback(
+                    memoId = memoId,
+                    visibleUiMemos = snapshot.items,
+                    visibleUiMemoStartIndex = snapshot.placeholdersBefore,
+                    canResolveOffscreenMainListFocus = canResolveOffscreenMainListFocus,
+                    resolveOffscreenIndex = eventActions.onResolveDefaultMainListIndex,
+                    positioner =
+                    MainScreenFocusPositioner { index ->
+                        // Same pending-modification constraint as the new-memo reveal: a
+                        // synchronous scrollToItem can force subcomposition before the
+                        // recomposer applies pending list mutations and crash the process.
+                        listState.requestScrollToItem(index)
+                    },
+                )
+            }
+        }
+    val onSaveImage: (Uri, (String) -> Unit, () -> Unit) -> Unit =
+        remember(editorBindings) {
+            { uri, onResult, onError ->
+                editorBindings.actions.onSaveImage(
+                    uri,
+                    editorBindings.flows.getOwnerDraftId(),
+                    onResult,
+                    onError,
+                )
+            }
+        }
 
     MainScreenEventEffectsHost(
         sharedContentEvents = remember(sharedContentEvents) { sharedContentEvents.toImmutableList() },
@@ -500,52 +553,11 @@ private fun MainScreenEventEffectsSurface(
         onAppendImageMarkdown = editorController::appendImageMarkdown,
         onEnsureEditorVisible = editorController::ensureVisible,
         onOpenEditMemo = openFullMemoEditor,
-        onFocusMemoInList = { memoId ->
-            focusMemoInMainScreenWithFallback(
-                memoId = memoId,
-                visibleUiMemos = visibleUiMemos,
-                visibleUiMemoStartIndex = visibleUiMemoStartIndex,
-                canResolveOffscreenMainListFocus = canResolveOffscreenMainListFocus,
-                resolveOffscreenIndex = eventActions.onResolveDefaultMainListIndex,
-                positioner =
-                MainScreenFocusPositioner { index ->
-                    // Same pending-modification constraint as the new-memo reveal: a
-                    // synchronous scrollToItem can force subcomposition before the
-                    // recomposer applies pending list mutations and crash the process.
-                    listState.requestScrollToItem(index)
-                },
-            )
-        },
+        onFocusMemoInList = onFocusMemoInList,
         onMainListFocusConsumed = eventActions.onClearMainListFocusReanchor,
-        focusRetryKey =
-        remember(
-            visibleUiMemos,
-            visibleUiMemoStartIndex,
-            searchQuery,
-            memoListFilter,
-            appActionEvents,
-        ) {
-            resolveMainListFocusRetryKey(
-                searchQuery = searchQuery,
-                filter = memoListFilter,
-                windowStartIndex = visibleUiMemoStartIndex,
-                visibleMemos = visibleUiMemos,
-                pendingFocusMemoIds =
-                appActionEvents
-                    .mapNotNullTo(mutableSetOf()) { event ->
-                        (event.payload as? MainViewModel.AppAction.FocusMemo)?.memoId
-                    },
-            )
-        },
+        focusRetryKey = focusRetryKey,
         onResolveMemoById = eventActions.onResolveMemoById,
-        onSaveImage = { uri, onResult, onError ->
-            editorBindings.actions.onSaveImage(
-                uri,
-                editorBindings.flows.getOwnerDraftId(),
-                onResult,
-                onError,
-            )
-        },
+        onSaveImage = onSaveImage,
         onRequireImageDirectory = directoryGuideController::requestImage,
         onConsumeSharedContentEvent = eventActions.onConsumeSharedContentEvent,
         onConsumeAppActionEvent = eventActions.onConsumeAppActionEvent,
@@ -603,6 +615,14 @@ internal fun MainScreenInteractionBindings(
         )
     val openFullMemoEditor =
         rememberFullMemoEditorOpener(editorController, editorBindings.actions.onReportError)
+    val onLanShare: ((MemoMenuLanShareRequest) -> Unit)? =
+        remember(lanShareEnabled, onNavigateToShare) {
+            if (lanShareEnabled) {
+                { request -> onNavigateToShare(request.content, request.timestamp) }
+            } else {
+                null
+            }
+        }
     val memoMenuCommandHandler =
         rememberMemoMenuCommandHandler(
             presentationState =
@@ -614,12 +634,7 @@ internal fun MainScreenInteractionBindings(
             ),
             onEditMemo = openFullMemoEditor,
             onDeleteMemo = memoInteractions.onDeleteMemo,
-            onLanShare =
-            if (lanShareEnabled) {
-                { request -> onNavigateToShare(request.content, request.timestamp) }
-            } else {
-                null
-            },
+            onLanShare = onLanShare,
             contextAction = MemoMenuContextAction.TogglePin(memoInteractions.onSetMemoPinned),
             onVersionHistory = interactionCallbacks.onVersionHistory,
         )
@@ -653,6 +668,10 @@ internal fun MainScreenInteractionBindings(
         content(showMenu, openEditor)
     }
 
+    val onRestoreVersion: (Memo, MemoRevision) -> Unit =
+        remember(memoInteractions) {
+            { memo, version -> memoInteractions.versionHistory.onRestoreVersion(memo, version) }
+        }
     VersionHistoryOverlay(
         state = versionHistoryState,
         rootPath = rootDirectory,
@@ -660,7 +679,7 @@ internal fun MainScreenInteractionBindings(
         imageMap = stableImageMap,
         onDismiss = memoInteractions.versionHistory.onDismissVersionHistory,
         onLoadMore = memoInteractions.versionHistory.onLoadMoreVersionHistory,
-        onRestore = { memo, version -> memoInteractions.versionHistory.onRestoreVersion(memo, version) },
+        onRestore = onRestoreVersion,
     )
 }
 

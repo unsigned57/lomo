@@ -1,6 +1,5 @@
 package com.lomo.ui.component.card
 
-import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -29,9 +28,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,7 +39,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -103,10 +101,28 @@ fun MemoCard(
     mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
 ) {
-    var bodyHeightPx by remember(content, renderDocument, presentationPlan) { mutableIntStateOf(0) }
-    val collapsedHeightPx = with(LocalDensity.current) { MemoCardTokens.CollapsedBodyMaxHeight.roundToPx() }
-    val hasImages = renderDocument.attachments.any { it.mediaClass == com.lomo.domain.model.MediaClass.IMAGE }
-    val canExpand = shouldShowMemoCardExpand(bodyHeightPx, collapsedHeightPx, shouldShowExpand, hasImages)
+    val density = LocalDensity.current
+    val heightState =
+        rememberMemoCardMeasuredHeight(
+            content = content,
+            timestamp = timestamp,
+            processedContent = processedContent,
+            renderDocument = renderDocument,
+            presentationPlan = presentationPlan,
+            density = density,
+        )
+    val collapsedHeightPx = remember(density) { with(density) { MemoCardTokens.CollapsedBodyMaxHeight.roundToPx() } }
+    val hasImages =
+        remember(renderDocument) {
+            renderDocument.attachments.any { it.mediaClass == com.lomo.domain.model.MediaClass.IMAGE }
+        }
+    val canExpand =
+        shouldShowMemoCardExpand(
+            contentHeightPx = heightState.heightPx,
+            collapsedHeightPx = collapsedHeightPx,
+            hasHiddenContent = shouldShowExpand,
+            hasImages = hasImages,
+        )
     val expansion =
         rememberMemoCardExpansion(
             timestamp = timestamp,
@@ -117,40 +133,112 @@ fun MemoCard(
             collapsedSummary = collapsedSummary,
             onExpandedChange = onExpandedChange,
         )
-    val clampBodyHeight =
-        shouldClampMemoCardBody(
-            requestedExpanded = expansion.requestedExpanded,
-            hasImages = hasImages,
-        )
+    val clampBodyHeight = shouldClampMemoCardBody(
+        requestedExpanded = expansion.requestedExpanded,
+        hasImages = hasImages,
+    )
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    val dateTimeFormatter = remember(dateFormat, timeFormat) {
-        DateTimeFormatter.ofPattern("$dateFormat $timeFormat")
-    }
+    val dateTimeFormatter =
+        remember(dateFormat, timeFormat) {
+            DateTimeFormatter.ofPattern("$dateFormat $timeFormat")
+        }
     val cardInteractionSource = remember { MutableInteractionSource() }
     val tapSequence = rememberMemoCardTapSequence(isDoubleTapEnabled = onDoubleClick != null)
-    val textLongClick = onMenuClick?.let { menuClick ->
-        {
-            tapSequence.reset()
-            haptic.longPress()
-            menuClick()
-        }
-    }
-    val effectiveOnClick =
-        memoCardClickHandler(
+    val pointerHandlers =
+        rememberMemoCardPointerHandlers(
             tapSequence = tapSequence,
             haptic = haptic,
+            canExpand = canExpand,
+            expandOnClick = expandOnClick,
+            requestedExpanded = expansion.requestedExpanded,
+            updateExpanded = expansion.updateExpanded,
+            onClick = onClick,
             onDoubleClick = onDoubleClick,
-            onSingleClick = {
-                if (expandOnClick && canExpand) expansion.updateExpanded(!expansion.requestedExpanded)
-                onClick()
-            },
+            onMenuClick = onMenuClick,
         )
-    val interactionModifier = Modifier.rememberMemoCardInteractionModifier(
-        allowFreeTextCopy = allowFreeTextCopy,
+    MemoCardRenderedContent(
         cardInteractionSource = cardInteractionSource,
-        onClick = effectiveOnClick,
-        onLongClick = textLongClick,
+        timestamp = timestamp,
+        dateTimeFormatter = dateTimeFormatter,
+        isPinned = isPinned,
+        isPending = isPending,
+        allowFreeTextCopy = allowFreeTextCopy,
+        haptic = haptic,
+        onMenuClick = onMenuClick,
+        menuContent = menuContent,
+        processedContent = processedContent,
+        collapsedSummary = collapsedSummary,
+        canExpand = canExpand,
+        clampBodyHeight = clampBodyHeight,
+        expansion = expansion,
+        pointerHandlers = pointerHandlers,
+        onBodyHeightChanged = heightState.onBodyHeightChanged,
+        renderDocument = renderDocument,
+        presentationPlan = presentationPlan,
+        onTodoClick = onTodoClick,
+        onImageClick = onImageClick,
+        mediaPresentationResolver = mediaPresentationResolver,
+        mediaContent = mediaContent,
+        tags = tags,
+        reminders = reminders,
+        onTagClick = onTagClick,
+        onReminderClick = onReminderClick,
+        modifier = modifier,
+        menuButtonModifier = menuButtonModifier,
     )
+}
+
+@Composable
+private fun MemoCardRenderedContent(
+    cardInteractionSource: MutableInteractionSource,
+    timestamp: Long,
+    dateTimeFormatter: DateTimeFormatter,
+    isPinned: Boolean,
+    isPending: Boolean,
+    allowFreeTextCopy: Boolean,
+    haptic: com.lomo.ui.util.AppHapticFeedback,
+    onMenuClick: (() -> Unit)?,
+    menuContent: (@Composable () -> Unit)?,
+    processedContent: String,
+    collapsedSummary: String,
+    canExpand: Boolean,
+    clampBodyHeight: Boolean,
+    expansion: MemoCardExpansion,
+    pointerHandlers: MemoCardPointerHandlers,
+    onBodyHeightChanged: (Int) -> Unit,
+    renderDocument: MarkdownRenderDocument,
+    presentationPlan: MarkdownIrPresentationPlan?,
+    onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
+    onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
+    tags: ImmutableList<String>,
+    reminders: ImmutableList<ReminderMarker>,
+    onTagClick: (String) -> Unit,
+    onReminderClick: (ReminderMarker) -> Unit,
+    modifier: Modifier = Modifier,
+    menuButtonModifier: Modifier = Modifier,
+) {
+    val interactionModifier =
+        Modifier.rememberMemoCardInteractionModifier(
+            allowFreeTextCopy = allowFreeTextCopy,
+            cardInteractionSource = cardInteractionSource,
+            onClick = pointerHandlers.effectiveOnClick,
+            onLongClick = pointerHandlers.textLongClick,
+        )
+    val bodyState =
+        rememberMemoCardBodyState(
+            onBodyHeightChanged = onBodyHeightChanged,
+            renderDocument = renderDocument,
+            presentationPlan = presentationPlan,
+            allowFreeTextCopy = allowFreeTextCopy,
+            onBodyClick = pointerHandlers.effectiveOnClick,
+            onLongClick = pointerHandlers.textLongClick,
+            onTodoClick = onTodoClick,
+            onImageClick = onImageClick,
+            mediaPresentationResolver = mediaPresentationResolver,
+            mediaContent = mediaContent,
+        )
 
     MemoCardContainer(isPinned = isPinned, interactionSource = cardInteractionSource, modifier = modifier) {
         Column(modifier = interactionModifier.padding(MemoCardTokens.ContainerPadding)) {
@@ -173,19 +261,7 @@ fun MemoCard(
                 collapsedSummary = collapsedSummary,
                 isExpanded = expansion.bodyExpanded,
                 clampHeight = clampBodyHeight,
-                state =
-                MemoCardBodyState(
-                    renderDocument = renderDocument,
-                    onBodyHeightChanged = { bodyHeightPx = it },
-                    presentationPlan = presentationPlan,
-                    allowFreeTextCopy = allowFreeTextCopy,
-                    onBodyClick = effectiveOnClick,
-                    onLongClick = textLongClick,
-                    onTodoClick = onTodoClick,
-                    onImageClick = onImageClick,
-                    mediaPresentationResolver = mediaPresentationResolver,
-                    mediaContent = mediaContent,
-                ),
+                state = bodyState,
             )
             MemoCardFooter(
                 tags = tags,
@@ -194,39 +270,10 @@ fun MemoCard(
                 isExpanded = expansion.requestedExpanded,
                 haptic = haptic,
                 onTagClick = onTagClick,
-                onToggleExpanded = {
-                    tapSequence.reset()
-                    expansion.updateExpanded(!expansion.requestedExpanded)
-                },
+                onToggleExpanded = pointerHandlers.onToggleExpanded,
                 onReminderClick = onReminderClick,
             )
         }
-    }
-}
-
-@Composable
-private fun rememberMemoCardTapSequence(isDoubleTapEnabled: Boolean): MemoCardTapSequence {
-    val viewConfiguration = LocalViewConfiguration.current
-    return remember(viewConfiguration, isDoubleTapEnabled) {
-        MemoCardTapSequence(viewConfiguration.doubleTapMinTimeMillis, viewConfiguration.doubleTapTimeoutMillis)
-    }
-}
-
-/**
- * One card owns the tap sequence across summary/full-body replacement. Framework double-tap
- * confirmation must not delay the first expansion or let the second tap collapse it again.
- */
-private fun memoCardClickHandler(
-    tapSequence: MemoCardTapSequence,
-    haptic: com.lomo.ui.util.AppHapticFeedback,
-    onDoubleClick: (() -> Unit)?,
-    onSingleClick: () -> Unit,
-): () -> Unit = {
-    haptic.medium()
-    val tap = if (onDoubleClick == null) MemoCardTap.Click else tapSequence.release(SystemClock.uptimeMillis())
-    when (tap) {
-        MemoCardTap.Click -> onSingleClick()
-        MemoCardTap.Edit -> onDoubleClick?.invoke()
     }
 }
 
@@ -250,10 +297,15 @@ private fun rememberMemoCardExpansion(
 ): MemoCardExpansion {
     var internalExpanded by rememberSaveable(timestamp) { mutableStateOf(false) }
     val requestedExpanded = isExpanded ?: internalExpanded
-    val updateExpanded: (Boolean) -> Unit = { expanded ->
-        if (isExpanded == null) internalExpanded = expanded
-        onExpandedChange?.invoke(expanded)
-    }
+    val currentOnExpandedChange by rememberUpdatedState(onExpandedChange)
+    val updateExpanded =
+        remember(isExpanded) {
+            { expanded: Boolean ->
+                if (isExpanded == null) internalExpanded = expanded
+                currentOnExpandedChange?.invoke(expanded)
+                Unit
+            }
+        }
     val bodyExpanded = hasImages || !shouldShowExpand || requestedExpanded
     val isCollapsedPreview = !bodyExpanded
     return MemoCardExpansion(

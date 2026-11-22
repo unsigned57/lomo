@@ -55,6 +55,7 @@ internal fun MainScreenScaffoldContent(
     onRetryEngine: () -> Unit,
     onRebuildDerivedIndex: () -> Unit,
     onExportDiagnostics: () -> Unit,
+    expandCoordinator: MemoListExpandCoordinator? = null,
     fab: @Composable () -> Unit,
 ) {
     Scaffold(
@@ -102,6 +103,7 @@ internal fun MainScreenScaffoldContent(
             onRetryEngine = onRetryEngine,
             onRebuildDerivedIndex = onRebuildDerivedIndex,
             onExportDiagnostics = onExportDiagnostics,
+            expandCoordinator = expandCoordinator,
         )
     }
 
@@ -158,6 +160,7 @@ private fun MainScreenScaffoldBody(
     onRetryEngine: () -> Unit,
     onRebuildDerivedIndex: () -> Unit,
     onExportDiagnostics: () -> Unit,
+    expandCoordinator: MemoListExpandCoordinator? = null,
 ) {
     Box(
         modifier =
@@ -190,6 +193,7 @@ private fun MainScreenScaffoldBody(
             onRetryEngine = onRetryEngine,
             onRebuildDerivedIndex = onRebuildDerivedIndex,
             onExportDiagnostics = onExportDiagnostics,
+            expandCoordinator = expandCoordinator,
         )
     }
 }

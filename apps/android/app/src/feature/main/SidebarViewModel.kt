@@ -1,5 +1,6 @@
 package com.lomo.app.feature.main
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
@@ -10,6 +11,12 @@ import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.ObserveSidebarStatisticsUseCase
 import com.lomo.ui.component.navigation.SidebarStats
 import com.lomo.ui.component.navigation.SidebarTag
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
@@ -23,11 +30,12 @@ class SidebarViewModel(
     private val appConfigCoordinator: AppConfigUiCoordinator,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : ViewModel() {
+    @Immutable
     data class SidebarUiState(
         val stats: SidebarStats = SidebarStats(),
-        val memoCountByDate: Map<LocalDate, Int> = emptyMap(),
-        val tags: List<SidebarTag> = emptyList(),
-        val rootTagOrder: List<String> = emptyList(),
+        val memoCountByDate: ImmutableMap<LocalDate, Int> = persistentMapOf(),
+        val tags: ImmutableList<SidebarTag> = persistentListOf(),
+        val rootTagOrder: ImmutableList<String> = persistentListOf(),
     )
 
     val searchQuery: StateFlow<String> = stateHolder.searchQuery
@@ -44,12 +52,13 @@ class SidebarViewModel(
                     tagCount = statistics.tagCounts.size,
                     dayCount = statistics.memoCountByDate.size,
                 ),
-                memoCountByDate = statistics.memoCountByDate,
+                memoCountByDate = statistics.memoCountByDate.toImmutableMap(),
                 tags =
                 statistics.tagCounts
                     .sortedWith(compareByDescending<MemoTagCount> { it.count }.thenBy { it.name })
-                    .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) },
-                rootTagOrder = tagOrder,
+                    .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) }
+                    .toImmutableList(),
+                rootTagOrder = tagOrder.toImmutableList(),
             )
         }.flowOn(dispatcherProvider.default)
             .stateIn(viewModelScope, appWhileSubscribed(), SidebarUiState())
