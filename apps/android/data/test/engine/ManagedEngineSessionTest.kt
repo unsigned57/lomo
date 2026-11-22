@@ -296,6 +296,7 @@ import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.model.WorkspaceProcessDuty
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
@@ -304,9 +305,11 @@ import com.lomo.domain.model.permitsReadsAt
 import com.lomo.domain.model.permitsWrites
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -321,6 +324,7 @@ import java.time.LocalDateTime
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.CoroutineContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ManagedEngineSessionTest : DataFunSpec() {
@@ -869,6 +873,86 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         .resolve(direct.capabilityToken)
                         .shouldBeInstanceOf<DirectCapabilityGrant>()
                         .canonicalRoot shouldBe workspace.canonicalFile
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                    workspace.deleteRecursively()
+                }
+            }
+        }
+
+        test(
+            "given cold restore publishes Ready when readiness emits then mount and sibling flows already reflect the committed workspace",
+        ) {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-atomic-mount").toFile()
+                val workspace = kotlin.io.path.createTempDirectory("ws-atomic-mount").toFile()
+                try {
+                    val settings = FakeDirectorySettingsRepository()
+                    settings.setLocation(StorageArea.ROOT, StorageLocation(workspace.absolutePath))
+                    val sessionDispatcher = StandardTestDispatcher(testScheduler)
+                    val inlineDispatcher =
+                        object : CoroutineDispatcher() {
+                            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                                block.run()
+                            }
+                        }
+                    val session =
+                        ManagedEngineSession(
+                            candidateOpen =
+                            CandidateOpenContext(
+                                filesDir = filesDir,
+                                openAdapter = { request ->
+                                    val snapshot =
+                                        if (request.workspace == null) {
+                                            NativeEngineSnapshot.AwaitingWorkspaceSelection
+                                        } else {
+                                            NativeEngineSnapshot.Ready(coreRevision = 4uL, eventSequence = 6uL)
+                                        }
+                                    testRustEngineAdapter(SessionFakeNativeEnginePort(snapshot), request)
+                                },
+                                isContentUri = { false },
+                                sessionDateFormat = SessionDateFormatSource {
+                                    StorageFilenameFormats.DEFAULT_PATTERN
+                                },
+                            ),
+                            invalidation = StoreInvalidationBus(),
+                            capabilityRegistry = CapabilityRegistry(),
+                            directorySettingsRepository = settings,
+                            appScope = CoroutineScope(sessionDispatcher),
+                            engineDispatcher = sessionDispatcher,
+                        )
+
+                    var observedReady = false
+                    var observedLocation: StorageLocation? = null
+                    var observedAuthority: WorkspaceAuthority? = null
+                    var observedFreshness: ProjectionFreshness? = null
+                    var observedMount: WorkspaceMount? = null
+                    val collector =
+                        backgroundScope.launch(inlineDispatcher) {
+                            session.readiness.collect { readiness ->
+                                if (readiness is EngineReadiness.Ready && !observedReady) {
+                                    observedReady = true
+                                    observedLocation = session.activeWorkspaceLocation.value
+                                    observedAuthority = session.workspaceAuthority.value
+                                    observedFreshness = session.projectionFreshness.value
+                                    observedMount = session.mount.value
+                                }
+                            }
+                        }
+
+                    session.requestEngineStart() shouldBe EngineReadiness.Ready
+
+                    observedReady shouldBe true
+                    observedLocation shouldBe StorageLocation(workspace.absolutePath)
+                    val authority = observedAuthority.shouldNotBeNull()
+                    observedFreshness.shouldBeInstanceOf<ProjectionFreshness.Verified>()
+                    val mount = observedMount.shouldNotBeNull()
+                    mount.readiness shouldBe EngineReadiness.Ready
+                    mount.location shouldBe StorageLocation(workspace.absolutePath)
+                    mount.authority shouldBe authority
+                    mount.freshness shouldBe observedFreshness
+                    collector.cancel()
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()

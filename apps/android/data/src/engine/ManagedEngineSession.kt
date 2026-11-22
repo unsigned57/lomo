@@ -23,6 +23,8 @@ import com.lomo.domain.repository.EngineReadinessRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,11 +91,6 @@ internal class ManagedEngineSession(
     private val closed = AtomicBoolean(false)
     private val activationMutex = Mutex()
     private val adapterLease = ReentrantReadWriteLock()
-    private val _readiness = MutableStateFlow<EngineReadiness>(EngineReadiness.Opening)
-    private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
-    private val _workspaceAuthority = MutableStateFlow<WorkspaceAuthority?>(null)
-    private val _projectionFreshness =
-        MutableStateFlow<ProjectionFreshness>(ProjectionFreshness.Unavailable)
     private val _mount = MutableStateFlow(WorkspaceMount.Opening)
     private val activationGeneration = AtomicLong(0)
     private val candidatePreparer =
@@ -124,7 +121,7 @@ internal class ManagedEngineSession(
         publishMount(
             WorkspaceMount(
                 readiness = recovery,
-                location = _activeWorkspaceLocation.value,
+                location = _mount.value.location,
                 authority = null,
                 freshness = ProjectionFreshness.Unavailable,
             ),
@@ -148,23 +145,20 @@ internal class ManagedEngineSession(
                 startOwnedEngine()
             }
         }
-        return readiness.first { it !is EngineReadiness.Opening }
+        return mount.first { it.readiness !is EngineReadiness.Opening }.readiness
     }
 
-    override val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
-    override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
-        _activeWorkspaceLocation.asStateFlow()
-    override val workspaceAuthority: StateFlow<WorkspaceAuthority?> =
-        _workspaceAuthority.asStateFlow()
-    override val projectionFreshness: StateFlow<ProjectionFreshness> =
-        _projectionFreshness.asStateFlow()
     override val mount: StateFlow<WorkspaceMount> = _mount.asStateFlow()
+    override val readiness: StateFlow<EngineReadiness> =
+        ProjectedStateFlow(_mount, WorkspaceMount::readiness)
+    override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
+        ProjectedStateFlow(_mount, WorkspaceMount::location)
+    override val workspaceAuthority: StateFlow<WorkspaceAuthority?> =
+        ProjectedStateFlow(_mount, WorkspaceMount::authority)
+    override val projectionFreshness: StateFlow<ProjectionFreshness> =
+        ProjectedStateFlow(_mount, WorkspaceMount::freshness)
 
     private fun publishMount(mount: WorkspaceMount) {
-        _readiness.value = mount.readiness
-        _activeWorkspaceLocation.value = mount.location
-        _workspaceAuthority.value = mount.authority
-        _projectionFreshness.value = mount.freshness
         _mount.value = mount
     }
 
@@ -184,9 +178,9 @@ internal class ManagedEngineSession(
     override suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport {
         check(!closed.get()) { "Managed engine session is closed" }
         val recovery =
-            _readiness.value as? EngineReadiness.ReadOnlyRecovery
+            _mount.value.readiness as? EngineReadiness.ReadOnlyRecovery
                 ?: error("Recovery diagnostic export requires ReadOnlyRecovery")
-        val location = _activeWorkspaceLocation.value ?: directorySettingsRepository.currentRootLocation()
+        val location = _mount.value.location ?: directorySettingsRepository.currentRootLocation()
         val workspaceKind =
             when {
                 location == null -> RecoveryWorkspaceKind.NONE
@@ -203,7 +197,7 @@ internal class ManagedEngineSession(
         return withContext(engineDispatcher) {
             activationMutex.withLock {
                 val recovery =
-                    _readiness.value as? EngineReadiness.ReadOnlyRecovery
+                    _mount.value.readiness as? EngineReadiness.ReadOnlyRecovery
                         ?: error("Derived-index rebuild requires ReadOnlyRecovery")
                 require(recovery.canRebuildDerivedIndex()) {
                     "Recovery ${recovery.code} is not a rebuildable SQLite failure"
@@ -311,7 +305,7 @@ internal class ManagedEngineSession(
     private suspend fun startOwnedEngine() {
         withContext(engineDispatcher) {
             activationMutex.withLock {
-                if (closed.get() || recoveryAuthority.get() != null || _workspaceAuthority.value != null) {
+                if (closed.get() || recoveryAuthority.get() != null || _mount.value.authority != null) {
                     return@withContext
                 }
                 val existing =
@@ -626,7 +620,7 @@ internal class ManagedEngineSession(
                                 publishMount(
                                     WorkspaceMount(
                                         readiness = value,
-                                        location = _activeWorkspaceLocation.value,
+                                        location = _mount.value.location,
                                         authority = null,
                                         freshness = ProjectionFreshness.Unavailable,
                                     ),
@@ -725,3 +719,26 @@ private suspend fun DirectorySettingsRepository.mediaRootsFor(change: MediaDirec
             if (candidate == null) remove(namespace) else put(namespace, candidate.raw)
         }
     }
+
+@OptIn(ExperimentalForInheritanceCoroutinesApi::class)
+private class ProjectedStateFlow<S, T>(private val source: StateFlow<S>, private val project: (S) -> T) :
+    StateFlow<T> {
+    override val value: T
+        get() = project(source.value)
+
+    override val replayCache: List<T>
+        get() = listOf(value)
+
+    override suspend fun collect(collector: FlowCollector<T>): Nothing {
+        var hasEmitted = false
+        var lastValue: Any? = null
+        source.collect { state ->
+            val projected = project(state)
+            if (!hasEmitted || projected != lastValue) {
+                hasEmitted = true
+                lastValue = projected
+                collector.emit(projected)
+            }
+        }
+    }
+}
