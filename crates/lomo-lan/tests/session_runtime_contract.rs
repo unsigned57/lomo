@@ -153,6 +153,29 @@ mod tests {
         .expect("endpoint parses")
     }
 
+    /// Accepts and handles one expected inbound control connection within the 5 s socket deadline
+    /// budget, unlike one-shot `poll_listener` (100 ms idle poll).
+    fn handle_one_inbound(manager: &mut LanServiceManager, now_ms: i64) {
+        let listener = manager
+            .clone_listener()
+            .expect("listener clones")
+            .expect("listener is bound");
+        let mut accepted = None;
+        for _ in 0..50 {
+            if let Some(conn) =
+                LanServiceManager::accept_one(&listener).expect("inbound accept polls")
+            {
+                accepted = Some(conn);
+                break;
+            }
+        }
+        let (stream, peer_address) =
+            accepted.expect("expected inbound LAN control connection within poll budget");
+        manager
+            .handle_inbound(stream, peer_address, now_ms)
+            .expect("inbound control frame handles");
+    }
+
     fn pair(
         phone_runtime: &mut LanServiceManager,
         tablet_runtime: &mut LanServiceManager,
@@ -161,14 +184,11 @@ mod tests {
     ) {
         let tablet_endpoint = endpoint(tablet_runtime, tablet, "Tablet");
         let phone_challenge = thread::scope(|scope| {
-            let responder = scope.spawn(|| tablet_runtime.poll_listener(1_000));
+            let responder = scope.spawn(|| handle_one_inbound(tablet_runtime, 1_000));
             let challenge = phone_runtime
                 .begin_pairing(&tablet_endpoint, 1_000, 60_000)
                 .expect("pairing hello exchanges");
-            responder
-                .join()
-                .expect("responder joins")
-                .expect("pair hello handles");
+            responder.join().expect("responder joins");
             challenge
         });
         let tablet_challenge = tablet_runtime
@@ -181,7 +201,7 @@ mod tests {
         );
 
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(2_000));
+            let receiver = scope.spawn(|| handle_one_inbound(tablet_runtime, 2_000));
             phone_runtime
                 .confirm_pairing(
                     phone_challenge.pairing_id(),
@@ -189,13 +209,10 @@ mod tests {
                     2_000,
                 )
                 .expect("phone confirms");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("phone confirm handles");
+            receiver.join().expect("receiver joins");
         });
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(3_000));
+            let receiver = scope.spawn(|| handle_one_inbound(phone_runtime, 3_000));
             tablet_runtime
                 .confirm_pairing(
                     tablet_challenge.pairing_id(),
@@ -203,10 +220,7 @@ mod tests {
                     3_000,
                 )
                 .expect("tablet confirms");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("tablet confirm handles");
+            receiver.join().expect("receiver joins");
         });
     }
 
@@ -219,14 +233,11 @@ mod tests {
     ) -> (lomo_lan::LanSessionChallenge, lomo_lan::LanSessionChallenge) {
         let tablet_endpoint = endpoint(tablet_runtime, tablet, "Tablet");
         let phone_challenge = thread::scope(|scope| {
-            let responder = scope.spawn(|| tablet_runtime.poll_listener(now_ms));
+            let responder = scope.spawn(|| handle_one_inbound(tablet_runtime, now_ms));
             let challenge = phone_runtime
                 .begin_session(&tablet_endpoint, now_ms, 60_000)
                 .expect("session hello exchanges");
-            responder
-                .join()
-                .expect("responder joins")
-                .expect("session hello handles");
+            responder.join().expect("responder joins");
             challenge
         });
         let tablet_challenge = tablet_runtime
@@ -238,7 +249,7 @@ mod tests {
             .cloned()
             .expect("responder challenge exists");
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(now_ms + 1));
+            let receiver = scope.spawn(|| handle_one_inbound(tablet_runtime, now_ms + 1));
             phone_runtime
                 .confirm_session(
                     phone_challenge.session_id(),
@@ -246,13 +257,10 @@ mod tests {
                     now_ms + 1,
                 )
                 .expect("phone confirms session");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("phone session confirm handles");
+            receiver.join().expect("receiver joins");
         });
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(now_ms + 2));
+            let receiver = scope.spawn(|| handle_one_inbound(phone_runtime, now_ms + 2));
             tablet_runtime
                 .confirm_session(
                     tablet_challenge.session_id(),
@@ -260,10 +268,7 @@ mod tests {
                     now_ms + 2,
                 )
                 .expect("tablet confirms session");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("tablet session confirm handles");
+            receiver.join().expect("receiver joins");
         });
         (phone_challenge, tablet_challenge)
     }
@@ -279,14 +284,11 @@ mod tests {
         let batch_id = LanBatchId::parse("batch-runtime-control").expect("batch id parses");
         let plan = shared_attachment_batch(&batch_id);
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(20_000));
+            let receiver = scope.spawn(|| handle_one_inbound(tablet_runtime, 20_000));
             phone_runtime
                 .prepare_batch(phone_challenge.session_id(), plan, 20_000)
                 .expect("authenticated prepare sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("prepare handles");
+            receiver.join().expect("receiver joins");
         });
         let outgoing = phone_runtime.inbox(20_001).expect("outgoing inbox builds");
         assert_eq!(
@@ -387,7 +389,7 @@ mod tests {
         batch_id: &LanBatchId,
     ) {
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(21_000));
+            let receiver = scope.spawn(|| handle_one_inbound(phone_runtime, 21_000));
             tablet_runtime
                 .approve_batch(
                     tablet_challenge.session_id(),
@@ -398,10 +400,7 @@ mod tests {
                     60_000,
                 )
                 .expect("approval sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("approval handles");
+            receiver.join().expect("receiver joins");
         });
         assert!(phone_runtime.outgoing_batch_is_approved(batch_id));
         let approved_inbox = tablet_runtime.inbox(21_001).expect("approved inbox builds");
@@ -617,14 +616,11 @@ mod tests {
         .expect("payload binding builds");
         let pool = LanConnectionPool::default();
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(22_000));
+            let receiver = scope.spawn(|| handle_one_inbound(tablet_runtime, 22_000));
             phone_runtime
                 .send_batch_chunk(&pool, &binding, payload, 22_000)
                 .expect("approved payload chunk sends and acknowledges");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("payload chunk handles");
+            receiver.join().expect("receiver joins");
         });
     }
 
@@ -635,12 +631,9 @@ mod tests {
         now_ms: i64,
     ) -> Result<lomo_lan::LanPairingChallenge, lomo_core::LomoError> {
         thread::scope(|scope| {
-            let responder = scope.spawn(|| tablet_runtime.poll_listener(now_ms));
+            let responder = scope.spawn(|| handle_one_inbound(tablet_runtime, now_ms));
             let outcome = phone_runtime.begin_pairing(tablet_endpoint, now_ms, 120_000);
-            responder
-                .join()
-                .expect("responder joins")
-                .expect("a refused hello is still a handled connection");
+            responder.join().expect("responder joins");
             outcome
         })
     }
@@ -802,24 +795,18 @@ mod tests {
         )
         .expect("batch plan builds");
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(23_000));
+            let receiver = scope.spawn(|| handle_one_inbound(tablet_runtime, 23_000));
             phone_runtime
                 .prepare_batch(phone_challenge.session_id(), rejected_plan, 23_000)
                 .expect("second prepare sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("second prepare handles");
+            receiver.join().expect("receiver joins");
         });
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(24_000));
+            let receiver = scope.spawn(|| handle_one_inbound(phone_runtime, 24_000));
             tablet_runtime
                 .reject_batch(tablet_challenge.session_id(), &rejected_id, 24_000)
                 .expect("rejection sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("rejection handles");
+            receiver.join().expect("receiver joins");
         });
         assert!(phone_runtime.outgoing_batch_is_rejected(&rejected_id));
         assert_eq!(
@@ -902,17 +889,14 @@ mod tests {
         plan: LanBatchPlan,
     ) {
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(20_000));
+            let receiver = scope.spawn(|| handle_one_inbound(tablet_runtime, 20_000));
             phone_runtime
                 .prepare_batch(phone_session.session_id(), plan, 20_000)
                 .expect("initial prepare sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("prepare handles");
+            receiver.join().expect("receiver joins");
         });
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(20_001));
+            let receiver = scope.spawn(|| handle_one_inbound(phone_runtime, 20_001));
             tablet_runtime
                 .approve_batch(
                     tablet_session.session_id(),
@@ -923,10 +907,7 @@ mod tests {
                     60_000,
                 )
                 .expect("approval sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("approval handles");
+            receiver.join().expect("receiver joins");
         });
     }
 
@@ -982,14 +963,11 @@ mod tests {
             30_000,
         );
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(30_010));
+            let receiver = scope.spawn(|| handle_one_inbound(&mut tablet_runtime, 30_010));
             phone_runtime
                 .prepare_batch(second_phone_session.session_id(), plan, 30_010)
                 .expect("resume prepare exchanges durable status");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("resume prepare handles");
+            receiver.join().expect("receiver joins");
         });
         assert_eq!(
             phone_runtime
@@ -1033,14 +1011,11 @@ mod tests {
         let tablet_endpoint = endpoint(&tablet_runtime, &tablet, "Tablet");
 
         let phone_challenge = thread::scope(|scope| {
-            let responder = scope.spawn(|| tablet_runtime.poll_listener(10_000));
+            let responder = scope.spawn(|| handle_one_inbound(&mut tablet_runtime, 10_000));
             let challenge = phone_runtime
                 .begin_session(&tablet_endpoint, 10_000, 60_000)
                 .expect("session hello exchanges");
-            responder
-                .join()
-                .expect("responder joins")
-                .expect("session hello handles");
+            responder.join().expect("responder joins");
             challenge
         });
         let session_inbox = tablet_runtime.inbox(11_001).expect("session inbox builds");
@@ -1057,7 +1032,7 @@ mod tests {
         );
 
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(11_000));
+            let receiver = scope.spawn(|| handle_one_inbound(&mut tablet_runtime, 11_000));
             phone_runtime
                 .confirm_session(
                     phone_challenge.session_id(),
@@ -1065,10 +1040,7 @@ mod tests {
                     11_000,
                 )
                 .expect("phone confirms session");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("phone session confirm handles");
+            receiver.join().expect("receiver joins");
         });
         assert!(
             phone_runtime
@@ -1082,7 +1054,7 @@ mod tests {
         );
 
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(12_000));
+            let receiver = scope.spawn(|| handle_one_inbound(&mut phone_runtime, 12_000));
             tablet_runtime
                 .confirm_session(
                     tablet_challenge.session_id(),
@@ -1090,10 +1062,7 @@ mod tests {
                     12_000,
                 )
                 .expect("tablet confirms session");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("tablet session confirm handles");
+            receiver.join().expect("receiver joins");
         });
 
         assert_eq!(
@@ -1216,24 +1185,18 @@ mod tests {
         let batch_id = LanBatchId::parse("batch-retired-target").expect("batch id parses");
         let plan = resume_plan(&batch_id, b"retire me");
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(20_000));
+            let receiver = scope.spawn(|| handle_one_inbound(&mut tablet_runtime, 20_000));
             phone_runtime
                 .prepare_batch(phone_challenge.session_id(), plan.clone(), 20_000)
                 .expect("prepare sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("prepare handles");
+            receiver.join().expect("receiver joins");
         });
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(24_000));
+            let receiver = scope.spawn(|| handle_one_inbound(&mut phone_runtime, 24_000));
             tablet_runtime
                 .reject_batch(tablet_challenge.session_id(), &batch_id, 24_000)
                 .expect("rejection sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("rejection handles");
+            receiver.join().expect("receiver joins");
         });
 
         let retired_at = 24_000 + lomo_lan::LAN_BATCH_RETIRE_DELAY_MS;
@@ -1246,14 +1209,11 @@ mod tests {
         );
 
         let error = thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(retired_at + 1));
+            let receiver = scope.spawn(|| handle_one_inbound(&mut tablet_runtime, retired_at + 1));
             let error = phone_runtime
                 .prepare_batch(phone_challenge.session_id(), plan, retired_at + 1)
                 .expect_err("a retired batch id refuses resurrection");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("refusal handles");
+            receiver.join().expect("receiver joins");
             error
         });
         assert_eq!(error.code(), "lan_batch_retired");
@@ -1605,6 +1565,30 @@ mod tests {
         .expect("batch plan builds")
     }
 
+    fn handle_one_inbound_locked(manager: &Arc<Mutex<LanServiceManager>>, now_ms: i64) {
+        let listener = {
+            let guard = manager.lock().expect("manager lock");
+            let cloned = guard.clone_listener();
+            drop(guard);
+            cloned.expect("listener clones").expect("listener is bound")
+        };
+        let mut accepted = None;
+        for _ in 0..50 {
+            if let Some(conn) =
+                LanServiceManager::accept_one(&listener).expect("inbound accept polls")
+            {
+                accepted = Some(conn);
+                break;
+            }
+        }
+        let (stream, peer_address) =
+            accepted.expect("expected inbound LAN control connection within poll budget");
+        let mut guard = manager.lock().expect("manager lock");
+        let outcome = guard.handle_inbound(stream, peer_address, now_ms);
+        drop(guard);
+        outcome.expect("inbound control frame handles");
+    }
+
     /// Prepare + approve one batch across real sockets, then wrap both peers for pooled sends.
     fn approved_body_batch(
         sender: &Arc<Mutex<LanServiceManager>>,
@@ -1617,30 +1601,18 @@ mod tests {
         let body: Vec<u8> = (0..body_len)
             .map(|index| u8::try_from(index % 251).expect("modulus fits u8"))
             .collect();
+        let plan = body_batch(batch_id, &body);
         thread::scope(|scope| {
-            let responder = scope.spawn(|| {
-                receiver
-                    .lock()
-                    .expect("receiver lock")
-                    .poll_listener(40_000)
-            });
+            let responder = scope.spawn(|| handle_one_inbound_locked(receiver, 40_000));
             sender
                 .lock()
                 .expect("sender lock")
-                .prepare_batch(
-                    sender_challenge.session_id(),
-                    body_batch(batch_id, &body),
-                    40_000,
-                )
+                .prepare_batch(sender_challenge.session_id(), plan, 40_000)
                 .expect("prepare sends");
-            responder
-                .join()
-                .expect("responder joins")
-                .expect("prepare handles");
+            responder.join().expect("responder joins");
         });
         thread::scope(|scope| {
-            let responder =
-                scope.spawn(|| sender.lock().expect("sender lock").poll_listener(41_000));
+            let responder = scope.spawn(|| handle_one_inbound_locked(sender, 41_000));
             receiver
                 .lock()
                 .expect("receiver lock")
@@ -1653,10 +1625,7 @@ mod tests {
                     60_000,
                 )
                 .expect("approval sends");
-            responder
-                .join()
-                .expect("responder joins")
-                .expect("approval handles");
+            responder.join().expect("responder joins");
         });
         body
     }
@@ -1727,8 +1696,6 @@ mod tests {
         let laptop = Arc::new(Mutex::new(laptop_m));
 
         let stop = Arc::new(AtomicBool::new(false));
-        let tablet_server = serve(&tablet, &stop, usize::MAX, 42_000);
-        let laptop_server = serve(&laptop, &stop, usize::MAX, 42_000);
         let pool = LanConnectionPool::default();
 
         // Three chunks on one session ride one reusable connection.
@@ -1741,6 +1708,7 @@ mod tests {
             &batch_id,
             RUNTIME_CHUNK_PLAINTEXT_BYTES * 2 + 17,
         );
+        let tablet_server = serve(&tablet, &stop, usize::MAX, 42_000);
         drive_body(
             &phone,
             &pool,
@@ -1774,6 +1742,7 @@ mod tests {
             &batch_id2,
             RUNTIME_CHUNK_PLAINTEXT_BYTES + 5,
         );
+        let laptop_server = serve(&laptop, &stop, usize::MAX, 42_000);
         drive_body(
             &phone,
             &pool,
@@ -1827,7 +1796,7 @@ mod tests {
                     .expect("listener clones")
                     .expect("listener exists");
                 let mut accepted = None;
-                for _ in 0..40 {
+                for _ in 0..50 {
                     if let Some(conn) =
                         LanServiceManager::accept_one(&listener).expect("accept succeeds")
                     {
@@ -2159,7 +2128,6 @@ mod tests {
         let phone = Arc::new(Mutex::new(phone_m));
         let tablet = Arc::new(Mutex::new(tablet_m));
         let stop = Arc::new(AtomicBool::new(false));
-        let tablet_server = serve(&tablet, &stop, usize::MAX, 42_000);
         let pool = LanConnectionPool::default();
 
         // Two independent batches stay active at once: neither may collapse into the other.
@@ -2181,6 +2149,7 @@ mod tests {
             &batch_b,
             RUNTIME_CHUNK_PLAINTEXT_BYTES + 9,
         );
+        let tablet_server = serve(&tablet, &stop, usize::MAX, 42_000);
 
         // Only the first chunk of each body lands: progress reports durable confirmed bytes.
         for (batch_id, body) in [(&batch_a, &body_a), (&batch_b, &body_b)] {
@@ -2258,7 +2227,6 @@ mod tests {
         let phone = Arc::new(Mutex::new(phone_m));
         let tablet = Arc::new(Mutex::new(tablet_m));
         let stop = Arc::new(AtomicBool::new(false));
-        let tablet_server = serve(&tablet, &stop, usize::MAX, 42_000);
         let pool = LanConnectionPool::default();
 
         let batch_id = LanBatchId::parse("batch-corrupt-stage").expect("batch id parses");
@@ -2270,6 +2238,7 @@ mod tests {
             &batch_id,
             RUNTIME_CHUNK_PLAINTEXT_BYTES + 11,
         );
+        let tablet_server = serve(&tablet, &stop, usize::MAX, 42_000);
         drive_body(
             &phone,
             &pool,

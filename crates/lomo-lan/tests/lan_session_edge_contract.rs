@@ -182,6 +182,29 @@ mod tests {
         session
     }
 
+    /// Accepts and handles one expected inbound control connection within the 5 s socket deadline
+    /// budget, unlike one-shot `poll_listener` (100 ms idle poll).
+    fn handle_one_inbound(manager: &mut LanServiceManager, now_ms: i64) {
+        let listener = manager
+            .clone_listener()
+            .expect("listener clones")
+            .expect("listener is bound");
+        let mut accepted = None;
+        for _ in 0..50 {
+            if let Some(conn) =
+                LanServiceManager::accept_one(&listener).expect("inbound accept polls")
+            {
+                accepted = Some(conn);
+                break;
+            }
+        }
+        let (stream, peer_address) =
+            accepted.expect("expected inbound LAN control connection within poll budget");
+        manager
+            .handle_inbound(stream, peer_address, now_ms)
+            .expect("inbound control frame handles");
+    }
+
     fn pair_devices(
         phone_runtime: &mut LanServiceManager,
         tablet_runtime: &mut LanServiceManager,
@@ -191,21 +214,18 @@ mod tests {
     ) {
         let tablet_endpoint = endpoint(tablet_runtime, tablet);
         let pairing = thread::scope(|scope| {
-            let responder = scope.spawn(|| tablet_runtime.poll_listener(now_ms));
+            let responder = scope.spawn(|| handle_one_inbound(tablet_runtime, now_ms));
             let challenge = phone_runtime
                 .begin_pairing(&tablet_endpoint, now_ms, 60_000)
                 .expect("pairing hello exchanges");
-            responder
-                .join()
-                .expect("responder joins")
-                .expect("pair hello handles");
+            responder.join().expect("responder joins");
             challenge
         });
         let tablet_pairing = tablet_runtime
             .pairing_challenge(pairing.pairing_id())
             .expect("responder challenge exists");
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(now_ms + 1));
+            let receiver = scope.spawn(|| handle_one_inbound(tablet_runtime, now_ms + 1));
             phone_runtime
                 .confirm_pairing(
                     pairing.pairing_id(),
@@ -213,13 +233,10 @@ mod tests {
                     now_ms + 1,
                 )
                 .expect("phone confirms pairing");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("pair confirm handles");
+            receiver.join().expect("receiver joins");
         });
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(now_ms + 2));
+            let receiver = scope.spawn(|| handle_one_inbound(phone_runtime, now_ms + 2));
             tablet_runtime
                 .confirm_pairing(
                     tablet_pairing.pairing_id(),
@@ -227,10 +244,7 @@ mod tests {
                     now_ms + 2,
                 )
                 .expect("tablet confirms pairing");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("tablet confirm handles");
+            receiver.join().expect("receiver joins");
         });
     }
 
@@ -244,14 +258,11 @@ mod tests {
     ) -> LanSessionChallenge {
         let tablet_endpoint = endpoint(tablet_runtime, tablet);
         let session = thread::scope(|scope| {
-            let responder = scope.spawn(|| tablet_runtime.poll_listener(now_ms));
+            let responder = scope.spawn(|| handle_one_inbound(tablet_runtime, now_ms));
             let challenge = phone_runtime
                 .begin_session(&tablet_endpoint, now_ms, 60_000)
                 .expect("session hello exchanges");
-            responder
-                .join()
-                .expect("responder joins")
-                .expect("session hello handles");
+            responder.join().expect("responder joins");
             challenge
         });
         let tablet_session = tablet_runtime
@@ -263,7 +274,7 @@ mod tests {
             .cloned()
             .expect("responder session challenge exists");
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(now_ms + 1));
+            let receiver = scope.spawn(|| handle_one_inbound(tablet_runtime, now_ms + 1));
             phone_runtime
                 .confirm_session(
                     session.session_id(),
@@ -271,13 +282,10 @@ mod tests {
                     now_ms + 1,
                 )
                 .expect("phone confirms session");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("session confirm handles");
+            receiver.join().expect("receiver joins");
         });
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(now_ms + 2));
+            let receiver = scope.spawn(|| handle_one_inbound(phone_runtime, now_ms + 2));
             tablet_runtime
                 .confirm_session(
                     tablet_session.session_id(),
@@ -285,10 +293,7 @@ mod tests {
                     now_ms + 2,
                 )
                 .expect("tablet confirms session");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("tablet session confirm handles");
+            receiver.join().expect("receiver joins");
         });
         session
     }
@@ -303,14 +308,11 @@ mod tests {
         now_ms: i64,
     ) {
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(now_ms));
+            let receiver = scope.spawn(|| handle_one_inbound(tablet_runtime, now_ms));
             phone_runtime
                 .prepare_batch(session.session_id(), plan, now_ms)
                 .expect("prepare sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("prepare handles");
+            receiver.join().expect("receiver joins");
         });
     }
 
@@ -328,7 +330,7 @@ mod tests {
         let batch_id = plan.batch_id().clone();
         send_prepare(phone_runtime, tablet_runtime, session, plan, now_ms);
         thread::scope(|scope| {
-            let receiver = scope.spawn(|| phone_runtime.poll_listener(now_ms + 1));
+            let receiver = scope.spawn(|| handle_one_inbound(phone_runtime, now_ms + 1));
             tablet_runtime
                 .approve_batch(
                     session.session_id(),
@@ -338,10 +340,7 @@ mod tests {
                     approval_ttl_ms,
                 )
                 .expect("approval sends");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("approval handles");
+            receiver.join().expect("receiver joins");
         });
     }
 

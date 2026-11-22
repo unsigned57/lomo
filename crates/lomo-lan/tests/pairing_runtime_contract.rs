@@ -112,6 +112,27 @@ mod tests {
         .expect("discovered endpoint")
     }
 
+    fn handle_one_inbound(manager: &mut LanServiceManager, now_ms: i64) {
+        let listener = manager
+            .clone_listener()
+            .expect("listener clones")
+            .expect("listener is bound");
+        let mut accepted = None;
+        for _ in 0..50 {
+            if let Some(conn) =
+                LanServiceManager::accept_one(&listener).expect("inbound accept polls")
+            {
+                accepted = Some(conn);
+                break;
+            }
+        }
+        let (stream, peer_address) =
+            accepted.expect("expected inbound LAN control connection within poll budget");
+        manager
+            .handle_inbound(stream, peer_address, now_ms)
+            .expect("inbound control frame handles");
+    }
+
     #[test]
     fn both_users_must_confirm_the_same_rust_owned_transcript_before_trust_is_stored() {
         let phone = TestIdentity::generate();
@@ -122,9 +143,7 @@ mod tests {
 
         let responder = thread::spawn(move || {
             let mut runtime = tablet_runtime;
-            runtime
-                .poll_listener(1_700_000_000_000)
-                .expect("pair hello is handled");
+            handle_one_inbound(&mut runtime, 1_700_000_000_000);
             runtime
         });
         let phone_challenge = phone_runtime
@@ -146,9 +165,7 @@ mod tests {
         let phone_confirm_id = phone_challenge.pairing_id().clone();
         let tablet_receiver = thread::spawn(move || {
             let mut runtime = tablet_runtime;
-            runtime
-                .poll_listener(1_700_000_010_000)
-                .expect("phone confirmation is handled");
+            handle_one_inbound(&mut runtime, 1_700_000_010_000);
             runtime
         });
         phone_runtime
@@ -167,9 +184,7 @@ mod tests {
         let tablet_confirm_id = tablet_challenge.pairing_id().clone();
         let phone_receiver = thread::spawn(move || {
             let mut runtime = phone_runtime;
-            runtime
-                .poll_listener(1_700_000_020_000)
-                .expect("tablet confirmation is handled");
+            handle_one_inbound(&mut runtime, 1_700_000_020_000);
             runtime
         });
         tablet_runtime
@@ -200,7 +215,7 @@ mod tests {
         let tablet_endpoint = endpoint(&tablet_runtime, &tablet, "Tablet");
         let responder = thread::spawn(move || {
             let mut runtime = tablet_runtime;
-            runtime.poll_listener(1_000).expect("hello is handled");
+            handle_one_inbound(&mut runtime, 1_000);
             runtime
         });
         let challenge = phone_runtime
@@ -239,7 +254,7 @@ mod tests {
         let tablet_endpoint = endpoint(&tablet_runtime, &tablet, "Tablet");
         let responder = thread::spawn(move || {
             let mut runtime = tablet_runtime;
-            runtime.poll_listener(1_000).expect("hello is handled");
+            handle_one_inbound(&mut runtime, 1_000);
             runtime
         });
         let challenge = phone_runtime
