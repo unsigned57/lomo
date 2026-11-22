@@ -28,6 +28,7 @@ This is a navigation index, not another source of task rules. Each file below ow
 | --- | --- |
 | [English README](../README.md), [Chinese README](../README_CN.md) | Product introduction, installation, and quick start |
 | [Release-note format](release_notes_format_guide.md) | Bilingual user-facing release copy rules |
+| [Release v2.0.2](releases/v2.0.2.md) | Release v2.0.2 notes |
 | [Release v2.0.1](releases/v2.0.1.md) | Published v2.0.1 release notes |
 | [Release v2.0.0](releases/v2.0.0.md) | Published v2.0.0 release notes |
 | [Sponsor (中文)](sponsor.md), [Sponsor (English)](sponsor_en.md) | Sponsorship details |
