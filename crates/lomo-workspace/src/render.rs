@@ -11,7 +11,7 @@ use jiff::ToSpan;
 use lomo_core::LomoError;
 mod links;
 
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
 
 use crate::limits::{ResourceBudget, validation};
@@ -139,6 +139,16 @@ impl SemanticFact {
     }
 }
 
+/// GFM column alignment for [`RenderBlock::Table`].
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum TableAlignment {
+    #[default]
+    None,
+    Left,
+    Center,
+    Right,
+}
+
 /// Block-level render node.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RenderBlock {
@@ -171,6 +181,8 @@ pub enum RenderBlock {
     },
     Table {
         source_span: ByteSpan,
+        #[serde(default)]
+        alignments: Vec<TableAlignment>,
         header: Vec<RenderTableCell>,
         rows: Vec<Vec<RenderTableCell>>,
     },
@@ -407,6 +419,7 @@ enum Frame {
     },
     Table {
         source_span: ByteSpan,
+        alignments: Vec<TableAlignment>,
         header: Vec<RenderTableCell>,
         rows: Vec<Vec<RenderTableCell>>,
         in_head: bool,
@@ -577,9 +590,13 @@ impl RenderBuilder {
                     depth,
                 });
             }
-            Tag::Table(_) => {
+            Tag::Table(alignments) => {
                 self.stack.push(Frame::Table {
                     source_span,
+                    alignments: alignments
+                        .into_iter()
+                        .map(table_alignment_from_pulldown)
+                        .collect(),
                     header: Vec::new(),
                     rows: Vec::new(),
                     in_head: false,
@@ -786,6 +803,7 @@ impl RenderBuilder {
             TagEnd::Table => {
                 let Some(Frame::Table {
                     source_span,
+                    alignments,
                     header,
                     rows,
                     ..
@@ -796,6 +814,7 @@ impl RenderBuilder {
                 self.count_node()?;
                 self.push_block(RenderBlock::Table {
                     source_span: merge_spans(source_span, end_span, self.source_len)?,
+                    alignments,
                     header,
                     rows,
                 });
@@ -1161,6 +1180,15 @@ impl RenderBuilder {
     }
 }
 
+const fn table_alignment_from_pulldown(alignment: Alignment) -> TableAlignment {
+    match alignment {
+        Alignment::None => TableAlignment::None,
+        Alignment::Left => TableAlignment::Left,
+        Alignment::Center => TableAlignment::Center,
+        Alignment::Right => TableAlignment::Right,
+    }
+}
+
 fn title_opt(title: CowStr<'_>) -> Option<String> {
     let text = title.into_string();
     if text.is_empty() { None } else { Some(text) }
@@ -1335,6 +1363,7 @@ fn classify_blocks_extensions(
             }
             RenderBlock::Table {
                 source_span,
+                alignments,
                 header,
                 rows,
             } => {
@@ -1362,6 +1391,7 @@ fn classify_blocks_extensions(
                 }
                 out.push(RenderBlock::Table {
                     source_span,
+                    alignments,
                     header,
                     rows: classified_rows,
                 });
@@ -1625,7 +1655,13 @@ fn classify_wiki_text(
                 .ok_or_else(wiki_classifier_state_error)?;
             if let Some(close) = after.find("]]") {
                 let inner = after.get(..close).ok_or_else(wiki_classifier_state_error)?;
-                let target = inner.split('|').next().unwrap_or(inner).trim();
+                let (target, alias) = match inner.split_once('|') {
+                    Some((target, alias)) => (
+                        target.trim(),
+                        Some(alias.trim()).filter(|label| !label.is_empty()),
+                    ),
+                    None => (inner.trim(), None),
+                };
                 if target.is_empty() {
                     let consumed = open + 2 + close + 2;
                     out.push(RenderInline::Text {
@@ -1652,7 +1688,7 @@ fn classify_wiki_text(
                         target: target.to_owned(),
                         children: vec![RenderInline::Text {
                             source_span: fact_span,
-                            text: target.to_owned(),
+                            text: alias.unwrap_or(target).to_owned(),
                         }],
                     });
                 }

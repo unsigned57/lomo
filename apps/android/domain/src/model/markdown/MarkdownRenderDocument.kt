@@ -214,9 +214,23 @@ sealed interface MarkdownRenderBlock {
         override val sourceSpan: MarkdownSourceSpan,
         val header: List<MarkdownRenderTableCell>,
         val rows: List<List<MarkdownRenderTableCell>>,
-    ) : MarkdownRenderBlock
+        val alignments: List<MarkdownTableAlignment> = emptyList(),
+    ) : MarkdownRenderBlock {
+        init {
+            require(alignments.isEmpty() || alignments.size == header.size) {
+                "table alignments must be empty or match header column count"
+            }
+        }
+    }
 
     data class HtmlBlock(override val sourceSpan: MarkdownSourceSpan, val literal: String) : MarkdownRenderBlock
+}
+
+enum class MarkdownTableAlignment {
+    NONE,
+    LEFT,
+    CENTER,
+    RIGHT,
 }
 
 data class MarkdownRenderListItem(

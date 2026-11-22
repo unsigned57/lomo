@@ -34,6 +34,9 @@
  */
 package com.lomo.ui.component.markdown
 
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
@@ -41,6 +44,7 @@ import com.lomo.domain.model.markdown.MarkdownRenderInline
 import com.lomo.domain.model.markdown.MarkdownRenderListItem
 import com.lomo.domain.model.markdown.MarkdownRenderTableCell
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
+import com.lomo.domain.model.markdown.MarkdownTableAlignment
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
@@ -674,7 +678,9 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
             val table =
                 plan.items[2].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
                     .display.shouldBeInstanceOf<MarkdownIrBlockDisplay.Table>()
-            table.rows shouldBe listOf("Head", "Cell")
+            table.alignments shouldBe emptyList()
+            table.header.map { it.text } shouldBe listOf("Head")
+            table.rows.map { row -> row.map { it.text } } shouldBe listOf(listOf("Cell"))
         }
 
         test("given a plan built once when items are read twice then the same display instances are reused") {
@@ -697,6 +703,161 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
             // The renderer consumes this same instance on every recomposition; derived text is
             // never rebuilt per frame.
             (first === second) shouldBe true
+        }
+
+        test("nested unordered lists cycle bullets and code block preserves language without trailing newline") {
+            val depth2 =
+                MarkdownRenderBlock.ListBlock(
+                    sourceSpan = span(20uL, 30uL),
+                    ordered = false,
+                    startNumber = 1uL,
+                    items =
+                    listOf(
+                        MarkdownRenderListItem(
+                            sourceSpan = span(20uL, 30uL),
+                            actionSpan = null,
+                            checked = null,
+                            blocks = listOf(
+                                MarkdownRenderBlock.Paragraph(
+                                    span(20uL, 30uL),
+                                    listOf(MarkdownRenderInline.Text(span(20uL, 30uL), "leaf")),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            val depth1 =
+                MarkdownRenderBlock.ListBlock(
+                    sourceSpan = span(10uL, 30uL),
+                    ordered = false,
+                    startNumber = 1uL,
+                    items =
+                    listOf(
+                        MarkdownRenderListItem(
+                            sourceSpan = span(10uL, 30uL),
+                            actionSpan = null,
+                            checked = null,
+                            blocks = listOf(depth2),
+                        ),
+                    ),
+                )
+            val document =
+                document(
+                    sourceLength = 60uL,
+                    blocks =
+                    listOf(
+                        MarkdownRenderBlock.ListBlock(
+                            sourceSpan = span(0uL, 30uL),
+                            ordered = false,
+                            startNumber = 1uL,
+                            items =
+                            listOf(
+                                MarkdownRenderListItem(
+                                    sourceSpan = span(0uL, 30uL),
+                                    actionSpan = null,
+                                    checked = null,
+                                    blocks = listOf(depth1),
+                                ),
+                            ),
+                        ),
+                        MarkdownRenderBlock.CodeBlock(
+                            sourceSpan = span(31uL, 60uL),
+                            language = " kotlin ",
+                            literal = "println(1)\n",
+                        ),
+                    ),
+                )
+
+            val plan = buildMarkdownIrPresentationPlan(document)
+
+            val rootList =
+                plan.items[0].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                    .display.shouldBeInstanceOf<MarkdownIrBlockDisplay.ListBlock>()
+            rootList.items.single().marker shouldBe "•"
+            val level1 =
+                rootList.items.single().blocks.single()
+                    .shouldBeInstanceOf<MarkdownIrBlockDisplay.ListBlock>()
+            level1.items.single().marker shouldBe "◦"
+            val level2 =
+                level1.items.single().blocks.single()
+                    .shouldBeInstanceOf<MarkdownIrBlockDisplay.ListBlock>()
+            level2.items.single().marker shouldBe "▪"
+
+            val code =
+                plan.items[1].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                    .display.shouldBeInstanceOf<MarkdownIrBlockDisplay.CodeBlock>()
+            code.language shouldBe "kotlin"
+            code.literal shouldBe "println(1)"
+        }
+
+        test("inline code, highlight, wiki reference, and aligned table project role styles cleanly") {
+            val colorScheme = darkColorScheme()
+            val document =
+                document(
+                    sourceLength = 80uL,
+                    blocks =
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 40uL),
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Code(span(0uL, 6uL), "val"),
+                                MarkdownRenderInline.Text(span(6uL, 7uL), " "),
+                                MarkdownRenderInline.Highlight(
+                                    span(7uL, 15uL),
+                                    listOf(MarkdownRenderInline.Text(span(9uL, 13uL), "mark")),
+                                ),
+                                MarkdownRenderInline.Text(span(15uL, 16uL), " "),
+                                MarkdownRenderInline.WikiReference(
+                                    span(16uL, 32uL),
+                                    target = "Target",
+                                    inlines = listOf(MarkdownRenderInline.Text(span(23uL, 28uL), "Alias")),
+                                ),
+                            ),
+                        ),
+                        MarkdownRenderBlock.Table(
+                            sourceSpan = span(41uL, 80uL),
+                            alignments = listOf(MarkdownTableAlignment.LEFT, MarkdownTableAlignment.RIGHT),
+                            header =
+                            listOf(
+                                MarkdownRenderTableCell(
+                                    span(41uL, 45uL),
+                                    listOf(MarkdownRenderInline.Text(span(41uL, 45uL), "Name")),
+                                ),
+                                MarkdownRenderTableCell(
+                                    span(46uL, 52uL),
+                                    listOf(MarkdownRenderInline.Text(span(46uL, 52uL), "Amount")),
+                                ),
+                            ),
+                            rows = emptyList(),
+                        ),
+                    ),
+                )
+
+            val plan = buildMarkdownIrPresentationPlan(document)
+
+            val rawParagraph =
+                plan.items[0].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                    .display.shouldBeInstanceOf<MarkdownIrBlockDisplay.Paragraph>()
+                    .text
+            rawParagraph.text shouldBe "val mark Alias"
+            val themed = applyMarkdownInlineTheme(rawParagraph, colorScheme)
+            themed.spanStyles.any {
+                it.item.fontFamily == FontFamily.Monospace &&
+                    it.item.background == colorScheme.surfaceContainerHighest
+            } shouldBe true
+            themed.spanStyles.any {
+                it.item.fontWeight == FontWeight.SemiBold &&
+                    it.item.background == colorScheme.tertiaryContainer
+            } shouldBe true
+            themed.spanStyles.any {
+                it.item.color == colorScheme.primary
+            } shouldBe true
+
+            val table =
+                plan.items[1].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                    .display.shouldBeInstanceOf<MarkdownIrBlockDisplay.Table>()
+            table.alignments shouldBe listOf(MarkdownTableAlignment.LEFT, MarkdownTableAlignment.RIGHT)
         }
     }
 }

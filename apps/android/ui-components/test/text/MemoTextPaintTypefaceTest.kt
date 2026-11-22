@@ -8,7 +8,11 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
@@ -129,6 +133,51 @@ class MemoTextPaintTypefaceTest : UiComponentsFunSpec() {
                 customTypeface = null,
                 typefaceResolver = lookup,
             ) shouldBe monoTypeface
+        }
+
+        test("overlapping spans merge typeface, fontSize, color, and combined decorations") {
+            val text =
+                buildAnnotatedString {
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline))
+                    append("outer ")
+                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic, textDecoration = TextDecoration.LineThrough))
+                    append("inner")
+                    pop()
+                    pop()
+                }
+
+            val outerResolved = text.resolveSpanStyle(0)
+            outerResolved.fontWeight shouldBe FontWeight.Bold
+            outerResolved.fontStyle shouldBe null
+            outerResolved.textDecoration shouldBe TextDecoration.Underline
+
+            val innerOffset = text.text.indexOf("inner")
+            val innerResolved = text.resolveSpanStyle(innerOffset)
+            innerResolved.fontWeight shouldBe FontWeight.Bold
+            innerResolved.fontStyle shouldBe FontStyle.Italic
+            innerResolved.textDecoration shouldBe
+                TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
+
+            val keys =
+                collectMemoSpanTypefaceKeys(
+                    annotatedText = text,
+                    baseStyle = TextStyle(fontFamily = FontFamily.SansSerif),
+                )
+            keys shouldContainExactlyInAnyOrder
+                listOf(
+                    MemoSpanTypefaceKey(FontFamily.SansSerif, FontWeight.Normal, FontStyle.Normal),
+                    MemoSpanTypefaceKey(FontFamily.SansSerif, FontWeight.Bold, FontStyle.Normal),
+                    MemoSpanTypefaceKey(FontFamily.SansSerif, FontWeight.Bold, FontStyle.Italic),
+                )
+        }
+
+        test("resolveSpanFontSizePx scales em against base fontSize and preserves explicit sp") {
+            val baseStyle = TextStyle(fontSize = 16.sp)
+            val density = Density(density = 2f, fontScale = 1f)
+
+            baseStyle.resolveSpanFontSizePx(SpanStyle(), density) shouldBe 32f
+            baseStyle.resolveSpanFontSizePx(SpanStyle(fontSize = 0.9f.em), density) shouldBe (32f * 0.9f)
+            baseStyle.resolveSpanFontSizePx(SpanStyle(fontSize = 20.sp), density) shouldBe 40f
         }
     }
 }

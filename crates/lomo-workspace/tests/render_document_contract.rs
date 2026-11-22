@@ -69,8 +69,8 @@ mod tests {
     use lomo_workspace::{
         ByteSpan, MAX_INLINE_RENDER_UTF8_BYTES, MAX_RENDER_DOCUMENT_NODES,
         MAX_SEMANTIC_NESTING_DEPTH, RENDER_DOCUMENT_SCHEMA_V1, RenderBlock, RenderDocumentV1,
-        RenderInline, ResourceBudget, SemanticFactKind, SourceBytes, parse_workspace_document,
-        render_markdown,
+        RenderInline, ResourceBudget, SemanticFactKind, SourceBytes, TableAlignment,
+        parse_workspace_document, render_markdown,
     };
     use serde::Deserialize;
     use sha2::{Digest, Sha256};
@@ -754,6 +754,65 @@ mod tests {
                 assert_eq!(sliced, fact.value(), "source {text:?} fact {fact:?}");
             }
         }
+    }
+
+    #[test]
+    fn gfm_table_preserves_column_alignments() {
+        let source = SourceBytes::try_from_str(
+            "| left | center | right | none |\n| :--- | :---: | ---: | --- |\n| a | b | c | d |\n",
+        )
+        .test_ok("utf-8");
+        let document = render_markdown(&source).test_ok("render table");
+        let Some(RenderBlock::Table { alignments, .. }) = document.blocks().first() else {
+            panic!("expected table block: {:?}", document.blocks());
+        };
+        assert_eq!(
+            alignments,
+            &[
+                TableAlignment::Left,
+                TableAlignment::Center,
+                TableAlignment::Right,
+                TableAlignment::None,
+            ]
+        );
+    }
+
+    #[test]
+    fn wiki_reference_preserves_target_and_projects_alias_text() {
+        let source =
+            SourceBytes::try_from_str("See [[Project Notes|项目笔记]] and [[Plain Target]].")
+                .test_ok("utf-8");
+        let document = render_markdown(&source).test_ok("render wiki");
+        assert_eq!(document.plain_text(), "See 项目笔记 and Plain Target.");
+        let Some(RenderBlock::Paragraph { inlines, .. }) = document.blocks().first() else {
+            panic!("expected paragraph");
+        };
+        let refs: Vec<_> = inlines
+            .iter()
+            .filter_map(|inline| {
+                if let RenderInline::WikiReference {
+                    target, children, ..
+                } = inline
+                {
+                    Some((target.as_str(), children.as_slice()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let [first, second] = refs.as_slice() else {
+            panic!("expected 2 wiki references: {refs:?}");
+        };
+        assert_eq!(first.0, "Project Notes");
+        assert!(matches!(
+            first.1,
+            [RenderInline::Text { text, .. }] if text == "项目笔记"
+        ));
+        assert_eq!(second.0, "Plain Target");
+        assert!(matches!(
+            second.1,
+            [RenderInline::Text { text, .. }] if text == "Plain Target"
+        ));
     }
 
     #[test]

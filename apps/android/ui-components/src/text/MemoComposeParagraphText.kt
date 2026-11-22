@@ -240,7 +240,22 @@ private fun rememberMemoComposeParagraphLayout(
         remember(style, density, customTypeface, typefaceLookup) {
             style.toBaseTextPaint(density, customTypeface, typefaceLookup)
         }
-    val measurer = remember(textPaint) { AndroidMemoTextMeasurer(textPaint) }
+    val spanCacheKey = if (text.spanStyles.isEmpty()) null else text
+    val measurer =
+        remember(textPaint, spanCacheKey, style, density, customTypeface, typefaceLookup) {
+            if (spanCacheKey == null) {
+                AndroidMemoTextMeasurer(textPaint)
+            } else {
+                AnnotatedMemoTextMeasurer(
+                    annotatedText = spanCacheKey,
+                    baseStyle = style,
+                    density = density,
+                    basePaint = textPaint,
+                    customTypeface = customTypeface,
+                    typefaceResolver = typefaceLookup,
+                )
+            }
+        }
     val engine = remember(measurer) { MemoTextLayoutEngine(measurer) }
     val lineMetrics = remember(style, density, textPaint) { style.resolveLineMetrics(density, textPaint) }
     val baseLetterSpacingPx = remember(style, density) { style.resolveMemoLetterSpacingPx(density) }

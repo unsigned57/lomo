@@ -3,6 +3,7 @@ package com.lomo.ui.component.markdown
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -10,9 +11,16 @@ import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderInline
 import com.lomo.domain.model.markdown.MarkdownRenderListItem
+import com.lomo.domain.model.markdown.MarkdownRenderTableCell
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
+import com.lomo.domain.model.markdown.MarkdownTableAlignment
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+
+internal const val MARKDOWN_INLINE_ROLE_TAG = "lomo.markdown.inline_role"
+internal const val INLINE_ROLE_CODE = "code"
+internal const val INLINE_ROLE_HIGHLIGHT = "highlight"
+internal const val INLINE_ROLE_WIKI = "wiki"
 
 /**
  * Compose-ready projection of one render block: every derived string, span-styled text run,
@@ -29,14 +37,18 @@ sealed interface MarkdownIrBlockDisplay {
 
     data class BlockQuote(val blocks: List<MarkdownIrBlockDisplay>) : MarkdownIrBlockDisplay
 
-    data class ListBlock(val items: List<MarkdownIrListItemDisplay>) : MarkdownIrBlockDisplay
+    data class ListBlock(val items: List<MarkdownIrListItemDisplay>, val ordered: Boolean = false) :
+        MarkdownIrBlockDisplay
 
-    data class CodeBlock(val literal: String) : MarkdownIrBlockDisplay
+    data class CodeBlock(val language: String?, val literal: String) : MarkdownIrBlockDisplay
 
     data object ThematicBreak : MarkdownIrBlockDisplay
 
-    /** Rows are pre-joined display lines (header first); cell styling is not rendered today. */
-    data class Table(val rows: List<String>) : MarkdownIrBlockDisplay
+    data class Table(
+        val alignments: List<MarkdownTableAlignment>,
+        val header: List<AnnotatedString>,
+        val rows: List<List<AnnotatedString>>,
+    ) : MarkdownIrBlockDisplay
 
     data class HtmlBlock(val literal: String) : MarkdownIrBlockDisplay
 }
@@ -73,6 +85,7 @@ data class MarkdownIrListItemDisplay(
 internal fun buildMarkdownIrBlockDisplay(
     block: MarkdownRenderBlock,
     completedTask: Boolean = false,
+    listDepth: Int = 0,
 ): MarkdownIrBlockDisplay = when (block) {
     is MarkdownRenderBlock.Paragraph -> {
         val projection = projectParagraphMedia(block.inlines)
@@ -91,12 +104,13 @@ internal fun buildMarkdownIrBlockDisplay(
     is MarkdownRenderBlock.BlockQuote ->
         MarkdownIrBlockDisplay.BlockQuote(
             blocks = block.blocks.flatMap(::splitAudioParagraph).map {
-                buildMarkdownIrBlockDisplay(it, completedTask)
+                buildMarkdownIrBlockDisplay(it, completedTask, listDepth)
             },
         )
 
     is MarkdownRenderBlock.ListBlock ->
         MarkdownIrBlockDisplay.ListBlock(
+            ordered = block.ordered,
             items =
             block.items.mapIndexed { index, item ->
                 buildMarkdownIrListItemDisplay(
@@ -105,36 +119,52 @@ internal fun buildMarkdownIrBlockDisplay(
                     if (block.ordered) {
                         "${block.startNumber + index.toULong()}."
                     } else {
-                        "•"
+                        UNORDERED_BULLETS[listDepth % UNORDERED_BULLETS.size]
                     },
+                    childListDepth = listDepth + 1,
                 )
             },
         )
 
-    is MarkdownRenderBlock.CodeBlock -> MarkdownIrBlockDisplay.CodeBlock(literal = block.literal)
+    is MarkdownRenderBlock.CodeBlock ->
+        MarkdownIrBlockDisplay.CodeBlock(
+            language = block.language?.run { trim().takeIf(String::isNotEmpty) },
+            literal = block.literal.removeSuffix("\n"),
+        )
 
     is MarkdownRenderBlock.ThematicBreak -> MarkdownIrBlockDisplay.ThematicBreak
 
     is MarkdownRenderBlock.Table ->
         MarkdownIrBlockDisplay.Table(
-            rows =
-            (listOf(block.header) + block.rows).map { row ->
-                row.joinToString(" | ") { cell -> cell.inlines.toPlainText() }
-            },
+            alignments = block.alignments,
+            header = block.header.toAnnotatedCells(completedTask),
+            rows = block.rows.map { row -> row.toAnnotatedCells(completedTask) },
         )
 
-    is MarkdownRenderBlock.HtmlBlock -> MarkdownIrBlockDisplay.HtmlBlock(literal = block.literal)
+    is MarkdownRenderBlock.HtmlBlock -> MarkdownIrBlockDisplay.HtmlBlock(literal = block.literal.removeSuffix("\n"))
 }
 
-private fun buildMarkdownIrListItemDisplay(item: MarkdownRenderListItem, marker: String): MarkdownIrListItemDisplay =
-    MarkdownIrListItemDisplay(
-        actionSpan = item.actionSpan,
-        checked = item.checked,
-        marker = marker,
-        blocks = item.blocks.flatMap(::splitAudioParagraph).map {
-            buildMarkdownIrBlockDisplay(it, completedTask = item.checked == true)
-        },
-    )
+private val UNORDERED_BULLETS = listOf("•", "◦", "▪")
+
+private fun List<MarkdownRenderTableCell>.toAnnotatedCells(completedTask: Boolean): List<AnnotatedString> =
+    map { cell -> cell.inlines.toAnnotatedText().withTaskCompletion(completedTask) }
+
+private fun buildMarkdownIrListItemDisplay(
+    item: MarkdownRenderListItem,
+    marker: String,
+    childListDepth: Int = 1,
+): MarkdownIrListItemDisplay = MarkdownIrListItemDisplay(
+    actionSpan = item.actionSpan,
+    checked = item.checked,
+    marker = marker,
+    blocks = item.blocks.flatMap(::splitAudioParagraph).map {
+        buildMarkdownIrBlockDisplay(
+            block = it,
+            completedTask = item.checked == true,
+            listDepth = childListDepth,
+        )
+    },
+)
 
 internal fun MarkdownRenderInline.Image.toPresentationImage(): MarkdownPresentationImage = MarkdownPresentationImage(
     destination = destination,
@@ -197,9 +227,19 @@ private fun AnnotatedString.Builder.appendInline(inline: MarkdownRenderInline) {
         is MarkdownRenderInline.Underline ->
             withStyle(SpanStyle(textDecoration = TextDecoration.Underline), inline.inlines)
 
-        is MarkdownRenderInline.Highlight -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold), inline.inlines)
+        is MarkdownRenderInline.Highlight -> {
+            pushStringAnnotation(MARKDOWN_INLINE_ROLE_TAG, INLINE_ROLE_HIGHLIGHT)
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold), inline.inlines)
+            pop()
+        }
 
-        is MarkdownRenderInline.Code -> append(inline.text)
+        is MarkdownRenderInline.Code -> {
+            pushStringAnnotation(MARKDOWN_INLINE_ROLE_TAG, INLINE_ROLE_CODE)
+            pushStyle(SpanStyle(fontFamily = FontFamily.Monospace))
+            append(inline.text)
+            pop()
+            pop()
+        }
 
         is MarkdownRenderInline.Link -> {
             pushLink(LinkAnnotation.Url(inline.destination))
@@ -217,8 +257,13 @@ private fun AnnotatedString.Builder.appendInline(inline: MarkdownRenderInline) {
 
         is MarkdownRenderInline.Reminder -> append(inline.token)
 
-        is MarkdownRenderInline.WikiReference ->
+        is MarkdownRenderInline.WikiReference -> {
+            pushStringAnnotation(MARKDOWN_INLINE_ROLE_TAG, INLINE_ROLE_WIKI)
+            pushStyle(SpanStyle(fontWeight = FontWeight.Medium))
             if (inline.inlines.isEmpty()) append(inline.target) else inline.inlines.forEach(::appendInline)
+            pop()
+            pop()
+        }
 
         is MarkdownRenderInline.SoftBreak,
         is MarkdownRenderInline.HardBreak,

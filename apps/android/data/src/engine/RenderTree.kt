@@ -6,8 +6,10 @@ import com.lomo.domain.model.markdown.MarkdownRenderInline
 import com.lomo.domain.model.markdown.MarkdownRenderListItem
 import com.lomo.domain.model.markdown.MarkdownRenderTableCell
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
+import com.lomo.domain.model.markdown.MarkdownTableAlignment
 import com.lomo.nativebridge.RenderNode
 import com.lomo.nativebridge.RenderNodeKind
+import com.lomo.nativebridge.TableAlignment
 
 /**
  Render-tree to domain markdown-block conversion (validation helpers live in WorkspaceRenderValidation).
@@ -117,10 +119,14 @@ private fun RenderTree.toListItem(): MarkdownRenderListItem {
 
 private fun RenderTree.toTable(): MarkdownRenderBlock.Table {
     val header = mutableListOf<MarkdownRenderTableCell>()
+    val alignments = mutableListOf<MarkdownTableAlignment>()
     val rowsByIndex = sortedMapOf<UInt, MutableList<MarkdownRenderTableCell>>()
     children.forEach { child ->
         when (child.node.kind) {
-            RenderNodeKind.TABLE_HEADER_CELL -> header += child.toTableCell()
+            RenderNodeKind.TABLE_HEADER_CELL -> {
+                header += child.toTableCell()
+                alignments += child.node.alignment?.toDomainAlignment() ?: MarkdownTableAlignment.NONE
+            }
 
             RenderNodeKind.TABLE_CELL -> {
                 val rowIndex =
@@ -142,7 +148,15 @@ private fun RenderTree.toTable(): MarkdownRenderBlock.Table {
         sourceSpan = node.sourceSpan(),
         header = header,
         rows = rowsByIndex.values.map(List<MarkdownRenderTableCell>::toList),
+        alignments = alignments,
     )
+}
+
+private fun TableAlignment.toDomainAlignment(): MarkdownTableAlignment = when (this) {
+    TableAlignment.NONE -> MarkdownTableAlignment.NONE
+    TableAlignment.LEFT -> MarkdownTableAlignment.LEFT
+    TableAlignment.CENTER -> MarkdownTableAlignment.CENTER
+    TableAlignment.RIGHT -> MarkdownTableAlignment.RIGHT
 }
 
 private fun RenderTree.toTableCell(): MarkdownRenderTableCell = MarkdownRenderTableCell(

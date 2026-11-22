@@ -78,15 +78,19 @@ private fun DrawScope.drawMemoTextBackgrounds(
 
         // One rounded rect per contiguous background run: per-glyph rects leave vertical seams,
         // and a rounded outline keeps the highlight visually attached to the text run.
+        val horizontalPadPx = BACKGROUND_PILL_HORIZONTAL_PAD.toPx()
+        val verticalInsetPx = BACKGROUND_PILL_VERTICAL_INSET.toPx()
         mergeGlyphBackgroundRuns(glyphBackgrounds).forEach { run ->
+            val left = (run.startXPx - horizontalPadPx).coerceAtLeast(0f)
+            val right = (run.endXPx + horizontalPadPx).coerceAtMost(size.width)
+            val rawHeight = line.bottomPx - line.topPx
+            val effectiveInset = (verticalInsetPx).coerceAtMost(rawHeight / 4f)
+            val top = line.topPx + effectiveInset
+            val height = (rawHeight - effectiveInset * 2f).coerceAtLeast(0f)
             drawRoundRect(
                 color = run.color,
-                topLeft = Offset(run.startXPx, line.topPx),
-                size =
-                Size(
-                    width = run.endXPx - run.startXPx,
-                    height = line.bottomPx - line.topPx,
-                ),
+                topLeft = Offset(left, top),
+                size = Size(width = (right - left).coerceAtLeast(0f), height = height),
                 cornerRadius = CornerRadius(highlightCornerRadius, highlightCornerRadius),
             )
         }
@@ -215,3 +219,5 @@ internal fun mergeGlyphBackgroundRuns(glyphsWithColor: List<Pair<MemoTextGlyph, 
 }
 
 private val SEARCH_HIGHLIGHT_CORNER_RADIUS = 4.dp
+private val BACKGROUND_PILL_HORIZONTAL_PAD = 1.5.dp
+private val BACKGROUND_PILL_VERTICAL_INSET = 1.dp

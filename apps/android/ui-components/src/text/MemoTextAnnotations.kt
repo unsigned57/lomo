@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.style.TextDecoration
 import java.util.Locale
 
 internal fun AnnotatedString.withSearchHighlight(query: String, highlightColor: Color): AnnotatedString {
@@ -27,10 +28,32 @@ internal fun AnnotatedString.withSearchHighlight(query: String, highlightColor: 
     return editable.toAnnotatedString()
 }
 
-internal fun AnnotatedString.resolveSpanStyle(offset: Int): SpanStyle = spanStyles
-    .lastOrNull { range -> offset in range.start until range.end }
-    ?.item
-    ?: SpanStyle()
+internal fun AnnotatedString.resolveSpanStyle(offset: Int): SpanStyle {
+    var merged = SpanStyle()
+    var hasMatch = false
+    for (range in spanStyles) {
+        if (offset in range.start until range.end) {
+            val next = range.item
+            merged =
+                if (!hasMatch) {
+                    hasMatch = true
+                    next
+                } else {
+                    merged.merge(next).copy(
+                        textDecoration = combineTextDecorations(merged.textDecoration, next.textDecoration),
+                    )
+                }
+        }
+    }
+    return merged
+}
+
+private fun combineTextDecorations(base: TextDecoration?, overlay: TextDecoration?): TextDecoration? = when {
+    base == null -> overlay
+    overlay == null -> base
+    base == overlay -> base
+    else -> TextDecoration.combine(listOf(base, overlay))
+}
 
 internal fun AnnotatedString.resolveBackgroundColor(offset: Int): Color = spanStyles
     .lastOrNull { range ->

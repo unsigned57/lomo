@@ -1,6 +1,7 @@
 package com.lomo.ui.component.markdown
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 
@@ -17,4 +18,5 @@ internal data class MarkdownIrRenderContext(
     val onTextLongClick: (() -> Unit)?,
     val hideImages: Boolean,
     val mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
+    val contentColorOverride: Color? = null,
 )

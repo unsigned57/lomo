@@ -89,8 +89,9 @@ pub use reminder::{ReminderRef, ReminderReference};
 pub use render::{
     DEFAULT_REMINDER_INTERVAL_MINUTES, RENDER_DOCUMENT_SCHEMA_V1, ReminderRecurrence,
     ReminderTokenFacts, ReminderTokenMutation, RenderBlock, RenderDocumentV1, RenderInline,
-    RenderListItem, RenderTableCell, SemanticFact, SemanticFactKind, build_reminder_token,
-    plan_reminder_token_mutation, project_markdown_facts, reminder_token_facts, render_markdown,
+    RenderListItem, RenderTableCell, SemanticFact, SemanticFactKind, TableAlignment,
+    build_reminder_token, plan_reminder_token_mutation, project_markdown_facts,
+    reminder_token_facts, render_markdown,
 };
 pub use source::{
     BomKind, ByteSpan, DominantNewline, NewlineKind, SourceBytes, SourceFingerprint,

@@ -146,6 +146,15 @@ pub enum RenderNodeKind {
 }
 
 #[data]
+#[derive(Clone, Copy, Debug)]
+pub enum TableAlignment {
+    None,
+    Left,
+    Center,
+    Right,
+}
+
+#[data]
 #[derive(Clone, Debug)]
 pub struct RenderNode {
     pub kind: RenderNodeKind,
@@ -163,6 +172,8 @@ pub struct RenderNode {
     pub action_end: Option<u64>,
     /// Owner media class of an `Image`-kind node destination; `None` on every other kind.
     pub media_class: Option<MediaClass>,
+    /// GFM column alignment on `TableHeaderCell` nodes; `None` on every other kind.
+    pub alignment: Option<TableAlignment>,
 }
 
 #[data]
@@ -3029,8 +3040,13 @@ fn flatten_render_blocks(
             workspace::RenderBlock::List { items, .. } => {
                 flatten_render_list_items(items, depth.saturating_add(1), nodes);
             }
-            workspace::RenderBlock::Table { header, rows, .. } => {
-                flatten_render_table(header, rows, depth.saturating_add(1), nodes);
+            workspace::RenderBlock::Table {
+                alignments,
+                header,
+                rows,
+                ..
+            } => {
+                flatten_render_table(alignments, header, rows, depth.saturating_add(1), nodes);
             }
             workspace::RenderBlock::CodeBlock { .. }
             | workspace::RenderBlock::ThematicBreak { .. }
@@ -3102,17 +3118,19 @@ fn flatten_render_list_items(
 }
 
 fn flatten_render_table(
+    alignments: &[workspace::TableAlignment],
     header: &[workspace::RenderTableCell],
     rows: &[Vec<workspace::RenderTableCell>],
     depth: u32,
     nodes: &mut Vec<RenderNode>,
 ) {
-    for cell in header {
-        nodes.push(empty_render_node(
-            RenderNodeKind::TableHeaderCell,
-            cell.source_span,
-            depth,
-        ));
+    for (col_index, cell) in header.iter().enumerate() {
+        let mut node = empty_render_node(RenderNodeKind::TableHeaderCell, cell.source_span, depth);
+        node.alignment = alignments
+            .get(col_index)
+            .copied()
+            .map(table_alignment_from_workspace);
+        nodes.push(node);
         flatten_render_inlines(&cell.inlines, depth.saturating_add(1), nodes);
     }
     for (row_index, row) in rows.iter().enumerate() {
@@ -3125,6 +3143,15 @@ fn flatten_render_table(
             nodes.push(node);
             flatten_render_inlines(&cell.inlines, depth.saturating_add(1), nodes);
         }
+    }
+}
+
+const fn table_alignment_from_workspace(alignment: workspace::TableAlignment) -> TableAlignment {
+    match alignment {
+        workspace::TableAlignment::None => TableAlignment::None,
+        workspace::TableAlignment::Left => TableAlignment::Left,
+        workspace::TableAlignment::Center => TableAlignment::Center,
+        workspace::TableAlignment::Right => TableAlignment::Right,
     }
 }
 
@@ -3272,6 +3299,7 @@ const fn empty_render_node(
         action_start: None,
         action_end: None,
         media_class: None,
+        alignment: None,
     }
 }
 

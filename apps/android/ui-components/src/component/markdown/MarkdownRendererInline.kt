@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import com.lomo.ui.text.MemoParagraphText
@@ -16,6 +17,7 @@ internal fun MDText(
     text: AnnotatedString,
     style: TextStyle?,
     enableTextSelection: Boolean = false,
+    contentColor: Color? = null,
     blockKey: Any? = null,
     selectionRegistrar: MemoTextSelectionRegistrar? = null,
     onTapFeedback: (() -> Unit)? = null,
@@ -25,17 +27,18 @@ internal fun MDText(
 ) {
     if (text.isEmpty()) return
 
-    val layoutSample: CharSequence = text
+    val themedText = rememberThemedMarkdownText(text = text)
+    val layoutSample: CharSequence = themedText
     val baseStyle = style ?: MaterialTheme.typography.memoBodyTextStyle()
     val finalStyle =
         resolveMarkdownParagraphTextStyle(
             baseStyle = baseStyle,
-            fallbackColor = MaterialTheme.colorScheme.onSurface,
+            fallbackColor = contentColor ?: MaterialTheme.colorScheme.onSurface,
             text = layoutSample,
         )
 
     MemoParagraphText(
-        text = text,
+        text = themedText,
         style = finalStyle,
         modifier = Modifier.fillMaxWidth(),
         selectable = enableTextSelection,

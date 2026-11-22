@@ -49,8 +49,13 @@ internal fun collectMemoSpanTypefaceKeys(
             fontStyle = baseFontStyle,
         ),
     )
-    annotatedText.spanStyles.forEach { range ->
-        val span = range.item
+    if (annotatedText.spanStyles.isEmpty() || annotatedText.isEmpty()) return@buildSet
+    val boundaries = collectSpanBoundaryOffsets(annotatedText)
+    for (index in 0 until boundaries.lastIndex) {
+        val segStart = boundaries[index]
+        val segEnd = boundaries[index + 1]
+        if (segStart >= segEnd) continue
+        val span = annotatedText.resolveSpanStyle(segStart)
         add(
             MemoSpanTypefaceKey(
                 fontFamily = span.fontFamily ?: baseStyle.fontFamily,
@@ -84,7 +89,7 @@ internal fun TextStyle.toGlyphTextPaint(
     val linkStyle = annotatedText.resolveLinkVisualStyle(offset, defaultLinkColor)
     return TextPaint(Paint.ANTI_ALIAS_FLAG).also { paint ->
         paint.color = resolveGlyphColor(spanStyle, linkStyle).toArgb()
-        paint.textSize = resolveFontSizePx(density)
+        paint.textSize = resolveSpanFontSizePx(spanStyle, density)
         paint.typeface = resolveMemoTypeface(spanStyle, customTypeface, typefaceResolver)
         paint.isUnderlineText =
             linkStyle?.isUnderlineText == true ||
@@ -137,6 +142,19 @@ internal fun TextStyle.resolveFontSizePx(density: Density): Float = with(density
         DEFAULT_MEMO_TEXT_SIZE_SP.sp.toPx()
     } else {
         fontSize.toPx()
+    }
+}
+
+internal fun TextStyle.resolveSpanFontSizePx(spanStyle: SpanStyle, density: Density): Float {
+    val basePx = resolveFontSizePx(density)
+    val spanSize = spanStyle.fontSize
+    if (spanSize == TextUnit.Unspecified) return basePx
+    return with(density) {
+        when (spanSize.type) {
+            TextUnitType.Sp -> spanSize.toPx()
+            TextUnitType.Em -> basePx * spanSize.value
+            else -> basePx
+        }
     }
 }
 
