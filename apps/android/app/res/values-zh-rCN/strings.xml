@@ -216,9 +216,16 @@
     <string name="settings_debug_update_preview">Debug 更新预览</string>
     <string name="settings_debug_update_preview_subtitle">打开 GitHub 最新正式包的真实更新流程，直接测试应用内下载。</string>
     <string name="settings_engine_diagnostics">诊断</string>
-    <string name="settings_engine_diagnostics_subtitle">查看近期操作结果并复制诊断报告。</string>
+    <string name="settings_engine_diagnostics_subtitle">查看运行状态、错误详情并复制诊断报告。</string>
     <string name="settings_engine_diagnostics_empty">本次运行还没有诊断记录。</string>
-    <string name="settings_engine_diagnostics_copy">复制诊断</string>
+    <string name="settings_engine_diagnostics_no_errors">本次运行暂无错误记录。</string>
+    <string name="settings_engine_diagnostics_copy">复制报告</string>
+    <string name="settings_engine_diagnostics_copied">已复制</string>
+    <string name="settings_engine_diagnostics_clear">清空</string>
+    <string name="settings_engine_diagnostics_filter_errors">错误（%1$d）</string>
+    <string name="settings_engine_diagnostics_filter_all">全部（%1$d）</string>
+    <string name="settings_engine_diagnostics_env_header">v%1$s · Android %2$s (SDK %3$d) · %4$s</string>
+    <string name="settings_engine_diagnostics_env_meta">时区=%1$s (%2$s) · 存储=%3$s · 引擎=%4$s · 索引=%5$s</string>
     <string name="failure_with_code">%1$s［%2$s］</string>
     <string name="failure_workspace_update">无法更新存储设置。</string>
     <string name="failure_workspace_grant">缺少目录授权。请重新选择目录并授予读写权限。</string>

@@ -269,6 +269,8 @@ fun InteractionSettingsSection(
 fun AboutSettingsSection(
     state: AboutSectionState,
     systemState: SystemSectionState,
+    filenameFormat: String,
+    timestampFormat: String,
     onCheckUpdates: () -> Unit,
     onToggleCheckUpdatesOnStartup: (Boolean) -> Unit,
     onPreviewDebugUpdate: () -> Unit,
@@ -336,6 +338,8 @@ fun AboutSettingsSection(
     if (showEngineDiagnostics) {
         EngineDiagnosticsDialog(
             appVersion = state.currentVersion,
+            filenameFormat = filenameFormat,
+            timestampFormat = timestampFormat,
             onDismiss = { showEngineDiagnostics = false },
         )
     }

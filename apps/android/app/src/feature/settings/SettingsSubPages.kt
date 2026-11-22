@@ -348,6 +348,8 @@ internal fun AboutSettingsPage(
             AboutSettingsSection(
                 state = aboutState,
                 systemState = uiState.system,
+                filenameFormat = uiState.storage.filenameFormat,
+                timestampFormat = uiState.storage.timestampFormat,
                 onCheckUpdates = {
                     val updateState = aboutState.manualUpdateState
                     if (updateState is SettingsManualUpdateState.UpdateAvailable) {

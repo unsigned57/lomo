@@ -13,4 +13,8 @@ internal class FakeEngineDiagnosticsRecorder : EngineDiagnosticsRecorder {
     override fun record(event: EngineDiagnosticEvent) {
         recorded.update { listOf(event) + it }
     }
+
+    override fun clear() {
+        recorded.value = emptyList()
+    }
 }

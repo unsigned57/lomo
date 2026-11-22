@@ -269,12 +269,35 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
 
     init {
         viewModelScope.launch {
+            var lastRecordedRecovery: EngineReadiness.ReadOnlyRecovery? = null
             workspaceCoordinator.mount
                 .filter { it.readiness !is EngineReadiness.Opening }
-                .collect { mount -> updateRootDirectoryUiState(mount.location?.raw) }
+                .collect { mount ->
+                    updateRootDirectoryUiState(mount.location?.raw)
+                    val recovery = mount.readiness as? EngineReadiness.ReadOnlyRecovery
+                    if (recovery == null) {
+                        lastRecordedRecovery = null
+                    } else if (recovery != lastRecordedRecovery) {
+                        lastRecordedRecovery = recovery
+                        diagnostics.record(
+                            com.lomo.domain.model.EngineDiagnosticEvent.Rejected(
+                                label = "workspace.mount",
+                                durationMillis = null,
+                                failure =
+                                com.lomo.domain.model.EngineCommandFailure(
+                                    category = recovery.category,
+                                    code = recovery.code,
+                                    retryDisposition = recovery.retryDisposition,
+                                    operationId = null,
+                                    jobId = null,
+                                    diagnostic = recovery.diagnostic,
+                                    workspaceStage = recovery.workspaceStage,
+                                ),
+                            ),
+                        )
+                    }
+                }
         }
-        startupCoordinator.observeRootDirectoryChanges().launchIn(viewModelScope)
-        startupCoordinator.observeVoiceDirectoryChanges().launchIn(viewModelScope)
 
         viewModelScope.launch {
             appConfigStateProvider.preferencesCorruptionNotice.collect { notice ->

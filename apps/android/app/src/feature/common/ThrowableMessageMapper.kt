@@ -10,6 +10,7 @@ import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.markdown.MarkdownRenderContractException
+import com.lomo.domain.model.sanitizeDiagnosticText
 import com.lomo.domain.usecase.MigrationEnvelopeException
 import com.lomo.domain.usecase.MigrationPasswordException
 import kotlinx.coroutines.CancellationException
@@ -53,7 +54,8 @@ internal fun EngineDiagnosticsRecorder.recordApplicationFailure(
     error: Throwable,
 ): EngineCommandFailure {
     if (error is CancellationException) throw error
-    val failure = error.knownFailure() ?: diagnosticFailure(
+    val traceSummary = buildSanitizedCauseChain(error)
+    val failure = error.knownFailure(traceSummary) ?: diagnosticFailure(
         code = when (error) {
             is IllegalArgumentException -> "invalid_argument"
             is IllegalStateException -> "invalid_state"
@@ -61,8 +63,16 @@ internal fun EngineDiagnosticsRecorder.recordApplicationFailure(
             else -> "unexpected_error"
         },
         category = EngineFailureCategory.INTERNAL,
+        rawText = traceSummary,
     )
-    record(EngineDiagnosticEvent.Rejected(operation, durationMillis = null, failure = failure))
+    record(
+        EngineDiagnosticEvent.Rejected(
+            label = operation,
+            durationMillis = null,
+            failure = failure,
+            causeSummary = traceSummary,
+        ),
+    )
     return failure
 }
 
@@ -76,56 +86,94 @@ internal fun EngineDiagnosticsRecorder.reportUserFailure(
     return error.toUserMessage(prefix, sanitizer)
 }
 
-private fun Throwable.knownFailure(): EngineCommandFailure? {
+private fun Throwable.knownFailure(fallbackRawText: String = ""): EngineCommandFailure? {
     val causes = generateSequence(this) { it.cause }.take(16)
     val nativeFailure = causes.filterIsInstance<EngineCommandFailureException>().firstOrNull()
     if (nativeFailure != null) return nativeFailure.failure
     return causes.firstNotNullOfOrNull { error ->
         when (error) {
-            is MarkdownRenderContractException -> diagnosticFailure(error.code, EngineFailureCategory.VALIDATION)
+            is MarkdownRenderContractException -> diagnosticFailure(
+                code = error.code,
+                category = EngineFailureCategory.VALIDATION,
+                rawText = fallbackRawText,
+            )
 
             is GitSyncFailureException -> diagnosticFailure(
-                "git.${error.code.name.lowercase(Locale.ROOT)}",
-                EngineFailureCategory.STORAGE,
+                code = "git.${error.code.name.lowercase(Locale.ROOT)}",
+                category = EngineFailureCategory.STORAGE,
+                rawText = fallbackRawText,
             )
 
             is WebDavSyncFailureException -> diagnosticFailure(
-                "webdav.${error.code.name.lowercase(Locale.ROOT)}",
-                EngineFailureCategory.STORAGE,
+                code = "webdav.${error.code.name.lowercase(Locale.ROOT)}",
+                category = EngineFailureCategory.STORAGE,
+                rawText = fallbackRawText,
             )
 
             is S3SyncFailureException -> diagnosticFailure(
-                "s3.${error.code.name.lowercase(Locale.ROOT)}",
-                EngineFailureCategory.STORAGE,
+                code = "s3.${error.code.name.lowercase(Locale.ROOT)}",
+                category = EngineFailureCategory.STORAGE,
+                rawText = fallbackRawText,
             )
 
             is MigrationPasswordException -> diagnosticFailure(
-                "migration_password_invalid",
-                EngineFailureCategory.AUTHENTICATION,
+                code = "migration_password_invalid",
+                category = EngineFailureCategory.AUTHENTICATION,
+                rawText = fallbackRawText,
             )
 
             is MigrationEnvelopeException -> diagnosticFailure(
-                "migration_envelope_invalid",
-                EngineFailureCategory.VALIDATION,
+                code = "migration_envelope_invalid",
+                category = EngineFailureCategory.VALIDATION,
+                rawText = fallbackRawText,
             )
 
-            is SecurityException -> diagnosticFailure("access_denied", EngineFailureCategory.PERMISSION)
+            is SecurityException -> diagnosticFailure(
+                code = "access_denied",
+                category = EngineFailureCategory.PERMISSION,
+                rawText = fallbackRawText,
+            )
 
-            is FileNotFoundException -> diagnosticFailure("file_unavailable", EngineFailureCategory.STORAGE)
+            is FileNotFoundException -> diagnosticFailure(
+                code = "file_unavailable",
+                category = EngineFailureCategory.STORAGE,
+                rawText = fallbackRawText,
+            )
 
-            is IOException -> diagnosticFailure("io_failed", EngineFailureCategory.STORAGE)
+            is IOException -> diagnosticFailure(
+                code = "io_failed",
+                category = EngineFailureCategory.STORAGE,
+                rawText = fallbackRawText,
+            )
 
             else -> null
         }
     }
 }
 
-private fun diagnosticFailure(code: String, category: EngineFailureCategory): EngineCommandFailure =
-    EngineCommandFailure(
-        category = category,
-        code = code,
-        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-        operationId = null,
-        jobId = null,
-        diagnostic = "",
-    )
+private fun buildSanitizedCauseChain(error: Throwable): String {
+    val frames =
+        generateSequence(error) { it.cause }
+            .take(6)
+            .map { throwable ->
+                val simpleName = throwable.javaClass.simpleName.ifBlank { "Throwable" }
+                val rawText = throwable.message?.trim().orEmpty()
+                if (rawText.isEmpty()) simpleName else "$simpleName: $rawText"
+            }
+            .distinct()
+            .toList()
+    return sanitizeDiagnosticText(frames.joinToString(separator = " <- "))
+}
+
+private fun diagnosticFailure(
+    code: String,
+    category: EngineFailureCategory,
+    rawText: String = "",
+): EngineCommandFailure = EngineCommandFailure(
+    category = category,
+    code = code,
+    retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+    operationId = null,
+    jobId = null,
+    diagnostic = rawText,
+)

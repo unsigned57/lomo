@@ -207,9 +207,16 @@
     <string name="settings_debug_update_preview">Debug update preview</string>
     <string name="settings_debug_update_preview_subtitle">Open the real latest GitHub release update flow for direct in-app download testing.</string>
     <string name="settings_engine_diagnostics">Diagnostics</string>
-    <string name="settings_engine_diagnostics_subtitle">Review recent operation results and copy a diagnostic report.</string>
+    <string name="settings_engine_diagnostics_subtitle">Review runtime status, error details, and copy a diagnostic report.</string>
     <string name="settings_engine_diagnostics_empty">No diagnostic events recorded in this session.</string>
-    <string name="settings_engine_diagnostics_copy">Copy diagnostics</string>
+    <string name="settings_engine_diagnostics_no_errors">No errors recorded in this session.</string>
+    <string name="settings_engine_diagnostics_copy">Copy report</string>
+    <string name="settings_engine_diagnostics_copied">Copied</string>
+    <string name="settings_engine_diagnostics_clear">Clear</string>
+    <string name="settings_engine_diagnostics_filter_errors">Errors (%1$d)</string>
+    <string name="settings_engine_diagnostics_filter_all">All (%1$d)</string>
+    <string name="settings_engine_diagnostics_env_header">v%1$s · Android %2$s (SDK %3$d) · %4$s</string>
+    <string name="settings_engine_diagnostics_env_meta">tz=%1$s (%2$s) · storage=%3$s · engine=%4$s · index=%5$s</string>
     <string name="failure_with_code">%1$s [%2$s]</string>
     <string name="failure_workspace_update">Could not update storage settings.</string>
     <string name="failure_workspace_grant">Folder access is missing. Select the folder again to grant read and write access.</string>

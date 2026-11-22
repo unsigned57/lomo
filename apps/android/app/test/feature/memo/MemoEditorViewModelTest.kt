@@ -525,6 +525,10 @@ class MemoEditorViewModelTest : AppFunSpec() {
         override fun record(event: EngineDiagnosticEvent) {
             _events.value = listOf(event) + _events.value
         }
+
+        override fun clear() {
+            reset()
+        }
     }
 
     private fun createViewModel(): MemoEditorViewModel = MemoEditorViewModel(

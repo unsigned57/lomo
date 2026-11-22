@@ -31,14 +31,17 @@
 
 package com.lomo.app.feature.common
 
+import com.lomo.app.feature.settings.DiagnosticsEnvironmentSnapshot
 import com.lomo.app.feature.settings.recentDiagnosticsReport
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeEngineDiagnosticsRecorder
 import com.lomo.domain.model.EngineCommandFailure
 import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.EngineDiagnosticEvent
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.WorkspaceFailureStage
+import com.lomo.domain.model.sanitizeDiagnosticText
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
@@ -111,7 +114,7 @@ class ThrowableMessageMapperTest : AppFunSpec() {
             message shouldNotContain "/storage/emulated/0"
         }
 
-        test("a wrapped workspace refusal keeps its code and stage in the copied report") {
+        test("a wrapped workspace refusal keeps its code, stage, redacted detail and cause in the copied report") {
             val recorder = FakeEngineDiagnosticsRecorder()
             val rejection = EngineCommandFailureException(
                 EngineCommandFailure(
@@ -120,7 +123,9 @@ class ThrowableMessageMapperTest : AppFunSpec() {
                     retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                     operationId = "private-operation",
                     jobId = "private-job",
-                    diagnostic = "The folder content://example/tree/private was revoked",
+                    diagnostic =
+                    "The folder content://example/tree/private under /storage/emulated/0/Notes " +
+                        "was revoked token=secret123",
                     workspaceStage = WorkspaceFailureStage.PROBE,
                 ),
             )
@@ -128,10 +133,82 @@ class ThrowableMessageMapperTest : AppFunSpec() {
 
             recorder.recordApplicationFailure("settings.storage", error)
 
+            val environment = DiagnosticsEnvironmentSnapshot(
+                appVersion = "2.0.2",
+                androidSdk = 37,
+                androidRelease = "17",
+                device = "Google Pixel 7",
+                abis = "arm64-v8a",
+                locale = "en-US",
+                timeZoneId = "Asia/Shanghai",
+                timeZoneOffset = "+08:00",
+                workspaceKind = "saf",
+                imageStorageKind = "follows_notes",
+                voiceStorageKind = "follows_notes",
+                filenameFormat = "yyyy_MM_dd",
+                timestampFormat = "HH:mm:ss",
+                engineReadiness = "ready",
+                projectionFreshness = "verified(rev=4)",
+            )
             error.toUserMessage("Could not open folder") shouldBe "Could not open folder: saf_grant_revoked"
-            recentDiagnosticsReport(recorder.events.value, "2.0.0", 37) shouldBe
-                "lomo_diagnostics_v1\napp_version=2.0.0\nandroid_sdk=37\n" +
-                "settings.storage · rejected · saf_grant_revoked · permission · retry=after_user_action · stage=workspace.probe\n"
+            val report = recentDiagnosticsReport(recorder.events.value, environment)
+            report shouldContain "lomo_diagnostics_v2"
+            report shouldContain "app_version=2.0.2"
+            report shouldContain "android_sdk=37"
+            report shouldContain "time_zone=Asia/Shanghai"
+            report shouldContain "time_zone_offset=+08:00"
+            report shouldContain "[events errors=1 total=1]"
+            report shouldContain
+                "settings.storage · rejected · saf_grant_revoked · permission · " +
+                "retry=after_user_action · stage=workspace.probe"
+            report shouldContain
+                "detail=The folder content://example/<redacted> under <path> was revoked token=<redacted>"
+            report shouldContain
+                "cause=IllegalStateException: Opening failed <- EngineCommandFailureException: saf_grant_revoked"
+            report shouldNotContain "tree/private"
+            report shouldNotContain "/storage/emulated/0"
+            report shouldNotContain "secret123"
+        }
+
+        test("sanitizes bearer tokens, url credentials, saf URIs, and paths while keeping timestamp prefix") {
+            val sanitized = sanitizeDiagnosticText(
+                "https://alice:hunter2@sync.example.com Bearer abcd.efg content://doc.auth/tree/secret /data/user/0/app/db",
+            )
+            sanitized shouldNotContain "hunter2"
+            sanitized shouldNotContain "abcd.efg"
+            sanitized shouldNotContain "tree/secret"
+            sanitized shouldNotContain "/data/user/0"
+            sanitized shouldContain "https://<redacted>@sync.example.com"
+            sanitized shouldContain "Bearer <redacted>"
+            sanitized shouldContain "content://doc.auth/<redacted>"
+            sanitized shouldContain "<path>"
+
+            val stamped = EngineDiagnosticEvent.Stalled(
+                label = "workspace.open",
+                durationMillis = 1500L,
+                recordedAtMillis = 1_700_000_000_123L,
+            )
+            val environment = DiagnosticsEnvironmentSnapshot(
+                appVersion = "2.0.2",
+                androidSdk = 37,
+                androidRelease = "17",
+                device = "Pixel",
+                abis = "arm64-v8a",
+                locale = "en-US",
+                timeZoneId = "UTC",
+                timeZoneOffset = "Z",
+                workspaceKind = "direct",
+                imageStorageKind = "follows_notes",
+                voiceStorageKind = "follows_notes",
+                filenameFormat = "yyyy_MM_dd",
+                timestampFormat = "HH:mm:ss",
+                engineReadiness = "opening",
+                projectionFreshness = "unavailable",
+            )
+            val stampedReport = recentDiagnosticsReport(listOf(stamped), environment)
+            Regex("""(?m)^\[\d\d:\d\d:\d\d\.\d\d\d] workspace\.open · 1500ms · stalled""").containsMatchIn(
+                stampedReport,
+            ) shouldBe true
         }
     }
 }
