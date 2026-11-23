@@ -100,6 +100,7 @@ mod tests {
             projection: Some(ScannedMemoProjection {
                 memo_id: memo_id.to_owned(),
                 source_path: SOURCE_PATH.to_owned(),
+                time_part: TIME_PART.to_owned(),
                 file_fingerprint: fingerprint_of(body),
                 chronology_epoch_ms: CHRONOLOGY_MS,
                 body: body.to_owned(),

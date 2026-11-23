@@ -11,9 +11,10 @@ use jiff::{
     civil::{Date as JiffDate, Time as JiffTime},
     tz::TimeZone,
 };
+use serde::{Deserialize, Serialize};
 
 /// Supported storage date formats.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Default)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Default, Serialize, Deserialize)]
 pub enum DateFormat {
     /// Format: `yyyy_MM_dd` (default)
     #[default]
@@ -72,6 +73,45 @@ impl DateFormat {
     }
 }
 
+/// Supported storage header timestamp formats.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Default, Serialize, Deserialize)]
+pub enum TimestampFormat {
+    /// Format: `HH:mm:ss` (default)
+    #[default]
+    HhMmSs,
+    /// Format: `HH:mm`
+    HhMm,
+}
+
+impl TimestampFormat {
+    /// The single registry of every supported variant, in canonical resolution order.
+    pub const ALL: [Self; 2] = [Self::HhMmSs, Self::HhMm];
+
+    /// Returns the pattern string for this format.
+    #[must_use]
+    pub const fn pattern(self) -> &'static str {
+        match self {
+            Self::HhMmSs => "HH:mm:ss",
+            Self::HhMm => "HH:mm",
+        }
+    }
+
+    /// Strictly resolves a host-supplied format token against [`TimestampFormat::ALL`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CalendarError::InvalidTimestampFormat`] if the token is not a declared pattern.
+    pub fn from_token(token: &str) -> Result<Self, CalendarError> {
+        Self::ALL
+            .iter()
+            .find(|format| format.pattern() == token)
+            .copied()
+            .ok_or_else(|| CalendarError::InvalidTimestampFormat {
+                pattern: token.to_owned(),
+            })
+    }
+}
+
 /// Calendar errors returned by pure date/timezone operations.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CalendarError {
@@ -81,6 +121,8 @@ pub enum CalendarError {
     UnknownTimeZone(String),
     /// Date format pattern string was not recognized.
     InvalidDateFormat { pattern: String },
+    /// Timestamp format pattern string was not recognized.
+    InvalidTimestampFormat { pattern: String },
     /// Date key did not match any supported format or contained invalid date values.
     InvalidDateKey { raw: String },
     /// Time token did not match supported formats or contained out-of-range values.
@@ -99,6 +141,9 @@ impl fmt::Display for CalendarError {
             Self::InvalidDateFormat { pattern } => {
                 write!(f, "invalid date format pattern: {pattern}")
             }
+            Self::InvalidTimestampFormat { pattern } => {
+                write!(f, "invalid timestamp format pattern: {pattern}")
+            }
             Self::InvalidDateKey { raw } => write!(f, "invalid date key: {raw}"),
             Self::InvalidTimeToken { raw } => write!(f, "invalid time token: {raw}"),
             Self::DisambiguationFailed { message } => {
@@ -116,6 +161,7 @@ impl From<CalendarError> for lomo_core::LomoError {
         let code = match &err {
             CalendarError::UnknownTimeZone(_) => "workspace_time_zone_unknown",
             CalendarError::InvalidDateFormat { .. } => "storage_date_format_invalid",
+            CalendarError::InvalidTimestampFormat { .. } => "storage_timestamp_format_invalid",
             CalendarError::InvalidDateKey { .. } => "memo_date_invalid",
             CalendarError::InvalidTimeToken { .. } => "memo_time_invalid",
             CalendarError::InvalidEpochMs(_) => "calendar_epoch_out_of_range",
@@ -758,7 +804,8 @@ pub fn memo_chronology(date_key: &str, time_token: &str, zone: &str) -> Result<i
     Ok(epoch_ms)
 }
 
-/// Computes the journal filename and time token from a single epoch millisecond instant.
+/// Computes the journal filename and time token from a single epoch millisecond instant
+/// using `HH:mm:ss` timestamp precision.
 ///
 /// Avoids midnight-crossing skew by evaluating date and time from the identical instant.
 ///
@@ -769,6 +816,21 @@ pub fn journal_stamp(
     epoch_ms: i64,
     zone: &str,
     format: DateFormat,
+) -> Result<JournalStamp, CalendarError> {
+    journal_stamp_with_formats(epoch_ms, zone, format, TimestampFormat::HhMmSs)
+}
+
+/// Computes the journal filename and time token from a single epoch millisecond instant using
+/// explicit [`DateFormat`] and [`TimestampFormat`].
+///
+/// # Errors
+///
+/// Returns [`CalendarError`] if `epoch_ms` is non-positive or timezone is unknown.
+pub fn journal_stamp_with_formats(
+    epoch_ms: i64,
+    zone: &str,
+    date_format: DateFormat,
+    timestamp_format: TimestampFormat,
 ) -> Result<JournalStamp, CalendarError> {
     if epoch_ms <= 0 {
         return Err(CalendarError::InvalidEpochMs(epoch_ms));
@@ -783,13 +845,16 @@ pub fn journal_stamp(
     let date = CivilDate::from_jiff(zoned.date())?;
     let time = zoned.time();
 
-    let filename = format_filename(date, format);
-    let time_token = format!(
-        "{:02}:{:02}:{:02}",
-        time.hour(),
-        time.minute(),
-        time.second()
-    );
+    let filename = format_filename(date, date_format);
+    let time_token = match timestamp_format {
+        TimestampFormat::HhMmSs => format!(
+            "{:02}:{:02}:{:02}",
+            time.hour(),
+            time.minute(),
+            time.second()
+        ),
+        TimestampFormat::HhMm => format!("{:02}:{:02}", time.hour(), time.minute()),
+    };
 
     Ok(JournalStamp {
         filename,

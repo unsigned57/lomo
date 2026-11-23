@@ -61,6 +61,7 @@ mod tests {
                 projection: Some(ScannedMemoProjection {
                     memo_id: memo.to_owned(),
                     source_path: "2026_11_04.md".to_owned(),
+                    time_part: "09:30:00".to_owned(),
                     file_fingerprint: after.to_owned(),
                     chronology_epoch_ms: 1,
                     body: body.to_owned(),

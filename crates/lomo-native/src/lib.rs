@@ -1581,6 +1581,8 @@ impl LomoEngine {
                 pinned: false,
                 pending_promotes,
                 chronology_epoch_ms: Some(chronology_epoch_ms),
+                date_format: None,
+                timestamp_format: None,
             })
         })?;
         let memo_id = created.memo_id.as_str().to_owned();

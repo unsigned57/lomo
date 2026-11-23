@@ -360,10 +360,15 @@ impl WorkspaceSession {
         self.recover_pending(&lock)?;
         let now = epoch_millis()?;
         let chronology = request.chronology_epoch_ms.unwrap_or(now);
-        let stamp = crate::calendar::journal_stamp(
+        let date_format = request.date_format.unwrap_or(self.config.date_format);
+        let timestamp_format = request
+            .timestamp_format
+            .unwrap_or(crate::calendar::TimestampFormat::HhMmSs);
+        let stamp = crate::calendar::journal_stamp_with_formats(
             chronology,
             &self.config.time_zone,
-            self.config.date_format,
+            date_format,
+            timestamp_format,
         )?;
         let path = if let Some(path) = request.relative_path.clone() {
             path

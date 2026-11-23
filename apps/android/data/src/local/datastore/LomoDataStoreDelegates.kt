@@ -113,20 +113,6 @@ internal class StorageFormatStoreImpl(private val dataStore: DataStore<Preferenc
 
 internal class DisplayPreferencesStoreImpl(private val dataStore: DataStore<Preferences>) :
     LomoDisplayPreferencesStore {
-    override val dateFormat: Flow<String> =
-        dataStore.stringFlow(
-            key = LomoDataStoreKeys.DATE_FORMAT,
-            flowName = "dateFormat",
-            default = PreferenceKeys.Defaults.DATE_FORMAT,
-        )
-
-    override val timeFormat: Flow<String> =
-        dataStore.stringFlow(
-            key = LomoDataStoreKeys.TIME_FORMAT,
-            flowName = "timeFormat",
-            default = PreferenceKeys.Defaults.TIME_FORMAT,
-        )
-
     override val themeMode: Flow<String> =
         dataStore.stringFlow(
             key = LomoDataStoreKeys.THEME_MODE,
@@ -175,14 +161,6 @@ internal class DisplayPreferencesStoreImpl(private val dataStore: DataStore<Pref
             flowName = "colorHistory",
             default = "",
         )
-
-    override suspend fun updateDateFormat(format: String) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.DATE_FORMAT] = format }
-    }
-
-    override suspend fun updateTimeFormat(format: String) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.TIME_FORMAT] = format }
-    }
 
     override suspend fun updatePureBlackDark(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.PURE_BLACK_DARK] = enabled }

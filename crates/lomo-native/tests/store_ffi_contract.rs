@@ -213,6 +213,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: vec![],
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )

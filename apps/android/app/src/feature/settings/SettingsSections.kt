@@ -18,12 +18,8 @@ import kotlinx.collections.immutable.ImmutableMap
 fun FormatsSettingsSection(
     filenameFormat: String,
     timestampFormat: String,
-    dateFormat: String,
-    timeFormat: String,
     onOpenFilenameFormatDialog: () -> Unit,
     onOpenTimestampFormatDialog: () -> Unit,
-    onOpenDateFormatDialog: () -> Unit,
-    onOpenTimeFormatDialog: () -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_formats)) {
         item {
@@ -40,22 +36,6 @@ fun FormatsSettingsSection(
                 subtitle = timestampFormat,
                 icon = LomoIcons.Schedule,
                 onClick = onOpenTimestampFormatDialog,
-            )
-        }
-        item {
-            PreferenceItem(
-                title = stringResource(R.string.settings_date_format),
-                subtitle = dateFormat,
-                icon = LomoIcons.CalendarToday,
-                onClick = onOpenDateFormatDialog,
-            )
-        }
-        item {
-            PreferenceItem(
-                title = stringResource(R.string.settings_time_format),
-                subtitle = timeFormat,
-                icon = LomoIcons.Schedule,
-                onClick = onOpenTimeFormatDialog,
             )
         }
     }

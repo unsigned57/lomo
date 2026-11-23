@@ -65,16 +65,6 @@ class SettingsAppConfigCoordinator(
             .observeSyncInboxDisplayName()
             .asDirectoryDisplayState(scope)
 
-    val dateFormat: StateFlow<String> =
-        appConfigRepository
-            .getDateFormat()
-            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.DATE_FORMAT)
-
-    val timeFormat: StateFlow<String> =
-        appConfigRepository
-            .getTimeFormat()
-            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.TIME_FORMAT)
-
     val themeMode: StateFlow<ThemeMode> =
         appConfigRepository
             .getThemeMode()
@@ -307,12 +297,6 @@ class SettingsAppConfigCoordinator(
             )
             syncInboxRepository.ensureDirectoryStructure()
         }
-
-    val updateDateFormat: suspend (String) -> Unit =
-        { format -> appConfigRepository.setDateFormat(format) }
-
-    val updateTimeFormat: suspend (String) -> Unit =
-        { format -> appConfigRepository.setTimeFormat(format) }
 
     val updateThemeMode: suspend (ThemeMode) -> Unit =
         { mode -> appConfigRepository.setThemeMode(mode) }

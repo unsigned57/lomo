@@ -67,8 +67,6 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
             val selection =
                 memoMenuSelection(
                     memo = memo,
-                    dateFormat = "yyyy-MM-dd",
-                    timeFormat = "HH:mm",
                     imageUrls = listOf("images/a.png"),
                 )
 
@@ -88,6 +86,7 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
                     MenuEvent.Copy("memo-1", "Memo"),
                     MenuEvent.ShareCard(
                         content = "body",
+                        createdAtText = "2026_05_25 09:30:00",
                         timestamp = 1234L,
                         tags = listOf("daily"),
                         resolvedImagePaths = listOf("images/a.png"),
@@ -115,8 +114,6 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
                 )
             val selection = memoMenuSelection(
                 memo = memo(isPinned = true),
-                dateFormat = "yyyy-MM-dd",
-                timeFormat = "HH:mm",
             )
 
             handler.runContextAction(selection)
@@ -129,8 +126,6 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
             val handler = recordingHandler(events)
             val selection = memoMenuSelection(
                 memo = memo(isPinned = true),
-                dateFormat = "yyyy-MM-dd",
-                timeFormat = "HH:mm",
             )
 
             handler.runContextAction(selection)
@@ -157,6 +152,7 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
             events +=
                 MenuEvent.ShareCard(
                     content = request.content,
+                    createdAtText = request.createdAtText,
                     timestamp = request.timestamp,
                     tags = request.tags,
                     resolvedImagePaths = request.resolvedImagePaths,
@@ -178,6 +174,7 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
         content = "body",
         rawContent = "body",
         dateKey = "2026_05_25",
+        timePart = "09:30:00",
         localDate = LocalDate.of(2026, 5, 25),
         tags = persistentListOf("daily"),
         imageUrls = listOf("images/a.png"),
@@ -193,6 +190,7 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
 
         data class ShareCard(
             val content: String,
+            val createdAtText: String,
             val timestamp: Long?,
             val tags: List<String>,
             val resolvedImagePaths: List<String>,

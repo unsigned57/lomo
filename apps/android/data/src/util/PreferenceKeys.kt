@@ -87,8 +87,6 @@ object PreferenceKeys {
 
     // Default values
     object Defaults {
-        const val DATE_FORMAT = PreferenceDefaults.DATE_FORMAT
-        const val TIME_FORMAT = PreferenceDefaults.TIME_FORMAT
         const val HAPTIC_FEEDBACK_ENABLED = PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED
         const val CHECK_UPDATES_ON_STARTUP = PreferenceDefaults.CHECK_UPDATES_ON_STARTUP
         const val SHOW_INPUT_HINTS = PreferenceDefaults.SHOW_INPUT_HINTS

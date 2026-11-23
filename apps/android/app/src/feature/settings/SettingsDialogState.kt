@@ -80,8 +80,6 @@ class SettingsDialogState {
     var activeProviderDialogRoute by mutableStateOf<SettingsDialogRoute?>(null)
     var providerTextFormState by mutableStateOf(FormState(value = ""))
 
-    var showDateDialog by mutableStateOf(false)
-    var showTimeDialog by mutableStateOf(false)
     var showThemeDialog by mutableStateOf(false)
     var showFilenameDialog by mutableStateOf(false)
     var showTimestampDialog by mutableStateOf(false)

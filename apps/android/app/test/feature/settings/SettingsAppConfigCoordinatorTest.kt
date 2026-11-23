@@ -93,8 +93,6 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                 coordinator.imageDirectory.value shouldBe DirectoryDisplayState.Loading
                 coordinator.voiceDirectory.value shouldBe DirectoryDisplayState.Loading
                 coordinator.syncInboxDirectory.value shouldBe DirectoryDisplayState.Loading
-                coordinator.dateFormat.value shouldBe PreferenceDefaults.DATE_FORMAT
-                coordinator.timeFormat.value shouldBe PreferenceDefaults.TIME_FORMAT
                 coordinator.themeMode.value shouldBe ThemeMode.SYSTEM
             }
         }
@@ -249,12 +247,6 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                     memoSnapshotPreferencesRepository = FakeMemoSnapshotPreferencesRepository(),
                     syncInboxRepository = FakeSyncInboxRepository(),
                 )
-
-                coordinator.updateDateFormat("MM/dd/yyyy")
-                appConfigRepository.getDateFormat().first() shouldBe "MM/dd/yyyy"
-
-                coordinator.updateTimeFormat("HH:mm")
-                appConfigRepository.getTimeFormat().first() shouldBe "HH:mm"
 
                 coordinator.updateThemeMode(ThemeMode.DARK)
                 appConfigRepository.getThemeMode().first() shouldBe ThemeMode.DARK

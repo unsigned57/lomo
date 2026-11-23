@@ -21,6 +21,7 @@ internal fun com.lomo.nativebridge.StoreMemoSummary.toStoreSummary(): StoreMemoS
     reminders = reminders.map { reminder -> reminder.toDomainMarker() },
     isPending = isPending,
     charCount = charCount,
+    timePart = timePart,
 )
 
 private fun com.lomo.nativebridge.WorkspaceReminderReference.toDomainMarker(): com.lomo.domain.model.ReminderMarker =

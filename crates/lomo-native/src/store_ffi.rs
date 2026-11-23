@@ -214,6 +214,7 @@ pub struct StoreMemoSort {
 pub struct StoreMemoSummary {
     pub memo_id: String,
     pub source_path: String,
+    pub time_part: String,
     pub file_fingerprint: String,
     pub updated_at_ms: i64,
     pub created_at_ms: i64,
@@ -492,6 +493,7 @@ pub struct StoreRebuildResult {
 pub struct StoreSafMemoProjection {
     pub memo_id: String,
     pub source_path: String,
+    pub time_part: String,
     pub file_fingerprint: String,
     pub chronology_epoch_ms: i64,
     pub body: String,
@@ -573,6 +575,7 @@ pub fn workspace_document_facts_mutation(
     let facts = store::ScannedMemoProjection {
         memo_id: projection.memo_id,
         source_path: projection.source_path,
+        time_part: projection.time_part,
         file_fingerprint: projection.file_fingerprint,
         chronology_epoch_ms: projection.chronology_epoch_ms,
         body: projection.body,
@@ -602,6 +605,7 @@ pub fn summary_to_ffi(s: store::MemoSummary) -> StoreMemoSummary {
     StoreMemoSummary {
         memo_id: s.memo_id,
         source_path: s.source_path,
+        time_part: s.time_part,
         file_fingerprint: s.file_fingerprint,
         updated_at_ms: s.updated_at_ms,
         created_at_ms: s.created_at_ms,

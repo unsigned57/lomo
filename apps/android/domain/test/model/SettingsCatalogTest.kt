@@ -61,8 +61,6 @@ class SettingsCatalogTest :
                     .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
                     .associateBy { it.snapshotField }
 
-            descriptorsByField.getValue(AppPreferenceSnapshotField.DATE_FORMAT).defaultValue shouldBe
-                SettingValue.Text(PreferenceDefaults.DATE_FORMAT)
             descriptorsByField.getValue(AppPreferenceSnapshotField.THEME_MODE).defaultValue shouldBe
                 SettingValue.Text(PreferenceDefaults.THEME_MODE)
             descriptorsByField.getValue(AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS).defaultValue shouldBe

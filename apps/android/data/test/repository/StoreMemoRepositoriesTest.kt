@@ -934,6 +934,7 @@ class StoreMemoRepositoriesTest :
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                    storagePreferencesRepository = FakeStoragePreferencesRepository(),
                     mediaCommit = MemoMediaCommitPipeline(
                         com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                         RecordingCommittedMediaLocationSink(),
@@ -966,6 +967,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = alwaysWritableWorkspaceMutationLease(),
                         invalidation = invalidation,
                         diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1028,6 +1030,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = alwaysWritableWorkspaceMutationLease(),
                         invalidation = invalidation,
                         diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1066,6 +1069,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = alwaysWritableWorkspaceMutationLease(),
                         invalidation = invalidation,
                         diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1115,6 +1119,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = alwaysWritableWorkspaceMutationLease(),
                         invalidation = invalidation,
                         diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1156,6 +1161,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = alwaysWritableWorkspaceMutationLease(),
                         invalidation = invalidation,
                         diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1221,6 +1227,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = rejectingWriteLease,
                         invalidation = invalidation,
                         diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1248,6 +1255,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = alwaysWritableWorkspaceMutationLease(),
                         invalidation = invalidation,
                         diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1295,6 +1303,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = refusingLease,
                         invalidation = invalidation,
                         diagnostics = diagnostics,
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1337,6 +1346,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = alwaysWritableWorkspaceMutationLease(),
                         invalidation = invalidation,
                         diagnostics = diagnostics,
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1412,6 +1422,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = alwaysWritableWorkspaceMutationLease(),
                         invalidation = invalidation,
                         diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -1790,6 +1801,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = notReadyWriteLease(),
                         invalidation = invalidation,
                         diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                     )
                 shouldThrow<IllegalStateException> {
                     mutation.saveMemo(
@@ -2057,6 +2069,7 @@ class StoreMemoRepositoriesTest :
                                             score = 42L,
                                             summary = com.lomo.nativebridge.StoreMemoSummary(
                                                 memoId = "great-wall", sourcePath = "2026_09_10.md",
+                                                timePart = "",
                                                 fileFingerprint = "f".repeat(64), updatedAtMs = 1L, createdAtMs = 1L,
                                                 hasTodo = true, hasUrl = false, hasAttachment = false,
                                                 isPinned = false, isTrashed = false, bodyPreview = "八达岭长城",
@@ -2139,6 +2152,7 @@ class StoreMemoRepositoriesTest :
                         writeLease = alwaysWritableWorkspaceMutationLease(),
                         invalidation = invalidation,
                         diagnostics = diagnostics,
+                        storagePreferencesRepository = FakeStoragePreferencesRepository(),
                         mediaCommit =
                         MemoMediaCommitPipeline(
                             pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
@@ -2171,7 +2185,81 @@ class StoreMemoRepositoriesTest :
                 rejected.failure.category shouldBe EngineFailureCategory.CONFLICT
             }
         }
+
+        test("saveMemo reads live storage filename and timestamp formats for each create command") {
+            runTest {
+                val port = RecordingStorePort()
+                val invalidation = StoreInvalidationBus()
+                val storagePreferences = FakeStoragePreferencesRepository(
+                    filenameFormat = "yyyy-MM-dd",
+                    timestampFormat = "HH:mm:ss",
+                )
+                val mutation =
+                    StoreMemoMutationRepository(
+                        port = observingPort(port, invalidation),
+                        reminderScheduler = FakeReminderCoordinator(),
+                        writeLease = alwaysWritableWorkspaceMutationLease(),
+                        invalidation = invalidation,
+                        diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                        mediaCommit =
+                        MemoMediaCommitPipeline(
+                            pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(
+                                NoOpMediaPort(),
+                                { "/media" },
+                            ),
+                            committedMediaSink = RecordingCommittedMediaLocationSink(),
+                        ),
+                        storagePreferencesRepository = storagePreferences,
+                    )
+
+                mutation.saveMemo(
+                    MemoCreateAttempt(
+                        MemoOperationId("create-format-1"),
+                        com.lomo.domain.model.DraftId("draft-format-1"),
+                        "first",
+                        1L,
+                    ),
+                    onAccepted = {},
+                )
+                port.commands.last().dateFormat shouldBe "yyyy-MM-dd"
+                port.commands.last().timestampFormat shouldBe "HH:mm:ss"
+
+                storagePreferences.setStorageFilenameFormat("yyyy_MM_dd")
+                storagePreferences.setStorageTimestampFormat("H:mm")
+                mutation.saveMemo(
+                    MemoCreateAttempt(
+                        MemoOperationId("create-format-2"),
+                        com.lomo.domain.model.DraftId("draft-format-2"),
+                        "second",
+                        2L,
+                    ),
+                    onAccepted = {},
+                )
+                port.commands.last().dateFormat shouldBe "yyyy_MM_dd"
+                port.commands.last().timestampFormat shouldBe "H:mm"
+            }
+        }
     })
+
+private class FakeStoragePreferencesRepository(
+    filenameFormat: String = com.lomo.domain.model.PreferenceDefaults.STORAGE_FILENAME_FORMAT,
+    timestampFormat: String = com.lomo.domain.model.PreferenceDefaults.STORAGE_TIMESTAMP_FORMAT,
+) : com.lomo.domain.repository.StoragePreferencesRepository {
+    private val filenameFlow = kotlinx.coroutines.flow.MutableStateFlow(filenameFormat)
+    private val timestampFlow = kotlinx.coroutines.flow.MutableStateFlow(timestampFormat)
+
+    override fun getStorageFilenameFormat(): kotlinx.coroutines.flow.Flow<String> = filenameFlow
+
+    override suspend fun setStorageFilenameFormat(format: String) {
+        filenameFlow.value = format
+    }
+
+    override fun getStorageTimestampFormat(): kotlinx.coroutines.flow.Flow<String> = timestampFlow
+
+    override suspend fun setStorageTimestampFormat(format: String) {
+        timestampFlow.value = format
+    }
+}
 
 private fun observingPort(port: StorePort, bus: StoreInvalidationBus): StorePort =
     PublishingStorePort(port, StoreProjectionObserver(bus))

@@ -100,6 +100,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session
@@ -132,6 +134,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 })
                 .expect("new memo after external removal");
             session

@@ -132,8 +132,6 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
 
         storageStore.updateStorageFilenameFormat("unsupported")
         storageStore.updateStorageTimestampFormat("bad")
-        displayStore.updateDateFormat("MM/dd/yyyy")
-        displayStore.updateTimeFormat("hh:mm a")
         displayStore.updateThemeMode("dark")
         interactionStore.updateHapticFeedbackEnabled(false)
         interactionStore.updateShowInputHints(enabled = false)
@@ -145,8 +143,6 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
         // validation gate, so an arbitrary token must read back unmodified.
         storageStore.storageFilenameFormat.first() shouldBe "unsupported"
         storageStore.storageTimestampFormat.first() shouldBe StorageTimestampFormats.DEFAULT_PATTERN
-        displayStore.dateFormat.first() shouldBe "MM/dd/yyyy"
-        displayStore.timeFormat.first() shouldBe "hh:mm a"
         displayStore.themeMode.first() shouldBe "dark"
         (interactionStore.hapticFeedbackEnabled.first()).shouldBeFalse()
         (interactionStore.showInputHints.first()).shouldBeFalse()

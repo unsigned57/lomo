@@ -213,12 +213,8 @@ internal fun StorageFormatsSettingsPage(
             FormatsSettingsSection(
                 filenameFormat = uiState.storage.filenameFormat,
                 timestampFormat = uiState.storage.timestampFormat,
-                dateFormat = uiState.display.dateFormat,
-                timeFormat = uiState.display.timeFormat,
                 onOpenFilenameFormatDialog = { dialogState.showFilenameDialog = true },
                 onOpenTimestampFormatDialog = { dialogState.showTimestampDialog = true },
-                onOpenDateFormatDialog = { dialogState.showDateDialog = true },
-                onOpenTimeFormatDialog = { dialogState.showTimeDialog = true },
             )
 
             HeatmapSettingsSection(

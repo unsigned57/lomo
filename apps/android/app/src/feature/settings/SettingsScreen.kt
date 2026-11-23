@@ -44,8 +44,6 @@ private const val SIMPLIFIED_CHINESE_LANGUAGE_TAG = "zh-CN"
 private const val HANS_CHINESE_LANGUAGE_TAG = "zh-Hans-CN"
 internal const val GITHUB_URL = "https://github.com/unsigned57/lomo"
 
-private val DateFormatOptions = listOf("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd")
-private val TimeFormatOptions = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
 private val GitSyncIntervalOptions = listOf("30min", "1h", "6h", "12h", "24h")
 
 data class SettingsMessages(
@@ -445,8 +443,6 @@ private fun settingsDialogOptions(currentLanguageTag: String): SettingsDialogOpt
                 stringResource(R.string.settings_s3_rclone_filename_encoding_base32768),
         )
     return SettingsDialogOptions(
-        dateFormats = DateFormatOptions,
-        timeFormats = TimeFormatOptions,
         themeModes = ThemeMode.entries,
         filenameFormats = StorageFilenameFormats.supportedPatterns,
         timestampFormats = StorageTimestampFormats.supportedPatterns,

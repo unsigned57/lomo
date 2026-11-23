@@ -11,14 +11,6 @@ import com.lomo.domain.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
 
 interface DateTimePreferencesRepository {
-    fun getDateFormat(): Flow<String>
-
-    suspend fun setDateFormat(format: String)
-
-    fun getTimeFormat(): Flow<String>
-
-    suspend fun setTimeFormat(format: String)
-
     fun getThemeMode(): Flow<ThemeMode>
 
     suspend fun setThemeMode(mode: ThemeMode)

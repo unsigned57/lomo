@@ -9,8 +9,6 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 
 data class SettingsDialogOptions(
-    val dateFormats: List<String>,
-    val timeFormats: List<String>,
     val themeModes: List<ThemeMode>,
     val filenameFormats: List<String>,
     val timestampFormats: List<String>,

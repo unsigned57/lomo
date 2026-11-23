@@ -364,8 +364,6 @@ private fun buildMemoEditorSheetState(
                             text =
                             formatMemoBackfillBadgeText(
                                 timestampMillis = timestampMillis,
-                                dateFormat = session.dateFormat,
-                                timeFormat = session.timeFormat,
                             ),
                             icon = LomoIcons.History,
                             command = InputEditorCommand.Action(MemoEditorToolbarActionIds.clearBackfill),

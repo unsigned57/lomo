@@ -63,9 +63,6 @@ import com.lomo.ui.theme.LocalLomoMotion
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -73,10 +70,9 @@ fun MemoCard(
     content: String,
     processedContent: String,
     timestamp: Long,
+    displayTimestamp: String,
     tags: ImmutableList<String>,
     renderDocument: MarkdownRenderDocument,
-    dateFormat: String,
-    timeFormat: String,
     collapsedSummary: String,
     modifier: Modifier = Modifier,
     menuButtonModifier: Modifier = Modifier,
@@ -138,10 +134,6 @@ fun MemoCard(
         hasImages = hasImages,
     )
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    val dateTimeFormatter =
-        remember(dateFormat, timeFormat) {
-            DateTimeFormatter.ofPattern("$dateFormat $timeFormat")
-        }
     val cardInteractionSource = remember { MutableInteractionSource() }
     val tapSequence = rememberMemoCardTapSequence(isDoubleTapEnabled = onDoubleClick != null)
     val pointerHandlers =
@@ -158,8 +150,7 @@ fun MemoCard(
         )
     MemoCardRenderedContent(
         cardInteractionSource = cardInteractionSource,
-        timestamp = timestamp,
-        dateTimeFormatter = dateTimeFormatter,
+        displayTimestamp = displayTimestamp,
         isPinned = isPinned,
         isPending = isPending,
         allowFreeTextCopy = allowFreeTextCopy,
@@ -191,8 +182,7 @@ fun MemoCard(
 @Composable
 private fun MemoCardRenderedContent(
     cardInteractionSource: MutableInteractionSource,
-    timestamp: Long,
-    dateTimeFormatter: DateTimeFormatter,
+    displayTimestamp: String,
     isPinned: Boolean,
     isPending: Boolean,
     allowFreeTextCopy: Boolean,
@@ -243,8 +233,7 @@ private fun MemoCardRenderedContent(
     MemoCardContainer(isPinned = isPinned, interactionSource = cardInteractionSource, modifier = modifier) {
         Column(modifier = interactionModifier.padding(MemoCardTokens.ContainerPadding)) {
             MemoCardHeader(
-                timestamp = timestamp,
-                dateTimeFormatter = dateTimeFormatter,
+                displayTimestamp = displayTimestamp,
                 isPinned = isPinned,
                 isPending = isPending,
                 onMenuClick = onMenuClick,
@@ -361,8 +350,7 @@ private fun Modifier.rememberMemoCardInteractionModifier(
 
 @Composable
 private fun MemoCardHeader(
-    timestamp: Long,
-    dateTimeFormatter: DateTimeFormatter,
+    displayTimestamp: String,
     isPinned: Boolean,
     isPending: Boolean,
     onMenuClick: (() -> Unit)?,
@@ -370,11 +358,6 @@ private fun MemoCardHeader(
     modifier: Modifier = Modifier,
     menuContent: (@Composable () -> Unit)?,
 ) {
-    val timeStr =
-        remember(timestamp, dateTimeFormatter) {
-            Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).format(dateTimeFormatter)
-        }
-
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -382,7 +365,7 @@ private fun MemoCardHeader(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = timeStr,
+                text = displayTimestamp,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

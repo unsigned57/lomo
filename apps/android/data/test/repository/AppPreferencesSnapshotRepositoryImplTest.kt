@@ -90,8 +90,6 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                 val dataStore = createLomoDataStore(backgroundScope)
                 val repository = AppPreferencesSnapshotRepositoryImpl(dataStore)
 
-                dataStore.updateDateFormat("MM/dd/yyyy")
-                dataStore.updateTimeFormat("HH:mm")
                 dataStore.updateThemeMode(ThemeMode.DARK.value)
                 dataStore.updateCalendarHeatmapThresholds(
                     CalendarHeatmapThresholds.of(level1Max = 2, level2Max = 5, level3Max = 9).storageValue,
@@ -118,8 +116,6 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
 
                 snapshot shouldBe
                     AppPreferenceSnapshot(
-                        dateFormat = "MM/dd/yyyy",
-                        timeFormat = "HH:mm",
                         themeMode = ThemeMode.DARK,
                         calendarHeatmapThresholds = CalendarHeatmapThresholds.of(
                             level1Max = 2,
@@ -155,8 +151,6 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                 val snapshot = repository.observeAppPreferenceSnapshot().first()
                 val expectedDefaults = AppPreferenceSnapshot.defaults()
 
-                snapshot.dateFormat shouldBe expectedDefaults.dateFormat
-                snapshot.timeFormat shouldBe expectedDefaults.timeFormat
                 snapshot.themeMode shouldBe expectedDefaults.themeMode
                 snapshot.calendarHeatmapThresholds shouldBe expectedDefaults.calendarHeatmapThresholds
                 snapshot.colorSource shouldBe expectedDefaults.colorSource
@@ -261,10 +255,6 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
         }
 
     private fun SettingDescriptor.testValue(): SettingValue = when (snapshotField) {
-        AppPreferenceSnapshotField.DATE_FORMAT -> SettingValue.Text("dd/MM/yyyy")
-
-        AppPreferenceSnapshotField.TIME_FORMAT -> SettingValue.Text("HH:mm")
-
         AppPreferenceSnapshotField.THEME_MODE -> SettingValue.Text(ThemeMode.DARK.value)
 
         AppPreferenceSnapshotField.PURE_BLACK_DARK -> SettingValue.Bool(true)

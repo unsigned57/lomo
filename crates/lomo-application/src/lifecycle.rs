@@ -664,6 +664,7 @@ fn remaining_projection(
     Ok(ScannedMemoProjection {
         memo_id: id.as_str().to_owned(),
         source_path: current.summary.source_path.clone(),
+        time_part: current.summary.time_part.clone(),
         file_fingerprint: fingerprint.to_owned(),
         chronology_epoch_ms: current.summary.created_at_ms,
         // The summary only carries non-audio `image_urls`; the projection row must name every

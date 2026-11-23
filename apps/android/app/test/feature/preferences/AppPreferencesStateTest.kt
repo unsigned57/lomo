@@ -55,8 +55,6 @@ class AppPreferencesStateTest : AppFunSpec() {
     init {
         test("observeAppPreferences combines settings into single state") {
             runTest {
-                appConfigRepository.setDateFormat("yyyy-MM-dd")
-                appConfigRepository.setTimeFormat("HH:mm")
                 appConfigRepository.setThemeModeNow(ThemeMode.DARK)
                 val thresholds = CalendarHeatmapThresholds.of(level1Max = 2, level2Max = 5, level3Max = 9)
                 appConfigRepository.setCalendarHeatmapThresholds(thresholds)
@@ -81,8 +79,6 @@ class AppPreferencesStateTest : AppFunSpec() {
                     com.lomo.app.testing.fakes.testCustomFontHost(FakeCustomFontStore()),
                 ).first()
 
-                state.dateFormat shouldBe "yyyy-MM-dd"
-                state.timeFormat shouldBe "HH:mm"
                 state.themeMode shouldBe ThemeMode.DARK
                 state.calendarHeatmapThresholds shouldBe thresholds
                 state.hapticFeedbackEnabled shouldBe false

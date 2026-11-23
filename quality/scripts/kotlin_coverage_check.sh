@@ -291,7 +291,6 @@ class_patterns = [
     "com.lomo.data.share.NsdDiscoveryService*",
     "com.lomo.data.share.ShareServiceLifecycleController*",
     "com.lomo.data.share.ShareServiceManager*",
-    "com.lomo.ui.util.DateTimeUtils*",
     "com.lomo.ui.util.SharedTransitionLocalsKt*",
     "com.lomo.ui.media.AudioPlayerManagerKt*",
 ]

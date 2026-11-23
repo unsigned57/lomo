@@ -233,6 +233,7 @@ val coreDataRepositoryModule = module {
             SyncInboxRepositoryDependencies(
                 context = androidContext(),
                 preferencesRepository = get(),
+                storagePreferencesRepository = get(),
                 workspaceConfigSource = get(),
                 pendingReviewStore = get(),
                 storePort = get(),

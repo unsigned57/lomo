@@ -28,9 +28,10 @@ data class MemoMenuShareCardRequest(
     val showTime: Boolean,
     val showSignature: Boolean,
     val signatureText: String,
-    val timestamp: Long?,
-    val tags: List<String>,
-    val resolvedImagePaths: List<String>,
+    val createdAtText: String = "",
+    val timestamp: Long? = null,
+    val tags: List<String> = emptyList(),
+    val resolvedImagePaths: List<String> = emptyList(),
 )
 
 data class MemoMenuShareTextRequest(val content: String)
@@ -84,6 +85,7 @@ class MemoMenuCommandHandler(
                 showTime = presentationState.shareCardShowTime,
                 showSignature = presentationState.shareCardShowSignature,
                 signatureText = presentationState.shareCardSignatureText,
+                createdAtText = memo.displayTimestamp(),
                 timestamp = memo.timestamp,
                 tags = memo.tags,
                 resolvedImagePaths = selection.state.imageUrls,
@@ -209,6 +211,7 @@ private suspend fun shareMemoAsImage(request: MemoMenuShareCardRequest, context:
         showTime = request.showTime,
         showSignature = request.showSignature,
         signatureText = request.signatureText,
+        createdAtText = request.createdAtText,
         timestamp = request.timestamp,
         tags = request.tags,
         resolvedImagePaths = request.resolvedImagePaths,

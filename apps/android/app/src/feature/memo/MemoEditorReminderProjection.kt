@@ -24,12 +24,10 @@ internal fun projectMemoEditorReminders(
     sourceText: String,
     document: MarkdownRenderDocument,
     dueAt: (String) -> LocalDateTime,
-    dateFormat: String,
-    timeFormat: String,
 ): ImmutableList<MemoEditorReminderChip> {
     val bytes = sourceText.encodeToByteArray()
     require(document.sourceByteLength == bytes.size.toULong()) { "Reminder render document must describe this source" }
-    val formatter = DateTimeFormatter.ofPattern("$dateFormat $timeFormat")
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
     val nodes = buildList { document.blocks.forEach { collectReminderNodes(it, this) } }
         .sortedBy { it.sourceSpan.startByte }
     var previousByte = 0

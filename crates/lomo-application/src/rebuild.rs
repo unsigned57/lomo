@@ -761,6 +761,7 @@ fn scan_document(
             memo_scan.memos.push(ScannedMemoProjection {
                 memo_id: binding.memo_id().as_str().to_owned(),
                 source_path: md_path.as_str().to_owned(),
+                time_part: memo.time_part().to_owned(),
                 file_fingerprint: source.fingerprint().as_str().to_owned(),
                 chronology_epoch_ms: chronology,
                 body: memo.content().to_owned(),

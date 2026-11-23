@@ -13,8 +13,6 @@ import com.lomo.ui.component.card.MemoCard
 @Composable
 fun MemoCardEntry(
     uiModel: MemoUiModel,
-    dateFormat: String,
-    timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     onMemoEdit: (Memo) -> Unit,
@@ -46,13 +44,11 @@ fun MemoCardEntry(
             }
         }
     val stableOnMenuClick =
-        remember(memo, dateFormat, timeFormat, uiModel.imageUrls, anchoredAfterKey, onShowMenu) {
+        remember(memo, uiModel.imageUrls, anchoredAfterKey, onShowMenu) {
             {
                 onShowMenu(
                     memoMenuSelection(
                         memo = memo,
-                        dateFormat = dateFormat,
-                        timeFormat = timeFormat,
                         imageUrls = uiModel.imageUrls,
                         anchoredAfterKey = anchoredAfterKey,
                     ),
@@ -66,8 +62,7 @@ fun MemoCardEntry(
         renderDocument = uiModel.renderDocument,
         presentationPlan = uiModel.presentationPlan,
         timestamp = memo.timestamp,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
+        displayTimestamp = memo.displayTimestamp(),
         isPinned = memo.isPinned,
         isPending = memo.isPending,
         tags = uiModel.tags,

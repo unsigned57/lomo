@@ -214,6 +214,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session
@@ -281,6 +283,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session
@@ -327,6 +331,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session
@@ -462,6 +468,8 @@ mod tests {
                     final_relative_path: final_rel.clone(),
                 }],
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create with attachment");
         ctx.session
@@ -521,6 +529,8 @@ mod tests {
                     final_relative_path: final_rel.clone(),
                 }],
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect_err("missing staged file");
         assert_eq!(error.code(), "promote_staged_missing");
@@ -555,6 +565,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: Some(chronology),
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session
@@ -600,6 +612,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session
@@ -832,6 +846,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session

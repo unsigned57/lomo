@@ -17,8 +17,6 @@ import com.lomo.ui.component.common.ExitAnimationRegistry
 @Composable
 fun MemoCardList(
     pagedMemos: LazyPagingItems<MemoUiModel>,
-    dateFormat: String,
-    timeFormat: String,
     doubleTapEditEnabled: Boolean,
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuSelection) -> Unit,
@@ -42,8 +40,6 @@ fun MemoCardList(
         listContentPadding = contentPadding,
         onTodoClick = onTodoClick,
         onReminderClick = { _, _ -> },
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
         onTagClick = onTagClick,
         onImageClick = onImageClick,
         exitAnimationRegistry = exitAnimationRegistry,

@@ -260,6 +260,7 @@ pub fn project_memo(
     Ok(ScannedMemoProjection {
         memo_id: id.as_str().to_owned(),
         source_path: path.as_str().to_owned(),
+        time_part: memo.time_part().to_owned(),
         file_fingerprint: fingerprint.to_owned(),
         chronology_epoch_ms: memo_chronology(filename_stem(path)?, memo.time_part(), time_zone)?,
         body: memo.content().to_owned(),

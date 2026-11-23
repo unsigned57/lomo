@@ -38,7 +38,7 @@ mod tests {
             [&body],
         ).unwrap_or_else(|error| panic!("seed: {error}"));
         opened.connection.execute_batch("DROP TRIGGER memo_stats_insert; DROP TRIGGER memo_stats_delete;
-            DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders;")
+            DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; ALTER TABLE memo DROP COLUMN time_part;")
             .unwrap_or_else(|error| panic!("historical triggers: {error}"));
         opened
             .connection

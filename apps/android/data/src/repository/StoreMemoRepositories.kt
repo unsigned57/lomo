@@ -68,6 +68,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
@@ -215,6 +216,7 @@ internal constructor(
     private val invalidation: StoreInvalidationBus,
     private val diagnostics: EngineDiagnosticsRecorder,
     private val mediaCommit: MemoMediaCommitPipeline,
+    private val storagePreferencesRepository: com.lomo.domain.repository.StoragePreferencesRepository,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MemoMutationRepository {
     override suspend fun refreshMemos() {
@@ -273,6 +275,8 @@ internal constructor(
         val opId = attempt.operationId.value
         // Transfer this draft's stage leases to the frozen operation and build the promote plans.
         val promotes = mediaCommit.plansForOperation(opId, attempt.draftId)
+        val dateFormat = storagePreferencesRepository.getStorageFilenameFormat().first()
+        val timestampFormat = storagePreferencesRepository.getStorageTimestampFormat().first()
         val commit =
             port.applyMemoCommand(
                 StoreMemoCommand(
@@ -283,6 +287,8 @@ internal constructor(
                     chronologyEpochMs = attempt.timestampMillis,
                     content = attempt.content,
                     pendingPromotes = promotes,
+                    dateFormat = dateFormat,
+                    timestampFormat = timestampFormat,
                 ),
                 onPublication = { publication ->
                     if (publication is StoreMemoCommandPublication.Accepted) {

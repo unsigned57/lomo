@@ -47,8 +47,6 @@ fun GalleryGridContent(
     memos: List<MemoUiModel>,
     onItemAccess: (Int) -> Unit,
     aspectByMemoId: ImmutableMap<String, Float>,
-    dateFormat: String,
-    timeFormat: String,
     contentPadding: PaddingValues,
     onCellClick: (memoId: String, imageIndex: Int) -> Unit,
     onShowMenu: (MemoMenuSelection) -> Unit,
@@ -72,11 +70,9 @@ fun GalleryGridContent(
             )
         }
     val cellContext =
-        remember(memoById, dateFormat, timeFormat, onCellClick, onShowMenu, onResolveImageAspect) {
+        remember(memoById, onCellClick, onShowMenu, onResolveImageAspect) {
             GalleryMosaicCellContext(
                 memoById = memoById,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
                 onCellClick = onCellClick,
                 onShowMenu = onShowMenu,
                 onResolveImageAspect = onResolveImageAspect,
@@ -113,8 +109,6 @@ fun GalleryGridContent(
 
 private data class GalleryMosaicCellContext(
     val memoById: Map<String, MemoUiModel>,
-    val dateFormat: String,
-    val timeFormat: String,
     val onCellClick: (memoId: String, imageIndex: Int) -> Unit,
     val onShowMenu: (MemoMenuSelection) -> Unit,
     val onResolveImageAspect: suspend (String) -> Unit,
@@ -193,8 +187,6 @@ private fun GalleryMosaicCell(
     GalleryGridCell(
         uiModel = uiModel,
         layout = tile,
-        dateFormat = cellContext.dateFormat,
-        timeFormat = cellContext.timeFormat,
         onCellClick = cellContext.onCellClick,
         onShowMenu = cellContext.onShowMenu,
         onResolveImageAspect = cellContext.onResolveImageAspect,
@@ -207,8 +199,6 @@ private fun GalleryMosaicCell(
 private fun GalleryGridCell(
     uiModel: MemoUiModel,
     layout: GalleryMosaicTile,
-    dateFormat: String,
-    timeFormat: String,
     onCellClick: (memoId: String, imageIndex: Int) -> Unit,
     onShowMenu: (MemoMenuSelection) -> Unit,
     onResolveImageAspect: suspend (String) -> Unit,
@@ -245,8 +235,6 @@ private fun GalleryGridCell(
                     onShowMenu(
                         memoMenuSelection(
                             memo = uiModel.memo,
-                            dateFormat = dateFormat,
-                            timeFormat = timeFormat,
                             imageUrls = imageUrls,
                         ),
                     )

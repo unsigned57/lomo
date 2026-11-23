@@ -57,8 +57,6 @@ internal fun SearchScreenContent(
     pagedItems: LazyPagingItems<MemoUiModel>,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     query: String,
-    dateFormat: String,
-    timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel>,
@@ -119,8 +117,6 @@ internal fun SearchScreenContent(
                     MemoCardList(
                         onImageClick = onNavigateToImage,
                         pagedMemos = pagedItems,
-                        dateFormat = dateFormat,
-                        timeFormat = timeFormat,
                         doubleTapEditEnabled = doubleTapEditEnabled,
                         freeTextCopyEnabled = freeTextCopyEnabled,
                         onMemoEdit = onOpenEditor,

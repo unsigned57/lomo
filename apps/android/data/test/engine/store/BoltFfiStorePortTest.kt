@@ -295,6 +295,7 @@ private fun storePort(bridge: RecordingStoreNativeBridge) = BoltFfiStorePort(bri
 private fun bridgeSummary(id: String = "m1", preview: String = "hello"): BridgeMemoSummary = BridgeMemoSummary(
     memoId = id,
     sourcePath = "memos/2026_01_01.md",
+    timePart = "",
     fileFingerprint = "fp1",
     updatedAtMs = 20L,
     createdAtMs = 10L,

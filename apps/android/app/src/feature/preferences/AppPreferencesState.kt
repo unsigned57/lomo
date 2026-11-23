@@ -36,8 +36,6 @@ enum class CustomFontStatus {
 }
 
 data class AppPreferencesState(
-    val dateFormat: String,
-    val timeFormat: String,
     val themeMode: ThemeMode,
     val pureBlackDark: Boolean = com.lomo.domain.model.PreferenceDefaults.PURE_BLACK_DARK,
     val calendarHeatmapThresholds: CalendarHeatmapThresholds,
@@ -100,8 +98,6 @@ private suspend fun AppPreferenceSnapshot.resolveFontPreference(
 
 private fun AppPreferenceSnapshot.toAppPreferencesState(fontResolution: FontResolution): AppPreferencesState =
     AppPreferencesState(
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
         themeMode = themeMode,
         pureBlackDark = pureBlackDark,
         calendarHeatmapThresholds = calendarHeatmapThresholds,

@@ -141,8 +141,6 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
                     onTagClick = { tag -> navController.navigate(NavRoute.Tag(tag)) },
                     request = request,
                     viewerMode = GalleryReelMode.Gallery,
-                    dateFormat = appPreferences.dateFormat,
-                    timeFormat = appPreferences.timeFormat,
                     onBackClick = popBackStackSafely,
                     onTodoClick = mainViewModel.updateMemo,
                     onShowMenu = showMenu,

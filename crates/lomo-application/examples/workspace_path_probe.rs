@@ -280,6 +280,8 @@ fn run() -> Result<()> {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 })?)
             })?;
             let view = measure(&executor, &mut samples, "read", || {

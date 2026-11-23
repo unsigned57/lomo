@@ -96,6 +96,7 @@ pub fn publish_trash(store: &mut Store, memo_id: &str, operation_id: &str) {
     let projection = ScannedMemoProjection {
         memo_id: snap.summary.memo_id.clone(),
         source_path: snap.summary.source_path.clone(),
+        time_part: snap.summary.time_part.clone(),
         file_fingerprint: snap.summary.file_fingerprint.clone(),
         chronology_epoch_ms: snap.summary.created_at_ms,
         body: snap.body.clone(),

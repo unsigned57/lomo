@@ -106,6 +106,8 @@ pub struct RebuildResult {
 pub struct ScannedMemoProjection {
     pub memo_id: String,
     pub source_path: String,
+    #[serde(default)]
+    pub time_part: String,
     pub file_fingerprint: String,
     pub chronology_epoch_ms: i64,
     pub body: String,
@@ -144,6 +146,7 @@ impl ScannedTrashProjection {
             memo: ScannedMemoProjection {
                 memo_id: record.memo_id.clone(),
                 source_path: record.source_path.clone(),
+                time_part: record.time_part.clone(),
                 file_fingerprint: record.source_fingerprint.clone(),
                 chronology_epoch_ms: record.chronology_epoch_ms,
                 body: record.body.clone(),
@@ -183,6 +186,7 @@ impl ScannedTrashProjection {
         let payload = (
             self.memo.memo_id.as_str(),
             self.memo.source_path.as_str(),
+            self.memo.time_part.as_str(),
             self.memo.file_fingerprint.as_str(),
             self.memo.chronology_epoch_ms,
             self.memo.body.as_str(),
@@ -1622,13 +1626,14 @@ fn insert_pending_memo_row(
     transaction
         .execute(
             "INSERT INTO memo( \
-             memo_id,source_path,file_fingerprint,has_todo,has_url,has_attachment, \
+             memo_id,source_path,time_part,file_fingerprint,has_todo,has_url,has_attachment, \
              created_at_ms,updated_at_ms,body_preview,body,search_content,word_count,char_count, \
              reminders_json,content_revision,pending_operation_id \
-             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,?10,?11,?12,'[]',1,?13)",
+             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,'[]',1,?14)",
             params![
                 memo_id,
                 &begin.source_path,
+                &begin.time_part,
                 &fingerprint,
                 i64::from(facts.has_todo),
                 i64::from(facts.has_url),
@@ -1838,9 +1843,10 @@ fn upsert_saf_projection(
             .map_err(|error| from_sqlite(&error))?;
         connection
             .execute(
-                "UPDATE memo SET source_path=?1,file_fingerprint=?2,has_todo=?3,has_url=?4,has_attachment=?5,updated_at_ms=?6,body_preview=?7,body=?8,search_content=?9,word_count=?10,char_count=?11,content_revision=?12,reminders_json=?13,is_trashed=0 WHERE memo_id=?14",
+                "UPDATE memo SET source_path=?1,time_part=?2,file_fingerprint=?3,has_todo=?4,has_url=?5,has_attachment=?6,updated_at_ms=?7,body_preview=?8,body=?9,search_content=?10,word_count=?11,char_count=?12,content_revision=?13,reminders_json=?14,is_trashed=0 WHERE memo_id=?15",
                 params![
                     &projection.source_path,
+                    &projection.time_part,
                     &projection.file_fingerprint,
                     i64::from(projection.has_todo),
                     i64::from(projection.has_url),
@@ -1866,10 +1872,11 @@ fn upsert_saf_projection(
     } else {
         connection
             .execute(
-                "INSERT INTO memo(memo_id,source_path,file_fingerprint,has_todo,has_url,has_attachment,created_at_ms,updated_at_ms,body_preview,body,search_content,word_count,char_count,content_revision,reminders_json,is_pinned,is_trashed) VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,?10,?11,?12,?13,?14,0,0)",
+                "INSERT INTO memo(memo_id,source_path,time_part,file_fingerprint,has_todo,has_url,has_attachment,created_at_ms,updated_at_ms,body_preview,body,search_content,word_count,char_count,content_revision,reminders_json,is_pinned,is_trashed) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,?14,?15,0,0)",
                 params![
                     &projection.memo_id,
                     &projection.source_path,
+                    &projection.time_part,
                     &projection.file_fingerprint,
                     i64::from(projection.has_todo),
                     i64::from(projection.has_url),
@@ -3452,6 +3459,21 @@ pub fn try_reconcile_scanned(
     history: Option<&[ScannedHistoryProjection]>,
     purged: Option<&BTreeSet<String>>,
 ) -> Result<Option<RebuildResult>, lomo_core::LomoError> {
+    if high_water_revision == 0 {
+        return Ok(None);
+    }
+    if pins.is_some() {
+        let has_empty_time_part: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM memo WHERE time_part = '')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| from_sqlite(&error))?;
+        if has_empty_time_part {
+            return Ok(None);
+        }
+    }
     let Some(evidence) = projection_matches_rows(connection, image)? else {
         return Ok(None);
     };
@@ -4305,6 +4327,7 @@ fn index_memo_file(conn: &Connection, path: &Path) -> Result<(), lomo_core::Lomo
         &ScannedMemoProjection {
             memo_id,
             source_path,
+            time_part: String::new(),
             file_fingerprint: fingerprint,
             chronology_epoch_ms,
             body: content,
@@ -4354,12 +4377,13 @@ fn index_scanned_memo_with_lifecycle(
     }
 
     conn.execute(
-        "INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, has_attachment, \
+        "INSERT INTO memo(memo_id, source_path, time_part, file_fingerprint, has_todo, has_url, has_attachment, \
          created_at_ms, updated_at_ms, body_preview, body, search_content, word_count, char_count, content_revision, reminders_json, is_pinned, is_trashed) \
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,?10,?11,?12,1,?13,0,?14)",
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,1,?14,0,?15)",
         params![
             &memo.memo_id,
             &memo.source_path,
+            &memo.time_part,
             &memo.file_fingerprint,
             has_todo,
             has_url,
@@ -4415,6 +4439,15 @@ fn validate_scanned_projection(memo: &ScannedMemoProjection) -> Result<(), lomo_
         return Err(validation(
             "invalid_memo_chronology",
             "scanned memo chronology must be a positive epoch millisecond",
+        ));
+    }
+    if memo.time_part.len() > 32
+        || memo.time_part.contains('_')
+        || memo.time_part.chars().any(char::is_control)
+    {
+        return Err(validation(
+            "invalid_memo_time_part",
+            "scanned memo time_part must be bounded without '_' or controls",
         ));
     }
 

@@ -4,7 +4,7 @@ use lomo_store::SafProjectionCommitResult;
 use lomo_workspace::{MemoId, ResourceBudget, SourceFingerprint};
 use serde::{Deserialize, Serialize};
 
-use crate::calendar::parse_time_token;
+use crate::calendar::{DateFormat, TimestampFormat, parse_time_token};
 use crate::error::validation;
 
 /// A unique source document witnessed in the active session before synchronization.
@@ -38,6 +38,10 @@ pub struct CreateMemoRequest {
     pub pinned: bool,
     pub pending_promotes: Vec<PromotePlan>,
     pub chronology_epoch_ms: Option<i64>,
+    #[serde(default)]
+    pub date_format: Option<DateFormat>,
+    #[serde(default)]
+    pub timestamp_format: Option<TimestampFormat>,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +56,10 @@ struct CreateMemoRequestJson {
     pending_promotes: Vec<PromotePlan>,
     #[serde(default)]
     chronology_epoch_ms: Option<i64>,
+    #[serde(default)]
+    date_format: Option<DateFormat>,
+    #[serde(default)]
+    timestamp_format: Option<TimestampFormat>,
 }
 
 impl TryFrom<CreateMemoRequestJson> for CreateMemoRequest {
@@ -67,6 +75,8 @@ impl TryFrom<CreateMemoRequestJson> for CreateMemoRequest {
             pinned: json.pinned,
             pending_promotes: json.pending_promotes,
             chronology_epoch_ms: json.chronology_epoch_ms,
+            date_format: json.date_format,
+            timestamp_format: json.timestamp_format,
         };
         request.validate()?;
         Ok(request)
@@ -373,9 +383,14 @@ const RESERVED_DOCUMENT_ROOTS: [&str; 5] = [
 ];
 
 pub(crate) fn is_attachment_namespace(path: &str) -> bool {
-    path.split('/')
-        .next()
-        .is_some_and(|root| lomo_workspace::ATTACHMENT_LOOKUP_DIRS.contains(&root))
+    path.split('/').next().is_some_and(|root| {
+        matches!(
+            root,
+            lomo_workspace::MEDIA_ROOT_NAME
+                | lomo_workspace::IMAGES_ROOT_NAME
+                | lomo_workspace::VOICE_ROOT_NAME
+        )
+    })
 }
 
 /// Rejects a memo document path inside a reserved non-document namespace.

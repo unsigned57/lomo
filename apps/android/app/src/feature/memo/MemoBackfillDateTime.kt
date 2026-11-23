@@ -140,22 +140,10 @@ internal fun combineMemoBackfillDateTimeMillis(
     .toInstant()
     .toEpochMilli()
 
-internal fun formatMemoBackfillBadgeText(
-    timestampMillis: Long,
-    dateFormat: String,
-    timeFormat: String,
-    zone: ZoneId = ZoneId.systemDefault(),
-): String = DateTimeFormatter
-    .ofPattern("$dateFormat ${timeFormat.withSecondsPattern()}")
-    .withZone(zone)
-    .format(Instant.ofEpochMilli(timestampMillis))
-
-private fun String.withSecondsPattern(): String = if (contains('s')) {
-    this
-} else if (contains(" a")) {
-    replace(" a", ":ss a")
-} else {
-    "$this:ss"
-}
+internal fun formatMemoBackfillBadgeText(timestampMillis: Long, zone: ZoneId = ZoneId.systemDefault()): String =
+    DateTimeFormatter
+        .ofPattern("yyyy-MM-dd HH:mm:ss")
+        .withZone(zone)
+        .format(Instant.ofEpochMilli(timestampMillis))
 
 internal fun shouldOpenMemoBackfillDialog(isEditingExistingMemo: Boolean): Boolean = !isEditingExistingMemo

@@ -175,8 +175,6 @@ internal fun MemoListItem(
     bottomSpacing: androidx.compose.ui.unit.Dp,
     onTodoClick: ((Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit)?,
     onReminderClick: (com.lomo.domain.model.ReminderMarker) -> Unit,
-    dateFormat: String,
-    timeFormat: String,
     onMemoDoubleClick: (Memo) -> Unit,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
@@ -215,8 +213,6 @@ internal fun MemoListItem(
         key(uiModel.memo.id) {
             MemoCardEntry(
                 uiModel = uiModel,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
                 onTodoClick = stableTodoClick,
                 onTagClick = onTagClick,
                 onMemoEdit = onMemoDoubleClick,

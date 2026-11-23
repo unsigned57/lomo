@@ -10,8 +10,6 @@ internal data class SearchScreenUiSnapshot(
     val searchMode: MemoSearchMode,
     val showLoading: Boolean,
     val searchFilter: MemoListFilter,
-    val dateFormat: String,
-    val timeFormat: String,
     val shareCardShowTime: Boolean,
     val shareCardShowSignature: Boolean,
     val shareCardSignatureText: String,

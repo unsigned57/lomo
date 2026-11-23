@@ -11,7 +11,7 @@ use lomo_application::{
     CreateMemoRequest, DeleteMemoRequest, PermanentDeleteRequest, PinMemoRequest, PinPolicy,
     RestoreMemoRequest, RestoreRevisionRequest, SearchMode, SearchOutcome, SearchRequest,
     ToggleTaskRequest, UpdateMemoRequest, WorkspaceSession, WorkspaceSessionConfig,
-    calendar::{CivilDate, DateFormat},
+    calendar::{CivilDate, DateFormat, TimestampFormat},
     statistics::StatisticsSnapshot,
 };
 use lomo_core::{
@@ -82,6 +82,8 @@ pub struct SessionCreateMemoRequest {
     pub pinned: bool,
     pub pending_promotes: Vec<MediaPromotePlanDto>,
     pub chronology_epoch_ms: Option<i64>,
+    pub date_format: Option<String>,
+    pub timestamp_format: Option<String>,
 }
 
 #[data]
@@ -529,6 +531,18 @@ impl LomoEngine {
             .map(RelativeWorkspacePath::parse)
             .transpose()
             .map_err(EngineError::from)?;
+        let date_format = request
+            .date_format
+            .as_deref()
+            .map(DateFormat::from_token)
+            .transpose()
+            .map_err(|err| EngineError::from(LomoError::from(err)))?;
+        let timestamp_format = request
+            .timestamp_format
+            .as_deref()
+            .map(TimestampFormat::from_token)
+            .transpose()
+            .map_err(|err| EngineError::from(LomoError::from(err)))?;
         let inner = CreateMemoRequest {
             operation_id: OperationId::parse(&request.operation_id).map_err(EngineError::from)?,
             relative_path,
@@ -538,6 +552,8 @@ impl LomoEngine {
             pinned: request.pinned,
             pending_promotes: pending_promotes_from_ffi(&request.pending_promotes)?,
             chronology_epoch_ms: request.chronology_epoch_ms,
+            date_format,
+            timestamp_format,
         };
         let session = session_arc(self)?;
         let accepted = session.accept_create(inner).map_err(EngineError::from)?;

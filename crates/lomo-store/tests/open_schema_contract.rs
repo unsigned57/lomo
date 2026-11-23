@@ -47,8 +47,8 @@ mod tests {
 
     fn remove_v16_triggers(connection: &Connection) {
         connection.execute_batch("DROP TRIGGER memo_stats_insert; DROP TRIGGER memo_stats_delete;
-            DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders;")
-            .expect("historical schemas have no v16 triggers");
+            DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; ALTER TABLE memo DROP COLUMN time_part;")
+            .expect("historical schemas have no v16 triggers or v18 columns");
     }
 
     #[test]
@@ -337,5 +337,55 @@ mod tests {
             )
             .expect("null body flag");
         assert_eq!(null_body_flag, 0, "a NULL body must not invent facts");
+    }
+
+    #[test]
+    fn v17_upgrade_adds_time_part_and_invalidates_listing_digest_for_rescan() {
+        let dir = tempdir().expect("private projection directory");
+        let opened = open_store(dir.path()).expect("initial schema");
+        let database = opened.database_path.clone();
+        drop(opened);
+        let connection = Connection::open(&database).expect("construct v17 cache");
+        connection
+            .execute_batch(
+                "ALTER TABLE memo DROP COLUMN time_part;\
+                 INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
+                 has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
+                 search_content, word_count, char_count, content_revision, reminders_json, \
+                 is_pinned, is_trashed) \
+                 VALUES('v17-memo','2026_10_12.md','fp1',0,0,0,1,1,'p','body','s',1,1,1,'[]',0,0);\
+                 UPDATE store_meta SET value='5' WHERE key='high_water_revision';\
+                 INSERT OR REPLACE INTO store_meta(key, value) VALUES('workspace_listing_digest', 'stale');\
+                 PRAGMA user_version=17;",
+            )
+            .expect("v17 projection row");
+        drop(connection);
+        let upgraded = open_store(dir.path()).expect("upgrade v17");
+        assert_eq!(upgraded.user_version, STORE_SCHEMA_VERSION);
+        let inspect = Connection::open(&database).expect("inspect upgraded projection");
+        let time_part: String = inspect
+            .query_row(
+                "SELECT time_part FROM memo WHERE memo_id='v17-memo'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("migrated time_part column");
+        assert_eq!(time_part, "");
+        let revision: String = inspect
+            .query_row(
+                "SELECT value FROM store_meta WHERE key='high_water_revision'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("high_water_revision");
+        assert_eq!(revision, "0");
+        let digest_rows: i64 = inspect
+            .query_row(
+                "SELECT COUNT(*) FROM store_meta WHERE key='workspace_listing_digest'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("listing digest count");
+        assert_eq!(digest_rows, 0);
     }
 }

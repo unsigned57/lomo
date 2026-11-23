@@ -17,6 +17,8 @@ internal object SettingsKey {
     const val MEMO_SNAPSHOT_MAX_AGE_DAYS = "memoSnapshotMaxAgeDays"
     const val STORAGE_FILENAME_FORMAT = "storageFilenameFormat"
     const val STORAGE_TIMESTAMP_FORMAT = "storageTimestampFormat"
+    const val DATE_FORMAT_ONLY = "date_format_only"
+    const val TIME_FORMAT_ONLY = "time_format_only"
     const val GIT_SYNC_ENABLED = "gitSyncEnabled"
     const val GIT_REMOTE_URL = "gitRemoteUrl"
     const val GIT_AUTHOR_NAME = "gitAuthorName"

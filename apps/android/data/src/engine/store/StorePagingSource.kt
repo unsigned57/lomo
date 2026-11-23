@@ -150,6 +150,7 @@ internal fun StoreMemoSummary.toDomainMemo(
         content = body,
         rawContent = body,
         dateKey = dateKey,
+        timePart = timePart,
         localDate = localDate,
         tags = tags,
         imageUrls = imageUrls,

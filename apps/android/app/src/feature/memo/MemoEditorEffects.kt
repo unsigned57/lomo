@@ -85,8 +85,6 @@ internal fun rememberMemoEditorContentState(
                     sourceText,
                     document,
                     tokenFactory::dueAt,
-                    session.dateFormat,
-                    session.timeFormat,
                 )
                 val previewDocument = if (previewRequested) {
                     imageContentResolver.resolveRenderDocumentImages(

@@ -93,14 +93,6 @@ constructor(
 class DateTimePreferencesRepositoryImpl
 constructor(private val dataStore: LomoDataStore) :
     DateTimePreferencesRepository {
-    override fun getDateFormat(): Flow<String> = dataStore.dateFormat
-    override suspend fun setDateFormat(format: String) {
-        dataStore.updateDateFormat(format)
-    }
-    override fun getTimeFormat(): Flow<String> = dataStore.timeFormat
-    override suspend fun setTimeFormat(format: String) {
-        dataStore.updateTimeFormat(format)
-    }
     override fun getThemeMode(): Flow<ThemeMode> = dataStore.themeMode.map { ThemeMode.fromValue(it) }
     override suspend fun setThemeMode(mode: ThemeMode) {
         dataStore.updateThemeMode(mode.value)

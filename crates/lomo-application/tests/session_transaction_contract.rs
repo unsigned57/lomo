@@ -255,6 +255,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect_err("retained projection cannot write");
         assert_eq!(rejected.code(), "projection_revalidating");
@@ -351,6 +353,8 @@ mod tests {
             pinned: false,
             pending_promotes: Vec::new(),
             chronology_epoch_ms: None,
+            date_format: None,
+            timestamp_format: None,
         }
     }
 
@@ -708,6 +712,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create 1");
         ctx.session
@@ -731,6 +737,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create 2");
         ctx.session
@@ -754,6 +762,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create 3");
         ctx.session
@@ -886,6 +896,8 @@ mod tests {
                 pinned: true,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create 1");
         ctx.session
@@ -909,6 +921,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create 2");
         ctx.session
@@ -1073,6 +1087,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session
@@ -1148,6 +1164,8 @@ mod tests {
             pinned: false,
             pending_promotes: Vec::new(),
             chronology_epoch_ms: None,
+            date_format: None,
+            timestamp_format: None,
         };
         ctx.session
             .create_memo(create("batch-seed", "original memo"))
@@ -1291,6 +1309,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("intent commits");
         let err = session
@@ -1315,6 +1335,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("retry must succeed");
         session_recovered
@@ -1338,6 +1360,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect_err("must reject replay with different payload");
 
@@ -1360,6 +1384,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create a");
         ctx.session
@@ -1383,6 +1409,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create b");
         ctx.session
@@ -1527,6 +1555,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         session
@@ -1607,6 +1637,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         session
@@ -1731,6 +1763,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         session
@@ -2024,6 +2058,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         session
@@ -2119,6 +2155,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         session
@@ -2178,6 +2216,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session
@@ -2316,6 +2356,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx.session
@@ -2363,5 +2405,104 @@ mod tests {
             BTreeSet::from([v1_fingerprint, updated.commit_result.file_fingerprint]),
             "the `.lomo` record cohort of an update is likewise never baselined"
         );
+    }
+
+    #[test]
+    fn mixed_format_workspace_scans_file_native_timestamps_while_create_uses_requested_formats() {
+        let dir = tempdir().expect("tempdir");
+        let ws = dir.path().join("notes");
+        fs::create_dir_all(&ws).expect("ws dir");
+        fs::write(ws.join("2026_05_01.md"), "- 9:05\nunderscore short\n").expect("seed 1");
+        fs::write(ws.join("2026-05-02.md"), "- 14:30:45\nhyphen full\n").expect("seed 2");
+        fs::write(ws.join("05-03-2026.md"), "- 08:15\nus date\n").expect("seed 3");
+
+        let state = dir.path().join("state");
+        let cache = dir.path().join("cache");
+        let runtime = dir.path().join("runtime");
+        let exchange = dir.path().join("exchange");
+        let stage = dir.path().join("stage");
+        fs::create_dir_all(&state).expect("state");
+        fs::create_dir_all(&cache).expect("cache");
+        fs::create_dir_all(&runtime).expect("runtime");
+        fs::create_dir_all(&exchange).expect("exchange");
+        fs::create_dir_all(&stage).expect("stage");
+
+        let cap = CapabilityToken::parse("notes").expect("cap");
+        let exec_inner = Arc::new(FsPlatformActionExecutor::new(&exchange).expect("exec"));
+        exec_inner.bind_root(cap.clone(), &ws).expect("bind");
+        let session = WorkspaceSession::open(
+            WorkspaceSessionConfig {
+                capability: cap,
+                root_id: WorkspaceRootId::Notes,
+                workspace_generation: lomo_workspace::WorkspaceGenerationId::mint().expect("gen"),
+                time_zone: "UTC".to_owned(),
+                date_format: lomo_application::calendar::DateFormat::YyyyMmDdUnderscore,
+                state_dir: state,
+                cache_dir: cache,
+                runtime_dir: runtime,
+                exchange_dir: exchange,
+                media_stage_root: stage,
+            },
+            exec_inner,
+        )
+        .expect("open session");
+
+        let page = session
+            .list_memos(&MemoQuery {
+                search_text: None,
+                filters: lomo_store::MemoFilters::default(),
+                sort: lomo_store::MemoSort::default(),
+            })
+            .expect("list scanned memos");
+        let by_path: std::collections::BTreeMap<String, String> = page
+            .items
+            .into_iter()
+            .map(|item| (item.source_path, item.time_part))
+            .collect();
+        assert_eq!(
+            by_path.get("2026_05_01.md").map(String::as_str),
+            Some("9:05")
+        );
+        assert_eq!(
+            by_path.get("2026-05-02.md").map(String::as_str),
+            Some("14:30:45")
+        );
+        assert_eq!(
+            by_path.get("05-03-2026.md").map(String::as_str),
+            Some("08:15")
+        );
+
+        // Per-request format override applies immediately without reopening the session.
+        let created = session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("op-override-fmt").expect("op"),
+                relative_path: None,
+                time_token: None,
+                content: "created with dot and short time".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                // 2026-05-04T16:07:09Z
+                chronology_epoch_ms: Some(1_777_910_829_000),
+                date_format: Some(lomo_application::calendar::DateFormat::YyyyMmDdDot),
+                timestamp_format: Some(lomo_application::calendar::TimestampFormat::HhMm),
+            })
+            .expect("create with format override");
+        session.settle_workspace().expect("settle");
+
+        let listed = session
+            .list_memos(&MemoQuery {
+                search_text: None,
+                filters: lomo_store::MemoFilters::default(),
+                sort: lomo_store::MemoSort::default(),
+            })
+            .expect("list after create");
+        let summary = listed
+            .items
+            .into_iter()
+            .find(|item| item.memo_id == created.memo_id.as_str())
+            .expect("created summary");
+        assert_eq!(summary.source_path, "2026.05.04.md");
+        assert_eq!(summary.time_part, "16:07");
     }
 }

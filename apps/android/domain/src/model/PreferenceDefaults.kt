@@ -3,8 +3,6 @@ package com.lomo.domain.model
 object PreferenceDefaults {
     const val QUICK_BALL_CONFIG = "v1|RECORD|SCROLL_TOP|SEARCH|LONG_TEXT|FILTER"
 
-    const val DATE_FORMAT = "yyyy-MM-dd"
-    const val TIME_FORMAT = "HH:mm:ss"
     const val HAPTIC_FEEDBACK_ENABLED = true
     const val CHECK_UPDATES_ON_STARTUP = true
     const val SHOW_INPUT_HINTS = true

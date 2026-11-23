@@ -47,8 +47,6 @@ class MemoJumpNavigationHandlerTest : AppFunSpec() {
                     selection =
                     memoMenuSelection(
                         memo = memo("memo-42"),
-                        dateFormat = "yyyy-MM-dd",
-                        timeFormat = "HH:mm",
                     ),
                     requestFocusMemo = { memoId -> calls += "focus:$memoId" },
                     navigateToMain = { calls += "navigate" },

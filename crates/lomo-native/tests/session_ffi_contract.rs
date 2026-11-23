@@ -153,6 +153,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )
@@ -229,6 +231,8 @@ mod tests {
             pinned: false,
             pending_promotes: Vec::new(),
             chronology_epoch_ms: None,
+            date_format: None,
+            timestamp_format: None,
         }
     }
 
@@ -429,6 +433,8 @@ mod tests {
                 pinned: true,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .test_ok("old memo");
         session.settle_workspace().test_ok("old writes converge");
@@ -552,6 +558,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )
@@ -627,6 +635,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )
@@ -670,6 +680,8 @@ mod tests {
                     pending_promotes: Vec::new(),
                     // 2026-05-23T12:00:00Z — a real instant the journal stamp resolves locally.
                     chronology_epoch_ms: Some(1_779_537_600_000),
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )
@@ -683,6 +695,93 @@ mod tests {
             loaded.summary.source_path, "2026-05-23.md",
             "the host token must reach WorkspaceSessionConfig; default() would mint 2026_05_23.md"
         );
+    }
+
+    #[test]
+    fn session_create_memo_applies_and_validates_per_request_format_overrides() {
+        let session = open_direct_engine();
+        let executor = FsPlatformActionExecutor::new(&session.exchange).test_ok("posix executor");
+        executor
+            .bind_root(
+                CapabilityToken::parse("notes-root").test_ok("direct capability"),
+                &session.workspace,
+            )
+            .test_ok("bind workspace");
+        session
+            .engine
+            .open_workspace_session(
+                Box::new(PosixBatchHost { executor }),
+                "UTC".to_owned(),
+                "yyyy-MM-dd".to_owned(),
+                session.workspace.to_string_lossy().into_owned(),
+            )
+            .test_ok("open session");
+
+        let override_commit = session
+            .engine
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-create-override-formats".to_owned(),
+                    relative_path: None,
+                    time_token: None,
+                    content: "override date and short time".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: Some(1_779_537_645_000), // 2026-05-23T12:00:45Z
+                    date_format: Some("yyyy.MM.dd".to_owned()),
+                    timestamp_format: Some("HH:mm".to_owned()),
+                },
+                crate::create_observer::returned_commit_only(),
+            )
+            .test_ok("override format create");
+        let override_loaded = session
+            .engine
+            .get_memo(override_commit.memo_id)
+            .test_ok("get override memo")
+            .test_ok("override memo present");
+        assert_eq!(override_loaded.summary.source_path, "2026.05.23.md");
+        assert_eq!(override_loaded.summary.time_part, "12:00");
+
+        let bad_date_err = session
+            .engine
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-bad-date-format".to_owned(),
+                    relative_path: None,
+                    time_token: None,
+                    content: "bad date format".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: Some(1_779_537_645_000),
+                    date_format: Some("dd/MM/yyyy".to_owned()),
+                    timestamp_format: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
+            .test_err("invalid date format token");
+        assert_eq!(bad_date_err.code(), "storage_date_format_invalid");
+
+        let bad_ts_err = session
+            .engine
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-bad-ts-format".to_owned(),
+                    relative_path: None,
+                    time_token: None,
+                    content: "bad ts format".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: Some(1_779_537_645_000),
+                    date_format: None,
+                    timestamp_format: Some("H:mm".to_owned()),
+                },
+                crate::create_observer::returned_commit_only(),
+            )
+            .test_err("invalid timestamp format token");
+        assert_eq!(bad_ts_err.code(), "storage_timestamp_format_invalid");
     }
 
     #[test]
@@ -793,6 +892,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )
@@ -884,6 +985,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )
@@ -927,6 +1030,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )
@@ -954,6 +1059,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )

@@ -60,8 +60,6 @@ class SettingsStateProvider(
     )
 
     private data class DisplayPrimaryState(
-        val dateFormat: String,
-        val timeFormat: String,
         val themeMode: com.lomo.domain.model.ThemeMode,
         val pureBlackDark: Boolean,
         val calendarHeatmapThresholds: CalendarHeatmapThresholds,
@@ -136,15 +134,11 @@ class SettingsStateProvider(
     private val displayState: StateFlow<DisplaySectionState> =
         combine(
             combine(
-                appConfigCoordinator.dateFormat,
-                appConfigCoordinator.timeFormat,
                 appConfigCoordinator.themeMode,
                 appConfigCoordinator.calendarHeatmapThresholds,
                 appConfigCoordinator.pureBlackDark,
-            ) { dateFormat, timeFormat, themeMode, calendarHeatmapThresholds, pureBlackDark ->
+            ) { themeMode, calendarHeatmapThresholds, pureBlackDark ->
                 DisplayPrimaryState(
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
                     themeMode = themeMode,
                     pureBlackDark = pureBlackDark,
                     calendarHeatmapThresholds = calendarHeatmapThresholds,
@@ -175,8 +169,6 @@ class SettingsStateProvider(
             },
         ) { primary, sources, typography ->
             DisplaySectionState(
-                dateFormat = primary.dateFormat,
-                timeFormat = primary.timeFormat,
                 themeMode = primary.themeMode,
                 pureBlackDark = primary.pureBlackDark,
                 calendarHeatmapThresholds = primary.calendarHeatmapThresholds,
@@ -195,8 +187,6 @@ class SettingsStateProvider(
             started = appWhileSubscribed(),
             initialValue =
             DisplaySectionState(
-                dateFormat = appConfigCoordinator.dateFormat.value,
-                timeFormat = appConfigCoordinator.timeFormat.value,
                 themeMode = appConfigCoordinator.themeMode.value,
                 pureBlackDark = appConfigCoordinator.pureBlackDark.value,
                 calendarHeatmapThresholds = appConfigCoordinator.calendarHeatmapThresholds.value,

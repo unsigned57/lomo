@@ -245,8 +245,6 @@ class SettingsRestoreWriteAtomicityContractTest : DataFunSpec() {
     }
 
     private fun com.lomo.domain.model.SettingDescriptor.restoreValue(): String = when (snapshotField) {
-        AppPreferenceSnapshotField.DATE_FORMAT -> "yyyy/MM/dd"
-        AppPreferenceSnapshotField.TIME_FORMAT -> "HH:mm"
         AppPreferenceSnapshotField.THEME_MODE -> ThemeMode.DARK.value
         AppPreferenceSnapshotField.PURE_BLACK_DARK -> true.toString()
         AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> "2,5,9"

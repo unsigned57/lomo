@@ -245,14 +245,6 @@ class SettingsDisplayFeatureViewModel(
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
     customFontHost: CustomFontHost,
 ) {
-    fun updateDateFormat(format: String) {
-        scope.launch { appConfigCoordinator.updateDateFormat(format) }
-    }
-
-    fun updateTimeFormat(format: String) {
-        scope.launch { appConfigCoordinator.updateTimeFormat(format) }
-    }
-
     fun updateThemeMode(mode: ThemeMode) {
         scope.launch { appConfigCoordinator.updateThemeMode(mode) }
     }

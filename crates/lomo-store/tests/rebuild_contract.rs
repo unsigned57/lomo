@@ -100,6 +100,7 @@ mod tests {
         let memo = ScannedMemoProjection {
             memo_id: "memo-with-malformed-attachments".to_owned(),
             source_path: "2026_11_08.md".to_owned(),
+            time_part: "09:00:00".to_owned(),
             file_fingerprint: fingerprint_content(&body),
             chronology_epoch_ms: 1_700_000_000_000,
             body: body.clone(),
@@ -270,6 +271,7 @@ mod tests {
         let source = ScannedMemoProjection {
             memo_id: "2026-08-02_19:30:00_0".to_owned(),
             source_path: "2026-08-02.md".to_owned(),
+            time_part: "19:30:00".to_owned(),
             file_fingerprint: fingerprint_content(&body),
             chronology_epoch_ms: 1_754_128_200_000,
             body: body.clone(),
@@ -342,6 +344,7 @@ mod tests {
         let old = ScannedMemoProjection {
             memo_id: "2026-08-04_09:30:00_0".to_owned(),
             source_path: "2026-08-04.md".to_owned(),
+            time_part: "09:30:00".to_owned(),
             file_fingerprint: fingerprint_content(&old_body),
             chronology_epoch_ms: 1_754_300_000_000,
             body: old_body,
@@ -426,6 +429,7 @@ mod tests {
         let original = ScannedMemoProjection {
             memo_id: "2026-08-04_09:30:00_0".to_owned(),
             source_path: "2026-08-04.md".to_owned(),
+            time_part: "09:30:00".to_owned(),
             file_fingerprint: fingerprint_content("current body"),
             chronology_epoch_ms: 1_754_300_000_000,
             body: "current body".to_owned(),
@@ -473,6 +477,7 @@ mod tests {
         let memo = ScannedMemoProjection {
             memo_id: "2026-08-04_09:30:00_0".to_owned(),
             source_path: "2026-08-04.md".to_owned(),
+            time_part: "09:30:00".to_owned(),
             file_fingerprint: fingerprint_content("first body"),
             chronology_epoch_ms: 1_754_300_000_000,
             body: "first body".to_owned(),
@@ -539,6 +544,7 @@ mod tests {
         let projection = ScannedMemoProjection {
             memo_id: "2026-08-04_12:00:00_0".to_owned(),
             source_path: "2026-08-04.md".to_owned(),
+            time_part: "12:00:00".to_owned(),
             file_fingerprint: fingerprint_content(&body),
             chronology_epoch_ms: 1_754_309_000_000,
             body,
@@ -581,6 +587,7 @@ mod tests {
         let first = ScannedMemoProjection {
             memo_id: "2026_08_04_09:00:00_0".to_owned(),
             source_path: "2026_08_04.md".to_owned(),
+            time_part: "09:00:00".to_owned(),
             file_fingerprint: old_fingerprint.clone(),
             chronology_epoch_ms: 1_754_298_000_000,
             body: "first".to_owned(),
@@ -643,6 +650,7 @@ mod tests {
         let removed = ScannedMemoProjection {
             memo_id: "2026_08_04_09:00:00_0".to_owned(),
             source_path: "2026_08_04.md".to_owned(),
+            time_part: "09:00:00".to_owned(),
             file_fingerprint: old_fingerprint.clone(),
             chronology_epoch_ms: 1_754_298_000_000,
             body: "recoverable deleted body".to_owned(),
@@ -705,6 +713,7 @@ mod tests {
         let target = ScannedMemoProjection {
             memo_id: "2026_08_13_09:00:00_0".to_owned(),
             source_path: "2026_08_13.md".to_owned(),
+            time_part: "09:00:00".to_owned(),
             file_fingerprint: original_fingerprint.clone(),
             chronology_epoch_ms: 1_755_058_800_000,
             body: "trash lifecycle target".to_owned(),
@@ -801,6 +810,7 @@ mod tests {
         let old = ScannedMemoProjection {
             memo_id: "2026_08_03_10:00:00_0".to_owned(),
             source_path: "2026_08_03.md".to_owned(),
+            time_part: "10:00:00".to_owned(),
             file_fingerprint: fingerprint_content(&old_body),
             chronology_epoch_ms: 1_754_200_000_000,
             body: old_body,
@@ -816,6 +826,7 @@ mod tests {
         let new = ScannedMemoProjection {
             memo_id: "2026_08_04_10:00:00_0".to_owned(),
             source_path: "2026_08_04.md".to_owned(),
+            time_part: "10:00:00".to_owned(),
             file_fingerprint: fingerprint_content(&new_body),
             chronology_epoch_ms: 1_754_300_000_000,
             body: new_body,
@@ -870,6 +881,7 @@ mod tests {
         let old = ScannedMemoProjection {
             memo_id: "2026_08_03_10:00:00_0".to_owned(),
             source_path: "2026_08_03.md".to_owned(),
+            time_part: "10:00:00".to_owned(),
             file_fingerprint: fingerprint_content(&old_body),
             chronology_epoch_ms: 1_754_200_000_000,
             body: old_body,
@@ -898,6 +910,7 @@ mod tests {
         let live = ScannedMemoProjection {
             memo_id: "2026_08_04_11:00:00_0".to_owned(),
             source_path: "2026_08_04.md".to_owned(),
+            time_part: "11:00:00".to_owned(),
             file_fingerprint: fingerprint_content(&live_body),
             chronology_epoch_ms: 1_754_303_600_000,
             body: live_body,
@@ -951,6 +964,7 @@ mod tests {
         let memo = ScannedMemoProjection {
             memo_id: "2026_08_04_11:00:00_0".to_owned(),
             source_path: "2026_08_04.md".to_owned(),
+            time_part: "11:00:00".to_owned(),
             file_fingerprint: fingerprint_content(&body),
             chronology_epoch_ms: 1_754_303_600_000,
             body,
@@ -987,6 +1001,7 @@ mod tests {
         let active = ScannedMemoProjection {
             memo_id: "2026_08_12_08:15:00_0".to_owned(),
             source_path: "2026_08_12.md".to_owned(),
+            time_part: "08:15:00".to_owned(),
             file_fingerprint: current_fingerprint.clone(),
             chronology_epoch_ms: 1_754_972_100_000,
             body: "active bytes retained after soft delete".to_owned(),
@@ -1131,6 +1146,7 @@ mod tests {
         let projection = ScannedMemoProjection {
             memo_id: memo_id.to_owned(),
             source_path: "2026_09_03.md".to_owned(),
+            time_part: "09:30:00".to_owned(),
             file_fingerprint: fingerprint.clone(),
             chronology_epoch_ms: 1_756_876_200_000,
             body: body.to_owned(),
@@ -1699,6 +1715,7 @@ mod tests {
         let page_a = ScannedMemoProjection {
             memo_id: "2026_08_05_09:00:00_0".to_owned(),
             source_path: "2026_08_05.md".to_owned(),
+            time_part: "09:00:00".to_owned(),
             file_fingerprint: fingerprint_content(&body_a),
             chronology_epoch_ms: 1_754_320_000_000,
             body: body_a,
@@ -1745,6 +1762,7 @@ mod tests {
         let page_b = ScannedMemoProjection {
             memo_id: "2026_08_06_09:00:00_0".to_owned(),
             source_path: "2026_08_06.md".to_owned(),
+            time_part: "09:00:00".to_owned(),
             file_fingerprint: fingerprint_content(&body_b),
             chronology_epoch_ms: 1_754_400_000_000,
             body: body_b,

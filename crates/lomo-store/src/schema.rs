@@ -1,7 +1,7 @@
 //! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 17;
+pub const STORE_SCHEMA_VERSION: u32 = 18;
 
 /// Tokenizer version embedded in FTS projections and `PageCursor`.
 pub const TOKENIZER_VERSION: u32 = 1;
@@ -40,6 +40,7 @@ CREATE TABLE {memo} (
     rowid INTEGER PRIMARY KEY NOT NULL,
     memo_id TEXT NOT NULL UNIQUE,
     source_path TEXT NOT NULL,
+    time_part TEXT NOT NULL DEFAULT '',
     source_start INTEGER NOT NULL DEFAULT 0,
     source_end INTEGER NOT NULL DEFAULT 0,
     file_fingerprint TEXT NOT NULL,
@@ -441,4 +442,13 @@ CREATE INDEX idx_memo_pending_operation ON memo(pending_operation_id)
 CREATE INDEX idx_memo_reminders ON memo(memo_id, reminders_json)
     WHERE is_trashed=0 AND pending_operation_id IS NULL AND reminders_json!='[]';
 PRAGMA user_version = 17;
+";
+
+/// Additive v17 -> v18 migration: persist file-native header `time_part` per memo and force one
+/// verified rebuild so existing rows populate `time_part` from workspace Markdown headers.
+pub const MIGRATE_V17_TO_V18_DDL: &str = r"
+ALTER TABLE memo ADD COLUMN time_part TEXT NOT NULL DEFAULT '';
+UPDATE store_meta SET value = '0' WHERE key = 'high_water_revision';
+DELETE FROM store_meta WHERE key = 'workspace_listing_digest';
+PRAGMA user_version = 18;
 ";

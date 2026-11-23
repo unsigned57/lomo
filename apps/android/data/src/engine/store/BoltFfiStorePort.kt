@@ -245,6 +245,8 @@ internal class BoltFfiStorePort(
                     pinned = command.pin == true,
                     pendingPromotes = command.sessionPromotePlans(operationId),
                     chronologyEpochMs = command.chronologyEpochMs,
+                    dateFormat = command.dateFormat,
+                    timestampFormat = command.timestampFormat,
                 ),
                 observer,
             )

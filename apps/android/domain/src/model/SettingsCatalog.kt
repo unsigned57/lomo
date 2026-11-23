@@ -22,8 +22,6 @@ enum class SettingsReadModel {
 }
 
 enum class AppPreferenceSnapshotField {
-    DATE_FORMAT,
-    TIME_FORMAT,
     THEME_MODE,
     PURE_BLACK_DARK,
     CALENDAR_HEATMAP_THRESHOLDS,
@@ -154,20 +152,6 @@ sealed interface SettingValueContract {
 object SettingsCatalog {
     val descriptors: List<SettingDescriptor> =
         listOf(
-            text(
-                id = "display.dateFormat",
-                storageKey = "date_format_only",
-                defaultValue = PreferenceDefaults.DATE_FORMAT,
-                facet = SettingsFacet.DISPLAY,
-                snapshotField = AppPreferenceSnapshotField.DATE_FORMAT,
-            ),
-            text(
-                id = "display.timeFormat",
-                storageKey = "time_format_only",
-                defaultValue = PreferenceDefaults.TIME_FORMAT,
-                facet = SettingsFacet.DISPLAY,
-                snapshotField = AppPreferenceSnapshotField.TIME_FORMAT,
-            ),
             text(
                 id = "display.themeMode",
                 storageKey = "theme_mode",
@@ -349,8 +333,6 @@ object SettingsCatalog {
     fun appPreferenceSnapshotFrom(valuesByField: Map<AppPreferenceSnapshotField, SettingValue>): AppPreferenceSnapshot {
         val fields = appPreferenceDescriptors().associateBy { descriptor -> descriptor.snapshotField }
         return AppPreferenceSnapshot(
-            dateFormat = valuesByField.requireText(fields, AppPreferenceSnapshotField.DATE_FORMAT),
-            timeFormat = valuesByField.requireText(fields, AppPreferenceSnapshotField.TIME_FORMAT),
             themeMode = ThemeMode.fromValue(valuesByField.requireText(fields, AppPreferenceSnapshotField.THEME_MODE)),
             pureBlackDark = valuesByField.requireBool(fields, AppPreferenceSnapshotField.PURE_BLACK_DARK),
             calendarHeatmapThresholds =

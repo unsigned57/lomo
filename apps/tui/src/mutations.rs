@@ -293,6 +293,8 @@ pub fn import_clipboard_png(runtime: &TuiRuntime, png: &[u8]) -> Result<String, 
         pinned: false,
         pending_promotes: vec![plan],
         chronology_epoch_ms: None,
+        date_format: None,
+        timestamp_format: None,
     })?;
     Ok(relative)
 }

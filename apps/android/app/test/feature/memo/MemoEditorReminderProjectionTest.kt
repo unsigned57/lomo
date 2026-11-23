@@ -46,8 +46,6 @@ class MemoEditorReminderProjectionTest : AppFunSpec() {
                 source,
                 document,
                 { LocalDateTime.of(2026, 11, 7, 10, 30) },
-                "yyyy-MM-dd",
-                "HH:mm",
             )
             chips.single().label shouldBe "2026-11-07 10:30"
             inputEditorVisibleText(source, chips.map { it.range }) shouldBe prefix.trimEnd() + suffix
@@ -74,8 +72,6 @@ class MemoEditorReminderProjectionTest : AppFunSpec() {
                 source,
                 document,
                 { error("Code is not reminder metadata") },
-                "yyyy-MM-dd",
-                "HH:mm",
             ) shouldBe emptyList()
         }
     }

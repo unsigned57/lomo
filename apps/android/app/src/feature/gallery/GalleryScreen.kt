@@ -121,8 +121,6 @@ fun GalleryScreen(
         onItemAccess = { index -> galleryItems[index] },
         aspectByMemoId = entryReadiness.aspectByMemoId,
         aspectsReady = entryReadiness.aspectsReady,
-        dateFormat = appPreferences.dateFormat,
-        timeFormat = appPreferences.timeFormat,
         onNavigateToReel = onNavigateToReel,
         onResolveImageAspect = { imageUrl ->
             dimensionResolver.resolve(imageUrl)
@@ -198,8 +196,6 @@ private fun GalleryScreenMenuContent(
     onItemAccess: (Int) -> Unit,
     aspectByMemoId: ImmutableMap<String, Float>?,
     aspectsReady: Boolean,
-    dateFormat: String,
-    timeFormat: String,
     onNavigateToReel: (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit,
     onResolveImageAspect: suspend (String) -> Unit,
     haptic: com.lomo.ui.util.AppHapticFeedback,
@@ -251,8 +247,6 @@ private fun GalleryScreenMenuContent(
                 onItemAccess = onItemAccess,
                 aspectByMemoId = aspectByMemoId,
                 aspectsReady = aspectsReady,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
                 padding = padding,
                 onShowMenu = showMenu,
                 onNavigateToReel = onNavigateToReel,
@@ -350,8 +344,6 @@ private fun GalleryScreenContent(
     onItemAccess: (Int) -> Unit,
     aspectByMemoId: ImmutableMap<String, Float>?,
     aspectsReady: Boolean,
-    dateFormat: String,
-    timeFormat: String,
     padding: PaddingValues,
     onShowMenu: (MemoMenuSelection) -> Unit,
     onNavigateToReel: (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit,
@@ -373,8 +365,6 @@ private fun GalleryScreenContent(
                 memos = displayState.memos,
                 onItemAccess = onItemAccess,
                 aspectByMemoId = displayState.aspectByMemoId,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
                 onShowMenu = onShowMenu,
                 contentPadding =
                 PaddingValues(

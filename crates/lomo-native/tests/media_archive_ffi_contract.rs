@@ -163,6 +163,8 @@ mod tests {
                         final_relative_path: final_rel.clone(),
                     }],
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )
@@ -302,6 +304,8 @@ mod tests {
                         final_relative_path: final_rel.clone(),
                     }],
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )
@@ -526,6 +530,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 },
                 crate::create_observer::returned_commit_only(),
             )

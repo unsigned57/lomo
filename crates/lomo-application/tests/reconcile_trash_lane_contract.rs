@@ -261,7 +261,7 @@ mod tests {
             for (tag, sql) in [
                 (
                     "memo",
-                    "SELECT memo_id, source_path, source_start, source_end, file_fingerprint, \
+                    "SELECT memo_id, source_path, time_part, source_start, source_end, file_fingerprint, \
                      has_todo, has_url, has_attachment, is_pinned, is_trashed, created_at_ms, \
                      updated_at_ms, body_preview, COALESCE(body,''), search_content, word_count, \
                      char_count, reminders_json, content_revision, COALESCE(pending_operation_id,'') \
@@ -783,12 +783,12 @@ mod tests {
 
         // ---------- digest-coverage controls ----------
 
-        /// `time_part` is restore-only payload: it lands in no committed row and is
-        /// deliberately outside the attestation digest. A rewrite touching only it
-        /// must leave the projection byte-identical — the apply must even report
-        /// `rewritten == false` (the projection-state digest covers the same rows).
+        /// `time_part` is now committed to the `memo` projection row so file-native
+        /// header timestamps survive into display queries. A record rewrite that changes
+        /// only `time_part` must update the committed row, converge on the next pass, and
+        /// match a fresh cold scan (unlike declared `attachments`, which remain payload-only).
         #[test]
-        fn a_rewrite_touching_only_restore_fields_stays_converged() {
+        fn a_rewrite_touching_time_part_updates_committed_row_and_converges() {
             let scratch = tempdir().expect("workspace");
             let ctx = open_session(scratch.path());
             let ghost = "m_00000000000000000000000000000fade3";
@@ -797,18 +797,26 @@ mod tests {
             write_trash_record(&ctx.workspace, &record);
             ctx.session.rebuild_projection().expect("claim");
 
-            // Rewrite the record with only `time_part` changed — restore metadata,
-            // invisible to every committed row and to the digest.
             record.time_part = "23:59:59".to_owned();
             write_trash_record(&ctx.workspace, &record);
-            let result = ctx
+            ctx.session
+                .rebuild_projection()
+                .expect("scoped apply updates time_part");
+            assert_eq!(
+                summaries(&ctx.session, true)
+                    .into_iter()
+                    .find(|summary| summary.memo_id == ghost)
+                    .expect("trashed summary")
+                    .time_part,
+                "23:59:59",
+            );
+            let follow_up = ctx
                 .session
                 .rebuild_projection()
-                .expect("scoped apply converges");
+                .expect("follow-up pass converges");
             assert!(
-                !result.rewritten,
-                "a restore-only record rewrite must move no committed row — the \
-                 digest's exclusion of `time_part` is the whole point"
+                !follow_up.rewritten,
+                "updated record digest must converge so the next pass performs no rewrite"
             );
             assert_equivalent_to_fresh_scan(&ctx);
         }
@@ -1114,7 +1122,7 @@ mod tests {
             for (tag, sql) in [
                 (
                     "memo",
-                    "SELECT memo_id, source_path, source_start, source_end, file_fingerprint, \
+                    "SELECT memo_id, source_path, time_part, source_start, source_end, file_fingerprint, \
                      has_todo, has_url, has_attachment, is_pinned, is_trashed, created_at_ms, \
                      updated_at_ms, body_preview, COALESCE(body,''), search_content, word_count, \
                      char_count, reminders_json, content_revision, COALESCE(pending_operation_id,'') \
@@ -1772,7 +1780,7 @@ mod tests {
             for (tag, sql) in [
                 (
                     "memo",
-                    "SELECT memo_id, source_path, source_start, source_end, file_fingerprint, \
+                    "SELECT memo_id, source_path, time_part, source_start, source_end, file_fingerprint, \
                      has_todo, has_url, has_attachment, is_pinned, is_trashed, created_at_ms, \
                      updated_at_ms, body_preview, COALESCE(body,''), search_content, word_count, \
                      char_count, reminders_json, content_revision, COALESCE(pending_operation_id,'') \

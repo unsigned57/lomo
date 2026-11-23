@@ -2,7 +2,6 @@ package com.lomo.app.feature.memo
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.DraftId
-import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.ui.component.input.InputEditorCommand
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -17,8 +16,6 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
                     MemoEditorSessionState(
                         imageDirectory = "/images",
                         ownerDraftId = DraftId("contract-draft"),
-                        dateFormat = PreferenceDefaults.DATE_FORMAT,
-                        timeFormat = PreferenceDefaults.TIME_FORMAT,
                     ),
                     capabilities = MemoEditorCapabilities(quickSaveOnBackEnabled = true),
                     commands = MemoEditorCommandHandler { },
@@ -37,8 +34,6 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
                     MemoEditorSessionState(
                         imageDirectory = "/images",
                         ownerDraftId = DraftId("contract-draft"),
-                        dateFormat = PreferenceDefaults.DATE_FORMAT,
-                        timeFormat = PreferenceDefaults.TIME_FORMAT,
                     ),
                     capabilities = MemoEditorCapabilities(quickSaveOnBackEnabled = false),
                     commands = MemoEditorCommandHandler { command -> commands += command },

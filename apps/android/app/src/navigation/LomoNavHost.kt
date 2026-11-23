@@ -458,7 +458,6 @@ private fun NavGraphBuilder.addImageViewerDestination(
                     ?: kotlinx.coroutines.flow.flowOf(null)
             }
             val liveMemo by liveMemoFlow.collectAsStateWithLifecycle(initialValue = null)
-            val appPreferences by mainViewModel.appPreferences.collectAsStateWithLifecycle()
             val decodedUrl = URLDecoder.decode(route.url, StandardCharsets.UTF_8.toString())
             val imagePayload = androidx.compose.runtime.remember(route.payloadKey) {
                 ImageViewerRoutePayloadStore.get(route.payloadKey)
@@ -493,8 +492,6 @@ private fun NavGraphBuilder.addImageViewerDestination(
                     request = request,
                     viewerMode = GalleryReelMode.SingleMemo,
                     memoChromeEnabled = memoChromeEnabled,
-                    dateFormat = appPreferences.dateFormat,
-                    timeFormat = appPreferences.timeFormat,
                     onBackClick = popBackStackSafely,
                     onTodoClick = mainViewModel.updateMemo,
                 )

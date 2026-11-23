@@ -113,8 +113,6 @@ class MemoBackfillDatePickerConversionTest : AppFunSpec() {
             (
                 formatMemoBackfillBadgeText(
                     timestampMillis = timestamp,
-                    dateFormat = "yyyy-MM-dd",
-                    timeFormat = "HH:mm",
                     zone = zone,
                 )
                 ) shouldBe ("2026-05-05 07:08:09")

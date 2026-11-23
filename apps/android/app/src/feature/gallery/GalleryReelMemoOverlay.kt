@@ -37,7 +37,6 @@ import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LocalLomoMotion
-import com.lomo.ui.util.formatAsDateTime
 import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.glass.GlassStyle
@@ -64,8 +63,6 @@ fun GalleryReelMemoOverlay(
     hazeState: HazeState,
     onTagClick: (String) -> Unit,
     memo: MemoUiModel,
-    dateFormat: String,
-    timeFormat: String,
     onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     modifier: Modifier = Modifier,
     showMemoDetails: Boolean = true,
@@ -79,8 +76,6 @@ fun GalleryReelMemoOverlay(
             hazeState = hazeState,
             onTagClick = onTagClick,
             memo = memo,
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
             panelTransition = panelTransition,
             showMemoDetails = showMemoDetails,
             onTodoClick = onTodoClick,
@@ -110,8 +105,6 @@ private fun GalleryReelPanelSurface(
     hazeState: HazeState,
     onTagClick: (String) -> Unit,
     memo: MemoUiModel,
-    dateFormat: String,
-    timeFormat: String,
     panelTransition: Transition<GalleryReelPanelMode>,
     showMemoDetails: Boolean,
     onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
@@ -183,8 +176,6 @@ private fun GalleryReelPanelSurface(
                     GalleryReelTextPanelContent(
                         onTagClick = onTagClick,
                         memo = memo,
-                        dateFormat = dateFormat,
-                        timeFormat = timeFormat,
                         imageIndicator = imageIndicator,
                         onTodoClick = onTodoClick,
                     )
@@ -192,8 +183,6 @@ private fun GalleryReelPanelSurface(
                 GalleryReelPanelMode.Compact ->
                     GalleryReelCompactPillContent(
                         memo = memo,
-                        dateFormat = dateFormat,
-                        timeFormat = timeFormat,
                         showMemoDetails = showMemoDetails,
                         imageIndicator = imageIndicator,
                     )
@@ -206,8 +195,6 @@ private fun GalleryReelPanelSurface(
 private fun GalleryReelTextPanelContent(
     onTagClick: (String) -> Unit,
     memo: MemoUiModel,
-    dateFormat: String,
-    timeFormat: String,
     imageIndicator: GalleryReelImageIndicatorState?,
     onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
 ) {
@@ -258,8 +245,6 @@ private fun GalleryReelTextPanelContent(
         GalleryReelMemoMeta(
             onTagClick = onTagClick,
             memo = memo,
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
         )
     }
 }
@@ -267,8 +252,6 @@ private fun GalleryReelTextPanelContent(
 @Composable
 private fun GalleryReelCompactPillContent(
     memo: MemoUiModel,
-    dateFormat: String,
-    timeFormat: String,
     showMemoDetails: Boolean,
     imageIndicator: GalleryReelImageIndicatorState?,
 ) {
@@ -282,8 +265,8 @@ private fun GalleryReelCompactPillContent(
         ),
     ) {
         if (showMemoDetails) {
-            val dateText = remember(memo.memo.timestamp, dateFormat, timeFormat) {
-                memo.memo.timestamp.formatAsDateTime(dateFormat, timeFormat)
+            val dateText = remember(memo.memo) {
+                memo.memo.displayTimestamp()
             }
             Text(
                 text = dateText,
@@ -305,20 +288,14 @@ private fun GalleryReelCompactPillContent(
 }
 
 @Composable
-private fun GalleryReelMemoMeta(
-    onTagClick: (String) -> Unit,
-    memo: MemoUiModel,
-    dateFormat: String,
-    timeFormat: String,
-    modifier: Modifier = Modifier,
-) {
+private fun GalleryReelMemoMeta(onTagClick: (String) -> Unit, memo: MemoUiModel, modifier: Modifier = Modifier) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier,
     ) {
         Text(
-            text = remember(memo.memo.timestamp, dateFormat, timeFormat) {
-                memo.memo.timestamp.formatAsDateTime(dateFormat, timeFormat)
+            text = remember(memo.memo) {
+                memo.memo.displayTimestamp()
             },
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelMedium,

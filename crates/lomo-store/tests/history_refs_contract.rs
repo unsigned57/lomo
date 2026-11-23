@@ -48,6 +48,7 @@ mod tests {
         ScannedMemoProjection {
             memo_id: memo_id.to_owned(),
             source_path: source_path.to_owned(),
+            time_part: "09:30:00".to_owned(),
             file_fingerprint: fingerprint_content(body),
             chronology_epoch_ms: 1_754_300_000_000,
             body: body.to_owned(),

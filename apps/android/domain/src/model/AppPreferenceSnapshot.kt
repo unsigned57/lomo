@@ -1,8 +1,6 @@
 package com.lomo.domain.model
 
 data class AppPreferenceSnapshot(
-    val dateFormat: String,
-    val timeFormat: String,
     val themeMode: ThemeMode,
     val pureBlackDark: Boolean = com.lomo.domain.model.PreferenceDefaults.PURE_BLACK_DARK,
     val calendarHeatmapThresholds: CalendarHeatmapThresholds,

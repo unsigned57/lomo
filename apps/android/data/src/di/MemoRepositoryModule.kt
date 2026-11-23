@@ -74,6 +74,7 @@ val memoRepositoryModule =
                     pendingStages = get(),
                     committedMediaSink = get(),
                 ),
+                storagePreferencesRepository = get(),
                 dispatcherProvider = get(),
             )
         } bind MemoMutationRepository::class

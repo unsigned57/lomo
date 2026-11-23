@@ -71,6 +71,8 @@ private fun EnginePerfProbe.seedTrashTarget(
             pinned = false,
             pendingPromotes = emptyList(),
             chronologyEpochMs = null,
+            dateFormat = null,
+            timestampFormat = null,
         ),
         ReturnedCommitOnly,
     )

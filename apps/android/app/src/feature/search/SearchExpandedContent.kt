@@ -65,8 +65,6 @@ internal fun SearchExpandedContent(
                 pagedItems = pagedItems,
                 query = uiState.query,
                 showLoading = uiState.showLoading,
-                dateFormat = uiState.dateFormat,
-                timeFormat = uiState.timeFormat,
                 doubleTapEditEnabled = uiState.doubleTapEditEnabled,
                 freeTextCopyEnabled = uiState.freeTextCopyEnabled,
                 exitAnimationRegistry = commands.exitAnimationRegistry,

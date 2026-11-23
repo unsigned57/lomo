@@ -3730,6 +3730,7 @@ private fun storeMemoSnapshot(
     com.lomo.nativebridge.StoreMemoSummary(
         memoId = memoId,
         sourcePath = "2026-07-20.md",
+        timePart = "",
         fileFingerprint = "a".repeat(64),
         updatedAtMs = 1L,
         createdAtMs = 1L,

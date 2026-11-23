@@ -76,6 +76,7 @@ data class StoreMemoSummary(
     val isPending: Boolean = false,
     /** Full-document character count from the store projection (UTF-16 code units). */
     val charCount: Long = 0,
+    val timePart: String = "",
 )
 
 data class StoreMemoPage(
@@ -181,6 +182,10 @@ data class StoreMemoCommand(
     val chronologyEpochMs: Long? = null,
     /** History sequence used by [StoreMemoCommandKind.HistoryRestore] onto session restore. */
     val historyRevision: Long? = null,
+    /** Live storage filename date format token for session create. */
+    val dateFormat: String? = null,
+    /** Live storage timestamp format token for session create. */
+    val timestampFormat: String? = null,
 )
 
 data class StoreRebuildResult(

@@ -53,8 +53,6 @@ open class FakeAppConfigRepository :
     private var pendingRootTransition: WorkspaceRootTransition? = null
     private var transitionSequence = 0
 
-    private val dateFormat = MutableStateFlow(PreferenceDefaults.DATE_FORMAT)
-    private val timeFormat = MutableStateFlow(PreferenceDefaults.TIME_FORMAT)
     private val themeMode = MutableStateFlow(ThemeMode.SYSTEM)
     private val calendarHeatmapThresholds = MutableStateFlow(CalendarHeatmapThresholds.default())
     private val colorSource = MutableStateFlow<ColorSource>(ColorSource.default())
@@ -155,8 +153,6 @@ open class FakeAppConfigRepository :
         quickBallConfig,
     ) { display, editor, share, typography, quickBallConfig ->
         AppPreferenceSnapshot(
-            dateFormat = display.dateFormat,
-            timeFormat = display.timeFormat,
             themeMode = display.themeMode,
             calendarHeatmapThresholds = display.calendarHeatmapThresholds,
             colorSource = display.colorSource,
@@ -182,14 +178,10 @@ open class FakeAppConfigRepository :
     }
 
     private fun observeDisplaySnapshot(): Flow<FakeDisplaySnapshot> = combine(
-        dateFormat,
-        timeFormat,
         themeMode,
         observeDisplayPersonalizationSnapshot(),
-    ) { dateFormat, timeFormat, themeMode, personalization ->
+    ) { themeMode, personalization ->
         FakeDisplaySnapshot(
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
             themeMode = themeMode,
             calendarHeatmapThresholds = personalization.calendarHeatmapThresholds,
             colorSource = personalization.colorSource,
@@ -296,18 +288,6 @@ open class FakeAppConfigRepository :
     }
 
     override fun observeDisplayName(area: StorageArea): Flow<String?> = displayNames.getValue(area).asStateFlow()
-
-    override fun getDateFormat(): Flow<String> = dateFormat.asStateFlow()
-
-    override suspend fun setDateFormat(format: String) {
-        dateFormat.value = format
-    }
-
-    override fun getTimeFormat(): Flow<String> = timeFormat.asStateFlow()
-
-    override suspend fun setTimeFormat(format: String) {
-        timeFormat.value = format
-    }
 
     override fun getThemeMode(): Flow<ThemeMode> = themeMode.asStateFlow()
 
@@ -490,8 +470,6 @@ open class FakeAppConfigRepository :
 }
 
 private data class FakeDisplaySnapshot(
-    val dateFormat: String,
-    val timeFormat: String,
     val themeMode: ThemeMode,
     val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     val colorSource: ColorSource,

@@ -243,6 +243,8 @@ constructor(
                 SettingsKey.GIT_SYNC_ENABLED,
                 SettingsKey.WEBDAV_SYNC_ENABLED,
                 SettingsKey.S3_SYNC_ENABLED,
+                SettingsKey.DATE_FORMAT_ONLY,
+                SettingsKey.TIME_FORMAT_ONLY,
             )
         val nullablePreferenceKeys = MigrationOrdinarySettings.nullableStringWireKeys
         val requiredStringPreferenceKeys =

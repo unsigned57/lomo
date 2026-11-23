@@ -309,6 +309,12 @@ class SyncInboxRepositoryImplTest : DataFunSpec() {
                 SyncInboxRepositoryDependencies(
                     context = context,
                     preferencesRepository = preferencesRepository,
+                    storagePreferencesRepository = object : com.lomo.domain.repository.StoragePreferencesRepository {
+                        override fun getStorageFilenameFormat() = kotlinx.coroutines.flow.flowOf("yyyy_MM_dd")
+                        override suspend fun setStorageFilenameFormat(format: String) = Unit
+                        override fun getStorageTimestampFormat() = kotlinx.coroutines.flow.flowOf("HH:mm:ss")
+                        override suspend fun setStorageTimestampFormat(format: String) = Unit
+                    },
                     workspaceConfigSource = workspaceConfigSource,
                     pendingReviewStore = reviewStore,
                     storePort = storePort,

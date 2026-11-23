@@ -46,6 +46,7 @@ internal fun SafMemoProjectionSnapshot.toBridge(): com.lomo.nativebridge.StoreSa
         hasUrl = hasUrl,
         reminders = reminders.map(WorkspaceReminderReferenceSnapshot::toBridge),
         trashedAtMs = trashedAtMs,
+        timePart = timePart,
     )
 
 private fun WorkspaceReminderReferenceSnapshot.toBridge(): com.lomo.nativebridge.WorkspaceReminderReference =

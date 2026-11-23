@@ -89,6 +89,8 @@ fn sample(isolated: bool, count: usize) -> Result<Sample, Box<dyn Error>> {
         pinned: false,
         pending_promotes: Vec::new(),
         chronology_epoch_ms: None,
+        date_format: None,
+        timestamp_format: None,
     })?;
     session.settle_workspace()?;
     executor.writes.store(0, Ordering::SeqCst);

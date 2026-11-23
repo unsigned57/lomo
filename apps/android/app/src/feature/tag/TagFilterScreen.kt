@@ -152,8 +152,6 @@ fun TagFilterScreen(
                 ownerDraftId = viewModel.ownerDraftId,
                 rootPath = rootDirectory,
                 imageMap = stableImageMap,
-                dateFormat = appPreferences.dateFormat,
-                timeFormat = appPreferences.timeFormat,
             ),
             toolbarToolOrder = appPreferences.inputToolbarToolOrder,
             onUpdateMemo = viewModel::submitMemoUpdate,
@@ -180,8 +178,6 @@ fun TagFilterScreen(
             TagFilterScreenContent(
                 tagName = tagName,
                 pagedItems = pagedItems,
-                dateFormat = appPreferences.dateFormat,
-                timeFormat = appPreferences.timeFormat,
                 doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
                 freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
                 exitAnimationRegistry = viewModel.exitAnimationRegistry,
@@ -287,8 +283,6 @@ private fun TagFilterTitle(tagName: String) {
 private fun TagFilterScreenContent(
     tagName: String,
     pagedItems: LazyPagingItems<com.lomo.app.feature.main.MemoUiModel>,
-    dateFormat: String,
-    timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<com.lomo.app.feature.main.MemoUiModel>,
@@ -334,8 +328,6 @@ private fun TagFilterScreenContent(
 
                 TagFilterContentState.List -> MemoCardList(
                     pagedMemos = pagedItems,
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
                     doubleTapEditEnabled = doubleTapEditEnabled,
                     freeTextCopyEnabled = freeTextCopyEnabled,
                     onMemoEdit = onMemoEdit,

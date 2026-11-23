@@ -21,6 +21,7 @@ data class Memo(
     val content: String,
     val rawContent: String, // Full line content including timestamp
     val dateKey: String, // Filename stem (e.g. "2026_02_27"), format varies
+    val timePart: String = "", // File-native timestamp text (e.g. "09:30:00" or "9:30"), empty if undated
     val localDate: LocalDate? = null,
     val tags: List<String> = emptyList(),
     val imageUrls: List<String> = emptyList(),
@@ -55,4 +56,6 @@ data class Memo(
      */
     val dayBucketKey: String
         get() = dateKey
+
+    fun displayTimestamp(): String = if (timePart.isNotBlank()) "$dateKey $timePart" else dateKey
 }

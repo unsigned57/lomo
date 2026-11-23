@@ -124,8 +124,6 @@ class MigrationOrdinarySettingsSchemaTest : DataFunSpec() {
         test("given catalog storage keys when store keys inspected then each resolves to a typed store key") {
             val bindings: Map<AppPreferenceSnapshotField, Preferences.Key<*>> =
                 mapOf(
-                    AppPreferenceSnapshotField.DATE_FORMAT to LomoDataStoreKeys.DATE_FORMAT,
-                    AppPreferenceSnapshotField.TIME_FORMAT to LomoDataStoreKeys.TIME_FORMAT,
                     AppPreferenceSnapshotField.THEME_MODE to LomoDataStoreKeys.THEME_MODE,
                     AppPreferenceSnapshotField.PURE_BLACK_DARK to LomoDataStoreKeys.PURE_BLACK_DARK,
                     AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS to

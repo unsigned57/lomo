@@ -42,28 +42,6 @@ internal fun DisplayPreferenceDialogs(
     options: SettingsDialogOptions,
     onApplyLanguageTag: (String) -> Unit,
 ) {
-    SelectionDialogIfVisible(
-        visible = dialogState.showDateDialog,
-        title = stringResource(R.string.settings_select_date_format),
-        options = options.dateFormats.toImmutableList(),
-        currentSelection = uiState.display.dateFormat,
-        onDismiss = { dialogState.showDateDialog = false },
-        onSelect = {
-            displayFeature.updateDateFormat(it)
-            dialogState.showDateDialog = false
-        },
-    )
-    SelectionDialogIfVisible(
-        visible = dialogState.showTimeDialog,
-        title = stringResource(R.string.settings_select_time_format),
-        options = options.timeFormats.toImmutableList(),
-        currentSelection = uiState.display.timeFormat,
-        onDismiss = { dialogState.showTimeDialog = false },
-        onSelect = {
-            displayFeature.updateTimeFormat(it)
-            dialogState.showTimeDialog = false
-        },
-    )
     ThemePreferenceDialog(
         visible = dialogState.showThemeDialog,
         currentThemeMode = uiState.display.themeMode,

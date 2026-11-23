@@ -152,8 +152,6 @@
     <string name="settings_typography_preview_en_2">Good spacing makes text easier to read. When letters are too close together, words become crowded. When lines are too tight, paragraphs feel dense. Finding the right balance is key to comfortable reading.</string>
     <string name="settings_typography_preview_zh_1">排版是文字呈现的艺术。每一个字、每一行、每一段之间的距离，都影响着阅读的节奏与舒适度。好的排版让文字自然流淌，让阅读成为一种享受。</string>
     <string name="settings_typography_preview_zh_2">文字间距影响词句的紧凑程度，行间距决定段落的呼吸感，段间距则为不同思想之间留出停顿的空间。调整这些参数，找到最适合你的阅读体验。</string>
-    <string name="settings_date_format">Date Format</string>
-    <string name="settings_time_format">Time Format</string>
     <string name="settings_group_heatmap">Heatmap</string>
     <string name="settings_calendar_heatmap_thresholds">Calendar heatmap thresholds</string>
     <string name="settings_calendar_heatmap_thresholds_dialog_title">Edit heatmap thresholds</string>
@@ -248,8 +246,6 @@
     <string name="input_hint_7">In Gallery and Daily Review, use menu Jump to open the related memo</string>
     
     <!-- Dialog Titles -->
-    <string name="settings_select_date_format">Select Date Format</string>
-    <string name="settings_select_time_format">Select Time Format</string>
     <string name="settings_select_filename_format">Select Filename Format</string>
     <string name="settings_select_timestamp_format">Select Timestamp Format</string>
     <string name="settings_group_share_card">Share Card</string>

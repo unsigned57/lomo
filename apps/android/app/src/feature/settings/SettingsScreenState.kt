@@ -39,8 +39,6 @@ data class StorageSectionState(
 )
 
 data class DisplaySectionState(
-    val dateFormat: String,
-    val timeFormat: String,
     val themeMode: ThemeMode,
     val pureBlackDark: Boolean = com.lomo.domain.model.PreferenceDefaults.PURE_BLACK_DARK,
     val calendarHeatmapThresholds: CalendarHeatmapThresholds,

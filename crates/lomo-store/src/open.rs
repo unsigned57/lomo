@@ -11,7 +11,7 @@ use crate::schema::{
     MIGRATE_V3_TO_V4_DDL, MIGRATE_V4_TO_V5_DDL, MIGRATE_V5_TO_V6_DDL, MIGRATE_V6_TO_V7_DDL,
     MIGRATE_V7_TO_V8_DDL, MIGRATE_V8_TO_V9_DDL, MIGRATE_V9_TO_V10_DDL, MIGRATE_V10_TO_V11_DDL,
     MIGRATE_V11_TO_V12_DDL, MIGRATE_V12_TO_V13_DDL, MIGRATE_V13_TO_V14_DDL, MIGRATE_V14_TO_V15_DDL,
-    MIGRATE_V16_TO_V17_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
+    MIGRATE_V16_TO_V17_DDL, MIGRATE_V17_TO_V18_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
 };
 
 /// Ordered additive migrations; `user_version` N upgrades by applying `MIGRATIONS[N - 1..]` in
@@ -33,6 +33,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATE_V14_TO_V15_DDL,
     INCREMENTAL_STATS_DDL,
     MIGRATE_V16_TO_V17_DDL,
+    MIGRATE_V17_TO_V18_DDL,
 ];
 
 /// Relative directory for rebuildable `SQLite` files (must never live under `.lomo/`).

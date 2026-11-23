@@ -158,8 +158,6 @@ interface LomoStorageFormatStore {
 }
 
 interface LomoDisplayPreferencesStore {
-    val dateFormat: Flow<String>
-    val timeFormat: Flow<String>
     val themeMode: Flow<String>
     val calendarHeatmapThresholds: Flow<String>
     val colorSource: Flow<String>
@@ -168,10 +166,6 @@ interface LomoDisplayPreferencesStore {
     val contrastLevel: Flow<String>
     val fontPreference: Flow<String>
     val colorHistory: Flow<String>
-
-    suspend fun updateDateFormat(format: String)
-
-    suspend fun updateTimeFormat(format: String)
 
     suspend fun updatePureBlackDark(enabled: Boolean)
 
@@ -634,10 +628,6 @@ internal object LomoDataStoreKeys {
     val SYNC_INBOX_LOCATION = stringPreferencesKey(PreferenceKeys.SYNC_INBOX_LOCATION)
     val STORAGE_FILENAME_FORMAT = stringPreferencesKey(PreferenceKeys.STORAGE_FILENAME_FORMAT)
     val STORAGE_TIMESTAMP_FORMAT = stringPreferencesKey(PreferenceKeys.STORAGE_TIMESTAMP_FORMAT)
-    val DATE_FORMAT =
-        stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.DATE_FORMAT))
-    val TIME_FORMAT =
-        stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.TIME_FORMAT))
     val THEME_MODE =
         stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.THEME_MODE))
     val CALENDAR_HEATMAP_THRESHOLDS =

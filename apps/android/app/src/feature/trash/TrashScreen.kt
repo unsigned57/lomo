@@ -135,8 +135,6 @@ fun TrashScreen(
             renderList = trashExitState.renderList,
             snapshotStartIndex = snapshotStartIndex,
             onExitSettled = onTrashExitSettled,
-            dateFormat = appPreferences.dateFormat,
-            timeFormat = appPreferences.timeFormat,
             freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
             listState = listState,
             onNavigateToImage = onNavigateToImage,
@@ -156,8 +154,6 @@ fun TrashScreen(
     TrashScreenDialogs(
         selectedMemo = selectedMemo,
         showClearTrashDialog = showClearTrashDialog,
-        dateFormat = appPreferences.dateFormat,
-        timeFormat = appPreferences.timeFormat,
         onDismissActionSheet = { selectedMemo = null },
         onRestoreMemo = { memo ->
             viewModel.restoreMemo(memo, trashAnchorAfter(overlayItems, memo.id)) { restored ->
@@ -256,8 +252,6 @@ private fun TrashScreenContent(
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
     snapshotStartIndex: Int,
     onExitSettled: (String) -> Unit,
-    dateFormat: String,
-    timeFormat: String,
     freeTextCopyEnabled: Boolean,
     listState: LazyListState,
     onMemoMenuClick: (Memo) -> Unit,
@@ -281,8 +275,6 @@ private fun TrashScreenContent(
                     renderList = renderList,
                     snapshotStartIndex = snapshotStartIndex,
                     onExitSettled = onExitSettled,
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
                     freeTextCopyEnabled = freeTextCopyEnabled,
                     listState = listState,
                     onMemoMenuClick = onMemoMenuClick,
@@ -313,8 +305,6 @@ private fun TrashMemoList(
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
     snapshotStartIndex: Int,
     onExitSettled: (String) -> Unit,
-    dateFormat: String,
-    timeFormat: String,
     freeTextCopyEnabled: Boolean,
     listState: LazyListState,
     onMemoMenuClick: (Memo) -> Unit,
@@ -364,8 +354,6 @@ private fun TrashMemoList(
                 val exitPhase = entry?.exitPhase
                 TrashMemoCardItem(
                     uiModel = uiModel,
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
                     freeTextCopyEnabled = freeTextCopyEnabled,
                     onMemoMenuClick = onMemoMenuClick,
                     onNavigateToImage = onNavigateToImage,
@@ -394,8 +382,6 @@ private fun TrashMemoList(
 @Composable
 private fun TrashMemoCardItem(
     uiModel: MemoUiModel,
-    dateFormat: String,
-    timeFormat: String,
     freeTextCopyEnabled: Boolean,
     onMemoMenuClick: (Memo) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
@@ -419,8 +405,7 @@ private fun TrashMemoCardItem(
             presentationPlan = uiModel.presentationPlan,
             onImageClick = { url -> onNavigateToImage(createImageViewerRequest(uiModel, url)) },
             timestamp = uiModel.memo.timestamp,
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
+            displayTimestamp = uiModel.memo.displayTimestamp(),
             isPinned = uiModel.memo.isPinned,
             tags = uiModel.tags,
             collapsedSummary = uiModel.collapsedSummary,
@@ -438,8 +423,6 @@ private fun TrashMemoCardItem(
 private fun TrashScreenDialogs(
     selectedMemo: Memo?,
     showClearTrashDialog: Boolean,
-    dateFormat: String,
-    timeFormat: String,
     onDismissActionSheet: () -> Unit,
     onRestoreMemo: (Memo) -> Unit,
     onDeletePermanently: (Memo) -> Unit,
@@ -447,7 +430,7 @@ private fun TrashScreenDialogs(
     onConfirmClearTrash: () -> Unit,
 ) {
     selectedMemo?.let { memo ->
-        val menuState = remember(memo, dateFormat, timeFormat) { memoMenuState(memo, dateFormat, timeFormat) }
+        val menuState = remember(memo) { memoMenuState(memo) }
         TrashActionSheet(
             state = menuState,
             onDismiss = onDismissActionSheet,

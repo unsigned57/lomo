@@ -291,6 +291,7 @@ impl MemoQueryBoundary {
 pub struct MemoSummary {
     pub memo_id: String,
     pub source_path: String,
+    pub time_part: String,
     pub file_fingerprint: String,
     pub updated_at_ms: i64,
     pub created_at_ms: i64,
@@ -697,7 +698,7 @@ fn start_summary(
          m.has_todo, m.has_url, m.has_attachment, \
          m.is_pinned, m.is_trashed, \
          m.body_preview, m.content_revision, {rank_select}, m.reminders_json, \
-         m.pending_operation_id IS NOT NULL, m.char_count \
+         m.pending_operation_id IS NOT NULL, m.char_count, m.time_part \
          FROM {} \
          WHERE {where_sql} AND m.memo_id = ?{memo_idx} \
          LIMIT 1",
@@ -884,6 +885,7 @@ fn memo_summary_from_row(row: &Row<'_>) -> Result<MemoSummary, lomo_core::LomoEr
         .map_err(|error| corruption("invalid_reminder_projection", &error.to_string()))?,
         is_pending: row.get::<_, i64>(14).map_err(|err| from_sqlite(&err))? != 0,
         char_count: row.get(15).map_err(|err| from_sqlite(&err))?,
+        time_part: row.get(16).map_err(|err| from_sqlite(&err))?,
     })
 }
 
@@ -924,7 +926,7 @@ fn build_sql(
          m.has_todo, m.has_url, m.has_attachment, \
          m.is_pinned, m.is_trashed, \
          m.body_preview, m.content_revision, {rank_select}, m.reminders_json, \
-         m.pending_operation_id IS NOT NULL, m.char_count \
+         m.pending_operation_id IS NOT NULL, m.char_count, m.time_part \
          FROM {from_sql} \
          WHERE {where_sql} \
          ORDER BY {order_sql} \
@@ -1251,7 +1253,7 @@ pub fn get_memo_projection(
                     m.has_todo, m.has_url, m.has_attachment, \
                     m.is_pinned, m.is_trashed, \
                     m.body_preview, m.content_revision, NULL AS rank, m.reminders_json, \
-                    m.pending_operation_id IS NOT NULL, m.char_count \
+                    m.pending_operation_id IS NOT NULL, m.char_count, m.time_part \
              FROM memo m \
              WHERE m.memo_id = ?1",
         )
@@ -1323,7 +1325,7 @@ pub fn get_projected_memos(
                  m.created_at_ms, m.has_todo, m.has_url, m.has_attachment, \
                  m.is_pinned, m.is_trashed, \
                  m.body_preview, m.content_revision, NULL AS rank, m.reminders_json, \
-                 m.pending_operation_id IS NOT NULL, m.char_count, m.body \
+                 m.pending_operation_id IS NOT NULL, m.char_count, m.time_part, m.body \
                  FROM memo m WHERE m.memo_id IN ({placeholders})"
             ))
             .map_err(|err| from_sqlite(&err))?;
@@ -1336,7 +1338,7 @@ pub fn get_projected_memos(
             while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
                 summaries.push(memo_summary_from_row(row)?);
                 bodies.push(
-                    row.get::<_, Option<String>>(16)
+                    row.get::<_, Option<String>>(17)
                         .map_err(|err| from_sqlite(&err))?,
                 );
             }

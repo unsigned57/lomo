@@ -44,8 +44,9 @@
 #[cfg(test)]
 mod tests {
     use lomo_application::calendar::{
-        CalendarError, CivilDate, CivilTime, DateFormat, JournalStamp, day_bounds, journal_stamp,
-        local_date, memo_chronology, parse_date_key, parse_date_key_with_format, parse_time_token,
+        CalendarError, CivilDate, CivilTime, DateFormat, JournalStamp, TimestampFormat, day_bounds,
+        journal_stamp, journal_stamp_with_formats, local_date, memo_chronology, parse_date_key,
+        parse_date_key_with_format, parse_time_token,
     };
 
     fn test_ok<T, E: core::fmt::Debug>(result: Result<T, E>) -> T {
@@ -475,5 +476,47 @@ mod tests {
             test_ok("1919-04-01T04:00:00Z".parse::<jiff::Timestamp>()).as_millisecond();
         assert_eq!(start, expected);
         assert_eq!(end, expected_end);
+    }
+
+    #[test]
+    fn timestamp_format_token_gate_and_journal_stamp_with_formats_respect_selected_precision() {
+        assert_eq!(
+            TimestampFormat::ALL,
+            [TimestampFormat::HhMmSs, TimestampFormat::HhMm]
+        );
+        for format in TimestampFormat::ALL {
+            assert_eq!(
+                test_ok(TimestampFormat::from_token(format.pattern())),
+                format
+            );
+        }
+        for invalid in ["", "H:mm", "hh:mm", "HH:mm:ss.SSS"] {
+            let err = test_err(TimestampFormat::from_token(invalid));
+            assert_eq!(
+                err,
+                CalendarError::InvalidTimestampFormat {
+                    pattern: invalid.to_owned()
+                }
+            );
+        }
+
+        let epoch_ms = 1_710_081_045_000_i64; // 2024-03-10T14:30:45Z
+        let stamp_full = test_ok(journal_stamp_with_formats(
+            epoch_ms,
+            "UTC",
+            DateFormat::YyyyMmDdHyphen,
+            TimestampFormat::HhMmSs,
+        ));
+        assert_eq!(stamp_full.filename, "2024-03-10.md");
+        assert_eq!(stamp_full.time_token, "14:30:45");
+
+        let stamp_short = test_ok(journal_stamp_with_formats(
+            epoch_ms,
+            "UTC",
+            DateFormat::MmDdYyyyHyphen,
+            TimestampFormat::HhMm,
+        ));
+        assert_eq!(stamp_short.filename, "03-10-2024.md");
+        assert_eq!(stamp_short.time_token, "14:30");
     }
 }

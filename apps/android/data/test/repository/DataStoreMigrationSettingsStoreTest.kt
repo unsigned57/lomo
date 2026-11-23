@@ -421,7 +421,6 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
         test("given catalog-covered app preferences when snapshot is built then descriptor storage keys are exported") {
             runTest {
                 val fixture = setUpStore()
-                fixture.dataStore.updateDateFormat("yyyy/MM/dd")
                 fixture.dataStore.updateColorSource(ColorSource.Preset(ColorPresetId.OCEAN).storageValue)
                 fixture.dataStore.updateFontPreference(FontPreference.UserImported("serif.ttf").storageValue)
                 fixture.dataStore.updateShareCardSignatureText("Imported")
@@ -433,7 +432,6 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 snapshot.preferences.keys
                     .filter { key -> key in descriptors.map { descriptor -> descriptor.storageKey }.toSet() }
                     .shouldContainExactlyInAnyOrder(descriptors.map { descriptor -> descriptor.storageKey })
-                snapshot.preferences.getValue("date_format_only") shouldBe "yyyy/MM/dd"
                 snapshot.preferences.getValue("color_source") shouldBe
                     ColorSource.Preset(ColorPresetId.OCEAN).storageValue
                 snapshot.preferences.getValue("font_preference") shouldBe
@@ -449,8 +447,6 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
 
                 fixture.store.restore(MigrationSettingsSnapshot(preferences = fullValidPreferencePayload()))
 
-                fixture.dataStore.dateFormat.first() shouldBe "yyyy/MM/dd"
-                fixture.dataStore.timeFormat.first() shouldBe "HH:mm"
                 fixture.dataStore.themeMode.first() shouldBe "dark"
                 fixture.dataStore.colorSource.first() shouldBe ColorSource.Preset(ColorPresetId.OCEAN).storageValue
                 fixture.dataStore.fontPreference.first() shouldBe FontPreference.UserImported("serif.ttf").storageValue
@@ -1025,8 +1021,6 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
     }
 
     private fun com.lomo.domain.model.SettingDescriptor.restoreValue(): String = when (snapshotField) {
-        AppPreferenceSnapshotField.DATE_FORMAT -> "yyyy/MM/dd"
-        AppPreferenceSnapshotField.TIME_FORMAT -> "HH:mm"
         AppPreferenceSnapshotField.THEME_MODE -> ThemeMode.DARK.value
         AppPreferenceSnapshotField.PURE_BLACK_DARK -> true.toString()
         AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> "2,5,9"

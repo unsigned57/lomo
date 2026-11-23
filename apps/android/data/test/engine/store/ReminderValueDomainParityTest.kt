@@ -123,6 +123,7 @@ class ReminderValueDomainParityTest : DataFunSpec() {
 private fun memoSummary(reminders: List<WorkspaceReminderReference>): StoreMemoSummary = StoreMemoSummary(
     memoId = "memo-1",
     sourcePath = "2026-07-20_09:30:00_0.md",
+    timePart = "09:30:00",
     fileFingerprint = "fp",
     updatedAtMs = 20L,
     createdAtMs = 10L,

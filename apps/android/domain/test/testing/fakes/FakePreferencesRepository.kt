@@ -27,8 +27,6 @@ class FakePreferencesRepository : PreferencesRepository {
         quickBallConfig.value = QuickBallConfig.defaults()
     }
 
-    private val dateFormat = MutableStateFlow("yyyy_MM_dd")
-    private val timeFormat = MutableStateFlow("HH:mm:ss")
     private val themeMode = MutableStateFlow(ThemeMode.SYSTEM)
     private val calendarHeatmapThresholds = MutableStateFlow(CalendarHeatmapThresholds.default())
     private val colorSource = MutableStateFlow<ColorSource>(ColorSource.default())
@@ -63,18 +61,6 @@ class FakePreferencesRepository : PreferencesRepository {
 
     fun setSyncInboxPreferenceEnabled(enabled: Boolean) {
         syncInboxEnabled.value = enabled
-    }
-
-    override fun getDateFormat(): Flow<String> = dateFormat.asStateFlow()
-
-    override suspend fun setDateFormat(format: String) {
-        dateFormat.value = format
-    }
-
-    override fun getTimeFormat(): Flow<String> = timeFormat.asStateFlow()
-
-    override suspend fun setTimeFormat(format: String) {
-        timeFormat.value = format
     }
 
     override fun getThemeMode(): Flow<ThemeMode> = themeMode.asStateFlow()

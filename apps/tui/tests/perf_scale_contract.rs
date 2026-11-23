@@ -454,6 +454,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 })
                 .expect("commit bump");
             let start = Instant::now();
@@ -832,6 +834,8 @@ mod tests {
                     pinned: false,
                     pending_promotes: Vec::new(),
                     chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
                 })
                 .expect("commit bump");
             let start = Instant::now();

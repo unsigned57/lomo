@@ -52,6 +52,7 @@ mod tests {
         let memo = ScannedMemoProjection {
             memo_id: MEMO.to_owned(),
             source_path: "memos/2026-08-04.md".to_owned(),
+            time_part: "09:30:00".to_owned(),
             file_fingerprint: fingerprint_content("rev1"),
             chronology_epoch_ms: 1_754_300_000_000,
             body: "rev1".to_owned(),
@@ -179,6 +180,7 @@ mod tests {
         let other = ScannedMemoProjection {
             memo_id: "2026-08-05_09:30:00_1".to_owned(),
             source_path: "memos/2026-08-05.md".to_owned(),
+            time_part: "09:30:00".to_owned(),
             file_fingerprint: fingerprint_content("other body"),
             chronology_epoch_ms: 1_754_300_000_000,
             body: "other body".to_owned(),

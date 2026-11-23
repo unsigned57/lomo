@@ -58,12 +58,7 @@ import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toPersistentSet
 
 @Immutable
-private data class MemoPagedListDisplayConfig(
-    val dateFormat: String,
-    val timeFormat: String,
-    val doubleTapEditEnabled: Boolean,
-    val freeTextCopyEnabled: Boolean,
-)
+private data class MemoPagedListDisplayConfig(val doubleTapEditEnabled: Boolean, val freeTextCopyEnabled: Boolean)
 
 @Immutable
 private data class MemoPagedListActions(
@@ -90,8 +85,6 @@ internal fun MemoListContent(
     onRefresh: () -> Unit,
     onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onReminderClick: (String, String) -> Unit,
-    dateFormat: String,
-    timeFormat: String,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
     onShowMemoMenu: (MemoMenuSelection) -> Unit,
@@ -159,8 +152,6 @@ internal fun MemoListContent(
             listState = listState,
             onTodoClick = onTodoClick,
             onReminderClick = onReminderClick,
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
             onMemoDoubleClick = onMemoDoubleClick,
             doubleTapEditEnabled = doubleTapEditEnabled,
             freeTextCopyEnabled = freeTextCopyEnabled,
@@ -222,8 +213,6 @@ private fun MemoPagedListColumn(
     listState: LazyListState,
     onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onReminderClick: (String, String) -> Unit,
-    dateFormat: String,
-    timeFormat: String,
     onMemoDoubleClick: (Memo) -> Unit,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
@@ -298,8 +287,6 @@ private fun MemoPagedListColumn(
         listContentPadding = listContentPadding,
         deletingIds = deletingIds,
         snapshotMemos = snapshotMemos,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
         doubleTapEditEnabled = doubleTapEditEnabled,
         freeTextCopyEnabled = freeTextCopyEnabled,
         onTodoClick = onTodoClick,
@@ -555,8 +542,6 @@ private fun MemoPagedListItem(
         bottomSpacing = MEMO_LIST_ITEM_SPACING,
         onTodoClick = onTodoClick,
         onReminderClick = reminderClick,
-        dateFormat = displayConfig.dateFormat,
-        timeFormat = displayConfig.timeFormat,
         onMemoDoubleClick = actions.onMemoDoubleClick,
         doubleTapEditEnabled = displayConfig.doubleTapEditEnabled,
         freeTextCopyEnabled = displayConfig.freeTextCopyEnabled,
@@ -588,8 +573,6 @@ private fun PagedMemoLazyColumn(
     listContentPadding: PaddingValues?,
     deletingIds: ImmutableSet<String>,
     snapshotMemos: List<MemoUiModel>,
-    dateFormat: String,
-    timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
@@ -610,10 +593,8 @@ private fun PagedMemoLazyColumn(
             scrollbarItemCount = scrollbarItemCount,
         )
     val displayConfig =
-        remember(dateFormat, timeFormat, doubleTapEditEnabled, freeTextCopyEnabled) {
+        remember(doubleTapEditEnabled, freeTextCopyEnabled) {
             MemoPagedListDisplayConfig(
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
                 doubleTapEditEnabled = doubleTapEditEnabled,
                 freeTextCopyEnabled = freeTextCopyEnabled,
             )

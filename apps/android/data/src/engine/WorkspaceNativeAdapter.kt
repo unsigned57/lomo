@@ -44,6 +44,7 @@ internal data class SafMemoProjectionSnapshot(
     val hasUrl: Boolean,
     val reminders: List<WorkspaceReminderReferenceSnapshot>,
     val trashedAtMs: Long? = null,
+    val timePart: String = "",
 )
 
 internal data class WorkspaceNativeCommandResultSnapshot(

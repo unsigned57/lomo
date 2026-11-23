@@ -109,6 +109,24 @@ mod tests {
         OperationId::parse(raw).expect("op")
     }
 
+    fn assert_rebuilt_memo(
+        path: &Path,
+        memo_id: &lomo_workspace::MemoId,
+        expected_body: &str,
+    ) -> SessionCtx {
+        let ctx = open_on(copy_workspace(path));
+        ctx.session.rebuild_projection().expect("rebuild copy");
+        let viewed = ctx
+            .session
+            .get_memo(memo_id)
+            .expect("get")
+            .expect("present after copy");
+        assert_eq!(viewed.memo_id, memo_id.as_str());
+        assert!(viewed.is_pinned);
+        assert!(viewed.body.contains(expected_body));
+        ctx
+    }
+
     #[test]
     fn copied_workspace_keeps_memo_id_pin_and_toggled_task() {
         let ctx_a = open_on(tempdir().expect("workspace a"));
@@ -123,6 +141,8 @@ mod tests {
                 pinned: false,
                 pending_promotes: Vec::new(),
                 chronology_epoch_ms: None,
+                date_format: None,
+                timestamp_format: None,
             })
             .expect("create");
         ctx_a
@@ -153,17 +173,7 @@ mod tests {
             .settle_workspace()
             .expect("committed writes converge");
 
-        let ctx_b = open_on(copy_workspace(&ctx_a.workspace_path));
-        ctx_b.session.rebuild_projection().expect("rebuild b");
-        let viewed = ctx_b
-            .session
-            .get_memo(&memo_id)
-            .expect("get")
-            .expect("present after copy");
-        assert_eq!(viewed.memo_id, memo_id.as_str());
-        assert!(viewed.is_pinned);
-        assert!(viewed.body.contains("- [ ] buy milk"));
-
+        let ctx_b = assert_rebuilt_memo(&ctx_a.workspace_path, &memo_id, "- [ ] buy milk");
         ctx_b
             .session
             .toggle_task(ToggleTaskRequest {
@@ -184,16 +194,7 @@ mod tests {
             "toggle must write checkbox bytes, got {markdown_b}"
         );
 
-        let ctx_c = open_on(copy_workspace(&ctx_b.workspace_path));
-        ctx_c.session.rebuild_projection().expect("rebuild c");
-        let viewed_c = ctx_c
-            .session
-            .get_memo(&memo_id)
-            .expect("get c")
-            .expect("present after second copy");
-        assert_eq!(viewed_c.memo_id, memo_id.as_str());
-        assert!(viewed_c.is_pinned);
-        assert!(viewed_c.body.contains("- [x] buy milk"));
+        let ctx_c = assert_rebuilt_memo(&ctx_b.workspace_path, &memo_id, "- [x] buy milk");
         let tasks = ctx_c.session.list_tasks().expect("tasks");
         assert!(
             tasks

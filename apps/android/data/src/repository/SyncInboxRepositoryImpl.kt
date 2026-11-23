@@ -39,6 +39,7 @@ internal const val WORKSPACE_WRITES_UNAVAILABLE_MESSAGE =
 data class SyncInboxRepositoryDependencies(
     val context: Context,
     val preferencesRepository: SyncInboxPreferencesRepository,
+    val storagePreferencesRepository: com.lomo.domain.repository.StoragePreferencesRepository,
     val workspaceConfigSource: WorkspaceConfigSource,
     val pendingReviewStore: PendingSyncReviewStore,
     val storePort: StorePort,
@@ -55,6 +56,8 @@ class SyncInboxRepositoryImpl(
 ) : SyncInboxRepository {
     private val context: Context = dependencies.context
     private val preferencesRepository: SyncInboxPreferencesRepository = dependencies.preferencesRepository
+    private val storagePreferencesRepository: com.lomo.domain.repository.StoragePreferencesRepository =
+        dependencies.storagePreferencesRepository
     private val workspaceConfigSource: WorkspaceConfigSource = dependencies.workspaceConfigSource
     private val pendingReviewStore: PendingSyncReviewStore = dependencies.pendingReviewStore
     private val storePort: StorePort = dependencies.storePort
@@ -476,6 +479,8 @@ class SyncInboxRepositoryImpl(
         }
         val operationId = inboxImportOperationId(relativePath, targetContent)
         val promotes = pendingStages.plansForIncomingOperation(operationId, inboxStageOwnerId(relativePath))
+        val dateFormat = storagePreferencesRepository.getStorageFilenameFormat().first()
+        val timestampFormat = storagePreferencesRepository.getStorageTimestampFormat().first()
         try {
             storePort.applyMemoCommand(
                 StoreMemoCommand(
@@ -486,6 +491,8 @@ class SyncInboxRepositoryImpl(
                     content = targetContent,
                     pendingPromotes = promotes,
                     chronologyEpochMs = item.incomingLastModified?.takeIf { it > 0 },
+                    dateFormat = dateFormat,
+                    timestampFormat = timestampFormat,
                 ),
                 onPublication = {},
             )
