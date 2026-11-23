@@ -53,6 +53,8 @@ fun MarkdownRenderer(
     enableTextSelection: Boolean = false,
     hideImages: Boolean = false,
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
+    imageContent: (@Composable (MarkdownPresentationImage) -> Unit)? = null,
+    softWrapCode: Boolean = false,
 ) {
     MarkdownIrRenderer(
         document = document,
@@ -67,6 +69,8 @@ fun MarkdownRenderer(
         enableTextSelection = enableTextSelection,
         hideImages = hideImages,
         mediaContent = mediaContent,
+        imageContent = imageContent,
+        softWrapCode = softWrapCode,
     )
 }
 
@@ -89,6 +93,8 @@ internal fun MarkdownIrRenderer(
     onTextLongClick: (() -> Unit)? = null,
     hideImages: Boolean = false,
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
+    imageContent: (@Composable (MarkdownPresentationImage) -> Unit)? = null,
+    softWrapCode: Boolean = false,
 ) {
     val plan =
         presentationPlan
@@ -115,6 +121,8 @@ internal fun MarkdownIrRenderer(
             onTextLongClick = onTextLongClick,
             hideImages = hideImages,
             mediaContent = mediaContent,
+            imageContent = imageContent,
+            softWrapCode = softWrapCode,
         )
     val blockSpacing = memoParagraphBlockSpacing()
     Column(
@@ -132,10 +140,20 @@ internal fun MarkdownIrRenderer(
 
                 is MarkdownIrPresentationItem.Gallery ->
                     if (!hideImages) {
-                        MarkdownImagePager(
-                            images = item.images,
-                            onImageClick = onImageClick,
-                        )
+                        val customImageContent = context.imageContent
+                        if (customImageContent != null) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                item.images.forEach { image -> customImageContent(image) }
+                            }
+                        } else {
+                            MarkdownImagePager(
+                                images = item.images,
+                                onImageClick = onImageClick,
+                            )
+                        }
                     }
             }
         }
@@ -187,6 +205,7 @@ private fun MarkdownIrBlockDisplay(
             MarkdownCodeBlock(
                 language = display.language,
                 literal = display.literal,
+                softWrap = context.softWrapCode,
             )
 
         is MarkdownIrBlockDisplay.ThematicBreak ->
@@ -381,19 +400,25 @@ private fun MarkdownIrParagraph(
         )
     }
     if (!context.hideImages) {
+        val customImageContent = context.imageContent
         mediaGroups.forEach { group ->
-            if (group.size > 1) {
+            if (group.size > 1 && customImageContent == null) {
                 MarkdownImagePager(group, context.onImageClick)
                 return@forEach
             }
-            val presentationImage = group.single()
-            val media = context.mediaPresentationResolver?.invoke(presentationImage)
-            if (media != null && context.mediaContent != null) {
-                context.mediaContent(media)
-            } else if (presentationImage.mediaClass != MediaClass.AUDIO) {
-                // Non-audio destinations enter the image request lane; MarkdownImageBlock
-                // judges real image-ness fail-closed through the Coil load state.
-                MarkdownImageBlock(presentationImage, context.onImageClick)
+            group.forEach { presentationImage ->
+                val media = context.mediaPresentationResolver?.invoke(presentationImage)
+                if (media != null && context.mediaContent != null) {
+                    context.mediaContent(media)
+                } else if (presentationImage.mediaClass != MediaClass.AUDIO) {
+                    if (customImageContent != null) {
+                        customImageContent(presentationImage)
+                    } else {
+                        // Non-audio destinations enter the image request lane; MarkdownImageBlock
+                        // judges real image-ness fail-closed through the Coil load state.
+                        MarkdownImageBlock(presentationImage, context.onImageClick)
+                    }
+                }
             }
         }
     }

@@ -36,7 +36,7 @@ import com.lomo.app.startup.ThemeApplicationStartupTask
 import com.lomo.app.startup.ThemeSideEffect
 import com.lomo.app.startup.WidgetPreviewStartupTask
 import com.lomo.app.startup.WorkspaceMaintenanceStartupTask
-import com.lomo.app.util.ShareCardBitmapRenderer
+import com.lomo.app.util.ShareCardComposeRenderer
 import com.lomo.app.util.ShareUtils
 import com.lomo.app.widget.AndroidWidgetPreviewPublisher
 import com.lomo.app.widget.WIDGET_GLANCE_SNAPSHOT_FILE_NAME
@@ -91,10 +91,7 @@ val appModule = module {
     single<com.lomo.app.feature.preferences.FontFamilyLoader> {
         com.lomo.app.feature.preferences.PlatformFontFamilyLoader()
     }
-    single<com.lomo.app.feature.preferences.CanvasTypefaceLoader> {
-        com.lomo.app.feature.preferences.PlatformCanvasTypefaceLoader()
-    }
-    single { com.lomo.app.feature.preferences.CustomFontHost(get(), get(), get(), get()) }
+    single { com.lomo.app.feature.preferences.CustomFontHost(get(), get(), get()) }
     single {
         AppConfigStateProvider(
             get(),
@@ -172,6 +169,6 @@ val appModule = module {
 
     // Sharing helpers
     single { ShareCardDisplayFormatter() }
-    single { ShareCardBitmapRenderer(get(), get(), get()) }
-    single { ShareUtils(get(), get(), get(), get(), get()) }
+    single { ShareCardComposeRenderer(get(), get(), get(), get()) }
+    single { ShareUtils(get(), get(), get(), get()) }
 }

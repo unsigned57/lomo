@@ -1,6 +1,5 @@
 package com.lomo.app.feature.preferences
 
-import android.graphics.Typeface
 import androidx.compose.ui.text.font.FontFamily
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
@@ -11,7 +10,6 @@ import com.lomo.domain.usecase.SingleDispatcherProvider
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -28,8 +26,7 @@ import kotlin.math.roundToInt
  * - Owning layer: app feature/preferences.
  * - Priority tier: P1.
  * - Capability: resolve declared OpenType variable-font axes and UserImported axis overrides into
- *   distinct multi-weight FontFamily requests, lightweight preview requests, and styled canvas
- *   ShareCardTypefaces requests with axis-aware cache keys.
+ *   distinct multi-weight FontFamily requests and lightweight preview requests with axis-aware cache keys.
  *
  * Scenarios:
  * - Given a variable font with wght and ital axes, when familyOrNull resolves UserImported
@@ -38,20 +35,20 @@ import kotlin.math.roundToInt
  *   loader is re-invoked with the new axis settings while identical overrides hit the cache.
  * - Given live slider preview adjustments, when familyForPreview runs, then PreviewWeightSlots are
  *   requested so preview generation avoids building all ten weight slots.
- * - Given UserImported with axis overrides, when observeAppPreferences resolves state and share card
- *   typefaces are requested, then both Compose FontFamily and ShareCardTypefaces receive active axes.
+ * - Given UserImported with axis overrides, when observeAppPreferences resolves state, then
+ *   Compose FontFamily receives active axes.
  *
- * Observable outcomes: captured FontLoadRequest and CanvasTypefaceLoadRequest payloads, cache hit
- * counts, ShareCardTypefaces variant differentiation, and AppPreferencesState customFontFamily.
+ * Observable outcomes: captured FontLoadRequest payloads, cache hit counts, and
+ * AppPreferencesState customFontFamily.
  *
  * TDD proof:
  * - RED: `./kotlin test --include-module=app --include-classes=com.lomo.app.feature.preferences.CustomFontHostVariationTest`
- *   fails compilation until FontLoadRequest, CanvasTypefaceLoadRequest, familyForPreview,
- *   shareCardTypefacesOrNull, and UserImported axis propagation are added to CustomFontHost.
- * - GREEN: same command passes with all five scenarios green.
+ *   fails compilation until FontLoadRequest, familyForPreview,
+ *   and UserImported axis propagation are added to CustomFontHost.
+ * - GREEN: same command passes with all four scenarios green.
  *
  * Excludes: real Android Typeface/FontVariation.Settings native rasterization (abstracted behind
- * FontFamilyLoader and CanvasTypefaceLoader fakes).
+ * FontFamilyLoader fake).
  */
 class CustomFontHostVariationTest : AppFunSpec() {
     init {
@@ -164,71 +161,6 @@ class CustomFontHostVariationTest : AppFunSpec() {
                     capturedRequests.single().weightSlots shouldContainExactly
                         CustomFontVariationResolver.PreviewWeightSlots
                     capturedRequests.single().variationSettings["wght"] shouldBe 550f
-                } finally {
-                    fontFile.delete()
-                }
-            }
-        }
-
-        test(
-            "given variable font axes when shareCardTypefacesOrNull resolves then regular bold italic and boldItalic requests carry target weights and slant",
-        ) {
-            runTest {
-                val fontFile = writeTempVariableFont(includeItal = true)
-                try {
-                    val store = FakeCustomFontStore().apply {
-                        registerFontPath("var.ttf", fontFile.absolutePath)
-                    }
-                    val regularTypeface = mockk<Typeface>()
-                    val boldTypeface = mockk<Typeface>()
-                    val italicTypeface = mockk<Typeface>()
-                    val boldItalicTypeface = mockk<Typeface>()
-                    val responses = listOf(regularTypeface, boldTypeface, italicTypeface, boldItalicTypeface)
-                    val capturedCanvasRequests = mutableListOf<CanvasTypefaceLoadRequest>()
-                    val host = CustomFontHost(
-                        customFontStore = store,
-                        dispatcherProvider = SingleDispatcherProvider(Dispatchers.Unconfined),
-                        loader = FontFamilyLoader { FontFamily.SansSerif },
-                        canvasLoader = CanvasTypefaceLoader { request ->
-                            val index = capturedCanvasRequests.size
-                            capturedCanvasRequests += request
-                            responses[index]
-                        },
-                    )
-
-                    val typefaces = host.shareCardTypefacesOrNull(
-                        FontPreference.UserImported(
-                            id = "var.ttf",
-                            axisOverrides = mapOf("wght" to 450f, "opsz" to 18f),
-                        ),
-                    )
-
-                    typefaces shouldNotBe null
-                    typefaces!!.regular shouldBe regularTypeface
-                    typefaces.bold shouldBe boldTypeface
-                    typefaces.italic shouldBe italicTypeface
-                    typefaces.boldItalic shouldBe boldItalicTypeface
-                    capturedCanvasRequests.size shouldBe 4
-                    capturedCanvasRequests[0].variationSettings shouldBe mapOf(
-                        "wght" to 450f,
-                        "opsz" to 18f,
-                        "ital" to 0f,
-                    )
-                    capturedCanvasRequests[1].variationSettings shouldBe mapOf(
-                        "wght" to 750f,
-                        "opsz" to 18f,
-                        "ital" to 0f,
-                    )
-                    capturedCanvasRequests[2].variationSettings shouldBe mapOf(
-                        "wght" to 450f,
-                        "opsz" to 18f,
-                        "ital" to 1f,
-                    )
-                    capturedCanvasRequests[3].variationSettings shouldBe mapOf(
-                        "wght" to 750f,
-                        "opsz" to 18f,
-                        "ital" to 1f,
-                    )
                 } finally {
                     fontFile.delete()
                 }

@@ -7,11 +7,10 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.font.FontFamily
 import androidx.core.content.FileProvider
 import com.lomo.app.R
 import com.lomo.app.feature.common.AppConfigStateProvider
-import com.lomo.app.feature.preferences.CustomFontHost
-import com.lomo.app.feature.preferences.ShareCardTypefaces
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.ContrastLevel
 import com.lomo.domain.model.ThemeMode
@@ -29,27 +28,28 @@ import java.io.File
  * Responsibilities:
  * - dispatch Android share/copy intents
  * - persist rendered share image to cache
- * - delegate card rendering to [ShareCardBitmapRenderer]
+ * - delegate card rendering to [ShareCardComposeRenderer]
  */
 class ShareUtils(
     private val persistShareImageUseCase: PersistShareImageUseCase,
-    private val shareCardBitmapRenderer: ShareCardBitmapRenderer,
+    private val shareCardComposeRenderer: ShareCardComposeRenderer,
     private val appConfigStateProvider: AppConfigStateProvider,
     private val dispatcherProvider: DispatcherProvider,
-    private val customFontHost: CustomFontHost,
 ) {
     private data class ShareImageConfig(
         val showTime: Boolean,
         val showSignature: Boolean,
         val signatureText: String,
+        val createdAtText: String,
         val timestampMillis: Long?,
         val tags: List<String>,
         val colorSource: ColorSource,
         val contrastLevel: ContrastLevel,
         val themeMode: ThemeMode,
+        val pureBlackDark: Boolean,
+        val fontFamily: FontFamily,
         val typographyScales: TypographyScales,
         val resolvedImagePaths: List<String>,
-        val bodyTypefaces: ShareCardTypefaces?,
     )
 
     suspend fun shareMemoAsImage(
@@ -59,13 +59,13 @@ class ShareUtils(
         showTime: Boolean = true,
         showSignature: Boolean = true,
         signatureText: String = DEFAULT_SHARE_CARD_SIGNATURE,
+        createdAtText: String = "",
         timestamp: Long? = null,
         tags: List<String> = emptyList(),
         resolvedImagePaths: List<String> = emptyList(),
     ) {
         try {
             val displayPreferences = appConfigStateProvider.appPreferences.value
-            val resolvedTypefaces = customFontHost.shareCardTypefacesOrNull(displayPreferences.fontPreference)
             val imageUri =
                 createShareImageUri(
                     context = context,
@@ -76,11 +76,14 @@ class ShareUtils(
                         showTime = showTime,
                         showSignature = showSignature,
                         signatureText = signatureText,
+                        createdAtText = createdAtText,
                         timestampMillis = timestamp,
                         tags = tags,
                         colorSource = displayPreferences.colorSource,
                         contrastLevel = displayPreferences.contrastLevel,
                         themeMode = displayPreferences.themeMode,
+                        pureBlackDark = displayPreferences.pureBlackDark,
+                        fontFamily = displayPreferences.customFontFamily,
                         typographyScales = TypographyScales(
                             fontSizeScale = displayPreferences.typographyFontSizeScale,
                             lineHeightScale = displayPreferences.typographyLineHeightScale,
@@ -88,7 +91,6 @@ class ShareUtils(
                             paragraphSpacingScale = displayPreferences.typographyParagraphSpacingScale,
                         ),
                         resolvedImagePaths = resolvedImagePaths,
-                        bodyTypefaces = resolvedTypefaces,
                     ),
                 )
             withContext(dispatcherProvider.main) {
@@ -151,27 +153,27 @@ class ShareUtils(
         config: ShareImageConfig,
     ): android.net.Uri {
         val bitmap =
-            withContext(dispatcherProvider.default) {
-                shareCardBitmapRenderer.render(
-                    context = context,
-                    content = content,
-                    title = title,
-                    options =
-                    ShareCardRenderOptions(
-                        showTime = config.showTime,
-                        showSignature = config.showSignature,
-                        signatureText = config.signatureText,
-                        timestampMillis = config.timestampMillis,
-                        tags = config.tags,
-                        colorSource = config.colorSource,
-                        contrastLevel = config.contrastLevel,
-                        themeMode = config.themeMode,
-                        typographyScales = config.typographyScales,
-                        resolvedImagePaths = config.resolvedImagePaths,
-                        bodyTypefaces = config.bodyTypefaces,
-                    ),
-                )
-            }
+            shareCardComposeRenderer.render(
+                context = context,
+                content = content,
+                title = title,
+                options =
+                ShareCardRenderOptions(
+                    showTime = config.showTime,
+                    showSignature = config.showSignature,
+                    signatureText = config.signatureText,
+                    createdAtText = config.createdAtText,
+                    timestampMillis = config.timestampMillis,
+                    tags = config.tags,
+                    colorSource = config.colorSource,
+                    contrastLevel = config.contrastLevel,
+                    themeMode = config.themeMode,
+                    pureBlackDark = config.pureBlackDark,
+                    fontFamily = config.fontFamily,
+                    typographyScales = config.typographyScales,
+                    resolvedImagePaths = config.resolvedImagePaths,
+                ),
+            )
         val filePath =
             try {
                 withContext(dispatcherProvider.io) {

@@ -115,6 +115,58 @@ fun LomoTheme(
     currentUiMode: Int? = null,
     content: @Composable () -> Unit,
 ) {
+    LomoThemeContainer(
+        themeMode = themeMode,
+        colorSource = colorSource,
+        contrastLevel = contrastLevel,
+        pureBlackDark = pureBlackDark,
+        fontFamily = fontFamily,
+        typographyScales = typographyScales,
+        currentUiMode = currentUiMode,
+        animateColors = true,
+        applyWindowBars = true,
+        content = content,
+    )
+}
+
+@Composable
+fun LomoStaticTheme(
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    colorSource: ColorSource = ColorSource.default(),
+    contrastLevel: ContrastLevel = ContrastLevel.default(),
+    pureBlackDark: Boolean = false,
+    fontFamily: FontFamily = FontFamily.SansSerif,
+    typographyScales: TypographyScales = TypographyScales(),
+    currentUiMode: Int? = null,
+    content: @Composable () -> Unit,
+) {
+    LomoThemeContainer(
+        themeMode = themeMode,
+        colorSource = colorSource,
+        contrastLevel = contrastLevel,
+        pureBlackDark = pureBlackDark,
+        fontFamily = fontFamily,
+        typographyScales = typographyScales,
+        currentUiMode = currentUiMode,
+        animateColors = false,
+        applyWindowBars = false,
+        content = content,
+    )
+}
+
+@Composable
+private fun LomoThemeContainer(
+    themeMode: ThemeMode,
+    colorSource: ColorSource,
+    contrastLevel: ContrastLevel,
+    pureBlackDark: Boolean,
+    fontFamily: FontFamily,
+    typographyScales: TypographyScales,
+    currentUiMode: Int?,
+    animateColors: Boolean,
+    applyWindowBars: Boolean,
+    content: @Composable () -> Unit,
+) {
     val context = LocalContext.current
     val darkTheme = resolveDarkTheme(themeMode, currentUiMode, isSystemInDarkTheme())
     var previousDarkTheme by remember(themeMode) { mutableStateOf<Boolean?>(null) }
@@ -123,16 +175,20 @@ fun LomoTheme(
         .withPureBlackSurfaces(isDark = darkTheme, enabled = pureBlackDark)
 
     val lomoMotion = rememberLomoMotion()
-    val animatedColorScheme =
-        animateColorSchemeAsState(
-            targetColorScheme = targetColorScheme,
-            animationSpec =
-            if (shouldAnimateThemeColorTransition(themeMode, previousDarkTheme, darkTheme)) {
-                lomoMotion.component.defaultEffectsSpec()
-            } else {
-                snap()
-            },
-        )
+    val colorScheme =
+        if (animateColors) {
+            animateColorSchemeAsState(
+                targetColorScheme = targetColorScheme,
+                animationSpec =
+                if (shouldAnimateThemeColorTransition(themeMode, previousDarkTheme, darkTheme)) {
+                    lomoMotion.component.defaultEffectsSpec()
+                } else {
+                    snap()
+                },
+            )
+        } else {
+            targetColorScheme
+        }
     val configuration = LocalConfiguration.current
     val systemFontWeightAdjustment =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -145,15 +201,17 @@ fun LomoTheme(
             buildAppTypography(fontFamily).withSystemFontWeightAdjustment(systemFontWeightAdjustment)
         }
 
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        val activity = view.context.findActivity()
-        SideEffect {
-            previousDarkTheme = darkTheme
-            activity?.window?.let { window ->
-                val controller = WindowCompat.getInsetsController(window, view)
-                controller.isAppearanceLightStatusBars = !darkTheme
-                controller.isAppearanceLightNavigationBars = !darkTheme
+    if (applyWindowBars) {
+        val view = LocalView.current
+        if (!view.isInEditMode) {
+            val activity = view.context.findActivity()
+            SideEffect {
+                previousDarkTheme = darkTheme
+                activity?.window?.let { window ->
+                    val controller = WindowCompat.getInsetsController(window, view)
+                    controller.isAppearanceLightStatusBars = !darkTheme
+                    controller.isAppearanceLightNavigationBars = !darkTheme
+                }
             }
         }
     }
@@ -163,7 +221,7 @@ fun LomoTheme(
     // Apply the expressive motion scheme globally so that composables such as ModalBottomSheet
     // (memo menu) inherit the scheme directly and avoid a costly nested MaterialTheme on first use.
     CompositionLocalProvider(
-        LocalTextSelectionColors provides memoTextSelectionColors(animatedColorScheme),
+        LocalTextSelectionColors provides memoTextSelectionColors(colorScheme),
         LocalLomoMotion provides lomoMotion,
         LocalLomoIconFontSet provides iconFontSet,
         LocalIconFont provides iconFontSet.outlined,
@@ -173,7 +231,7 @@ fun LomoTheme(
         ProvideTypographyScales(typographyScales) {
             @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
             MaterialExpressiveTheme(
-                colorScheme = animatedColorScheme,
+                colorScheme = colorScheme,
                 typography = typography,
                 shapes = Shapes,
                 motionScheme = lomoMotion.component,

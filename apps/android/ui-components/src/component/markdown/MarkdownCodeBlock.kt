@@ -22,7 +22,12 @@ import androidx.compose.ui.unit.isSpecified
 import com.lomo.ui.theme.currentTypographyScales
 
 @Composable
-internal fun MarkdownCodeBlock(language: String?, literal: String, modifier: Modifier = Modifier) {
+internal fun MarkdownCodeBlock(
+    language: String?,
+    literal: String,
+    modifier: Modifier = Modifier,
+    softWrap: Boolean = false,
+) {
     val colorScheme = MaterialTheme.colorScheme
     val typographyScales = currentTypographyScales()
     val bodyMedium = MaterialTheme.typography.bodyMedium
@@ -60,17 +65,20 @@ internal fun MarkdownCodeBlock(language: String?, literal: String, modifier: Mod
                 }
                 HorizontalDivider(thickness = 1.dp, color = colorScheme.outlineVariant)
             }
-            Box(
-                modifier =
-                Modifier.fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
+            val codeContainerModifier =
+                if (softWrap) {
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)
+                } else {
+                    Modifier.fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                }
+            Box(modifier = codeContainerModifier) {
                 Text(
                     text = literal,
                     style = codeStyle,
                     color = colorScheme.onSurface,
-                    softWrap = false,
+                    softWrap = softWrap,
                 )
             }
         }

@@ -14,13 +14,9 @@ import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
 import java.io.File
-import android.graphics.Typeface as PlatformTypeface
-import android.graphics.fonts.FontVariationAxis as PlatformFontVariationAxis
 
 private const val NORMAL_FONT_WEIGHT = 400
-private const val BOLD_FONT_WEIGHT = 700
 private const val MAX_CACHED_FAMILIES = 24
-private const val MAX_CACHED_CANVAS_TYPEFACES = 32
 private const val MAX_CACHED_AXES = 32
 private const val MAX_FAILED_CACHE_ENTRIES = 64
 
@@ -29,15 +25,6 @@ data class FontLoadRequest(
     val variationSettings: Map<String, Float> = emptyMap(),
     val variableAxes: List<FontVariationAxis> = emptyList(),
     val weightSlots: List<Int> = CustomFontVariationResolver.StandardWeightSlots,
-)
-
-data class CanvasTypefaceLoadRequest(val path: String, val variationSettings: Map<String, Float> = emptyMap())
-
-data class ShareCardTypefaces(
-    val regular: PlatformTypeface,
-    val bold: PlatformTypeface? = null,
-    val italic: PlatformTypeface? = null,
-    val boldItalic: PlatformTypeface? = null,
 )
 
 /**
@@ -119,48 +106,15 @@ class PlatformFontFamilyLoader : FontFamilyLoader {
 }
 
 /**
- * Loads a raw [PlatformTypeface] for non-Compose render surfaces (the share-card bitmap).
- * Returns `null` when the bytes cannot be parsed — the host maps that to the platform default.
- */
-fun interface CanvasTypefaceLoader {
-    fun load(request: CanvasTypefaceLoadRequest): PlatformTypeface?
-}
-
-class PlatformCanvasTypefaceLoader : CanvasTypefaceLoader {
-    override fun load(request: CanvasTypefaceLoadRequest): PlatformTypeface? = try {
-        val file = File(request.path)
-        if (request.variationSettings.isEmpty()) {
-            PlatformTypeface.createFromFile(file)
-        } else {
-            val axes =
-                request.variationSettings.entries
-                    .sortedBy { it.key }
-                    .map { (tag, value) -> PlatformFontVariationAxis(tag, value) }
-                    .toTypedArray()
-            PlatformTypeface.Builder(file)
-                .setFontVariationSettings(axes)
-                .build()
-        }
-    } catch (_: RuntimeException) {
-        // behavior-contract: silent-result-ok: unparseable font bytes resolve to null, which
-        // the share-card renderer maps to the platform default typeface
-        null
-    }
-}
-
-/**
- * Single app-level owner of platform font construction. Both render surfaces — the Compose
- * [FontFamily] theme path and the canvas [PlatformTypeface] share-card path — parse through this
- * host, off the composition path (every entry point is `suspend` and runs on the IO dispatcher).
- * Results are cached by content identity (path + modification stamp + size) plus normalized
- * variable-axis settings so edited axes invalidate without stale hits and replaced files under
- * the same name never reuse old bytes.
+ * Single app-level owner of Compose font construction. Calls parse off the composition path (on the IO
+ * dispatcher) and cache by content identity (path + modification stamp + size) plus normalized
+ * variable-axis settings so edited axes invalidate without stale hits and replaced files under the same
+ * name never reuse old bytes.
  */
 class CustomFontHost(
     private val customFontStore: CustomFontStore,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     private val loader: FontFamilyLoader = PlatformFontFamilyLoader(),
-    private val canvasLoader: CanvasTypefaceLoader = PlatformCanvasTypefaceLoader(),
 ) {
     private data class FontIdentity(val path: String, val lastModified: Long, val sizeBytes: Long)
 
@@ -170,13 +124,9 @@ class CustomFontHost(
         val weightSlots: List<Int>,
     )
 
-    private data class CanvasCacheKey(val identity: FontIdentity, val variationSettings: Map<String, Float>)
-
     private val axesByIdentity = BoundedCache<FontIdentity, List<FontVariationAxis>>(MAX_CACHED_AXES)
     private val families = BoundedCache<FamilyCacheKey, FontFamily>(MAX_CACHED_FAMILIES)
     private val failedFamilies = BoundedCache<FamilyCacheKey, Unit>(MAX_FAILED_CACHE_ENTRIES)
-    private val canvasTypefaces = BoundedCache<CanvasCacheKey, PlatformTypeface>(MAX_CACHED_CANVAS_TYPEFACES)
-    private val failedCanvasTypefaces = BoundedCache<CanvasCacheKey, Unit>(MAX_FAILED_CACHE_ENTRIES)
 
     /**
      * Resolves the font backing [preference], or `null` when the file is missing or its bytes
@@ -208,77 +158,6 @@ class CustomFontHost(
     suspend fun familyFor(fontId: String, axisOverrides: Map<String, Float> = emptyMap()): FontFamily =
         familyOrNull(FontPreference.UserImported(id = fontId, axisOverrides = axisOverrides))
             ?: FontFamily.SansSerif
-
-    /**
-     * Resolves all styled [ShareCardTypefaces] for [preference], or `null` when the preference is
-     * system default or its stored file is missing/unparseable.
-     */
-    suspend fun shareCardTypefacesOrNull(preference: FontPreference): ShareCardTypefaces? =
-        withContext(dispatcherProvider.io) {
-            if (preference !is FontPreference.UserImported) return@withContext null
-            val path = customFontStore.resolveFontPath(preference.id) ?: return@withContext null
-            val file = File(path)
-            if (!file.exists()) return@withContext null
-            val identity = file.identity()
-            val axes = axesFor(file, identity)
-            val regularSettings =
-                CustomFontVariationResolver.resolveVariationSettings(
-                    axes = axes,
-                    axisOverrides = preference.axisOverrides,
-                    targetWeight = NORMAL_FONT_WEIGHT,
-                    isItalic = false,
-                )
-            val regular = loadCanvasTypefaceOrNull(path, identity, regularSettings) ?: return@withContext null
-            if (axes.isEmpty()) {
-                return@withContext ShareCardTypefaces(regular = regular)
-            }
-            val boldSettings =
-                CustomFontVariationResolver.resolveVariationSettings(
-                    axes = axes,
-                    axisOverrides = preference.axisOverrides,
-                    targetWeight = BOLD_FONT_WEIGHT,
-                    isItalic = false,
-                )
-            val italicSettings =
-                CustomFontVariationResolver.resolveVariationSettings(
-                    axes = axes,
-                    axisOverrides = preference.axisOverrides,
-                    targetWeight = NORMAL_FONT_WEIGHT,
-                    isItalic = true,
-                )
-            val boldItalicSettings =
-                CustomFontVariationResolver.resolveVariationSettings(
-                    axes = axes,
-                    axisOverrides = preference.axisOverrides,
-                    targetWeight = BOLD_FONT_WEIGHT,
-                    isItalic = true,
-                )
-            val bold =
-                if (boldSettings != regularSettings) {
-                    loadCanvasTypefaceOrNull(path, identity, boldSettings)
-                } else {
-                    null
-                }
-            val italic =
-                if (italicSettings != regularSettings) {
-                    loadCanvasTypefaceOrNull(path, identity, italicSettings)
-                } else {
-                    null
-                }
-            val boldItalic =
-                when {
-                    boldItalicSettings == regularSettings -> null
-                    boldItalicSettings == boldSettings -> null
-                    boldItalicSettings == italicSettings -> italic
-                    else -> loadCanvasTypefaceOrNull(path, identity, boldItalicSettings)
-                }
-            ShareCardTypefaces(
-                regular = regular,
-                bold = bold,
-                italic = italic,
-                boldItalic = boldItalic,
-            )
-        }
 
     private suspend fun loadFamilyOrNull(
         fontId: String,
@@ -317,28 +196,6 @@ class CustomFontHost(
                 failedFamilies.put(key, Unit)
             } else {
                 families.put(key, family)
-            }
-        }
-    }
-
-    private fun loadCanvasTypefaceOrNull(
-        path: String,
-        identity: FontIdentity,
-        variationSettings: Map<String, Float>,
-    ): PlatformTypeface? {
-        val key = CanvasCacheKey(identity = identity, variationSettings = variationSettings)
-        if (failedCanvasTypefaces.get(key) != null) return null
-        canvasTypefaces.get(key)?.let { return it }
-        return canvasLoader.load(
-            CanvasTypefaceLoadRequest(
-                path = path,
-                variationSettings = variationSettings,
-            ),
-        ).also { typeface ->
-            if (typeface == null) {
-                failedCanvasTypefaces.put(key, Unit)
-            } else {
-                canvasTypefaces.put(key, typeface)
             }
         }
     }

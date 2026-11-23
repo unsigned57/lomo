@@ -8,7 +8,6 @@ import androidx.core.net.toUri
 import timber.log.Timber
 import java.net.URI
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 internal enum class ShareCardImageDecodeSource {
@@ -29,26 +28,32 @@ internal fun resolveShareCardImageDecodeSource(path: String): ShareCardImageDeco
     else -> ShareCardImageDecodeSource.FilePath
 }
 
-internal fun loadShareImages(
+internal fun loadShareImagesByDestination(
     context: Context,
+    imageDestinations: List<String>,
     resolvedImagePaths: List<String>,
-    totalImageSlots: Int,
     targetWidth: Int,
-): Map<Int, Bitmap> {
-    val loadedImages = mutableMapOf<Int, Bitmap>()
-    val slotsToLoad = min(totalImageSlots, resolvedImagePaths.size)
-
-    for (index in 0 until slotsToLoad) {
-        loadShareImage(context, resolvedImagePaths[index], targetWidth)?.let { loadedImages[index] = it }
+): Map<String, Bitmap> {
+    val loadedByDestination = linkedMapOf<String, Bitmap>()
+    for ((index, rawDestination) in imageDestinations.withIndex()) {
+        if (rawDestination in loadedByDestination) continue
+        val resolvedSource = resolvedImagePaths.getOrNull(index) ?: rawDestination
+        loadShareImage(context, resolvedSource, targetWidth)?.let { bitmap ->
+            loadedByDestination[rawDestination] = bitmap
+        }
     }
-
-    return loadedImages
+    return loadedByDestination
 }
 
 internal fun loadShareImage(context: Context, path: String, targetWidth: Int): Bitmap? = runCatching {
     val bounds = decodeImageBounds(context, path) ?: return null
     val rawBitmap = decodeBitmap(context, path, bounds.toDecodeOptions(targetWidth)) ?: return null
-    scaleBitmapToWidth(rawBitmap, targetWidth)
+    val scaled = scaleBitmapToWidth(rawBitmap, targetWidth)
+    if (scaled.config == Bitmap.Config.ARGB_8888) {
+        scaled
+    } else {
+        scaled.copy(Bitmap.Config.ARGB_8888, false).also { scaled.recycle() }
+    }
 }.getOrElse { throwable ->
     Timber.w(throwable, "Failed to load share image: %s", path)
     null
@@ -61,9 +66,10 @@ private fun decodeImageBounds(context: Context, path: String): BitmapFactory.Opt
     return options.takeIf { it.outWidth > 0 && it.outHeight > 0 }
 }
 
-private fun BitmapFactory.Options.toDecodeOptions(targetWidth: Int): BitmapFactory.Options =
+internal fun BitmapFactory.Options.toDecodeOptions(targetWidth: Int): BitmapFactory.Options =
     BitmapFactory.Options().apply {
         inSampleSize = max(MIN_RENDER_DIMENSION_PX, outWidth / (targetWidth * IMAGE_SAMPLE_WIDTH_DIVISOR))
+        inPreferredConfig = Bitmap.Config.ARGB_8888
     }
 
 private fun decodeBitmap(context: Context, path: String, options: BitmapFactory.Options): Bitmap? {

@@ -18,5 +18,7 @@ internal data class MarkdownIrRenderContext(
     val onTextLongClick: (() -> Unit)?,
     val hideImages: Boolean,
     val mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
+    val imageContent: (@Composable (MarkdownPresentationImage) -> Unit)? = null,
+    val softWrapCode: Boolean = false,
     val contentColorOverride: Color? = null,
 )

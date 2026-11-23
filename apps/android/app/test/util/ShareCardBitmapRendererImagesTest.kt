@@ -37,6 +37,8 @@
 package com.lomo.app.util
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
@@ -56,18 +58,22 @@ class ShareCardBitmapRendererImagesTest : AppFunSpec() {
             val context = mockk<Context>()
 
             val loaded =
-                loadShareImages(
+                loadShareImagesByDestination(
                     context = context,
+                    imageDestinations =
+                    listOf(
+                        "https://example.invalid/card.png",
+                        "http://example.invalid/card-2.png",
+                    ),
                     resolvedImagePaths =
                     listOf(
                         "https://example.invalid/card.png",
                         "http://example.invalid/card-2.png",
                     ),
-                    totalImageSlots = 2,
                     targetWidth = 320,
                 )
 
-            loaded shouldBe emptyMap<Int, android.graphics.Bitmap>()
+            loaded shouldBe emptyMap<String, Bitmap>()
         }
 
         test("given local image paths when resolving decode source then share card keeps local decode") {
@@ -77,6 +83,19 @@ class ShareCardBitmapRendererImagesTest : AppFunSpec() {
                 ShareCardImageDecodeSource.FileUri
             resolveShareCardImageDecodeSource("/storage/emulated/0/Pictures/card.png") shouldBe
                 ShareCardImageDecodeSource.FilePath
+        }
+
+        test("given image bounds when building decode options then software-renderable ARGB_8888 is requested") {
+            val bounds =
+                BitmapFactory.Options().apply {
+                    outWidth = 2000
+                    outHeight = 1000
+                }
+
+            val decodeOptions = bounds.toDecodeOptions(targetWidth = 900)
+
+            decodeOptions.inPreferredConfig shouldBe Bitmap.Config.ARGB_8888
+            decodeOptions.inSampleSize shouldBe 1
         }
     }
 }
