@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.isWritable
 import com.lomo.domain.model.permitsWrites
@@ -60,12 +62,25 @@ class ProcessWorkspaceMutationLease(private val engineReadinessRepository: Engin
 
     override suspend fun <T> withWrite(block: suspend (WorkspaceAuthority) -> T): T {
         currentAdmission()?.let { held -> return block(held) }
+        awaitSettledRevalidation()
         val admitted = admit()
         try {
             return withContext(AdmittedWrite(admitted)) { block(admitted) }
         } finally {
             release()
         }
+    }
+
+    private suspend fun awaitSettledRevalidation() {
+        val shouldWait = synchronized(monitor) {
+            admissionsOpen.value &&
+                engineReadinessRepository.readiness.value is EngineReadiness.Ready &&
+                engineReadinessRepository.projectionFreshness.value is ProjectionFreshness.Revalidating
+        }
+        if (!shouldWait) return
+        combine(engineReadinessRepository.mount, admissionsOpen) { mount, open ->
+            !open || mount.readiness !is EngineReadiness.Ready || mount.freshness !is ProjectionFreshness.Revalidating
+        }.first { settled -> settled }
     }
 
     override suspend fun <T : Any> withWriteOrNull(block: suspend (WorkspaceAuthority) -> T): T? {

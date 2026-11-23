@@ -19,6 +19,7 @@ import com.lomo.domain.model.DraftStagedMediaRef
 import com.lomo.domain.model.ImageLocationSnapshot
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.repository.MediaRepository
@@ -451,14 +452,27 @@ constructor(
      * preview entries so a discarded draft's media cannot resolve through the location map.
      */
     override suspend fun releaseDraftLeases(draftId: DraftId) {
-        mediaWrite {
-            val released = pendingStages.releaseDraft(draftId)
-            if (released.isNotEmpty()) {
-                val releasedKeys = released.mapTo(mutableSetOf()) { MediaEntryId(it.suggestedFinalRelativePath) }
-                committedMedia.update { current ->
-                    val removed = current.previews.intersect(releasedKeys)
-                    current.copy(entries = current.entries - removed, previews = current.previews - removed)
-                }
+        val mount = workspaceMount.value
+        if (!mount.admitsProjectionReads) {
+            mediaWrite { releaseDraftFromStageLedger(draftId) }
+            return
+        }
+        val existingRecords = withContext(dispatcherProvider.io) { pendingStages.draftRecords(draftId) }
+        if (existingRecords.isEmpty()) return
+        if (mount.freshness !is ProjectionFreshness.Verified) {
+            withContext(dispatcherProvider.io) { releaseDraftFromStageLedger(draftId) }
+        } else {
+            mediaWrite { releaseDraftFromStageLedger(draftId) }
+        }
+    }
+
+    private fun releaseDraftFromStageLedger(draftId: DraftId) {
+        val released = pendingStages.releaseDraft(draftId)
+        if (released.isNotEmpty()) {
+            val releasedKeys = released.mapTo(mutableSetOf()) { MediaEntryId(it.suggestedFinalRelativePath) }
+            committedMedia.update { current ->
+                val removed = current.previews.intersect(releasedKeys)
+                current.copy(entries = current.entries - removed, previews = current.previews - removed)
             }
         }
     }

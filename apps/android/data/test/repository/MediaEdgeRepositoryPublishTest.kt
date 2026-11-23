@@ -574,6 +574,52 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                 workspaceB.deleteRecursively()
             }
         }
+
+        test(
+            "given Revalidating or Retained mount with no staged records when releaseDraftLeases runs then it returns without failing on write lease",
+        ) {
+            runTest {
+                val workspace = createTempDirectory(prefix = "lomo-media-revalidating-").toFile()
+                try {
+                    val readiness = com.lomo.data.testing.fakes.FakeEngineReadinessRepository()
+                    readiness.publishProjectionFreshness(ProjectionFreshness.Revalidating(0uL))
+                    val lease = ProcessWorkspaceMutationLease(readiness)
+                    val mountFlow = readiness.mount
+                    val repository = MediaEdgeRepository(
+                        dependencies =
+                        MediaEdgeRepositoryDependencies(
+                            context = mockk(),
+                            workspaceConfigSource = FakeFileDataSource(),
+                            mediaStorageDataSource = FakeFileDataSource(),
+                            mediaPort = NoOpMediaPort(),
+                            workspaceMount = mountFlow,
+                            committedLocation = { null },
+                            stageRoot = { workspace.absolutePath },
+                            writeLease = lease,
+                            createDraftRepository = EmptyCreateDrafts(),
+                            editDraftRepository = EmptyEditDrafts(),
+                        ),
+                        pendingStages = PendingMediaStageRegistry(NoOpMediaPort()) { workspace.absolutePath },
+                    )
+
+                    repository.releaseDraftLeases(DraftId("draft-empty"))
+
+                    readiness.publishProjectionFreshness(ProjectionFreshness.Retained(0uL))
+                    readiness.publish(
+                        EngineReadiness.ReadOnlyRecovery(
+                            category = com.lomo.domain.model.EngineFailureCategory.STORAGE,
+                            code = "metadata_enumeration_loading",
+                            retryDisposition = com.lomo.domain.model.EngineRetryDisposition.TRANSIENT,
+                            diagnostic = "loading",
+                        ),
+                    )
+
+                    repository.releaseDraftLeases(DraftId("draft-empty-retained"))
+                } finally {
+                    workspace.deleteRecursively()
+                }
+            }
+        }
     }
 
     private fun mediaEdgeRepository(

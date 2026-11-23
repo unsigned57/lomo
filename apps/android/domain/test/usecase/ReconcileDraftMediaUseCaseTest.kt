@@ -29,7 +29,10 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.DraftMediaReconciliation
 import com.lomo.domain.model.DraftStagedMediaRef
+import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.RecoverableDraftFailure
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeEngineReadinessRepository
@@ -75,6 +78,29 @@ class ReconcileDraftMediaUseCaseTest : DomainFunSpec() {
 
                 deferred.await().draftId shouldBe DraftId("draft-1")
                 mediaRepository.reconciledDraftIds shouldBe listOf(DraftId("draft-1"))
+            }
+        }
+
+        test("admits stage-ledger reconcile during Revalidating and Retained mounts") {
+            runTest {
+                readinessRepository.publishProjectionFreshness(ProjectionFreshness.Revalidating(0uL))
+                readinessRepository.publish(EngineReadiness.Ready)
+
+                useCase(DraftId("draft-revalidating")).draftId shouldBe DraftId("draft-revalidating")
+
+                readinessRepository.publishProjectionFreshness(ProjectionFreshness.Retained(0uL))
+                readinessRepository.publish(
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineFailureCategory.STORAGE,
+                        code = "metadata_enumeration_loading",
+                        retryDisposition = EngineRetryDisposition.TRANSIENT,
+                        diagnostic = "provider loading",
+                    ),
+                )
+
+                useCase(DraftId("draft-retained")).draftId shouldBe DraftId("draft-retained")
+                mediaRepository.reconciledDraftIds shouldBe
+                    listOf(DraftId("draft-revalidating"), DraftId("draft-retained"))
             }
         }
 

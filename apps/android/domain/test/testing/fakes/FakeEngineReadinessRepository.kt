@@ -63,6 +63,11 @@ class FakeEngineReadinessRepository(initial: EngineReadiness = EngineReadiness.R
         republishMount()
     }
 
+    fun publishProjectionFreshness(value: ProjectionFreshness) {
+        _projectionFreshness.value = value
+        republishMount()
+    }
+
     private fun republishMount() {
         _mount.value =
             WorkspaceMount(

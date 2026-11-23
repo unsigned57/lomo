@@ -313,6 +313,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -3189,6 +3190,218 @@ class ManagedEngineSessionTest : DataFunSpec() {
                 }
             }
         }
+
+        test(
+            "given cold start SAF open hits transient loading once when retried automatically then workspace becomes Ready",
+        ) {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-transient").toFile()
+                val tree = StorageLocation("content://com.lomo.documents/tree/primary%3ALomo")
+                val settings = FakeDirectorySettingsRepository()
+                settings.setLocation(StorageArea.ROOT, tree)
+                var openAttempts = 0
+                val session =
+                    ManagedEngineSession(
+                        candidateOpen =
+                        CandidateOpenContext(
+                            filesDir = filesDir,
+                            openAdapter = { request ->
+                                if (request.workspace != null) {
+                                    openAttempts += 1
+                                    if (openAttempts == 1) {
+                                        throw engineCommandFailure(
+                                            category = EngineFailureCategory.STORAGE,
+                                            code = "metadata_enumeration_loading",
+                                            retryDisposition = EngineRetryDisposition.TRANSIENT,
+                                            diagnostic = "Document provider is still listing: root",
+                                        )
+                                    }
+                                }
+                                testRustEngineAdapter(
+                                    SessionFakeNativeEnginePort(
+                                        if (request.workspace == null) {
+                                            NativeEngineSnapshot.AwaitingWorkspaceSelection
+                                        } else {
+                                            NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL)
+                                        },
+                                    ),
+                                    request,
+                                )
+                            },
+                            isContentUri = { it.startsWith("content://") },
+                            sessionDateFormat = SessionDateFormatSource { StorageFilenameFormats.DEFAULT_PATTERN },
+                        ),
+                        invalidation = com.lomo.data.repository.StoreInvalidationBus(),
+                        capabilityRegistry = CapabilityRegistry(),
+                        directorySettingsRepository = settings,
+                        appScope = backgroundScope,
+                        engineDispatcher = UnconfinedTestDispatcher(testScheduler),
+                        retryDelayMillis = {},
+                    )
+                try {
+                    session.requestEngineStart() shouldBe EngineReadiness.Ready
+                    openAttempts shouldBe 2
+                    session.mount.value.freshness shouldBe ProjectionFreshness.Verified(0uL)
+                } finally {
+                    session.close()
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given non-transient SAF permission error on cold start then open fails without retry") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-nontransient").toFile()
+                val tree = StorageLocation("content://com.lomo.documents/tree/primary%3ALomo")
+                val settings = FakeDirectorySettingsRepository()
+                settings.setLocation(StorageArea.ROOT, tree)
+                var openAttempts = 0
+                val session =
+                    ManagedEngineSession(
+                        candidateOpen =
+                        CandidateOpenContext(
+                            filesDir = filesDir,
+                            openAdapter = { request ->
+                                if (request.workspace != null) {
+                                    openAttempts += 1
+                                    throw engineCommandFailure(
+                                        category = EngineFailureCategory.PERMISSION,
+                                        code = "saf_grant_revoked",
+                                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                                        diagnostic = "Permission revoked",
+                                    )
+                                }
+                                testRustEngineAdapter(
+                                    SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection),
+                                    request,
+                                )
+                            },
+                            isContentUri = { it.startsWith("content://") },
+                            sessionDateFormat = SessionDateFormatSource { StorageFilenameFormats.DEFAULT_PATTERN },
+                        ),
+                        invalidation = com.lomo.data.repository.StoreInvalidationBus(),
+                        capabilityRegistry = CapabilityRegistry(),
+                        directorySettingsRepository = settings,
+                        appScope = backgroundScope,
+                        engineDispatcher = UnconfinedTestDispatcher(testScheduler),
+                        retryDelayMillis = {},
+                    )
+                try {
+                    val readiness = session.requestEngineStart().shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
+                    readiness.code shouldBe "saf_grant_revoked"
+                    openAttempts shouldBe 1
+                } finally {
+                    session.close()
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test(
+            "given Revalidating or Retained mount when stage ledger queries and releases run then projection adapter admits them",
+        ) {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-stage-revalidating").toFile()
+                val tree = StorageLocation("content://com.lomo.documents/tree/primary%3ALomo")
+                val settings = FakeDirectorySettingsRepository()
+                settings.setLocation(StorageArea.ROOT, tree)
+                val revalidationEntered = java.util.concurrent.CountDownLatch(1)
+                val allowRevalidationFinish = java.util.concurrent.CountDownLatch(1)
+                var releaseCalls = 0
+                var recordsCalls = 0
+                val revalidatingPort =
+                    SessionFakeNativeEnginePort(
+                        NativeEngineSnapshot.Ready(coreRevision = 2uL, eventSequence = 3uL),
+                    ).apply {
+                        projectionVerified = false
+                        projectionHighWaterRevision = 7uL
+                        onRebuild = {
+                            revalidationEntered.countDown()
+                            allowRevalidationFinish.await()
+                            throw java.io.IOException("provider offline")
+                        }
+                        onStageRecordsForOwner = {
+                            recordsCalls += 1
+                            emptyList()
+                        }
+                        onReleaseStageLease = { lease ->
+                            releaseCalls += 1
+                            com.lomo.nativebridge.MediaStageReleaseDto(lease.artifactId, 0uL, false)
+                        }
+                    }
+                val ioPool = java.util.concurrent.Executors.newSingleThreadExecutor()
+                val session =
+                    ManagedEngineSession(
+                        candidateOpen =
+                        CandidateOpenContext(
+                            filesDir = filesDir,
+                            openAdapter = { request ->
+                                testRustEngineAdapter(
+                                    if (request.workspace == null) {
+                                        SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection)
+                                    } else {
+                                        revalidatingPort
+                                    },
+                                    request,
+                                )
+                            },
+                            isContentUri = { it.startsWith("content://") },
+                            sessionDateFormat = SessionDateFormatSource { StorageFilenameFormats.DEFAULT_PATTERN },
+                        ),
+                        invalidation = com.lomo.data.repository.StoreInvalidationBus(),
+                        capabilityRegistry = CapabilityRegistry(),
+                        directorySettingsRepository = settings,
+                        appScope = backgroundScope,
+                        engineDispatcher = ioPool.asCoroutineDispatcher(),
+                        retryDelayMillis = {},
+                    )
+                try {
+                    session.requestEngineStart()
+                    revalidationEntered.await()
+                    session.mount.value.freshness shouldBe ProjectionFreshness.Revalidating(7uL)
+
+                    session.stageRecordsForOwner(
+                        filesDir.path,
+                        com.lomo.nativebridge.MediaStageOwnerKindDto.DRAFT,
+                        "draft-1",
+                    ) shouldBe emptyList()
+                    session.releaseStageLease(
+                        filesDir.path,
+                        com.lomo.nativebridge.MediaStageLeaseDto(
+                            "0".repeat(64),
+                            com.lomo.nativebridge.MediaStageOwnerKindDto.DRAFT,
+                            "draft-1",
+                        ),
+                    )
+                    recordsCalls shouldBe 1
+                    releaseCalls shouldBe 1
+
+                    allowRevalidationFinish.countDown()
+                    session.mount.first { it.freshness is ProjectionFreshness.Retained }
+
+                    session.stageRecordsForOwner(
+                        filesDir.path,
+                        com.lomo.nativebridge.MediaStageOwnerKindDto.DRAFT,
+                        "draft-2",
+                    ) shouldBe emptyList()
+                    session.releaseStageLease(
+                        filesDir.path,
+                        com.lomo.nativebridge.MediaStageLeaseDto(
+                            "1".repeat(64),
+                            com.lomo.nativebridge.MediaStageOwnerKindDto.DRAFT,
+                            "draft-2",
+                        ),
+                    )
+                    recordsCalls shouldBe 2
+                    releaseCalls shouldBe 2
+                } finally {
+                    allowRevalidationFinish.countDown()
+                    session.close()
+                    ioPool.shutdownNow()
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
     }
 }
 
@@ -3377,11 +3590,18 @@ private class SessionFakeNativeEnginePort(initialSnapshot: NativeEngineSnapshot)
         stagedBytesPresent = true,
     )
 
+    var onStageRecordsForOwner: (() -> List<com.lomo.nativebridge.MediaStageRecordDto>)? = null
+    var onReleaseStageLease: (
+        (
+        com.lomo.nativebridge.MediaStageLeaseDto,
+    ) -> com.lomo.nativebridge.MediaStageReleaseDto
+    )? = null
+
     override fun stageRecordsForOwner(
         mediaRoot: String,
         ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
         ownerId: String,
-    ): List<com.lomo.nativebridge.MediaStageRecordDto> = emptyList()
+    ): List<com.lomo.nativebridge.MediaStageRecordDto> = onStageRecordsForOwner?.invoke() ?: emptyList()
 
     override fun transferStageLease(
         mediaRoot: String,
@@ -3393,8 +3613,8 @@ private class SessionFakeNativeEnginePort(initialSnapshot: NativeEngineSnapshot)
     override fun releaseStageLease(
         mediaRoot: String,
         lease: com.lomo.nativebridge.MediaStageLeaseDto,
-    ): com.lomo.nativebridge.MediaStageReleaseDto =
-        com.lomo.nativebridge.MediaStageReleaseDto(lease.artifactId, 0uL, false)
+    ): com.lomo.nativebridge.MediaStageReleaseDto = onReleaseStageLease?.invoke(lease)
+        ?: com.lomo.nativebridge.MediaStageReleaseDto(lease.artifactId, 0uL, false)
 
     override fun allocateRecordingTarget(mediaRoot: String, extension: String): String =
         "$mediaRoot/recording.$extension"

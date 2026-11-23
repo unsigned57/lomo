@@ -568,6 +568,27 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
                 root.deleteRecursively()
             }
         }
+
+        test("given provider raises RemoteException when Read runs then structured transient failure is returned") {
+            val fixture = Fixture()
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
+            fixture.gateway.readFailure = { throw android.os.DeadObjectException("provider process restarted") }
+
+            val outcome =
+                fixture.access.execute(
+                    PlatformAction.Read(
+                        "action-read-dead",
+                        CAPABILITY,
+                        "memo.md",
+                        ExpectedFingerprint.Absent,
+                    ),
+                )
+
+            val failed = outcome.shouldBeInstanceOf<ActionOutcome.Failed>()
+            failed.failure.category shouldBe "storage"
+            failed.failure.code shouldBe "platform_provider_disconnected"
+            failed.failure.retryDisposition shouldBe "transient"
+        }
     }
 
     private class Fixture {

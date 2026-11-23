@@ -46,7 +46,9 @@ package com.lomo.data.repository
 
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
+import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.WorkspaceAuthority
 import io.kotest.assertions.throwables.shouldThrow
@@ -210,6 +212,61 @@ class ProcessWorkspaceMutationLeaseTest : DataFunSpec() {
                 nested.first shouldBe nested.second
                 // The outer admission was released exactly once, so a later transition can drain.
                 lease.withExclusiveTransition { "drained" } shouldBe "drained"
+            }
+        }
+
+        test("given Revalidating projection when withWrite runs then it waits until Verified publishes") {
+            runTest {
+                val readiness = FakeEngineReadinessRepository()
+                val lease = ProcessWorkspaceMutationLease(readiness)
+                readiness.publishProjectionFreshness(ProjectionFreshness.Revalidating(0uL))
+                lease.isWritable() shouldBe false
+                lease.withWriteOrNull { error("must stay closed while revalidating") } shouldBe null
+
+                val writer =
+                    async(UnconfinedTestDispatcher(testScheduler)) {
+                        lease.withWrite { authority -> authority.projectionRevision }
+                    }
+                testScheduler.runCurrent()
+                writer.isCompleted shouldBe false
+
+                readiness.publishProjectionFreshness(ProjectionFreshness.Verified(1uL))
+                testScheduler.advanceUntilIdle()
+
+                writer.isCompleted shouldBe true
+                writer.await() shouldBe 0uL
+            }
+        }
+
+        test("given Revalidating settles to Retained recovery when withWrite runs then it fails closed") {
+            runTest {
+                val readiness = FakeEngineReadinessRepository()
+                val lease = ProcessWorkspaceMutationLease(readiness)
+                readiness.publishProjectionFreshness(ProjectionFreshness.Revalidating(0uL))
+                var blockRan = false
+
+                val writer =
+                    async(UnconfinedTestDispatcher(testScheduler)) {
+                        shouldThrow<IllegalStateException> {
+                            lease.withWrite { blockRan = true }
+                        }
+                    }
+                testScheduler.runCurrent()
+                writer.isCompleted shouldBe false
+
+                readiness.publishProjectionFreshness(ProjectionFreshness.Retained(0uL))
+                readiness.publish(
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineFailureCategory.STORAGE,
+                        code = "metadata_enumeration_loading",
+                        retryDisposition = EngineRetryDisposition.TRANSIENT,
+                        diagnostic = "provider busy",
+                    ),
+                )
+                testScheduler.advanceUntilIdle()
+
+                writer.await()
+                blockRan shouldBe false
             }
         }
     }

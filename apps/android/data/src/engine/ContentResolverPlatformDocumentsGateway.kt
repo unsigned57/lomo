@@ -26,8 +26,11 @@ import java.util.concurrent.ConcurrentHashMap
  * [DocumentSnapshotQueries], and create/write/move mechanics in [DocumentWriter]; the gateway
  * itself only orchestrates the public port methods.
  */
-internal class ContentResolverPlatformDocumentsGateway(private val contentResolver: ContentResolver) :
-    PlatformDocumentsGateway {
+internal class ContentResolverPlatformDocumentsGateway(
+    private val contentResolver: ContentResolver,
+    private val transientRetryDelaysMillis: LongArray = DEFAULT_TRANSIENT_RETRY_DELAYS_MILLIS,
+    private val sleepMillis: (Long) -> Unit = Thread::sleep,
+) : PlatformDocumentsGateway {
     private val state = SafDocumentState()
     private val resolverOperations = SafDocumentOperations(contentResolver, state)
 
@@ -43,12 +46,35 @@ internal class ContentResolverPlatformDocumentsGateway(private val contentResolv
             operation(resolverOperations)
         }
 
+    /**
+     * Retries only read-only provider operations across cold-start SAF provider warmup states
+     * (`EXTRA_LOADING`, null provider client, `RemoteException`/`DeadObjectException`, or transient
+     * incomplete cursors). Writes/creates/deletes/moves are never retried automatically here.
+     */
+    private fun <T> connectedReadOnly(treeUri: String, operation: (SafDocumentOperations) -> T): T {
+        var attempt = 0
+        while (true) {
+            try {
+                return connected(treeUri, operation)
+            } catch (error: Exception) {
+                val delayMs = transientRetryDelaysMillis.getOrNull(attempt)
+                if (delayMs == null || !error.isTransientSafReadFailure() || Thread.currentThread().isInterrupted) {
+                    throw error
+                }
+                if (delayMs > 0L) {
+                    sleepMillis(delayMs)
+                }
+                attempt += 1
+            }
+        }
+    }
+
     override fun stat(treeUri: String, target: WorkspaceTarget, digest: SnapshotDigestMode) =
-        connected(treeUri) { it.stat(treeUri, target, digest) }
+        connectedReadOnly(treeUri) { it.stat(treeUri, target, digest) }
 
     override fun listChildren(treeUri: String, target: WorkspaceTarget, cursor: String?, pageSize: UInt) =
         if (cursor == null) {
-            connected(treeUri) { it.listChildren(treeUri, target, null, pageSize) }
+            connectedReadOnly(treeUri) { it.listChildren(treeUri, target, null, pageSize) }
         } else {
             state.pages.resume(treeUri, target, cursor, pageSize)
         }
@@ -56,10 +82,10 @@ internal class ContentResolverPlatformDocumentsGateway(private val contentResolv
     override fun ensureDirectory(treeUri: String, path: String) =
         connected(treeUri) { it.ensureDirectory(treeUri, path) }
 
-    override fun openRead(treeUri: String, path: String) = connected(treeUri) { it.openRead(treeUri, path) }
+    override fun openRead(treeUri: String, path: String) = connectedReadOnly(treeUri) { it.openRead(treeUri, path) }
 
     override fun openReadByHandle(treeUri: String, path: String, documentHandle: String) =
-        connected(treeUri) { it.openReadByHandle(treeUri, path, documentHandle) }
+        connectedReadOnly(treeUri) { it.openReadByHandle(treeUri, path, documentHandle) }
 
     override fun writeFromExchange(
         treeUri: String,
@@ -84,6 +110,8 @@ internal class ContentResolverPlatformDocumentsGateway(private val contentResolv
     override fun delete(treeUri: String, path: String) = connected(treeUri) { it.delete(treeUri, path) }
 
     internal companion object {
+        val DEFAULT_TRANSIENT_RETRY_DELAYS_MILLIS = longArrayOf(50L, 150L, 300L)
+
         val DOCUMENT_PROJECTION = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -92,6 +120,18 @@ internal class ContentResolverPlatformDocumentsGateway(private val contentResolv
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
     }
+}
+
+private fun Exception.isTransientSafReadFailure(): Boolean = when (this) {
+    is PlatformActionAccessException ->
+        code == "metadata_enumeration_loading" || code == "metadata_enumeration_incomplete"
+
+    is android.os.RemoteException -> true
+
+    is IOException ->
+        message?.startsWith("Document provider is unavailable:") == true
+
+    else -> false
 }
 
 private class DocumentListingCache {

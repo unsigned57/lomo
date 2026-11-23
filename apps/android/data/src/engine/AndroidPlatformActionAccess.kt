@@ -74,6 +74,17 @@ internal class AndroidPlatformActionAccess(
         ActionOutcome.Failed(
             notFound(error.message ?: "Document provider reports the target absent").toFailure(),
         )
+    } catch (error: android.os.RemoteException) {
+        ActionOutcome.Failed(
+            EngineFailure(
+                category = "storage",
+                code = "platform_provider_disconnected",
+                retryDisposition = "transient",
+                operationId = null,
+                jobId = null,
+                diagnostic = error.message ?: "Document provider binder connection was lost",
+            ),
+        )
     } catch (error: java.io.IOException) {
         ActionOutcome.Failed(
             PlatformActionAccessException(

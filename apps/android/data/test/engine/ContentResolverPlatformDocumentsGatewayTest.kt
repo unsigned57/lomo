@@ -801,15 +801,71 @@ class ContentResolverPlatformDocumentsGatewayTest : DataFunSpec() {
             failure.code shouldBe "invalid_page_cursor"
             fixture.childrenQueryCount shouldBe 0
         }
+
+        test("given transient EXTRA_LOADING on first query when children are listed then retry succeeds") {
+            val fixture = ResolverFixture(FILE_BYTES, retryDelaysMillis = longArrayOf(0L, 0L))
+            val loadingExtras = mockk<android.os.Bundle>().also { bundle ->
+                every { bundle.getBoolean(DocumentsContract.EXTRA_LOADING) } returns true
+                every { bundle.containsKey(DocumentsContract.EXTRA_ERROR) } returns false
+            }
+            val completeCursor = fixture.singleFileCursor()
+            fixture.stubListingSequence(
+                listOf(
+                    FakeCursor(ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION, emptyList(), loadingExtras),
+                    completeCursor,
+                ),
+            )
+
+            val page = fixture.gateway.listChildren(TREE_URI, WorkspaceTarget.Root, null, 16u)
+
+            page.items.single().documentId shouldBe DOCUMENT_ID
+            fixture.childrenQueryCount shouldBe 2
+        }
+
+        test("given transient null cursor before complete listing when children are listed then retry succeeds") {
+            val fixture = ResolverFixture(FILE_BYTES, retryDelaysMillis = longArrayOf(0L, 0L))
+            val completeCursor = fixture.singleFileCursor()
+            fixture.stubListingSequence(listOf(null, completeCursor))
+
+            val page = fixture.gateway.listChildren(TREE_URI, WorkspaceTarget.Root, null, 16u)
+
+            page.items.single().documentId shouldBe DOCUMENT_ID
+            fixture.childrenQueryCount shouldBe 2
+        }
+
+        test(
+            "given persistent EXTRA_LOADING when children are listed then loading failure surfaces after bounded retries",
+        ) {
+            val fixture = ResolverFixture(FILE_BYTES, retryDelaysMillis = longArrayOf(0L, 0L))
+            val loadingExtras = mockk<android.os.Bundle>().also { bundle ->
+                every { bundle.getBoolean(DocumentsContract.EXTRA_LOADING) } returns true
+                every { bundle.containsKey(DocumentsContract.EXTRA_ERROR) } returns false
+            }
+            fixture.stubListingFactory {
+                FakeCursor(ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION, emptyList(), loadingExtras)
+            }
+
+            val failure = shouldThrow<PlatformActionAccessException> {
+                fixture.gateway.listChildren(TREE_URI, WorkspaceTarget.Root, null, 16u)
+            }
+
+            failure.code shouldBe "metadata_enumeration_loading"
+            fixture.childrenQueryCount shouldBe 3
+        }
     }
 }
 
-private class ResolverFixture(private val fileBytes: ByteArray) {
+private class ResolverFixture(private val fileBytes: ByteArray, retryDelaysMillis: LongArray = longArrayOf(0L, 0L)) {
     private val resolver = mockk<ContentResolver>()
     private val rootUri = mockk<Uri>()
     private val childrenUri = mockk<Uri>()
     private val documentUri = mockk<Uri>()
-    val gateway = ContentResolverPlatformDocumentsGateway(resolver)
+    val gateway =
+        ContentResolverPlatformDocumentsGateway(
+            contentResolver = resolver,
+            transientRetryDelaysMillis = retryDelaysMillis,
+            sleepMillis = {},
+        )
     var inputStreamOpenCount: Int = 0
         private set
     var parentQueryCount: Int = 0
@@ -844,6 +900,8 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
         every { resolver.openFileDescriptor(any(), any()) } returns null
     }
 
+    fun singleFileCursor(): Cursor = documentCursor(includeDisplayName = true)
+
     fun stubSingleFileListing() {
         val cursor = documentCursor(includeDisplayName = true)
         stubListing(cursor)
@@ -873,6 +931,39 @@ private class ResolverFixture(private val fileBytes: ByteArray) {
         } answers {
             childrenQueryCount += 1
             cursor
+        }
+    }
+
+    fun stubListingSequence(cursors: List<Cursor?>) {
+        var index = 0
+        every {
+            resolver.query(
+                childrenUri,
+                any<Array<String>>(),
+                null,
+                null,
+                null,
+            )
+        } answers {
+            childrenQueryCount += 1
+            val current = cursors.getOrElse(index) { cursors.last() }
+            index += 1
+            current
+        }
+    }
+
+    fun stubListingFactory(create: () -> Cursor?) {
+        every {
+            resolver.query(
+                childrenUri,
+                any<Array<String>>(),
+                null,
+                null,
+                null,
+            )
+        } answers {
+            childrenQueryCount += 1
+            create()
         }
     }
 

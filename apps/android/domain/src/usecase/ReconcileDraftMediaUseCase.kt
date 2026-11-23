@@ -2,7 +2,6 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.DraftMediaReconciliation
-import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.RecoverableDraftFailure
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MediaRepository
@@ -16,18 +15,18 @@ import kotlinx.coroutines.flow.first
  * promoted, so letting the draft continue would surface only as an opaque commit rejection.
  * Returns the full reconciliation so the caller can re-bind the draft's media references.
  *
- * The stage ledger lives inside the mounted workspace adapter: reconciling while the engine is
- * still [EngineReadiness.Opening] throws its `Ready` precondition on the caller's thread.
- * Recovery-path callers legitimately race engine open at process start, so the capability
- * suspends on the canonical readiness fact instead of failing fast; non-Ready terminal states
- * keep the suspend parked until the workspace is re-picked or the caller's scope is cancelled.
+ * The stage ledger lives inside the mounted projection adapter: reconciling while the engine has
+ * no readable projection throws its mount precondition on the caller's thread. Recovery-path callers
+ * legitimately race engine open at process start, so the capability suspends until
+ * `mount.admitsProjectionReads` holds; non-readable terminal states keep the suspend parked until
+ * the workspace is re-picked or the caller's scope is cancelled.
  */
 open class ReconcileDraftMediaUseCase(
     private val mediaRepository: MediaRepository,
     private val engineReadinessRepository: EngineReadinessRepository,
 ) {
     open suspend operator fun invoke(draftId: DraftId): DraftMediaReconciliation {
-        engineReadinessRepository.readiness.first { it is EngineReadiness.Ready }
+        engineReadinessRepository.mount.first { it.admitsProjectionReads }
         val reconciliation = mediaRepository.reconcileDraftMedia(draftId)
         val missing = reconciliation.missing
         if (missing.isNotEmpty()) {

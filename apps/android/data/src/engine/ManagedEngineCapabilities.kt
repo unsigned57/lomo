@@ -368,7 +368,7 @@ internal abstract class ManagedEngineCapabilities :
         mediaRoot: String,
         ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
         ownerId: String,
-    ): List<com.lomo.nativebridge.MediaStageRecordDto> = withActiveWorkspaceAdapter { adapter ->
+    ): List<com.lomo.nativebridge.MediaStageRecordDto> = withProjectionAdapter { adapter ->
         adapter.stageRecordsForOwner(mediaRoot, ownerKind, ownerId)
     }
 
@@ -383,7 +383,7 @@ internal abstract class ManagedEngineCapabilities :
         mediaRoot: String,
         lease: com.lomo.nativebridge.MediaStageLeaseDto,
     ): com.lomo.nativebridge.MediaStageReleaseDto =
-        withActiveWorkspaceAdapter { adapter -> adapter.releaseStageLease(mediaRoot, lease) }
+        withProjectionAdapter { adapter -> adapter.releaseStageLease(mediaRoot, lease) }
 
     override fun allocateRecordingTarget(mediaRoot: String, extension: String): String =
         withActiveWorkspaceAdapter { adapter -> adapter.allocateRecordingTarget(mediaRoot, extension) }
