@@ -119,5 +119,18 @@ class KoinDependencyCheckTest : AppFunSpec() {
 
             ((dataModules + appModules).sumOf { module -> module.mappings.size } > 0) shouldBe true
         }
+
+        test("verify StoragePreferencesRepository is bound in data Koin modules") {
+            @OptIn(org.koin.core.annotation.KoinInternalApi::class)
+            val bound =
+                dataModules.any { module ->
+                    module.mappings.values.any { factory ->
+                        val def = factory.beanDefinition
+                        val target = com.lomo.domain.repository.StoragePreferencesRepository::class
+                        def.primaryType == target || target in def.secondaryTypes
+                    }
+                }
+            bound shouldBe true
+        }
     }
 }

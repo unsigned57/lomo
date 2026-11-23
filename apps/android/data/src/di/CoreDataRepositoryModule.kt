@@ -68,6 +68,7 @@ import com.lomo.domain.repository.SecuritySessionController
 import com.lomo.domain.repository.SecuritySessionPolicy
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SidebarTagOrderPreferencesRepository
+import com.lomo.domain.repository.StoragePreferencesRepository
 import com.lomo.domain.repository.SyncInboxPreferencesRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncStateResetRepository
@@ -91,7 +92,7 @@ val coreDataRepositoryModule = module {
     // Pref delegates
     single { DirectorySettingsRepositoryImpl(get(), get()) }
     single { DateTimePreferencesRepositoryImpl(get()) }
-    single { StoragePreferencesRepositoryImpl(get()) }
+    single { StoragePreferencesRepositoryImpl(get()) } bind StoragePreferencesRepository::class
     single { InteractionPreferencesRepositoryImpl(get()) }
     single { InteractionBehaviorPreferencesRepositoryImpl(get()) }
     single { InputToolbarPreferencesRepositoryImpl(get()) }
