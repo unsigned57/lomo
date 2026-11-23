@@ -11,7 +11,10 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /** Uses the same selected-document root as the session's SAF read/write capability. */
-internal class SafMediaStorageBackendDelegate(private val documentAccess: SafDocumentAccess) : MediaStorageBackend {
+internal class SafMediaStorageBackendDelegate(
+    private val documentAccess: SafDocumentAccess,
+    private val classifier: AttachmentNameClassifier = NativeAttachmentNameClassifier,
+) : MediaStorageBackend {
     private val documents = ContentResolverPlatformDocumentsGateway(documentAccess.contentResolver)
 
     override suspend fun listImageFiles(): List<Pair<String, String>> = withContext(
@@ -19,7 +22,9 @@ internal class SafMediaStorageBackendDelegate(private val documentAccess: SafDoc
     ) {
         val root = documentAccess.treeUri.toString()
         val directories = ArrayDeque<WorkspaceTarget>().apply { add(WorkspaceTarget.Root) }
-        val images = mutableListOf<Pair<String, String>>()
+        val images = ImageEntrySelector<PlatformDocumentSnapshot>(classifier) { entry ->
+            (entry.target as WorkspaceTarget.Relative).path
+        }
         while (directories.isNotEmpty()) {
             currentCoroutineContext().ensureActive()
             val directory = directories.removeFirst()
@@ -34,15 +39,13 @@ internal class SafMediaStorageBackendDelegate(private val documentAccess: SafDoc
                             directories.add(entry.target)
                         }
 
-                        DocumentKind.FILE -> if (isImageAttachmentFileName(path)) {
-                            images += path to location(entry)
-                        }
+                        DocumentKind.FILE -> images.offer(entry)
                     }
                 }
                 cursor = page.nextCursor
             } while (cursor != null)
         }
-        images
+        images.finish().map { entry -> (entry.target as WorkspaceTarget.Relative).path to location(entry) }
     }
 
     override suspend fun getImageLocation(filename: String): String? = withContext(documentAccess.ioDispatcher) {

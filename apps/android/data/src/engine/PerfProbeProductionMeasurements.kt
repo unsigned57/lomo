@@ -4,6 +4,9 @@ import android.content.Intent
 import android.os.Debug
 import com.lomo.data.engine.store.toDomainMemo
 import com.lomo.data.engine.store.toStoreSummary
+import com.lomo.data.source.AttachmentNameClassifier
+import com.lomo.data.source.ImageEntrySelector
+import com.lomo.data.source.NativeAttachmentNameClassifier
 import com.lomo.data.source.isContentStorageUri
 import com.lomo.data.source.isImageAttachmentFileName
 import com.lomo.domain.model.MemoContentKind
@@ -223,7 +226,7 @@ private const val RENDER_FLOOR_BODY = "x"
 
 private data class PreviewRenderFacts(val nodes: Int, val attachments: Int, val plainTextLength: Long)
 
-/** Classifies every file name of one workspace directory through the storage inventory classifier. */
+/** Selects the images of one workspace directory the way a storage inventory does: in bounded batches. */
 internal suspend fun EnginePerfProbe.mediaClassify(intent: Intent, run: String): JSONObject {
     requireReadySession()
     val path =
@@ -233,27 +236,54 @@ internal suspend fun EnginePerfProbe.mediaClassify(intent: Intent, run: String):
     val pageSize = intent.probeCount("pageSize", LIST_PAGE_SIZE, LIST_PAGE_SIZE)
     val names = listRelativeChildren(path, pageSize, run)
     check(names.isNotEmpty()) { "media_classify directory $path is empty" }
+    val classifier = CountingAttachmentNameClassifier(NativeAttachmentNameClassifier)
     val times = JSONArray()
-    var expectedImages: Int? = null
+    val singleTimes = JSONArray()
+    var expectedImages: List<String>? = null
     repeat(samples) {
         val t0 = System.nanoTime()
-        val images = names.count(::isImageAttachmentFileName)
+        val selector = ImageEntrySelector<String>(classifier) { name -> name }
+        names.forEach(selector::offer)
+        val images = selector.finish()
         times.put(elapsedMs(t0))
+        // The single-name owner entry over the same names, in the same process: the reference
+        // for both the selection and the cost of one call per file.
+        val t1 = System.nanoTime()
+        val reference = names.filter(::isImageAttachmentFileName)
+        singleTimes.put(elapsedMs(t1))
+        check(images == reference) { "media_classify batch selection disagrees with the single-name classifier" }
         check(expectedImages == null || expectedImages == images) { "media_classify output drifted across samples" }
         expectedImages = images
     }
     return okPayload(run, "media_classify").apply {
-        put("metrics", JSONObject().put("media_classify_bulk_ms", times))
+        put(
+            "metrics",
+            JSONObject()
+                .put("media_classify_bulk_ms", times)
+                .put("media_classify_single_calls_ms", singleTimes),
+        )
         put(
             "facts",
             JSONObject()
                 .put("path", path)
                 .put("samples", samples)
                 .put("itemsClassified", names.size)
-                .put("imageCount", expectedImages ?: 0)
-                .put("ffiCallsPerSample", names.size)
-                .put("requestUtf8Bytes", names.sumOf { it.utf8Size() }),
+                .put("imageCount", expectedImages?.size ?: 0)
+                .put("ffiCallsPerSample", classifier.calls / samples)
+                .put("singleEntryCallsPerSample", names.size)
+                .put("requestUtf8Bytes", names.sumOf { name -> name.utf8Size() }),
         )
+    }
+}
+
+private class CountingAttachmentNameClassifier(private val delegate: AttachmentNameClassifier) :
+    AttachmentNameClassifier by delegate {
+    var calls = 0
+        private set
+
+    override fun classify(names: List<String>): List<com.lomo.nativebridge.MediaClass> {
+        calls += 1
+        return delegate.classify(names)
     }
 }
 

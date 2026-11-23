@@ -19,6 +19,10 @@
 //!   result fingerprint and Rust-parsed affected memo facts match the pure planner and the file is
 //!   rewritten once.
 //!
+//! - Given a batch of attachment names, when classified, then one owner media class per name
+//!   comes back in request order; a batch over the published name or byte limit is rejected as a
+//!   resource-limit error before anything is classified, and a batch exactly at the limit passes.
+//!
 //! Observable outcomes: FFI DTOs, job ids, durable result payloads, on-disk bytes.
 //! TDD proof: RED on 2026-08-09 because `lomo-native` exposed neither typed document-command jobs
 //! nor the `EnsureDirectory`/`Delete` platform lifecycle required to drive them.
@@ -27,6 +31,9 @@
 #[cfg(test)]
 #[path = "support/option_success.rs"]
 mod option_success;
+#[cfg(test)]
+#[path = "support/result_failure.rs"]
+mod result_failure;
 #[cfg(test)]
 #[path = "support/result_success.rs"]
 mod result_success;
@@ -38,6 +45,7 @@ mod result_success;
 )]
 mod tests {
     use super::option_success::OptionTestExt;
+    use super::result_failure::ResultFailureTestExt;
     use super::result_success::ResultTestExt;
     use std::{
         fs,
@@ -52,7 +60,8 @@ mod tests {
         EngineConfig, ExchangeArtifact, JobStep, LomoEngine, MetadataPage, PlatformAction,
         PlatformActionOutput, PlatformBatchResult, RenderNodeKind, RenderRequest,
         WorkspaceDescriptor, WorkspaceDocumentCommand, WorkspaceDocumentCommandKind,
-        WorkspaceDocumentExpectedState, WorkspaceTarget,
+        WorkspaceDocumentExpectedState, WorkspaceTarget, attachment_classification_limits,
+        attachment_media_class, classify_attachment_names,
     };
     use lomo_workspace::SourceFingerprint;
     use tempfile::tempdir;
@@ -476,6 +485,70 @@ mod tests {
             .test_ok("typed tag node");
         assert_eq!(tag.text.as_deref(), Some("tag"));
         assert!(tag.source_end > tag.source_start);
+    }
+
+    #[test]
+    fn attachment_names_classify_in_request_order_like_the_single_name_entry() {
+        let names = [
+            "images/z.png",
+            "voice/memo.m4a",
+            "媒体/片段.mp4",
+            "notes/readme.txt",
+            "IMAGES/UPPER.JPG",
+            "no-extension",
+            "https://example.com/remote.webp",
+        ];
+        let batch =
+            classify_attachment_names(names.iter().map(|name| (*name).to_owned()).collect())
+                .test_ok("classify batch");
+        assert_eq!(
+            format!("{batch:?}"),
+            "[Image, Audio, Video, File, Image, File, Image]"
+        );
+        let singles: Vec<_> = names
+            .iter()
+            .map(|name| attachment_media_class((*name).to_owned()))
+            .collect();
+        assert_eq!(format!("{batch:?}"), format!("{singles:?}"));
+        assert!(
+            classify_attachment_names(Vec::new())
+                .test_ok("empty batch")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn attachment_classification_rejects_batches_over_the_published_limits() {
+        let limits = attachment_classification_limits();
+        let max_names = usize::try_from(limits.max_names).expect("name limit fits usize");
+        let max_bytes = usize::try_from(limits.max_utf8_bytes).expect("byte limit fits usize");
+
+        let full = vec!["a.png".to_owned(); max_names];
+        assert_eq!(
+            classify_attachment_names(full.clone())
+                .test_ok("batch at the name limit")
+                .len(),
+            max_names
+        );
+        let mut over_count = full;
+        over_count.push("b.png".to_owned());
+        let error = classify_attachment_names(over_count).test_err("batch over the name limit");
+        assert_eq!(error.category(), "resource_limit");
+        assert_eq!(error.code(), "attachment_classification_too_many_names");
+
+        // Multi-byte names are budgeted by encoded bytes, not characters.
+        let wide = "图".repeat(max_bytes / "图".len());
+        let padding = "x".repeat(max_bytes - wide.len());
+        assert_eq!(
+            classify_attachment_names(vec![wide.clone(), padding.clone()])
+                .test_ok("batch at the byte limit")
+                .len(),
+            2
+        );
+        let error = classify_attachment_names(vec![wide, padding, "y".to_owned()])
+            .test_err("batch over the byte limit");
+        assert_eq!(error.category(), "resource_limit");
+        assert_eq!(error.code(), "attachment_classification_names_too_large");
     }
 
     #[test]

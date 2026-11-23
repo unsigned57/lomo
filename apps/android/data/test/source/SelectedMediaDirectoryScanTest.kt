@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.engine.ContentResolverPlatformDocumentsGateway
+import com.lomo.data.testing.fakes.FakeAttachmentNameClassifier
 import com.lomo.data.testing.fakes.FakeCursor
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -26,6 +27,8 @@ import kotlinx.coroutines.test.runTest
  * GREEN: target/lomo/reports/manual/directory-interaction-bugs/lomo-bugs-data-green.log.
  * Audio child RED: target/lomo/reports/manual/directory-interaction-bugs/lomo-audio-child-red.log
  * returns null instead of the selected provider URI; the same data GREEN covers both adapters.
+ * - Given one full listing page of mixed media, when images are scanned, then the page is
+ *   classified by a single batch call and images keep listing order; an empty directory classifies nothing.
  * Excludes: Rust media classification (stubbed boundary) and real provider permission checks.
  * Test Change Justification:
  * Reason category: behavior-preserving organization of Android boundary fixtures.
@@ -45,12 +48,15 @@ class SelectedMediaDirectoryScanTest :
     FunSpec({
         afterTest {
             unmockkStatic(Uri::class, DocumentsContract::class, DocumentFile::class)
-            unmockkStatic("com.lomo.data.source.MediaStorageClassificationKt")
         }
         test("given a selected SAF child when scanning then the parent grant cannot supply images") {
             runTest {
                 with(SelectedMediaDirectoryFixture()) {
-                    val backend = SafMediaStorageBackendDelegate(SafDocumentAccess(context, selected))
+                    val backend =
+                        SafMediaStorageBackendDelegate(
+                            SafDocumentAccess(context, selected),
+                            FakeAttachmentNameClassifier(),
+                        )
                     backend.listImageFiles() shouldBe listOf("inside.png" to inside.toString())
                     backend.getImageLocation("inside.png") shouldBe inside.toString()
                     backend.getImageLocation("outside.png") shouldBe null
@@ -63,9 +69,42 @@ class SelectedMediaDirectoryScanTest :
                 }
             }
         }
+        test("given one full listing page of mixed media when scanning then one call classifies it in order") {
+            runTest {
+                val names =
+                    List(256) { index ->
+                        when (index % 4) {
+                            0 -> "图片-$index.png"
+                            1 -> "voice-$index.m4a"
+                            2 -> "clip-$index.mp4"
+                            else -> "note-$index.txt"
+                        }
+                    }
+                with(SelectedMediaDirectoryFixture(names)) {
+                    val classifier = FakeAttachmentNameClassifier()
+                    val images =
+                        SafMediaStorageBackendDelegate(
+                            SafDocumentAccess(context, selected),
+                            classifier,
+                        ).listImageFiles()
+                    classifier.batches shouldBe listOf(names)
+                    images.map { it.first } shouldBe names.filter { it.endsWith(".png") }
+                }
+            }
+        }
+        test("given an empty selected directory when scanning then no name is classified") {
+            runTest {
+                with(SelectedMediaDirectoryFixture(emptyList())) {
+                    val classifier = FakeAttachmentNameClassifier()
+                    SafMediaStorageBackendDelegate(SafDocumentAccess(context, selected), classifier)
+                        .listImageFiles() shouldBe emptyList()
+                    classifier.batches shouldBe emptyList()
+                }
+            }
+        }
     })
 
-private class SelectedMediaDirectoryFixture {
+private class SelectedMediaDirectoryFixture(childNames: List<String> = listOf("inside.png")) {
     val raw = "content://provider/tree/parent/document/parent%2Fimages"
     val selected = mockk<Uri>()
     val inside = mockk<Uri>()
@@ -78,8 +117,6 @@ private class SelectedMediaDirectoryFixture {
         val parent = mockk<DocumentFile>()
         val unrelated = mockk<DocumentFile>()
         mockkStatic(Uri::class, DocumentsContract::class, DocumentFile::class)
-        mockkStatic("com.lomo.data.source.MediaStorageClassificationKt")
-        every { isImageAttachmentFileName(any()) } returns true
         every { selected.toString() } returns raw
         every { Uri.parse(raw) } returns selected
         every { inside.toString() } returns "content://provider/tree/parent/document/opaque-image"
@@ -88,13 +125,11 @@ private class SelectedMediaDirectoryFixture {
         every { DocumentsContract.getDocumentId(selected) } returns "parent/images"
         every { DocumentsContract.getTreeDocumentId(selected) } returns "parent"
         every { DocumentsContract.buildChildDocumentsUriUsingTree(selected, "parent/images") } returns children
-        every { DocumentsContract.buildDocumentUriUsingTree(selected, "opaque-image") } returns inside
+        every { DocumentsContract.buildDocumentUriUsingTree(selected, any()) } returns inside
         every { resolver.query(children, any<Array<String>>(), null, null, null) } answers {
             FakeCursor(
                 ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION,
-                listOf(
-                    listOf("opaque-image", "inside.png", "image/png", 3L, 1L),
-                ),
+                childNames.map { name -> listOf("opaque-image", name, "application/octet-stream", 3L, 1L) },
             )
         }
         every { resolver.query(inside, any<Array<String>>(), null, null, null) } answers {

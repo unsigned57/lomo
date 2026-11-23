@@ -3444,6 +3444,83 @@ pub fn attachment_media_class(destination: String) -> MediaClass {
     media_class_from_workspace(workspace::attachment_media_class(&destination))
 }
 
+/// Most names one [`classify_attachment_names`] call accepts — one storage listing page.
+const MAX_ATTACHMENT_CLASSIFICATION_NAMES: u32 = 256;
+
+/// Most UTF-8 name bytes one [`classify_attachment_names`] call accepts. Any single workspace
+/// path fits, so a legal name can always travel in a batch of its own.
+const MAX_ATTACHMENT_CLASSIFICATION_UTF8_BYTES: u32 = 64 * 1024;
+
+/// The bound of one [`classify_attachment_names`] batch. Callers size their batches from these
+/// values instead of repeating them.
+#[data]
+#[derive(Clone, Copy, Debug)]
+pub struct AttachmentClassificationLimits {
+    pub max_names: u32,
+    pub max_utf8_bytes: u32,
+}
+
+#[export]
+/// The batch bound [`classify_attachment_names`] enforces.
+#[must_use]
+pub const fn attachment_classification_limits() -> AttachmentClassificationLimits {
+    AttachmentClassificationLimits {
+        max_names: MAX_ATTACHMENT_CLASSIFICATION_NAMES,
+        max_utf8_bytes: MAX_ATTACHMENT_CLASSIFICATION_UTF8_BYTES,
+    }
+}
+
+#[export]
+/// Classifies a bounded batch of attachment destinations or file names through the workspace
+/// media owner: one class per name, in request order.
+///
+/// Sessionless for the same reason as [`attachment_media_class`]. A storage inventory sends one
+/// batch per listing page instead of one call per file.
+///
+/// # Errors
+///
+/// Returns a resource-limit error before classifying anything when the batch carries more
+/// names or more UTF-8 name bytes than [`attachment_classification_limits`] allows.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI boundary requires owned wire collections for foreign callers"
+)]
+pub fn classify_attachment_names(names: Vec<String>) -> Result<Vec<MediaClass>, EngineError> {
+    let limits = attachment_classification_limits();
+    let within_names = u32::try_from(names.len()).is_ok_and(|count| count <= limits.max_names);
+    if !within_names {
+        return Err(EngineError::from(static_boundary_error(
+            core::ErrorCategory::ResourceLimit,
+            "attachment_classification_too_many_names",
+            core::RetryDisposition::Never,
+            None,
+            "attachment classification batch exceeds the name-count limit",
+        )));
+    }
+    // A length or running total that leaves `u32` is over the byte limit by definition.
+    let within_bytes = names
+        .iter()
+        .try_fold(0_u32, |total, name| {
+            u32::try_from(name.len())
+                .map_or(None, |bytes| total.checked_add(bytes))
+                .filter(|total| *total <= limits.max_utf8_bytes)
+        })
+        .is_some();
+    if !within_bytes {
+        return Err(EngineError::from(static_boundary_error(
+            core::ErrorCategory::ResourceLimit,
+            "attachment_classification_names_too_large",
+            core::RetryDisposition::Never,
+            None,
+            "attachment classification batch exceeds the UTF-8 byte limit",
+        )));
+    }
+    Ok(names
+        .iter()
+        .map(|name| media_class_from_workspace(workspace::attachment_media_class(name)))
+        .collect())
+}
+
 #[export]
 /// Plans a Rust-canonical replacement token for mark-done / record-fired mutations.
 ///
