@@ -1,0 +1,364 @@
+package com.lomo.data.engine
+
+import android.content.Intent
+import android.os.Debug
+import com.lomo.data.engine.store.toDomainMemo
+import com.lomo.data.engine.store.toStoreSummary
+import com.lomo.data.source.isContentStorageUri
+import com.lomo.data.source.isImageAttachmentFileName
+import com.lomo.domain.model.MemoContentKind
+import com.lomo.nativebridge.ActionOutcome
+import com.lomo.nativebridge.ListingView
+import com.lomo.nativebridge.PlatformAction
+import com.lomo.nativebridge.PlatformActionOutput
+import com.lomo.nativebridge.SessionSearchMode
+import com.lomo.nativebridge.SessionSearchOutcome
+import com.lomo.nativebridge.SessionSearchRequest
+import com.lomo.nativebridge.StoreMemoPage
+import com.lomo.nativebridge.StoreMemoQuery
+import com.lomo.nativebridge.StoreMemoSort
+import com.lomo.nativebridge.StoreMemoSortField
+import com.lomo.nativebridge.StoreSortDirection
+import com.lomo.nativebridge.WorkspaceTarget
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+
+/*
+ * Production-shaped engine probes: the main feed's page size, the search first page, the card
+ * preview render fan-out, storage media classification and the gallery query. Each probe keeps
+ * the returned row counts and a cross-sample output check next to its timings so a sample that
+ * measured a different workload fails instead of joining the distribution.
+ */
+
+/** First page plus one continuation at the production page size, with the DTO → domain mapping timed apart. */
+internal suspend fun EnginePerfProbe.pagingProduction(intent: Intent, run: String): JSONObject {
+    requireReadySession()
+    val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
+    val pageSize = intent.probeCount("pageSize", PRODUCTION_PAGE_SIZE, LIST_PAGE_SIZE)
+    val query = defaultFeedQuery()
+    val firstTimes = JSONArray()
+    val nextTimes = JSONArray()
+    val mapTimes = JSONArray()
+    var expected: ProductionPageFacts? = null
+    val allocatedBefore = allocatedBytes()
+    repeat(samples) {
+        val t0 = System.nanoTime()
+        val first = session.queryMemos(query, null, pageSize.toUInt(), null, false)
+        firstTimes.put(elapsedMs(t0))
+        val cursor = checkNotNull(first.nextCursor) { "paging_prod requires a continuation cursor" }
+        val t1 = System.nanoTime()
+        val next = session.queryMemos(query, cursor, pageSize.toUInt(), null, false)
+        nextTimes.put(elapsedMs(t1))
+        val t2 = System.nanoTime()
+        val mapped =
+            first.items.map { item ->
+                val summary = item.toStoreSummary()
+                summary.toDomainMemo(summary.bodyPreview, MemoContentKind.Preview)
+            }
+        mapTimes.put(elapsedMs(t2))
+        check(mapped.size == first.items.size) { "paging_prod mapping dropped rows" }
+        val facts = ProductionPageFacts.of(first, next)
+        check(facts.firstRows > 0) { "paging_prod expected a non-empty first page" }
+        check(expected == null || expected == facts) { "paging_prod output drifted across samples" }
+        expected = facts
+    }
+    val allocated = allocatedBytes() - allocatedBefore
+    val facts = checkNotNull(expected) { "paging_prod produced no samples" }
+    return okPayload(run, "paging_prod").apply {
+        put(
+            "metrics",
+            JSONObject()
+                .put("paging_first_20_ms", firstTimes)
+                .put("paging_next_20_ms", nextTimes)
+                .put("paging_map_20_ms", mapTimes),
+        )
+        put(
+            "facts",
+            JSONObject()
+                .put("samples", samples)
+                .put("pageSize", pageSize)
+                .put("ffiCallsPerSample", 2)
+                .put("firstPageRows", facts.firstRows)
+                .put("nextPageRows", facts.nextRows)
+                .put("firstPageTagCount", facts.firstTags)
+                .put("firstPageImageCount", facts.firstImages)
+                .put("firstPagePreviewUtf8Bytes", facts.firstPreviewBytes)
+                .put("nextPagePreviewUtf8Bytes", facts.nextPreviewBytes)
+                .put("allocatedBytesPerSample", allocated / samples),
+        )
+    }
+}
+
+private data class ProductionPageFacts(
+    val firstIds: List<String>,
+    val nextIds: List<String>,
+    val firstTags: Int,
+    val firstImages: Int,
+    val firstPreviewBytes: Long,
+    val nextPreviewBytes: Long,
+) {
+    val firstRows: Int get() = firstIds.size
+    val nextRows: Int get() = nextIds.size
+
+    companion object {
+        fun of(first: StoreMemoPage, next: StoreMemoPage) = ProductionPageFacts(
+            firstIds = first.items.map { it.memoId },
+            nextIds = next.items.map { it.memoId },
+            firstTags = first.items.sumOf { it.tags.size },
+            firstImages = first.items.sumOf { it.imageUrls.size },
+            firstPreviewBytes = first.items.sumOf { it.bodyPreview.utf8Size() },
+            nextPreviewBytes = next.items.sumOf { it.bodyPreview.utf8Size() },
+        )
+    }
+}
+
+internal suspend fun EnginePerfProbe.searchProduction(intent: Intent, run: String): JSONObject {
+    requireReadySession()
+    val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
+    val pageSize = intent.probeCount("pageSize", PRODUCTION_PAGE_SIZE, LIST_PAGE_SIZE)
+    val text = intent.getStringExtra("text") ?: SEARCH_TEXT
+    val startEpoch = resolveNextSearchEpoch(text, pageSize)
+    val times = JSONArray()
+    var expectedIds: List<String>? = null
+    var previewBytes = 0L
+    val allocatedBefore = allocatedBytes()
+    repeat(samples) { index ->
+        val t0 = System.nanoTime()
+        val outcome =
+            session.sessionSearch(
+                SessionSearchRequest(
+                    filters = EMPTY_FILTERS,
+                    queryEpoch = startEpoch + index.toULong(),
+                    mode = SessionSearchMode.FUZZY,
+                    text = text,
+                    cursor = null,
+                    pageSize = pageSize.toUInt(),
+                ),
+            )
+        times.put(elapsedMs(t0))
+        check(outcome is SessionSearchOutcome.Ready) { "search_prod did not return a ready page: $outcome" }
+        val ids = outcome.page.items.map { it.summary.memoId }
+        check(ids.isNotEmpty()) { "search_prod expected hits for '$text'" }
+        check(expectedIds == null || expectedIds == ids) { "search_prod output drifted across samples" }
+        expectedIds = ids
+        previewBytes = outcome.page.items.sumOf { it.summary.bodyPreview.utf8Size() }
+    }
+    val allocated = allocatedBytes() - allocatedBefore
+    return okPayload(run, "search_prod").apply {
+        put("metrics", JSONObject().put("search_first_20_ms", times))
+        put(
+            "facts",
+            JSONObject()
+                .put("samples", samples)
+                .put("pageSize", pageSize)
+                .put("query", text)
+                .put("ffiCallsPerSample", 1)
+                .put("hits", expectedIds.orEmpty().size)
+                .put("previewUtf8Bytes", previewBytes)
+                .put("allocatedBytesPerSample", allocated / samples),
+        )
+    }
+}
+
+/** Every card preview of one production page rendered the way a cold page does: one call per row. */
+internal suspend fun EnginePerfProbe.previewRender(intent: Intent, run: String): JSONObject {
+    requireReadySession()
+    val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
+    val count = intent.probeCount("count", PREVIEW_RENDER_BATCH_SIZE, LIST_PAGE_SIZE)
+    val page = session.queryMemos(defaultFeedQuery(), null, count.toUInt(), null, false)
+    check(page.items.isNotEmpty()) { "preview_render requires populated memos" }
+    val previews = page.items.map { it.bodyPreview }
+    val times = JSONArray()
+    var expected: PreviewRenderFacts? = null
+    val allocatedBefore = allocatedBytes()
+    repeat(samples) {
+        var nodes = 0
+        var attachments = 0
+        var plainTextLength = 0L
+        val t0 = System.nanoTime()
+        for (preview in previews) {
+            val rendered = session.renderMarkdown(preview)
+            nodes += rendered.nodeCount
+            attachments += rendered.attachments.size
+            plainTextLength += rendered.plainText.length
+        }
+        times.put(elapsedMs(t0))
+        val facts = PreviewRenderFacts(nodes, attachments, plainTextLength)
+        check(expected == null || expected == facts) { "preview_render output drifted across samples" }
+        expected = facts
+    }
+    val allocated = allocatedBytes() - allocatedBefore
+    val facts = checkNotNull(expected) { "preview_render produced no samples" }
+    // The same number of calls over a one-node body: what a render call costs before its payload.
+    val floorTimes = JSONArray()
+    repeat(samples) {
+        val t0 = System.nanoTime()
+        repeat(previews.size) { session.renderMarkdown(RENDER_FLOOR_BODY) }
+        floorTimes.put(elapsedMs(t0))
+    }
+    return okPayload(run, "preview_render").apply {
+        put(
+            "metrics",
+            JSONObject()
+                .put("preview_render_20_ms", times)
+                .put("preview_render_call_floor_20_ms", floorTimes),
+        )
+        put(
+            "facts",
+            JSONObject()
+                .put("samples", samples)
+                .put("memoCount", previews.size)
+                .put("ffiCallsPerSample", previews.size)
+                .put("requestUtf8Bytes", previews.sumOf { it.utf8Size() })
+                .put("nodeCount", facts.nodes)
+                .put("attachments", facts.attachments)
+                .put("plainTextLength", facts.plainTextLength)
+                .put("allocatedBytesPerSample", allocated / samples),
+        )
+    }
+}
+
+private const val RENDER_FLOOR_BODY = "x"
+
+private data class PreviewRenderFacts(val nodes: Int, val attachments: Int, val plainTextLength: Long)
+
+/** Classifies every file name of one workspace directory through the storage inventory classifier. */
+internal suspend fun EnginePerfProbe.mediaClassify(intent: Intent, run: String): JSONObject {
+    requireReadySession()
+    val path =
+        intent.getStringExtra("path")
+            ?: return errorPayload(run, "media_classify requires --es path")
+    val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
+    val pageSize = intent.probeCount("pageSize", LIST_PAGE_SIZE, LIST_PAGE_SIZE)
+    val names = listRelativeChildren(path, pageSize, run)
+    check(names.isNotEmpty()) { "media_classify directory $path is empty" }
+    val times = JSONArray()
+    var expectedImages: Int? = null
+    repeat(samples) {
+        val t0 = System.nanoTime()
+        val images = names.count(::isImageAttachmentFileName)
+        times.put(elapsedMs(t0))
+        check(expectedImages == null || expectedImages == images) { "media_classify output drifted across samples" }
+        expectedImages = images
+    }
+    return okPayload(run, "media_classify").apply {
+        put("metrics", JSONObject().put("media_classify_bulk_ms", times))
+        put(
+            "facts",
+            JSONObject()
+                .put("path", path)
+                .put("samples", samples)
+                .put("itemsClassified", names.size)
+                .put("imageCount", expectedImages ?: 0)
+                .put("ffiCallsPerSample", names.size)
+                .put("requestUtf8Bytes", names.sumOf { it.utf8Size() }),
+        )
+    }
+}
+
+/** Relative paths of every child of [path], enumerated once through the production listing lane. */
+private fun EnginePerfProbe.listRelativeChildren(path: String, pageSize: Int, run: String): List<String> {
+    val location = checkNotNull(session.activeWorkspaceLocation.value) { "media_classify requires an active workspace" }
+    val grant =
+        if (isContentStorageUri(location.raw)) {
+            capabilityRegistry.register(treeUri = location.raw)
+        } else {
+            capabilityRegistry.registerDirect(rootPath = File(location.raw))
+        }
+    try {
+        val collected = mutableListOf<String>()
+        var cursor: String? = null
+        var pageIndex = 0
+        // behavior-contract: loop-io-ok: enumerates the target directory once before the timed classification
+        do {
+            val outcome =
+                platformAccess.execute(
+                    PlatformAction.ListChildren(
+                        actionId = "probe-classify-$run-$pageIndex",
+                        capabilityToken = grant.capabilityToken,
+                        target = WorkspaceTarget.Relative(path),
+                        cursor = cursor,
+                        pageSize = pageSize.toUInt(),
+                        view = ListingView.WORKSPACE,
+                    ),
+                )
+            val page = outcome.requireListedPage()
+            page.items.mapNotNullTo(collected) { entry -> (entry.target as? WorkspaceTarget.Relative)?.path }
+            pageIndex += 1
+            cursor = page.nextCursor
+        } while (cursor != null)
+        return collected
+    } finally {
+        capabilityRegistry.revoke(grant.capabilityToken)
+    }
+}
+
+private fun ActionOutcome.requireListedPage() = when (this) {
+    is ActionOutcome.Applied ->
+        (output as? PlatformActionOutput.Listed)?.page
+            ?: error("media_classify listing returned ${output.javaClass.simpleName}")
+
+    is ActionOutcome.Failed -> throw com.lomo.nativebridge.EngineError.Failure(failure)
+
+    is ActionOutcome.AlreadySatisfied -> error("media_classify listing cannot replay as AlreadySatisfied")
+}
+
+/** The gallery's source query at the production page size. */
+internal suspend fun EnginePerfProbe.galleryPaging(intent: Intent, run: String): JSONObject {
+    requireReadySession()
+    val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
+    val pageSize = intent.probeCount("pageSize", PRODUCTION_PAGE_SIZE, LIST_PAGE_SIZE)
+    val galleryQuery = defaultFeedQuery().copy(filters = EMPTY_FILTERS.copy(hasAttachment = true))
+    val times = JSONArray()
+    var expectedIds: List<String>? = null
+    var imageTargets = 0
+    var imageRows = 0
+    var previewBytes = 0L
+    repeat(samples) {
+        val t0 = System.nanoTime()
+        val page = session.queryMemos(galleryQuery, null, pageSize.toUInt(), null, false)
+        times.put(elapsedMs(t0))
+        val ids = page.items.map { item -> item.memoId }
+        check(ids.isNotEmpty()) { "gallery_paging expected attachment-bearing memos" }
+        check(expectedIds == null || expectedIds == ids) { "gallery_paging output drifted across samples" }
+        expectedIds = ids
+        imageTargets = page.items.sumOf { item -> item.imageUrls.size }
+        imageRows = page.items.count { item -> item.imageUrls.isNotEmpty() }
+        previewBytes = page.items.sumOf { item -> item.bodyPreview.utf8Size() }
+    }
+    return okPayload(run, "gallery_paging").apply {
+        put("metrics", JSONObject().put("gallery_paging_20_ms", times))
+        put(
+            "facts",
+            JSONObject()
+                .put("samples", samples)
+                .put("pageSize", pageSize)
+                .put("ffiCallsPerSample", 1)
+                .put("itemsFetched", expectedIds.orEmpty().size)
+                .put("itemsWithImageTargets", imageRows)
+                .put("imageTargetCount", imageTargets)
+                .put("previewUtf8Bytes", previewBytes),
+        )
+    }
+}
+
+private fun defaultFeedQuery(): StoreMemoQuery = StoreMemoQuery(
+    searchText = null,
+    filters = EMPTY_FILTERS,
+    sort =
+    StoreMemoSort(
+        seed = 0L,
+        timeZone = "UTC",
+        field = StoreMemoSortField.CREATED_AT,
+        direction = StoreSortDirection.DESCENDING,
+    ),
+    boundary = null,
+)
+
+private fun String.utf8Size(): Long = encodeToByteArray().size.toLong()
+
+/** Process-wide ART allocation counter; a per-sample delta bounds what the measured calls allocated. */
+private fun allocatedBytes(): Long = requireNotNull(Debug.getRuntimeStat("art.gc.bytes-allocated").toLongOrNull()) {
+    "ART runtime does not report art.gc.bytes-allocated"
+}

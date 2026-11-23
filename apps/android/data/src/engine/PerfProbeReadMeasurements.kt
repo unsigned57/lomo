@@ -71,6 +71,7 @@ internal suspend fun EnginePerfProbe.search(intent: Intent, run: String): JSONOb
     requireReadySession()
     val samples = intent.probeCount("samples", 9)
     val text = intent.getStringExtra("text") ?: SEARCH_TEXT
+    val startEpoch = resolveNextSearchEpoch(text, DEFAULT_PAGE_SIZE)
     val times = JSONArray()
     var hits = 0
     repeat(samples) { index ->
@@ -79,7 +80,7 @@ internal suspend fun EnginePerfProbe.search(intent: Intent, run: String): JSONOb
             session.sessionSearch(
                 SessionSearchRequest(
                     filters = EMPTY_FILTERS,
-                    queryEpoch = (index + 1).toULong(),
+                    queryEpoch = startEpoch + index.toULong(),
                     mode = SessionSearchMode.FUZZY,
                     text = text,
                     cursor = null,
@@ -273,5 +274,24 @@ internal suspend fun EnginePerfProbe.listChildren(intent: Intent, run: String): 
         }
     } finally {
         capabilityRegistry.revoke(grant.capabilityToken)
+    }
+}
+
+/** A probe epoch at or below the session's active epoch is discarded, so start above it. */
+internal fun EnginePerfProbe.resolveNextSearchEpoch(text: String, pageSize: Int): ULong {
+    val probe =
+        session.sessionSearch(
+            SessionSearchRequest(
+                filters = EMPTY_FILTERS,
+                queryEpoch = 1uL,
+                mode = SessionSearchMode.FUZZY,
+                text = text,
+                cursor = null,
+                pageSize = pageSize.toUInt(),
+            ),
+        )
+    return when (probe) {
+        is SessionSearchOutcome.Ready -> 2uL
+        is SessionSearchOutcome.Discarded -> probe.activeEpoch + 1uL
     }
 }

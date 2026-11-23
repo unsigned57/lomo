@@ -536,9 +536,14 @@ mod tests {
         "AndroidVariant::Release",
         "uninstall",
         // §3-D scale probes: seeded .rec history depth + the ≥500-file bulk
-        // enumeration through the production ListChildren lane.
+        // enumeration through the production ListChildren lane + production-shaped probes.
         "history_seed",
         "listchildren",
+        "paging_prod",
+        "search_prod",
+        "preview_render",
+        "media_classify",
+        "gallery_paging",
         "engine-views",
         "engine-trash-cycle",
         "engine-media-stage",
@@ -576,6 +581,11 @@ mod tests {
     /// fails this contract instead of surfacing as a 600s device timeout.
     const PROBE_RECEIVER_PINS: &[&str] = &[
         "\"listchildren\"",
+        "\"paging_prod\"",
+        "\"search_prod\"",
+        "\"preview_render\"",
+        "\"media_classify\"",
+        "\"gallery_paging\"",
         "\"history\"",
         "\"history_seed\"",
         "\"sync_cycle\"",

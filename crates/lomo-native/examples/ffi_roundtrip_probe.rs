@@ -12,6 +12,8 @@
 //!   call is an `ffi_roundtrip_ms` sample covering FFI decode → core query → FFI encode.
 //! - Given a `next_cursor` from a page, when a follow-up `query_memos` decodes that cursor, then
 //!   it also counts as a round-trip sample.
+//! - Given the seed, when memos are projected, then each carries a paragraph, a tag, an image
+//!   destination and a task, so a sample pays the body-dependent share of a production page.
 //! - Given missing args, an unexpected memo count, an empty first page, or a `query_count`
 //!   mismatch, when the probe runs, then it fails closed without emitting a success line.
 //!
@@ -42,6 +44,11 @@ const BLOCKS_PER_DOCUMENT: usize = 2;
 const EXPECTED_MEMO_COUNT: u64 = (DOCUMENT_COUNT * BLOCKS_PER_DOCUMENT) as u64;
 const PAGE_SIZE: u32 = 50;
 const WARMUP: usize = 3;
+/// Every seeded memo carries a paragraph, an image destination and a task, so the measured list
+/// call includes the work that depends on memo bodies rather than only fixed row columns.
+const BODY_PARAGRAPH: &str = "A paragraph of ordinary note text with **emphasis**, `inline code`, \
+    a link to https://example.com/reference and enough words to look like a real memo body. \
+    中文段落用于覆盖多字节字符。Second sentence keeps the body near a typical card length.";
 const SAMPLES: usize = 21;
 
 struct PosixBatchHost {
@@ -185,7 +192,8 @@ fn seed_workspace(workspace: &std::path::Path) -> Result<(), Box<dyn Error>> {
         for block in 0..BLOCKS_PER_DOCUMENT {
             write!(
                 text,
-                "- {:02}:{:02}\nffi memo body day={day} block={block} #bench\n\n",
+                "- {:02}:{:02}\nffi memo body day={day} block={block} #bench\n{BODY_PARAGRAPH}\n\
+                 ![shot](media/img/att-{day:04}.jpg)\n- [ ] follow up 中文任务\n\n",
                 8 + block,
                 15 + block * 7,
             )

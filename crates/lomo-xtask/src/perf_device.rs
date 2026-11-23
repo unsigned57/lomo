@@ -75,6 +75,10 @@
 //! - Given the E6 probes, when engine runs, then views measure tasks/statistics/review/trash
 //!   summaries, trash cycles delete only freshly created identities, and a corpus media
 //!   fixture is staged through the production registry with its owned leases released.
+//! - Given the production-shaped probes, when engine runs, then the main feed's first and
+//!   continuation page, the search first page, the per-row preview render fan-out, the gallery
+//!   query and the storage media classification are timed at production sizes; each carries its
+//!   returned row counts, call counts and a cross-sample output check next to the samples.
 //!
 //! Observable outcomes: `reports/android-device-perf/device-perf.v1.json` carrying
 //! device fingerprint, git revision, corpus digest, animation scales, compilation mode and
@@ -1527,7 +1531,8 @@ impl DeviceRun<'_> {
     /// after a shell-side mutation, paging continuation, FTS search, an N-parameterized
     /// `.rec` history traversal (seeded first so N is real depth), the ≥500-file
     /// `listchildren` enumeration, and FFI roundtrip — the E-plane subset of the
-    /// device-measurement plan. Returns `(probe results, P6 noise-gate block)`.
+    /// device-measurement plan — plus the production-shaped feed, search, preview-render,
+    /// gallery and media-classification probes. Returns `(probe results, P6 noise-gate block)`.
     fn run_engine_probes(&self) -> Result<(Vec<Value>, Value)> {
         // History depth: Direct updates land in ms; SAF writes cost ~seconds per document
         // operation, so the seeded revision count is scaled to the backend budget while the
@@ -1547,8 +1552,28 @@ impl DeviceRun<'_> {
                 &[("pages", "5"), ("pageSize", "100")],
                 "engine-paging",
             )?,
+            self.run_probe(
+                "paging_prod",
+                &[("samples", "30"), ("pageSize", "20")],
+                "engine-paging-prod",
+            )?,
             self.run_probe("search", &[("samples", "9")], "engine-search")?,
+            self.run_probe(
+                "search_prod",
+                &[("samples", "30"), ("pageSize", "20")],
+                "engine-search-prod",
+            )?,
             self.run_probe("ffi", &[("samples", "15")], "engine-ffi")?,
+            self.run_probe(
+                "preview_render",
+                &[("samples", "30"), ("count", "20")],
+                "engine-preview-render",
+            )?,
+            self.run_probe(
+                "gallery_paging",
+                &[("samples", "30"), ("pageSize", "20")],
+                "engine-gallery-paging",
+            )?,
             self.run_probe(
                 "views",
                 &[("samples", "5"), ("asOfEpochMs", &as_of)],
@@ -1575,6 +1600,15 @@ impl DeviceRun<'_> {
                     ("pageSize", "256"),
                 ],
                 "engine-listchildren",
+            )?);
+            probes.push(self.run_probe(
+                "media_classify",
+                &[
+                    ("path", DEVICE_BULK_DIR),
+                    ("samples", "30"),
+                    ("pageSize", "256"),
+                ],
+                "engine-media-classify",
             )?);
             probes.push(self.dirty_rebuild_probe()?);
             probes.push(self.run_media_stage_probe()?);

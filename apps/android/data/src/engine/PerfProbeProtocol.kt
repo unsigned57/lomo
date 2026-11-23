@@ -4,6 +4,9 @@ import org.json.JSONObject
 
 internal const val REBUILD_BATCH_SIZE = 512
 internal const val DEFAULT_PAGE_SIZE = 100
+internal const val PRODUCTION_PAGE_SIZE = 20
+internal const val PREVIEW_RENDER_BATCH_SIZE = 20
+internal const val DEFAULT_PROD_SAMPLES = 30
 internal const val HISTORY_PAGE_LIMIT = 50
 internal const val DEFAULT_HISTORY_N = 50
 internal const val LIST_PAGE_SIZE = 512

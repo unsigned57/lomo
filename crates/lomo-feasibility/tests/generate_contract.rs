@@ -168,6 +168,32 @@ mod tests {
     }
 
     #[test]
+    fn device_bulk_directory_names_every_media_class() {
+        // The bulk directory is also the media-classification workload: a single-suffix
+        // directory would time one classifier branch only.
+        let dir = temp_dir("device-bulk-classes");
+        let manifest =
+            generate_corpus(&request(CorpusMode::Device, 13, dir.clone())).expect("device corpus");
+        let bulk_names: Vec<_> = manifest
+            .files
+            .iter()
+            .map(|entry| entry.relative_path.as_str())
+            .filter(|path| path.starts_with(&format!("{DEVICE_BULK_DIR}/")))
+            .collect();
+        for suffix in [".jpg", ".png", ".webp", ".m4a", ".mp4", ".bin"] {
+            assert!(
+                bulk_names.iter().any(|name| name.ends_with(suffix)),
+                "bulk directory must carry {suffix} names"
+            );
+        }
+        assert!(
+            bulk_names.iter().any(|name| !name.is_ascii()),
+            "bulk directory must carry a multi-byte file name"
+        );
+        cleanup(dir);
+    }
+
+    #[test]
     fn device_mode_generates_workspace_shaped_corpus() {
         // Device corpora are pushed into a real workspace (`/sdcard/Documents/<ws>` or an
         // app-private Direct root), so they must look like a user vault: dated `yyyy_MM_dd.md`
@@ -207,7 +233,7 @@ mod tests {
                 .count() as u64,
             DEVICE_MEDIA_COUNT
         );
-        // `media/bulk/` is the ≥500-file enumeration workload the device `listchildren`
+        // `images/bulk/` is the ≥500-file enumeration workload the device `listchildren`
         // probe walks — it must be a real directory of materialized files, not a manifest
         // count pretending to be directory depth.
         let bulk_entries: Vec<_> = manifest

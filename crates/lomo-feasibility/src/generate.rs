@@ -42,16 +42,16 @@ pub const DEVICE_MEDIA_BYTES: u64 = 96 * 1024;
 
 /// ≥500-file enumeration workload (audit open item #3 / plan §3-D).
 ///
-/// A real `media/bulk/` directory the `listchildren` engine probe walks through the
-/// production `PlatformAction::ListChildren` lane. Unreferenced binary payloads are safe
-/// under `media/` — the D6 orphan sweep is an explicit session call, not part of reconcile,
-/// so the directory survives activation and rebuilds. Small deterministic bodies keep
-/// `adb push` cost negligible while the directory size carries the measurement.
+/// A real `images/bulk/` directory the `listchildren` and `media_classify` probes walk through
+/// the production `PlatformAction::ListChildren` lane. No memo references these payloads, and the
+/// media orphan sweep collects unreferenced files under `media/`, so the workload lives outside
+/// that directory to survive until the probes run. Small deterministic bodies keep `adb push`
+/// cost negligible while the directory size carries the measurement.
 pub const DEVICE_BULK_COUNT: u64 = 500;
 pub const DEVICE_BULK_BYTES: u64 = 256;
-/// Relative directory the `listchildren` probe targets — pinned here so the generator,
-/// the receiver extras, and the contract test can never disagree on the workload path.
-pub const DEVICE_BULK_DIR: &str = "media/bulk";
+/// Relative directory the `listchildren` and `media_classify` probes target — pinned here so the
+/// generator, the receiver extras, and the contract test can never disagree on the workload path.
+pub const DEVICE_BULK_DIR: &str = "images/bulk";
 
 /// Fixed-seed generation modes from the stage-0 plan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -351,16 +351,23 @@ fn append_device_media(
     Ok(())
 }
 
-/// `media/bulk/blob-NNNN.bin` — the ≥500-file enumeration workload. Deterministic small
-/// payloads (a `.bin` suffix keeps them out of every `.md` date-key walk and out of the
-/// JPEG attachment surface); the directory itself is the unit under measurement.
+/// `images/bulk/` — the ≥500-file enumeration and classification workload. Names rotate through
+/// image, audio, video and unclassified suffixes, one of them with a multi-byte stem, so the
+/// classifier sees every media class; none is Markdown, which keeps them out of document walks.
 fn append_device_bulk(
     request: &GenerateRequest,
     files: &mut Vec<CorpusFileEntryV1>,
     identities: &mut BTreeSet<String>,
 ) -> Result<(), GenerateError> {
     for index in 0..DEVICE_BULK_COUNT {
-        let relative = format!("{DEVICE_BULK_DIR}/blob-{index:04}.bin");
+        let relative = match index % 6 {
+            0 => format!("{DEVICE_BULK_DIR}/img-{index:04}.jpg"),
+            1 => format!("{DEVICE_BULK_DIR}/pic-{index:04}.png"),
+            2 => format!("{DEVICE_BULK_DIR}/媒体-{index:04}.webp"),
+            3 => format!("{DEVICE_BULK_DIR}/voice-{index:04}.m4a"),
+            4 => format!("{DEVICE_BULK_DIR}/clip-{index:04}.mp4"),
+            _ => format!("{DEVICE_BULK_DIR}/blob-{index:04}.bin"),
+        };
         let identity = format!("device:bulk:{index:04}");
         claim_identity(identities, &identity)?;
         let length = usize::try_from(DEVICE_BULK_BYTES).map_err(|error| GenerateError::Io {
@@ -395,8 +402,25 @@ fn device_document_body(seed: u64, doc_index: u64) -> Result<String, GenerateErr
                 "\n![shot](media/img/att-{:04}.jpg)",
                 memo_ordinal % DEVICE_MEDIA_COUNT
             )
+        } else if memo_ordinal % 13 == 3 {
+            format!("\n![ext](https://example.com/assets/photo-{memo_ordinal}.png)")
         } else {
             String::new()
+        };
+        let cjk = if memo_ordinal % 5 == 1 {
+            " 中文记录测试：多字节字符与预览截断边界。"
+        } else {
+            ""
+        };
+        let emoji = if memo_ordinal % 7 == 2 {
+            " 🙂🚀✨"
+        } else {
+            ""
+        };
+        let long_tail = if memo_ordinal.is_multiple_of(11) {
+            "\nExtended markdown detail paragraph for realistic preview truncation and multi-line rendering coverage across ASCII, 中文示例段落, and `inline_code` spans without adding extra list markers; second sentence validates stable byte length and render layout."
+        } else {
+            ""
         };
         let noise = rng.next_u64();
         // `- HH:mm:ss` is the production storage timestamp default
@@ -405,7 +429,7 @@ fn device_document_body(seed: u64, doc_index: u64) -> Result<String, GenerateErr
         let minute = (memo_ordinal * 7 + doc_index) % 60;
         let second = (memo_ordinal * 13 + doc_index * 3) % 60;
         body.write_fmt(format_args!(
-            "- {hour:02}:{minute:02}:{second:02}\nseed={seed} doc={doc_index} memo={memo_index} noise={noise} {tag}{attachment}\nbody line for device memo {memo_ordinal}\n"
+            "- {hour:02}:{minute:02}:{second:02}\nseed={seed} doc={doc_index} memo={memo_index} noise={noise} {tag}{attachment}\nbody line for device memo {memo_ordinal}{cjk}{emoji}{long_tail}\n"
         ))
         .map_err(io_error)?;
         if memo_ordinal.is_multiple_of(6) {
