@@ -18,10 +18,19 @@ appId: com.lomo.app
 - tapOn: "Add Image"
 - runFlow:
     when:
-      visible: "Setup Image Storage Directory"
+      visible:
+        id: "benchmark_settings_root"
     commands:
-      - tapOn: "Auto Create"
-      - waitForAnimationToEnd
+      - tapOn: "Image Storage"
+      - tapOn: "USE THIS FOLDER"
+      - tapOn: "Allow"
+      - tapOn:
+          id: "benchmark_settings_back_button"
+      - tapOn:
+          id: "benchmark_main_create_fab"
+      - tapOn:
+          id: "benchmark_input_editor"
+      - inputText: "uitest media navigation probe #uitest_media_tag"
       - tapOn: "Add Image"
 - tapOn:
     text: "Photo taken on.*"

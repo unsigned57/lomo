@@ -312,7 +312,6 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
             ),
             workspaceCoordinator =
             MainWorkspaceCoordinator(
-                initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                 refreshMemosUseCase =
                 RefreshMemosUseCase(
                     SyncAndRebuildUseCase(
@@ -332,7 +331,6 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                         mediaRepository = mediaRepository,
                         initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                             appConfigRepository,
-                            mediaRepository,
                         ),
                         syncAndRebuildUseCase =
                         SyncAndRebuildUseCase(

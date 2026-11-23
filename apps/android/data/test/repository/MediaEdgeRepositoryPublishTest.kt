@@ -324,15 +324,38 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                     source.workspaceImageLocations[second.raw] = mapOf(
                         "media/b.png" to "content://provider/document/second-b",
                     )
-                    val installed = MutableStateFlow(imageMount(first))
+                    val installed = MutableStateFlow(imageMount(first, image = first.raw))
                     val repository = mediaEdgeRepository(stage, fileDataSource = source, activeMount = installed)
                     repository.readyImageLocations().test {
                         awaitItem().keys shouldBe setOf(MediaEntryId("media/a.png"))
-                        installed.value = imageMount(second)
+                        installed.value = imageMount(second, image = second.raw)
                         awaitItem().keys shouldBe setOf(MediaEntryId("media/b.png"))
                         source.getRootFlow(StorageRootType.MAIN).first() shouldBe first.raw
                         cancelAndIgnoreRemainingEvents()
                     }
+                } finally {
+                    stage.deleteRecursively()
+                }
+            }
+        }
+
+        test(
+            "given saf workspace without image directory when refreshing then filesystem is not queried",
+        ) {
+            runTest {
+                val stage = createTempDirectory("lomo-saf-no-img-").toFile()
+                try {
+                    val safRoot = StorageLocation("content://provider/tree/notes")
+                    val port = mockk<MediaPort>()
+                    val repository = mediaEdgeRepository(
+                        stage,
+                        mediaPort = port,
+                        activeMount = MutableStateFlow(imageMount(safRoot, image = null)),
+                    )
+
+                    repository.refreshImageLocations()
+
+                    repository.readyImageLocations().first() shouldBe emptyMap()
                 } finally {
                     stage.deleteRecursively()
                 }

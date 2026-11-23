@@ -1,7 +1,6 @@
 package com.lomo.domain.testing.fakes
 
 import com.lomo.domain.model.ImageLocationSnapshot
-import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
@@ -12,12 +11,10 @@ import kotlinx.coroutines.flow.map
 
 class FakeMediaRepository : MediaRepository {
     private val imageLocations = MutableStateFlow<Map<MediaEntryId, MediaImageDescriptor>>(emptyMap())
-    private val categoryWorkspaceResults = mutableMapOf<MediaCategory, StorageLocation?>()
     private val voiceTargets = mutableMapOf<MediaEntryId, StorageLocation>()
 
     val importedSources = mutableListOf<StorageLocation>()
     val removedImageIds = mutableListOf<MediaEntryId>()
-    val ensuredCategories = mutableListOf<MediaCategory>()
     val removedVoiceCaptureIds = mutableListOf<MediaEntryId>()
 
     var nextImportResult: StorageLocation = StorageLocation("/images/imported.jpg")
@@ -30,10 +27,6 @@ class FakeMediaRepository : MediaRepository {
             value.mapValues { (_, location) ->
                 MediaImageDescriptor(location = location, contentId = null)
             }
-    }
-
-    fun setCategoryWorkspaceResult(category: MediaCategory, location: StorageLocation?) {
-        categoryWorkspaceResults[category] = location
     }
 
     fun setVoiceTarget(entryId: MediaEntryId, location: StorageLocation) {
@@ -58,11 +51,6 @@ class FakeMediaRepository : MediaRepository {
 
     override suspend fun refreshImageLocations() {
         refreshImageLocationsCallCount += 1
-    }
-
-    override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? {
-        ensuredCategories += category
-        return categoryWorkspaceResults[category]
     }
 
     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =

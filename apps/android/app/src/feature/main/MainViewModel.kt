@@ -459,22 +459,6 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
         pendingNewMemoCreationCoordinator.cancel(requestId)
     }
 
-    val createDefaultDirectories: (Boolean, Boolean) -> Unit = { forImage, forVoice ->
-        viewModelScope.launch {
-            try {
-                workspaceCoordinator.createDefaultDirectories(forImage, forVoice)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                _errorMessage.value = diagnostics.reportUserFailure(
-                    "storage.create_directories",
-                    error,
-                    "Failed to create directories",
-                )
-            }
-        }
-    }
-
     val onDirectorySelected: (String) -> Unit = { path ->
         viewModelScope.launch {
             withContext(dispatcherProvider.io) {

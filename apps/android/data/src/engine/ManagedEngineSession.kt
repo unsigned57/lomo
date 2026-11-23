@@ -12,7 +12,6 @@ import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.RecoveryWorkspaceKind
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.model.WorkspaceAttachmentDirectories
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.model.WorkspaceProcessDuty
@@ -573,7 +572,6 @@ internal class ManagedEngineSession(
             }
             // Ready install clears any prior recovery authority and becomes sole publisher.
             recoveryAuthority.set(null)
-            val media = candidate.capabilityToken?.let(capabilityRegistry::mediaRoots)
             installAdapterLocked(
                 candidate.adapter,
                 candidate.capabilityToken,
@@ -581,10 +579,7 @@ internal class ManagedEngineSession(
                     readiness = candidateReadiness,
                     location = location,
                     authority = authority,
-                    attachments = WorkspaceAttachmentDirectories(
-                        images = media?.get("images")?.storageLocation(),
-                        recordings = media?.get("voice")?.storageLocation(),
-                    ),
+                    attachments = candidate.configuredAttachments,
                     freshness =
                     if (authority == null) {
                         ProjectionFreshness.Unavailable
@@ -695,11 +690,6 @@ internal class ManagedEngineSession(
     companion object {
         private const val RECOVERY_REBUILD_BATCH_SIZE: UInt = 64u
     }
-}
-
-private fun RootCapabilityGrant.storageLocation(): StorageLocation = when (this) {
-    is SafCapabilityGrant -> StorageLocation(treeUri)
-    is DirectCapabilityGrant -> StorageLocation(canonicalRoot.path)
 }
 
 private suspend fun DirectorySettingsRepository.mediaRootsFor(change: MediaDirectoryChange?): Map<String, String> =

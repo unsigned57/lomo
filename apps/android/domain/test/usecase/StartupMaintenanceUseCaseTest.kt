@@ -16,7 +16,6 @@ package com.lomo.domain.usecase
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
@@ -79,7 +78,6 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                     directorySettingsRepository,
-                    mediaRepository,
                 )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
@@ -120,7 +118,6 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                     directorySettingsRepository,
-                    mediaRepository,
                 )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
@@ -185,7 +182,6 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                     directorySettingsRepository,
-                    mediaRepository,
                 )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
@@ -228,7 +224,6 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                     directorySettingsRepository,
-                    mediaRepository,
                 )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
@@ -284,10 +279,6 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                             draftId,
                         )
                     override fun observeImageLocations() = delegateMedia.observeImageLocations()
-                    override suspend fun ensureCategoryWorkspace(category: MediaCategory) =
-                        delegateMedia.ensureCategoryWorkspace(
-                            category,
-                        )
                     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId) =
                         delegateMedia.allocateVoiceCaptureTarget(
                             entryId,
@@ -322,7 +313,6 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                     directorySettingsRepository,
-                    mediaRepository,
                 )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
@@ -369,7 +359,6 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                     directorySettingsRepository,
-                    mediaRepository,
                 )
                 val memoRepository = FakeMemoStore()
                 val delegatePolicy = FakeSyncPolicyRepository()
@@ -426,7 +415,6 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                     directorySettingsRepository,
-                    mediaRepository,
                 )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
@@ -493,7 +481,6 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                     directorySettingsRepository,
-                    mediaRepository,
                 )
                 val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()

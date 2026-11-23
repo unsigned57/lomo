@@ -40,7 +40,6 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.testing.fakes.FakeEngineReadinessRepository
-import com.lomo.domain.testing.fakes.FakeMediaRepository
 import com.lomo.domain.testing.fakes.FakeMemoMutationRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeWorkspaceMutationLease
@@ -59,7 +58,6 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
     private val initializeWorkspaceUseCase =
         InitializeWorkspaceUseCase(
             directorySettingsRepository = directorySettingsRepository,
-            mediaRepository = FakeMediaRepository(),
         )
     private val validator = ValidateMemoContentUseCase()
     private val useCase =

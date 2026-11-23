@@ -1,7 +1,6 @@
 package com.lomo.app.testing.fakes
 
 import com.lomo.domain.model.ImageLocationSnapshot
-import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
@@ -44,14 +43,6 @@ class FakeMediaRepository : MediaRepository {
     override suspend fun refreshImageLocations() {
         refreshImageLocationsCallCount++
         finishRefresh?.await()
-    }
-
-    var ensureCategoryWorkspaceResult: StorageLocation? = null
-    var ensureCategoryWorkspaceFailure: Throwable? = null
-
-    override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? {
-        ensureCategoryWorkspaceFailure?.let { throw it }
-        return ensureCategoryWorkspaceResult
     }
 
     fun verifyRefreshImageLocationsCalled(exactly: Int = 1) {

@@ -2,7 +2,6 @@ package com.lomo.app.provider
 
 import com.lomo.domain.model.DraftMediaReconciliation
 import com.lomo.domain.model.ImageLocationSnapshot
-import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
@@ -49,8 +48,6 @@ private data class FakeMediaRepository(
         descriptorLocations.map { ImageLocationSnapshot.Ready(it) }
 
     override suspend fun refreshImageLocations() = Unit
-
-    override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? = null
 
     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =
         StorageLocation("voice/${entryId.raw}")

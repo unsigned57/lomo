@@ -1,7 +1,6 @@
 package com.lomo.data.repository
 
 import com.lomo.domain.model.ImageLocationSnapshot
-import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
@@ -49,9 +48,6 @@ internal object ThrowingMediaRepository : MediaRepository {
     override suspend fun refreshImageLocations() {
         unexpected("refreshImageLocations")
     }
-
-    override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? =
-        unexpected("ensureCategoryWorkspace")
 
     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =
         unexpected("allocateVoiceCaptureTarget")
@@ -121,8 +117,6 @@ internal class RecordingMediaRepository : MediaRepository {
     override suspend fun refreshImageLocations() {
         refreshImageLocationsCallCount += 1
     }
-
-    override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? = null
 
     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =
         StorageLocation("file:///tmp/stage/${entryId.raw}")

@@ -27,10 +27,10 @@ class AppConfigStateProvider(
         workspaceMount.map { it.location?.raw }.stateIn(appScope, appWhileSubscribed(), null)
 
     val imageDirectory: StateFlow<String?> =
-        workspaceMount.map { (it.attachments.images ?: it.location)?.raw }.stateIn(appScope, appWhileSubscribed(), null)
+        workspaceMount.map { it.attachments.images?.raw }.stateIn(appScope, appWhileSubscribed(), null)
 
     val voiceDirectory: StateFlow<String?> =
-        workspaceMount.map { (it.attachments.recordings ?: it.location)?.raw }.stateIn(
+        workspaceMount.map { it.attachments.recordings?.raw }.stateIn(
             appScope,
             appWhileSubscribed(),
             null,

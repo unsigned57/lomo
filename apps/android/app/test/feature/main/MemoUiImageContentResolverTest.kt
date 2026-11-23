@@ -143,12 +143,11 @@ class MemoUiImageContentResolverTest : AppFunSpec() {
             directory.deleteRecursively()
         }
 
-        test("same basename under two managed roots fails closed instead of choosing one") {
+        test("same basename at workspace root and managed media root fails closed instead of choosing one") {
             val directory = createTempDirectory(prefix = "lomo-image-ambiguous-").toFile()
             File(directory, "media").apply { mkdirs() }
-            File(directory, "images").apply { mkdirs() }
+            File(directory, "pic.png").apply { writeText("root") }
             File(directory, "media/pic.png").apply { writeText("a") }
-            File(directory, "images/pic.png").apply { writeText("b") }
             val resolver = MemoUiImageContentResolver()
 
             val resolved =
@@ -164,10 +163,29 @@ class MemoUiImageContentResolverTest : AppFunSpec() {
             directory.deleteRecursively()
         }
 
+        test("unconfigured images directory is ignored when scanning for a bare basename") {
+            val directory = createTempDirectory(prefix = "lomo-image-unconfigured-").toFile()
+            File(directory, "media").apply { mkdirs() }
+            File(directory, "images").apply { mkdirs() }
+            val managedFile = File(directory, "media/pic.png").apply { writeText("a") }
+            File(directory, "images/pic.png").apply { writeText("ignored") }
+            val resolver = MemoUiImageContentResolver()
+
+            val resolved =
+                resolver.resolveProjectedImageUrls(
+                    imageUrls = listOf("pic.png"),
+                    rootPath = directory.absolutePath,
+                    imagePath = null,
+                    imageMap = emptyMap(),
+                )
+
+            resolved.single() shouldBe managedFile.absolutePath
+            directory.deleteRecursively()
+        }
+
         test("basename present in map and on disk under different directories fails closed") {
             val directory = createTempDirectory(prefix = "lomo-image-pool-").toFile()
-            File(directory, "images").apply { mkdirs() }
-            File(directory, "images/pic.png").apply { writeText("b") }
+            File(directory, "pic.png").apply { writeText("root") }
             val resolver = MemoUiImageContentResolver()
             val mapped = "file:///provider/media/pic.png".testUri()
 

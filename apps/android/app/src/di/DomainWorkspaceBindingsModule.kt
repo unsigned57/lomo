@@ -15,7 +15,7 @@ import org.koin.dsl.module
 
 val domainWorkspaceModule = module {
     single { BackupSyncConflictFilesUseCase(get()) }
-    single { InitializeWorkspaceUseCase(get(), get()) }
+    single { InitializeWorkspaceUseCase(get()) }
     single { ObserveWorkspaceSessionUseCase(get()) }
     single {
         SwitchRootStorageUseCase(

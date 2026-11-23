@@ -18,7 +18,7 @@ internal fun ExternalAppCommandExecutionEffect(
      * and re-run every pending command's steps (including re-seeding the draft editor).
      */
     draftText: StateFlow<String>,
-    directoryGuideController: MainDirectoryGuideController,
+    onRequireVoiceDirectory: () -> Unit,
     editorController: MemoEditorController,
     onRequestRecordAudioPermission: (ExternalAppCommand) -> Unit,
     executionTarget: MainExternalCommandExecutionTarget,
@@ -43,7 +43,7 @@ internal fun ExternalAppCommandExecutionEffect(
                         readiness = readiness,
                     ),
                     draftText = draftText,
-                    directoryGuideController = directoryGuideController,
+                    onRequireVoiceDirectory = onRequireVoiceDirectory,
                     editorController = editorController,
                     onRequestRecordAudioPermission = onRequestRecordAudioPermission,
                     executionTarget = executionTarget,
@@ -56,7 +56,7 @@ private fun executeExternalAppCommandPlan(
     command: ExternalAppCommand,
     plan: ExternalAppCommandExecutionPlan,
     draftText: StateFlow<String>,
-    directoryGuideController: MainDirectoryGuideController,
+    onRequireVoiceDirectory: () -> Unit,
     editorController: MemoEditorController,
     onRequestRecordAudioPermission: (ExternalAppCommand) -> Unit,
     executionTarget: MainExternalCommandExecutionTarget,
@@ -67,7 +67,7 @@ private fun executeExternalAppCommandPlan(
     var terminalHandledByAsyncStep = false
     plan.steps.forEach { step ->
         when (step) {
-            ExternalAppCommandStep.RequestVoiceDirectory -> directoryGuideController.requestVoice()
+            ExternalAppCommandStep.RequestVoiceDirectory -> onRequireVoiceDirectory()
 
             ExternalAppCommandStep.OpenDraftEditor -> editorController.openForCreate(draftText.value)
 

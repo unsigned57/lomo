@@ -168,7 +168,7 @@ internal data class MainSessionRestoreBindings(
     val onRestoreMainListSession: (String, MemoListFilter) -> Unit,
 )
 
-/** Navigation, directory setup, quick-ball, and filter callbacks for main navigation hosts. */
+/** Navigation, quick-ball, and filter callbacks for main navigation hosts. */
 @Stable
 internal data class MainNavigationActions(
     val onRequestQuickBallRecording: (String) -> Unit,
@@ -176,7 +176,6 @@ internal data class MainNavigationActions(
     val onMarkReminderDone: (String, String) -> Unit,
     val onClearMemoFilter: () -> Unit,
     val onFilterMemosByDate: (LocalDate) -> Unit,
-    val onCreateDefaultDirectories: (Boolean, Boolean) -> Unit,
 )
 
 /** Feed animation, filter controller, and recovery callbacks consumed by [MainScreenNavigationRender]. */
@@ -341,7 +340,6 @@ private fun MainViewModel.buildContentHostBindings(): MainContentHostBindings = 
         onMarkReminderDone = markReminderDone,
         onClearMemoFilter = clearMemoFilter,
         onFilterMemosByDate = filterMemosByDate,
-        onCreateDefaultDirectories = createDefaultDirectories,
     ),
     listRender =
     MainListRenderBindings(

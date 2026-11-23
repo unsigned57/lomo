@@ -125,7 +125,6 @@ internal fun rememberMainScreenHostState(): MainScreenHostState {
             )
         }
     val editorController = rememberMemoEditorController()
-    val directoryGuideController = rememberMainDirectoryGuideController()
 
     return remember(
         sidebar,
@@ -134,7 +133,6 @@ internal fun rememberMainScreenHostState(): MainScreenHostState {
         scrollBehavior,
         listState,
         editorController,
-        directoryGuideController,
     ) {
         MainScreenHostState(
             sidebar = sidebar,
@@ -143,7 +141,6 @@ internal fun rememberMainScreenHostState(): MainScreenHostState {
             scrollBehavior = scrollBehavior,
             listState = listState,
             editorController = editorController,
-            directoryGuideController = directoryGuideController,
         )
     }
 }
@@ -218,13 +215,20 @@ internal fun MainScreenContentHost(
             screenState.sidebarUiState.tags.map { it.name }.sorted().toImmutableList()
         }
 
+    val onRequireMediaDirectory =
+        remember(hostState.editorController, onNavigateToSettings) {
+            {
+                hostState.editorController.close()
+                onNavigateToSettings()
+            }
+        }
     MainScreenInteractionBindings(
         versionMediaFlows = contentBindings.versionMediaFlows,
         memoInteractions = contentBindings.memoInteractions,
         editorBindings = editorBindings,
         recordingBindings = recordingBindings,
         editorController = hostState.editorController,
-        directoryGuideController = hostState.directoryGuideController,
+        onRequireMediaDirectory = onRequireMediaDirectory,
         scope = hostState.scope,
         snackbarHostState = hostState.snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
@@ -261,24 +265,6 @@ internal fun MainScreenContentHost(
             expandCoordinator = expandCoordinator,
         )
     }
-
-    val directoryGuideActions =
-        remember(contentBindings, hostState.editorController, onNavigateToSettings) {
-            MainDirectoryGuideActions(
-                onConfirmCreate = { type ->
-                    contentBindings.navigationActions.onCreateDefaultDirectories(
-                        type == DirectorySetupType.Image,
-                        type == DirectorySetupType.Voice,
-                    )
-                },
-                onBeforeGoToSettings = hostState.editorController::close,
-                onGoToSettings = onNavigateToSettings,
-            )
-        }
-    MainDirectoryGuideHost(
-        controller = hostState.directoryGuideController,
-        actions = directoryGuideActions,
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

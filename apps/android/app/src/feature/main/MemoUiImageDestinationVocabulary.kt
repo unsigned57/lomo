@@ -5,12 +5,13 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
 /**
- * Managed attachment roots a bare destination may claim — Kotlin mirror of the
- * `lomo-workspace` `ATTACHMENT_LOOKUP_DIRS` vocabulary (media/images/voice).
- * Bare basenames pool candidates at the workspace root plus every one of these
- * roots; qualified destinations never consult the vocabulary.
+ * Managed attachment root a bare destination may claim — Kotlin mirror of the
+ * `lomo-workspace` `ATTACHMENT_LOOKUP_DIRS` vocabulary (`media` only; `images/`
+ * and `voice/` are never auto-scanned without an explicit directory selection).
+ * Bare basenames pool candidates at the workspace root plus `media`; qualified
+ * destinations never consult the vocabulary.
  */
-internal val MANAGED_ATTACHMENT_ROOTS = listOf("media", "images", "voice")
+internal val MANAGED_ATTACHMENT_ROOTS = listOf("media")
 
 /**
  * Canonical fold mirroring `lomo-workspace` `canonicalize_attachment_path`:

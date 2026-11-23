@@ -17,6 +17,8 @@ internal data class ManagedWorkspaceCandidate(
     val selection: NativeWorkspaceSelection?,
     val projectionRevision: ULong?,
     val projectionVerified: Boolean,
+    val configuredAttachments: com.lomo.domain.model.WorkspaceAttachmentDirectories =
+        com.lomo.domain.model.WorkspaceAttachmentDirectories(),
 ) {
     init {
         if (selection == null) {
@@ -119,6 +121,10 @@ internal class WorkspaceCandidatePreparer(
                 selection = selection.workspace,
                 projectionRevision = projectionRevision,
                 projectionVerified = !allowRetainedProjection || candidate.sessionProjectionVerified,
+                configuredAttachments = com.lomo.domain.model.WorkspaceAttachmentDirectories(
+                    images = mediaRoots["images"]?.let(::StorageLocation),
+                    recordings = mediaRoots["voice"]?.let(::StorageLocation),
+                ),
             )
         } catch (error: Exception) {
             releaseCandidate(candidate, selection.capabilityToken, error, capabilityRegistry)

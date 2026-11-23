@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
 internal class SafMediaStorageBackendDelegate(private val documentAccess: SafDocumentAccess) : MediaStorageBackend {
     private val documents = ContentResolverPlatformDocumentsGateway(documentAccess.contentResolver)
 
-    override suspend fun listImageFiles(scope: ImageScanScope): List<Pair<String, String>> = withContext(
+    override suspend fun listImageFiles(): List<Pair<String, String>> = withContext(
         documentAccess.ioDispatcher,
     ) {
         val root = documentAccess.treeUri.toString()
@@ -30,13 +30,11 @@ internal class SafMediaStorageBackendDelegate(private val documentAccess: SafDoc
                 for (entry in page.items) {
                     val path = (entry.target as WorkspaceTarget.Relative).path
                     when (entry.kind) {
-                        DocumentKind.DIRECTORY -> if (path.substringAfterLast('/') !in MEDIA_PRIVATE_LANES &&
-                            scope.includesDirectory(path)
-                        ) {
+                        DocumentKind.DIRECTORY -> if (path.substringAfterLast('/') !in MEDIA_PRIVATE_LANES) {
                             directories.add(entry.target)
                         }
 
-                        DocumentKind.FILE -> if (scope.includesFile(path) && isImageAttachmentFileName(path)) {
+                        DocumentKind.FILE -> if (isImageAttachmentFileName(path)) {
                             images += path to location(entry)
                         }
                     }

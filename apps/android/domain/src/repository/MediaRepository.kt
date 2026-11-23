@@ -3,7 +3,6 @@ package com.lomo.domain.repository
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.DraftMediaReconciliation
 import com.lomo.domain.model.ImageLocationSnapshot
-import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.StorageLocation
 import kotlinx.coroutines.flow.Flow
@@ -20,8 +19,6 @@ interface MediaRepository {
     fun observeImageLocations(): Flow<ImageLocationSnapshot>
 
     suspend fun refreshImageLocations()
-
-    suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation?
 
     suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation
 

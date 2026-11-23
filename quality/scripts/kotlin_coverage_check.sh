@@ -220,7 +220,6 @@ class_patterns = [
     "com.lomo.app.feature.*.*NavigationActionsKt*",
     "com.lomo.app.feature.*.*EventEffectsKt*",
     "com.lomo.app.feature.*.*EmptyStateKt*",
-    "com.lomo.app.feature.*.*DirectoryGuideKt*",
     "com.lomo.app.feature.*.*SupportKt*",
     "com.lomo.app.feature.*.*SyncContainersKt*",
     "com.lomo.app.feature.*.*DialogOptionsKt*",

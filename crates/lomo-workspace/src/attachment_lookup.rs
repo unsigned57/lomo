@@ -14,17 +14,17 @@
 
 use lomo_core::RelativeWorkspacePath;
 
-use crate::layout::{IMAGES_ROOT_NAME, MEDIA_ROOT_NAME, VOICE_ROOT_NAME};
+use crate::layout::MEDIA_ROOT_NAME;
 
 /// Managed attachment roots a bare basename may claim, in claim order.
 ///
-/// `media` is the canonical committed root; `images` and `voice` are the
-/// platform-configured attachment roots (`IMAGES_ROOT_NAME`/`VOICE_ROOT_NAME`).
-/// Files at the workspace root are implicitly candidates as well — the bare
-/// spelling *is* the root-relative spelling — so a root file always counts.
-/// Non-managed directories (`assets/`, `docs/`, memo roots) never participate:
-/// the vocabulary, not the filesystem, bounds basename claims.
-pub const ATTACHMENT_LOOKUP_DIRS: &[&str] = &[MEDIA_ROOT_NAME, IMAGES_ROOT_NAME, VOICE_ROOT_NAME];
+/// `media` is the canonical committed workspace attachment root. Files at the
+/// workspace root are implicitly candidates as well — the bare spelling *is*
+/// the root-relative spelling — so a root file always counts. Legacy `images/`,
+/// `voice/`, and other non-managed directories never participate in automatic
+/// bare-basename lookup: explicitly configured attachment directories or
+/// qualified destinations own them instead.
+pub const ATTACHMENT_LOOKUP_DIRS: &[&str] = &[MEDIA_ROOT_NAME];
 
 /// The resolution of one canonical attachment destination against directory
 /// evidence.

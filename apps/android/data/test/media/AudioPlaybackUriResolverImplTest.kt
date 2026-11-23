@@ -73,7 +73,7 @@ class AudioPlaybackUriResolverImplTest : DataFunSpec() {
             }
         }
         test(
-            "given a voice directory switch when a bare name also exists in the workspace then only the selected voice directory is used",
+            "given unset voice directory when bare name exists only in workspace voice then resolver ignores unconfigured voice directory",
         ) {
             val root = createTempDirectory("lomo-voice-switch-").toFile()
             val selected = createTempDirectory("lomo-voice-selected-").toFile()
@@ -84,6 +84,8 @@ class AudioPlaybackUriResolverImplTest : DataFunSpec() {
                 runTest {
                     val mount = MutableStateFlow(audioMount(root.absolutePath))
                     val resolver = AudioPlaybackUriResolverImpl(context, mount::value)
+                    resolver.resolve("take.m4a") shouldBe null
+                    mount.value = audioMount(root.absolutePath, root.absolutePath)
                     resolver.resolve("take.m4a") shouldBe File(root, "voice/take.m4a").absolutePath
                     mount.value = audioMount(root.absolutePath, selected.absolutePath)
                     resolver.resolve("take.m4a") shouldBe fresh.absolutePath
@@ -122,11 +124,11 @@ class AudioPlaybackUriResolverImplTest : DataFunSpec() {
             }
         }
 
-        test("bare basename resolves the unique nested managed file") {
+        test("bare basename resolves the unique nested managed media file") {
             val root = createTempDirectory("lomo-audio-nested-").toFile()
             try {
-                File(root, "voice/2026").mkdirs()
-                val file = File(root, "voice/2026/take.m4a").apply { writeBytes(byteArrayOf(1)) }
+                File(root, "media/2026").mkdirs()
+                val file = File(root, "media/2026/take.m4a").apply { writeBytes(byteArrayOf(1)) }
 
                 runTest {
                     resolver(root).resolve("take.m4a") shouldBe file.absolutePath
@@ -151,13 +153,13 @@ class AudioPlaybackUriResolverImplTest : DataFunSpec() {
             }
         }
 
-        test("same basename in voice and media fails closed instead of choosing voice") {
+        test("same basename in two managed media directories fails closed and ignores unconfigured voice") {
             val root = createTempDirectory("lomo-audio-ambiguous-").toFile()
             try {
-                File(root, "voice").mkdirs()
-                File(root, "media").mkdirs()
-                File(root, "voice/take.m4a").writeBytes(byteArrayOf(1))
-                File(root, "media/take.m4a").writeBytes(byteArrayOf(2))
+                File(root, "media/a").mkdirs()
+                File(root, "media/b").mkdirs()
+                File(root, "media/a/take.m4a").writeBytes(byteArrayOf(1))
+                File(root, "media/b/take.m4a").writeBytes(byteArrayOf(2))
 
                 runTest {
                     // Fail closed: two managed claimants, no default winner.
@@ -182,8 +184,8 @@ class AudioPlaybackUriResolverImplTest : DataFunSpec() {
         test("lifecycle lane files never claim a bare basename") {
             val root = createTempDirectory("lomo-audio-lane-").toFile()
             try {
-                File(root, "voice/.lomo-media-stage").mkdirs()
-                File(root, "voice/.lomo-media-stage/take.m4a").writeBytes(byteArrayOf(1))
+                File(root, "media/.lomo-media-stage").mkdirs()
+                File(root, "media/.lomo-media-stage/take.m4a").writeBytes(byteArrayOf(1))
 
                 runTest {
                     resolver(root).resolve("take.m4a") shouldBe null

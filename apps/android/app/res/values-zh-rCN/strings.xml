@@ -42,9 +42,6 @@
     <string name="settings_storage_switching_workspace">正在切换工作区…</string>
     <string name="settings_storage_scanning_workspace">正在为工作区建立索引…</string>
     <string name="settings_storage_applying_directory">正在应用文件夹…</string>
-    <string name="settings_storage_choose_independent">选择独立目录</string>
-    <string name="settings_storage_use_notes_folder">跟随笔记目录</string>
-    <string name="settings_storage_follows_notes_folder">跟随笔记目录</string>
     <string name="settings_storage_index_failed">已切换工作区，但建立索引失败</string>
     <string name="settings_image_storage">图片存储</string>
     <string name="settings_voice_storage">语音存储</string>
@@ -542,11 +539,6 @@
     <!-- FAB -->
     <string name="fab_new_memo">新建备忘录</string>
     <string name="memo_auto_saved">已保存为备忘录</string>
-
-    <!-- Directory Setup Dialog -->
-    <string name="setup_directory_title">设置 %1$s 目录</string>
-    <string name="setup_directory_message">%1$s 目录未设置。你可以在设置中手动选择，或者在你的笔记目录下自动创建 \'%2$s\' 文件夹。</string>
-    <string name="action_auto_create">自动创建</string>
 
     <!-- Update Dialog -->
     <string name="update_dialog_title">发现新版本</string>

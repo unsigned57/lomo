@@ -11,7 +11,6 @@ appId: com.lomo.app
 - tapOn: "Menu"
 - tapOn: "Settings"
 - tapOn: "Image Storage"
-- tapOn: "Choose a separate folder"
 - tapOn:
     id: "option_menu_create_dir"
 - inputText: ${output.imageFirst}
@@ -22,7 +21,6 @@ appId: com.lomo.app
     visible: ${output.imageFirst}
     timeout: 30000
 - tapOn: "Voice Storage"
-- tapOn: "Choose a separate folder"
 - tapOn:
     id: "option_menu_create_dir"
 - inputText: ${output.voice}
@@ -34,7 +32,6 @@ appId: com.lomo.app
     timeout: 30000
 - assertVisible: ${output.imageFirst}
 - tapOn: "Image Storage"
-- tapOn: "Choose a separate folder"
 - tapOn:
     id: "option_menu_create_dir"
 - inputText: ${output.imageNext}

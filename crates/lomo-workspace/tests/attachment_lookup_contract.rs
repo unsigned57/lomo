@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn managed_lookup_dirs_name_the_workspace_attachment_roots() {
-        assert_eq!(ATTACHMENT_LOOKUP_DIRS, ["media", "images", "voice"]);
+        assert_eq!(ATTACHMENT_LOOKUP_DIRS, ["media"]);
     }
 
     #[test]
@@ -85,14 +85,9 @@ mod tests {
 
     #[test]
     fn bare_basename_resolves_unique_nested_managed_hit() {
-        // Given a bare basename and exactly one same-named file nested under a
-        // managed root, when resolved, then that canonical path answers —
-        // nested directories stop breaking bare destinations.
-        for nested in [
-            "media/photos/2026/pic.png",
-            "images/pic.png",
-            "voice/pic.png",
-        ] {
+        // Given a bare basename and exactly one same-named file nested under
+        // `media/`, when resolved, then that canonical path answers.
+        for nested in ["media/photos/2026/pic.png", "media/pic.png"] {
             let resolution =
                 resolve_attachment_listing(&path("pic.png"), paths(&[nested, "memos/index.md"]));
             match resolution {
@@ -107,11 +102,15 @@ mod tests {
 
     #[test]
     fn same_basename_in_two_managed_locations_is_ambiguous() {
-        // Given one basename claimed by two managed locations, when resolved,
+        // Given one basename claimed by two managed paths, when resolved,
         // then Ambiguous names every hit — the resolver never picks one.
         let resolution = resolve_attachment_listing(
             &path("pic.png"),
-            paths(&["images/pic.png", "media/photos/pic.png", "memos/index.md"]),
+            paths(&[
+                "media/archive/pic.png",
+                "media/photos/pic.png",
+                "memos/index.md",
+            ]),
         );
         match resolution {
             AttachmentResolution::Ambiguous(hits) => {
@@ -119,7 +118,7 @@ mod tests {
                     hits.iter()
                         .map(RelativeWorkspacePath::as_str)
                         .collect::<Vec<_>>(),
-                    ["images/pic.png", "media/photos/pic.png"]
+                    ["media/archive/pic.png", "media/photos/pic.png"]
                 );
             }
             resolution @ (AttachmentResolution::Found(_) | AttachmentResolution::Missing) => {
@@ -149,12 +148,18 @@ mod tests {
 
     #[test]
     fn bare_basename_outside_managed_vocabulary_is_missing() {
-        // Given the same-named file lives only under a user directory that is
-        // not a managed attachment root, when resolved, then Missing — the
-        // vocabulary bounds basename claims.
+        // Given the same-named file lives only under non-managed or unconfigured
+        // directories (`images/`, `voice/`, `assets/`, etc.), when resolved, then
+        // Missing — only `media/` and root participate in bare-basename claims.
         let resolution = resolve_attachment_listing(
             &path("pic.png"),
-            paths(&["assets/pic.png", "docs/pic.png", "memos/pic.png"]),
+            paths(&[
+                "images/pic.png",
+                "voice/pic.png",
+                "assets/pic.png",
+                "docs/pic.png",
+                "memos/pic.png",
+            ]),
         );
         assert!(
             matches!(resolution, AttachmentResolution::Missing),

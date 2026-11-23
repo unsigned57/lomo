@@ -8,9 +8,15 @@ appId: com.lomo.app
 - tapOn: "Add Image|添加图片"
 - runFlow:
     when:
-      visible: "Setup Image Storage Directory"
+      visible:
+        id: "benchmark_settings_root"
     commands:
-      - tapOn: "Auto Create|自动创建"
+      - tapOn: "Image Storage|图片存储"
+      - tapOn: "USE THIS FOLDER"
+      - tapOn: "Allow"
+      - tapOn:
+          id: "benchmark_settings_back_button"
+      - runFlow: begin-memo.yaml
       - tapOn: "Add Image|添加图片"
 - tapOn:
     text: "Photo taken on.*"

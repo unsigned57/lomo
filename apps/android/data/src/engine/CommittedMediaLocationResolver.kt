@@ -20,7 +20,11 @@ internal class CommittedMediaLocationResolver(
             "voice" -> mount.attachments.recordings
             else -> null
         }
-        val path = if (selected != null) relativePath.substringAfter('/') else relativePath
+        val sameAsWorkspace = selected != null &&
+            mount.location?.let {
+                storageDirectoryIdentity(selected.raw) == storageDirectoryIdentity(it.raw)
+            } == true
+        val path = if (selected != null && !sameAsWorkspace) relativePath.substringAfter('/') else relativePath
         val root = (selected ?: checkNotNull(mount.location) { "Media commit requires an active workspace" }).raw
         if (!root.startsWith("content:", ignoreCase = true)) {
             return File(root, path).takeIf(File::isFile)?.let { file ->

@@ -28,7 +28,7 @@ import java.io.File
  */
 class MixedDirectoryImageInventoryTest :
     FunSpec({
-        test("given independent image storage when scanned then legacy and mounted paths coexist") {
+        test("given independent image storage when scanned then only configured image directory is included") {
             runTest {
                 val legacy = "media/old.png" to "content://provider/document/opaque-old"
                 val selected = "photo.png" to "content://provider/document/opaque-selected"
@@ -41,13 +41,12 @@ class MixedDirectoryImageInventoryTest :
                 FileMediaStorageDataSourceDelegate(
                     resolver,
                 ).listImageFiles(MediaStorageSelection("/notes", "/pictures")).toMap() shouldBe mapOf(
-                    legacy,
                     "images/photo.png" to selected.second,
                     "photo.png" to selected.second,
                 )
             }
         }
-        test("given shared image storage when scanned then workspace paths are not remounted") {
+        test("given shared image storage when scanned then workspace paths are scanned directly without remounting") {
             runTest {
                 val files = listOf("images/a.png" to "content://provider/document/opaque-a")
                 val root = inventoryRoot("/notes", files)
@@ -55,25 +54,27 @@ class MixedDirectoryImageInventoryTest :
                 io.mockk.every { resolver.mediaRootAt("/notes") } returns root
                 FileMediaStorageDataSourceDelegate(
                     resolver,
-                ).listImageFiles(MediaStorageSelection("/notes", "/notes")) shouldBe files
+                ).listImageFiles(MediaStorageSelection("/notes", "/notes")).toMap() shouldBe mapOf(
+                    "images/a.png" to "content://provider/document/opaque-a",
+                    "a.png" to "content://provider/document/opaque-a",
+                )
             }
         }
-        test("given no image selection when scanned then workspace provider images remain available") {
+        test("given no image selection when scanned then neither images nor workspace directories are scanned") {
             runTest {
                 val files = listOf("media/a.png" to "content://provider/document/opaque-a")
                 val resolver = mockk<FileStorageBackendResolver>()
                 io.mockk.every { resolver.mediaRootAt("/notes") } returns inventoryRoot("/notes", files)
                 FileMediaStorageDataSourceDelegate(
                     resolver,
-                ).listImageFiles(MediaStorageSelection("/notes", null)) shouldBe files
+                ).listImageFiles(MediaStorageSelection("/notes", null)) shouldBe emptyList()
             }
         }
     })
 
 private fun inventoryRoot(path: String, files: List<Pair<String, String>>): ResolvedMediaRoot = ResolvedMediaRoot(
     object : MediaStorageBackend {
-        override suspend fun listImageFiles(scope: ImageScanScope): List<Pair<String, String>> =
-            files.filter { (path, _) -> scope.includesFile(path) && ('/' !in path || scope.includesDirectory(path)) }
+        override suspend fun listImageFiles(): List<Pair<String, String>> = files
         override suspend fun getImageLocation(filename: String): String? = files.toMap()[filename]
     },
     WorkspaceVfs.Direct(File(path)),

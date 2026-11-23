@@ -121,14 +121,26 @@ mod tests {
     #[test]
     fn same_basename_in_two_managed_directories_fails_closed() {
         let ctx = open();
-        seed(&ctx, "media/pic.png", b"a");
-        seed(&ctx, "images/pic.png", b"b");
+        seed(&ctx, "media/archive/pic.png", b"a");
+        seed(&ctx, "media/photos/pic.png", b"b");
 
         let error = resolve(&ctx, "pic.png").expect_err("ambiguity must error");
         assert_eq!(error.code(), "ambiguous_attachment");
         let diagnostic = error.to_string();
-        assert!(diagnostic.contains("media/pic.png"), "{diagnostic}");
-        assert!(diagnostic.contains("images/pic.png"), "{diagnostic}");
+        assert!(diagnostic.contains("media/archive/pic.png"), "{diagnostic}");
+        assert!(diagnostic.contains("media/photos/pic.png"), "{diagnostic}");
+    }
+
+    #[test]
+    fn unconfigured_images_and_voice_directories_are_not_scanned_for_bare_basenames() {
+        let ctx = open();
+        seed(&ctx, "images/pic.png", b"img");
+        seed(&ctx, "voice/clip.m4a", b"audio");
+
+        let img_resolved = resolve(&ctx, "pic.png").expect("images/ is not scanned");
+        assert_eq!(img_resolved.as_str(), "pic.png");
+        let audio_resolved = resolve(&ctx, "clip.m4a").expect("voice/ is not scanned");
+        assert_eq!(audio_resolved.as_str(), "clip.m4a");
     }
 
     #[test]

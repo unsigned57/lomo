@@ -112,6 +112,13 @@ internal fun MainScreen(
         editorBindings = editorViewModel.hostBindings,
     )
 
+    val onRequireMediaDirectory: () -> Unit =
+        remember(hostState.editorController, onNavigateToSettings) {
+            {
+                hostState.editorController.close()
+                onNavigateToSettings()
+            }
+        }
     MainScreenTransientEffects(
         effectBindings = mainBindings.effects,
         editorBindings = editorViewModel.hostBindings,
@@ -125,7 +132,7 @@ internal fun MainScreen(
             !screenState.memoListFilter.hasSortOverride,
         listState = hostState.listState,
         editorController = hostState.editorController,
-        directoryGuideController = hostState.directoryGuideController,
+        onRequireMediaDirectory = onRequireMediaDirectory,
         snackbarHostState = hostState.snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
         memoNotFoundMessage = memoNotFoundMessage,
@@ -364,7 +371,6 @@ internal data class MainScreenHostState(
     val scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     val listState: androidx.compose.foundation.lazy.LazyListState,
     val editorController: MemoEditorController,
-    val directoryGuideController: MainDirectoryGuideController,
 )
 
 internal typealias MainScreenInteractionContent =
@@ -408,7 +414,7 @@ private fun MainScreenTransientEffects(
     canResolveOffscreenMainListFocus: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
     editorController: MemoEditorController,
-    directoryGuideController: MainDirectoryGuideController,
+    onRequireMediaDirectory: () -> Unit,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
     memoNotFoundMessage: String,
@@ -430,7 +436,7 @@ private fun MainScreenTransientEffects(
         autoOpenInputOnForeground = autoOpenInputOnForeground,
         canOpenCreateMemo = canOpenCreateMemo,
         pendingNewMemoCreationEvent = pendingNewMemoCreationEvent,
-        directoryGuideController = directoryGuideController,
+        onRequireVoiceDirectory = onRequireMediaDirectory,
         editorController = editorController,
     )
 
@@ -446,7 +452,7 @@ private fun MainScreenTransientEffects(
         canResolveOffscreenMainListFocus = canResolveOffscreenMainListFocus,
         listState = listState,
         editorController = editorController,
-        directoryGuideController = directoryGuideController,
+        onRequireImageDirectory = onRequireMediaDirectory,
         snackbarHostState = snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
         memoNotFoundMessage = memoNotFoundMessage,
@@ -466,7 +472,7 @@ private fun MainScreenEventEffectsSurface(
     canResolveOffscreenMainListFocus: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
     editorController: MemoEditorController,
-    directoryGuideController: MainDirectoryGuideController,
+    onRequireImageDirectory: () -> Unit,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
     memoNotFoundMessage: String,
@@ -556,7 +562,7 @@ private fun MainScreenEventEffectsSurface(
         focusRetryKey = focusRetryKey,
         onResolveMemoById = eventActions.onResolveMemoById,
         onSaveImage = onSaveImage,
-        onRequireImageDirectory = directoryGuideController::requestImage,
+        onRequireImageDirectory = onRequireImageDirectory,
         onConsumeSharedContentEvent = eventActions.onConsumeSharedContentEvent,
         onConsumeAppActionEvent = eventActions.onConsumeAppActionEvent,
         onConsumePendingSharedImageEvent = eventActions.onConsumePendingSharedImageEvent,
@@ -573,7 +579,7 @@ internal fun MainScreenInteractionBindings(
     editorBindings: MemoEditorHostBindings,
     recordingBindings: MainRecordingBindings,
     editorController: MemoEditorController,
-    directoryGuideController: MainDirectoryGuideController,
+    onRequireMediaDirectory: () -> Unit,
     scope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
@@ -603,7 +609,7 @@ internal fun MainScreenInteractionBindings(
             editorBindings = editorBindings,
             recordingActions = recordingBindings.actions,
             editorController = editorController,
-            directoryGuideController = directoryGuideController,
+            onRequireVoiceDirectory = onRequireMediaDirectory,
             voiceDirectory = voiceDirectory,
             scope = scope,
             snackbarHostState = snackbarHostState,
@@ -650,7 +656,7 @@ internal fun MainScreenInteractionBindings(
             quickSaveOnBackEnabled = quickSaveOnBackEnabled,
             inputToolbarToolOrder = inputToolbarToolOrder,
             isRecording = isRecording,
-            onImageDirectoryMissing = directoryGuideController::requestImage,
+            onImageDirectoryMissing = onRequireMediaDirectory,
         )
 
     MemoInteractionHost(
@@ -683,7 +689,7 @@ private fun rememberMainScreenInteractionCallbacks(
     editorBindings: MemoEditorHostBindings,
     recordingActions: MainRecordingActions,
     editorController: MemoEditorController,
-    directoryGuideController: MainDirectoryGuideController,
+    onRequireVoiceDirectory: () -> Unit,
     voiceDirectory: String?,
     scope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
@@ -693,7 +699,7 @@ private fun rememberMainScreenInteractionCallbacks(
     editorBindings,
     recordingActions,
     editorController,
-    directoryGuideController,
+    onRequireVoiceDirectory,
     voiceDirectory,
     scope,
     snackbarHostState,
@@ -714,7 +720,7 @@ private fun rememberMainScreenInteractionCallbacks(
         },
         onStartRecording = {
             if (voiceDirectory == null) {
-                directoryGuideController.requestVoice()
+                onRequireVoiceDirectory()
             } else {
                 recordingActions.onStartRecording(
                     editorController.editingSession?.draftId ?: editorBindings.flows.getOwnerDraftId(),

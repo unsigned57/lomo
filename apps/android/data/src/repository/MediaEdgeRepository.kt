@@ -17,7 +17,6 @@ import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.DraftMediaReconciliation
 import com.lomo.domain.model.DraftStagedMediaRef
 import com.lomo.domain.model.ImageLocationSnapshot
-import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
@@ -92,7 +91,6 @@ constructor(
 ) : MediaRepository,
     CommittedMediaLocationSink {
     private val context: Context = dependencies.context
-    private val workspaceConfigSource: WorkspaceConfigSource = dependencies.workspaceConfigSource
     private val mediaStorageDataSource: MediaStorageDataSource = dependencies.mediaStorageDataSource
     private val mediaPort: MediaPort = dependencies.mediaPort
     private val committedLocation = dependencies.committedLocation
@@ -301,7 +299,10 @@ constructor(
             inventoryRefresh.update { it + 1 }
             return
         }
-        val root = workspace?.let { File(it.raw).canonicalPath }
+        val root = workspace
+            ?.raw
+            ?.takeUnless { it.startsWith("content:", ignoreCase = true) }
+            ?.let { File(it).canonicalPath }
         if (root == null) {
             // No configured image directory and no Direct workspace means there is no media source.
             committedMedia.value = CommittedMediaLocations(workspace, generation, emptyMap(), emptyList())
@@ -327,16 +328,6 @@ constructor(
                     )
             }
         committedMedia.value = CommittedMediaLocations(workspace, generation, fromManifest.toMap(), manifest.entries)
-    }
-
-    override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? = mediaWrite {
-        when (category) {
-            MediaCategory.IMAGE ->
-                createDefaultWorkspace(IMAGE_DIRECTORY_NAME)
-
-            MediaCategory.VOICE ->
-                createDefaultWorkspace(VOICE_DIRECTORY_NAME)
-        }
     }
 
     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation = mediaWrite {
@@ -623,9 +614,6 @@ constructor(
         require(File(path).isFile) { "voice recording path is not a file: $path" }
     }
 
-    private suspend fun createDefaultWorkspace(folderName: String): StorageLocation =
-        StorageLocation(workspaceConfigSource.createDirectory(folderName))
-
     private data class StageSourcePrep(
         val path: String,
         val kind: MediaSourceKind,
@@ -634,8 +622,6 @@ constructor(
     )
 
     companion object {
-        private const val IMAGE_DIRECTORY_NAME = "images"
-        private const val VOICE_DIRECTORY_NAME = "voice"
         private const val COPY_BUFFER_BYTES = 64 * 1024
 
         /** Matches Rust media DEFAULT_RECOVERY_WINDOW_MS (30 days). */
@@ -688,8 +674,7 @@ private fun buildProviderImageLocationMap(
     }
 }
 
-private fun MediaStorageSelection.needsProviderInventory(): Boolean = imageLocation != null ||
-    workspaceLocation?.startsWith("content:", ignoreCase = true) == true
+private fun MediaStorageSelection.needsProviderInventory(): Boolean = imageLocation != null
 
 /** Cache provenance is the installed native generation; ordinary projection revisions do not change bindings. */
 private data class MediaInventoryGeneration(val workspaceId: String, val generation: Long)

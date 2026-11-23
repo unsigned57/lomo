@@ -173,10 +173,6 @@ class SettingsStorageFeatureViewModel(
         launchDirectoryUpdate(StorageArea.VOICE) { appConfigCoordinator.updateVoiceUri(uriString) }
     }
 
-    val followNotesDirectory: (StorageArea) -> Unit = { area ->
-        launchDirectoryUpdate(area) { appConfigCoordinator.followNotesDirectory(area) }
-    }
-
     fun updateSyncInboxDirectory(path: String) {
         launchUpdate { appConfigCoordinator.updateSyncInboxDirectory(path) }
     }

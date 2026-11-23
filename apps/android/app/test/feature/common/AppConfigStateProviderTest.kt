@@ -75,17 +75,24 @@ class AppConfigStateProviderTest : AppFunSpec() {
                 turbineScope {
                     val root = provider.rootDirectory.testIn(backgroundScope)
                     val images = provider.imageDirectory.testIn(backgroundScope)
+                    val voice = provider.voiceDirectory.testIn(backgroundScope)
                     root.awaitItem() shouldBe null
                     images.awaitItem() shouldBe null
+                    voice.awaitItem() shouldBe null
                     root.awaitItem() shouldBe "/root/one"
-                    images.awaitItem() shouldBe "/root/one"
+                    images.expectNoEvents()
+                    voice.expectNoEvents()
 
                     mounted.value = initial.copy(
                         location = StorageLocation("/root/two"),
-                        attachments = WorkspaceAttachmentDirectories(images = StorageLocation("/independent/images")),
+                        attachments = WorkspaceAttachmentDirectories(
+                            images = StorageLocation("/independent/images"),
+                            recordings = StorageLocation("/independent/voice"),
+                        ),
                     )
                     root.awaitItem() shouldBe "/root/two"
                     images.awaitItem() shouldBe "/independent/images"
+                    voice.awaitItem() shouldBe "/independent/voice"
                     root.cancel()
                     images.cancel()
                 }

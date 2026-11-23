@@ -1040,18 +1040,6 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("createDefaultDirectories exposes mapped error when workspace init fails") {
-            runTest(testDispatcher) {
-                mediaRepository.ensureCategoryWorkspaceFailure = IllegalStateException("mkdir failed")
-                val viewModel = createViewModel()
-
-                viewModel.createDefaultDirectories(true, false)
-                testDispatcher.scheduler.advanceUntilIdle()
-
-                (viewModel.errorMessage.value) shouldBe ("Failed to create directories: mkdir failed")
-            }
-        }
-
         test(
             "given a memo reminder when user marks reminder done then repository is updated via reminder coordinator",
         ) {
@@ -1268,7 +1256,6 @@ class MainViewModelTest : AppFunSpec() {
                 ),
                 workspaceCoordinator =
                 MainWorkspaceCoordinator(
-                    initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                     refreshMemosUseCase =
                     RefreshMemosUseCase(
                         SyncAndRebuildUseCase(
@@ -1288,7 +1275,6 @@ class MainViewModelTest : AppFunSpec() {
                             mediaRepository = mediaRepository,
                             initializeWorkspaceUseCase = InitializeWorkspaceUseCase(
                                 appConfigRepository,
-                                mediaRepository,
                             ),
                             syncAndRebuildUseCase =
                             SyncAndRebuildUseCase(

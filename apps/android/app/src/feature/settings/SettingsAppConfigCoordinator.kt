@@ -272,10 +272,6 @@ class SettingsAppConfigCoordinator(
             )
         }
 
-    val followNotesDirectory: suspend (StorageArea) -> Unit = { area ->
-        switchRootStorageUseCase.updateMediaLocation(StorageAreaUpdate(area, null))
-    }
-
     val updateSyncInboxDirectory: suspend (String) -> Unit =
         { path ->
             appConfigRepository.applyLocation(

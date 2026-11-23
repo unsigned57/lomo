@@ -502,15 +502,18 @@ mod tests {
         assert_eq!(staged_bytes, bytes, "the nested file staged, not a miss");
     }
 
-    /// Same-name ambiguity fails closed: identical basenames in two managed
-    /// directories error out instead of silently choosing one.
+    /// Same-name ambiguity fails closed: identical basenames in two nested
+    /// `media/` directories error out instead of silently choosing one, while
+    /// unconfigured `images/` and `voice/` directories are ignored.
     #[test]
     fn stage_attachment_rejects_a_basename_shared_by_two_managed_dirs() {
         let fixture = RuntimeFixture::new().expect("fixture");
-        std::fs::create_dir_all(fixture.runtime.workspace.join("media")).expect("media dir");
+        std::fs::create_dir_all(fixture.runtime.workspace.join("media/a")).expect("media/a dir");
+        std::fs::create_dir_all(fixture.runtime.workspace.join("media/b")).expect("media/b dir");
         std::fs::create_dir_all(fixture.runtime.workspace.join("voice")).expect("voice dir");
-        std::fs::write(fixture.runtime.workspace.join("media/take.mp3"), b"a").expect("seed");
-        std::fs::write(fixture.runtime.workspace.join("voice/take.mp3"), b"b").expect("seed");
+        std::fs::write(fixture.runtime.workspace.join("media/a/take.mp3"), b"a").expect("seed");
+        std::fs::write(fixture.runtime.workspace.join("media/b/take.mp3"), b"b").expect("seed");
+        std::fs::write(fixture.runtime.workspace.join("voice/take.mp3"), b"v").expect("seed");
         let bare = lomo_core::RelativeWorkspacePath::parse("take.mp3").expect("path");
         let error = lomo_tui::mutations::stage_attachment(&fixture.runtime, &bare)
             .expect_err("ambiguous basename must fail");

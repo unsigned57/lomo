@@ -18,9 +18,9 @@ import timber.log.Timber
 import java.io.File
 import java.nio.file.Files
 
-/** Managed attachment roots a bare basename may claim — Kotlin mirror of the
- * `lomo-workspace` `ATTACHMENT_LOOKUP_DIRS` vocabulary (media/images/voice). */
-private val MANAGED_ATTACHMENT_ROOTS = listOf("media", "images", "voice")
+/** Managed attachment root a bare basename may claim without a configured voice root — mirrors
+ * `lomo-workspace` `ATTACHMENT_LOOKUP_DIRS` (`media` only; `images/` and `voice/` are never auto-scanned). */
+private val MANAGED_ATTACHMENT_ROOTS = listOf("media")
 
 /** Media lifecycle lanes enumerated out of attachment claims, mirroring the
  * workspace owner (`.lomo-media-stage` / `-trash` / `-delete-intents`). */
@@ -67,8 +67,13 @@ class AudioPlaybackUriResolverImpl(
     private suspend fun resolveQualifiedSource(source: String, mount: WorkspaceMount): String? =
         withContext(dispatcherProvider.io) {
             val selected = mount.attachments.recordings?.takeIf { source.startsWith("voice/") }
+            val sameAsWorkspace = selected != null &&
+                mount.location?.let {
+                    com.lomo.data.engine.storageDirectoryIdentity(selected.raw) ==
+                        com.lomo.data.engine.storageDirectoryIdentity(it.raw)
+                } == true
             val baseDir = selected?.raw ?: mount.location?.raw ?: return@withContext missingBaseDir(source)
-            val path = if (selected != null) source.removePrefix("voice/") else source
+            val path = if (selected != null && !sameAsWorkspace) source.removePrefix("voice/") else source
             resolveUnderBase(baseDir, path)
         }
 

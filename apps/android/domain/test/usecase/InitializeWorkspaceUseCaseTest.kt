@@ -34,19 +34,16 @@ package com.lomo.domain.usecase
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
-import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
-import com.lomo.domain.testing.fakes.FakeMediaRepository
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 
 class InitializeWorkspaceUseCaseTest : DomainFunSpec() {
     private val directorySettingsRepository = FakeDirectorySettingsRepository()
-    private val mediaRepository = FakeMediaRepository()
-    private val useCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
+    private val useCase = InitializeWorkspaceUseCase(directorySettingsRepository)
     init {
         test("currentRootLocation returns repository value") {
             runTest {
@@ -56,30 +53,6 @@ class InitializeWorkspaceUseCaseTest : DomainFunSpec() {
                 val result = useCase.currentRootLocation()
 
                 result shouldBe expected
-            }
-        }
-
-        test("ensureDefaultMediaDirectories creates only image workspace when requested") {
-            runTest {
-                useCase.ensureDefaultMediaDirectories(forImage = true, forVoice = false)
-
-                mediaRepository.ensuredCategories shouldBe listOf(MediaCategory.IMAGE)
-            }
-        }
-
-        test("ensureDefaultMediaDirectories creates only voice workspace when requested") {
-            runTest {
-                useCase.ensureDefaultMediaDirectories(forImage = false, forVoice = true)
-
-                mediaRepository.ensuredCategories shouldBe listOf(MediaCategory.VOICE)
-            }
-        }
-
-        test("ensureDefaultMediaDirectories skips creation when both flags are false") {
-            runTest {
-                useCase.ensureDefaultMediaDirectories(forImage = false, forVoice = false)
-
-                mediaRepository.ensuredCategories shouldBe emptyList()
             }
         }
     }

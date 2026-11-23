@@ -48,12 +48,21 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                 root.deleteRecursively()
             }
         }
+        test("given null image root when files are listed then workspace directories are not scanned") {
+            runTest {
+                val resolver = mockk<FileStorageBackendResolver>()
+
+                FileMediaStorageDataSourceDelegate(
+                    resolver,
+                ).listImageFiles(MediaStorageSelection("/notes", null)) shouldBe emptyList()
+            }
+        }
     }
 }
 
 private fun fakeBackend(imageFiles: List<Pair<String, String>> = emptyList()): MediaStorageBackend =
     object : MediaStorageBackend {
-        override suspend fun listImageFiles(scope: ImageScanScope): List<Pair<String, String>> = imageFiles
+        override suspend fun listImageFiles(): List<Pair<String, String>> = imageFiles
 
         override suspend fun getImageLocation(filename: String): String? = imageFiles.toMap()[filename]
     }

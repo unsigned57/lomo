@@ -57,7 +57,7 @@ internal fun MainScreenForegroundEffects(
     autoOpenInputOnForeground: Boolean,
     canOpenCreateMemo: Boolean,
     pendingNewMemoCreationEvent: PendingUiEvent<PendingNewMemoCreationRequest>?,
-    directoryGuideController: MainDirectoryGuideController,
+    onRequireVoiceDirectory: () -> Unit,
     editorController: MemoEditorController,
 ) {
     val uiState by foregroundFlows.uiState.collectAsStateWithLifecycle()
@@ -98,7 +98,7 @@ internal fun MainScreenForegroundEffects(
         isRecording = isRecording,
         recordingCaptureId = recordingCaptureId,
         draftText = editorBindings.flows.draftText,
-        directoryGuideController = directoryGuideController,
+        onRequireVoiceDirectory = onRequireVoiceDirectory,
         editorController = editorController,
     )
 }
@@ -113,7 +113,7 @@ internal fun MainScreenExternalAppCommandEffects(
     isRecording: Boolean,
     recordingCaptureId: String?,
     draftText: StateFlow<String>,
-    directoryGuideController: MainDirectoryGuideController,
+    onRequireVoiceDirectory: () -> Unit,
     editorController: MemoEditorController,
 ) {
     val context = LocalContext.current
@@ -161,7 +161,7 @@ internal fun MainScreenExternalAppCommandEffects(
             recordingCaptureId = recordingCaptureId,
         ),
         draftText = draftText,
-        directoryGuideController = directoryGuideController,
+        onRequireVoiceDirectory = onRequireVoiceDirectory,
         editorController = latestEditorController.value,
         onRequestRecordAudioPermission = { command ->
             pendingPermissionCommand = command
