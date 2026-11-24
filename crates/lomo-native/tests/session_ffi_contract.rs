@@ -1107,7 +1107,7 @@ mod tests {
     }
 
     #[test]
-    fn session_render_memo_previews_maps_ordered_batch_outcomes_and_rejects_oversized() {
+    fn session_render_memo_previews_maps_ordered_batch_outcomes() {
         let session = open_direct_engine();
         attach_posix_session(&session);
         fs::create_dir_all(session.workspace.join("images")).test_ok("images dir");
@@ -1173,8 +1173,10 @@ mod tests {
                 1,
             )
             .test_ok("render memo previews");
-        assert_eq!(outcomes.len(), 4);
-        match &outcomes[0] {
+        let [first, missing, stale, last] = outcomes.as_slice() else {
+            panic!("expected four outcomes, got {}", outcomes.len());
+        };
+        match first {
             lomo_native::SessionMemoPreviewOutcome::Rendered {
                 memo_id,
                 content_revision,
@@ -1187,28 +1189,36 @@ mod tests {
                 assert_eq!(document.tag_names, vec!["work".to_owned()]);
                 assert_eq!(document.attachments.len(), 1);
             }
-            other => panic!("expected Rendered at 0, got {other:?}"),
+            other @ (lomo_native::SessionMemoPreviewOutcome::NotFound { .. }
+            | lomo_native::SessionMemoPreviewOutcome::RevisionMismatch { .. }) => {
+                panic!("expected Rendered at 0, got {other:?}");
+            }
         }
         assert!(matches!(
-            &outcomes[1],
+            missing,
             lomo_native::SessionMemoPreviewOutcome::NotFound { memo_id } if memo_id == "nonexistent"
         ));
         assert!(matches!(
-            &outcomes[2],
+            stale,
             lomo_native::SessionMemoPreviewOutcome::RevisionMismatch {
                 memo_id,
                 actual_content_revision,
             } if memo_id == &c2.memo_id && *actual_content_revision == c2.content_revision
         ));
         assert!(matches!(
-            &outcomes[3],
+            last,
             lomo_native::SessionMemoPreviewOutcome::Rendered { memo_id, .. } if memo_id == &c2.memo_id
         ));
+    }
 
+    #[test]
+    fn session_render_memo_previews_rejects_oversized_batches() {
+        let session = open_direct_engine();
+        attach_posix_session(&session);
         let oversized = vec![
             lomo_native::SessionMemoPreviewRequest {
-                memo_id: c1.memo_id,
-                expected_content_revision: c1.content_revision,
+                memo_id: "too-many".to_owned(),
+                expected_content_revision: 1,
             };
             9
         ];

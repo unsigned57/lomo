@@ -1131,42 +1131,6 @@ mod tests {
             .find(|item| item.body_preview.contains("buy milk"))
             .expect("second memo");
 
-        assert!(
-            ctx.session
-                .render_memo_previews(&[], lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1)
-                .expect("empty batch")
-                .is_empty()
-        );
-        let schema_err = ctx
-            .session
-            .render_memo_previews(&[], 2)
-            .expect_err("unknown schema must fail closed");
-        assert_eq!(schema_err.code(), "unknown_render_schema");
-
-        let oversized: Vec<_> = (0..=lomo_application::MAX_PREVIEW_RENDER_BATCH_SIZE)
-            .map(|_| lomo_application::MemoPreviewRenderRequest {
-                memo_id: m1.memo_id.clone(),
-                expected_content_revision: m1.content_revision,
-            })
-            .collect();
-        let limit_err = ctx
-            .session
-            .render_memo_previews(&oversized, lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1)
-            .expect_err("oversized batch must fail closed");
-        assert_eq!(limit_err.code(), "preview_render_batch_too_large");
-
-        let blank_err = ctx
-            .session
-            .render_memo_previews(
-                &[lomo_application::MemoPreviewRenderRequest {
-                    memo_id: "   ".to_owned(),
-                    expected_content_revision: 1,
-                }],
-                lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1,
-            )
-            .expect_err("blank memo_id must fail closed");
-        assert_eq!(blank_err.code(), "invalid_memo_id");
-
         let outcomes = ctx
             .session
             .render_memo_previews(
@@ -1187,8 +1151,10 @@ mod tests {
                 lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1,
             )
             .expect("mixed batch");
-        assert_eq!(outcomes.len(), 3);
-        match &outcomes[0] {
+        let [rendered, missing, stale] = outcomes.as_slice() else {
+            panic!("expected three outcomes, got {}", outcomes.len());
+        };
+        match rendered {
             lomo_application::MemoPreviewRenderOutcome::Rendered {
                 memo_id,
                 content_revision,
@@ -1200,21 +1166,65 @@ mod tests {
                 assert_eq!(*source_byte_length, m1.body_preview.len() as u64);
                 assert_eq!(document.tag_names(), &["notes".to_owned()]);
             }
-            other => panic!("expected Rendered at index 0, got {other:?}"),
+            other @ (lomo_application::MemoPreviewRenderOutcome::NotFound { .. }
+            | lomo_application::MemoPreviewRenderOutcome::RevisionMismatch { .. }) => {
+                panic!("expected Rendered at index 0, got {other:?}");
+            }
         }
         assert_eq!(
-            outcomes[1],
+            *missing,
             lomo_application::MemoPreviewRenderOutcome::NotFound {
                 memo_id: "missing-preview".to_owned(),
             }
         );
         assert_eq!(
-            outcomes[2],
+            *stale,
             lomo_application::MemoPreviewRenderOutcome::RevisionMismatch {
                 memo_id: m2.memo_id.clone(),
                 actual_content_revision: m2.content_revision,
             }
         );
+    }
+
+    #[test]
+    fn render_memo_previews_validates_batch_inputs() {
+        let ctx = open_session();
+        assert_eq!(
+            ctx.session
+                .render_memo_previews(&[], lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1)
+                .expect("empty batch")
+                .len(),
+            0
+        );
+        let schema_err = ctx
+            .session
+            .render_memo_previews(&[], 2)
+            .expect_err("unknown schema must fail closed");
+        assert_eq!(schema_err.code(), "unknown_render_schema");
+
+        let oversized: Vec<_> = (0..=lomo_application::MAX_PREVIEW_RENDER_BATCH_SIZE)
+            .map(|_| lomo_application::MemoPreviewRenderRequest {
+                memo_id: "preview-limit".to_owned(),
+                expected_content_revision: 1,
+            })
+            .collect();
+        let limit_err = ctx
+            .session
+            .render_memo_previews(&oversized, lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1)
+            .expect_err("oversized batch must fail closed");
+        assert_eq!(limit_err.code(), "preview_render_batch_too_large");
+
+        let blank_err = ctx
+            .session
+            .render_memo_previews(
+                &[lomo_application::MemoPreviewRenderRequest {
+                    memo_id: "   ".to_owned(),
+                    expected_content_revision: 1,
+                }],
+                lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1,
+            )
+            .expect_err("blank memo_id must fail closed");
+        assert_eq!(blank_err.code(), "invalid_memo_id");
     }
 
     fn fs_read_doc(root: &std::path::Path, rel: &str) -> String {

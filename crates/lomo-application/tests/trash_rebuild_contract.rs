@@ -605,17 +605,16 @@ mod tests {
     }
 
     #[test]
-    fn empty_trash_commits_multiple_batches_and_preserves_committed_batches_on_mid_pass_failure() {
+    fn empty_trash_commits_multiple_batches() {
         let ctx = open_session();
         let total = 66_usize;
-        let mut seeded = Vec::with_capacity(total);
         for index in 0..total {
-            seeded.push(trash_memo(
+            trash_memo(
                 &ctx,
                 &format!("mb-{index:02}"),
                 &format!("2026_09_{:02}.md", (index % 28) + 1),
                 &format!("multi batch body {index}"),
-            ));
+            );
         }
 
         let multi = ctx
@@ -627,9 +626,6 @@ mod tests {
                 &mut || false,
             )
             .expect("multi-batch empty trash");
-        ctx.session
-            .settle_workspace()
-            .expect("committed writes converge");
         ctx.session
             .settle_workspace()
             .expect("committed writes converge");
@@ -649,9 +645,13 @@ mod tests {
                 sort: lomo_store::MemoSort::default(),
             })
             .expect("list empty trash");
-        assert!(empty_after.items.is_empty());
+        assert_eq!(empty_after.items.len(), 0);
+    }
 
-        // Seed a second multi-batch wave and break chunk 2 before starting empty_trash.
+    #[test]
+    fn empty_trash_preserves_committed_batches_on_mid_pass_failure() {
+        let ctx = open_session();
+        let total = 66_usize;
         let mut wave2 = Vec::with_capacity(total);
         for index in 0..total {
             wave2.push(trash_memo(
@@ -662,7 +662,8 @@ mod tests {
             ));
         }
         wave2.sort_by(|left, right| left.memo_id.as_str().cmp(right.memo_id.as_str()));
-        let victim = &wave2[64];
+        let (committed, pending) = wave2.split_at(64);
+        let victim = pending.first().expect("second chunk victim");
         let victim_rel =
             trash_record_relative_path(victim.memo_id.as_str(), &victim.source_path).expect("rel");
         let victim_abs = ctx.workspace_path.join(victim_rel.as_str());
@@ -683,7 +684,14 @@ mod tests {
             1,
             "committed first chunk receipt must be preserved"
         );
-        assert_eq!(err.batches[0].deleted_memos.len(), 64);
+        assert_eq!(
+            err.batches
+                .first()
+                .expect("committed receipt")
+                .deleted_memos
+                .len(),
+            64
+        );
 
         let remaining_trash = ctx
             .session
@@ -704,27 +712,21 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(
             remaining_ids,
-            wave2[64..]
+            pending
                 .iter()
                 .map(|target| target.memo_id.as_str())
                 .collect::<std::collections::BTreeSet<_>>()
         );
-        if let Some(parent) = victim_abs.parent() {
-            fs::create_dir_all(parent).expect("parent dir");
-        }
         fs::write(&victim_abs, victim_bytes).expect("restore victim trash record");
         ctx.session
             .settle_workspace()
             .expect("chunk-1 writes converge");
-        ctx.session
-            .settle_workspace()
-            .expect("chunk-1 writes converge");
-        for item in &wave2[..64] {
+        for item in committed {
             let rel =
                 trash_record_relative_path(item.memo_id.as_str(), &item.source_path).expect("rel");
             assert!(!ctx.workspace_path.join(rel.as_str()).exists());
         }
-        for item in &wave2[64..] {
+        for item in pending {
             let rel =
                 trash_record_relative_path(item.memo_id.as_str(), &item.source_path).expect("rel");
             assert!(ctx.workspace_path.join(rel.as_str()).is_file());
@@ -738,9 +740,6 @@ mod tests {
                 &mut || false,
             )
             .expect("retry with fresh operation_id must sweep remaining chunk");
-        ctx.session
-            .settle_workspace()
-            .expect("retry writes converge");
         ctx.session
             .settle_workspace()
             .expect("retry writes converge");

@@ -107,7 +107,7 @@ pub struct EmptyTrashResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmptyTrashError {
     pub batches: Vec<SafProjectionCommitResult>,
-    pub error: LomoError,
+    pub error: Box<LomoError>,
 }
 
 /// Committed state of one chunked permanent-delete pass.
@@ -234,7 +234,7 @@ impl WorkspaceSession {
         self.recover_pending(&held)?;
         let outcome = self
             .commit_delete_targets(&held, &request.operation_id, &targets, &mut || false)
-            .map_err(|err| err.error)?;
+            .map_err(|err| *err.error)?;
         drop(held);
         let idempotent_replay = outcome.batches.iter().all(|batch| batch.idempotent_replay);
         let commit_result = outcome.batches.last().cloned().ok_or_else(|| {
@@ -273,7 +273,7 @@ impl WorkspaceSession {
     ) -> Result<EmptyTrashResult, EmptyTrashError> {
         let map_pre_batch_error = |error| EmptyTrashError {
             batches: Vec::new(),
-            error,
+            error: Box::new(error),
         };
         let held = self.write_behind.exclusive().map_err(map_pre_batch_error)?;
         require_batch_parent_room(&request.operation_id).map_err(map_pre_batch_error)?;
@@ -315,7 +315,10 @@ impl WorkspaceSession {
         let idempotent_replay = outcome.batches.iter().all(|batch| batch.idempotent_replay);
         let removed = u64::try_from(outcome.deleted.len()).map_err(|error| EmptyTrashError {
             batches: outcome.batches.clone(),
-            error: resource_limit("empty_trash_count_overflow", error.to_string()),
+            error: Box::new(resource_limit(
+                "empty_trash_count_overflow",
+                error.to_string(),
+            )),
         })?;
         Ok(EmptyTrashResult {
             removed,
@@ -352,16 +355,31 @@ impl WorkspaceSession {
             }
             let token = match batch_token(chunk) {
                 Ok(token) => token,
-                Err(error) => return Err(EmptyTrashError { batches, error }),
+                Err(error) => {
+                    return Err(EmptyTrashError {
+                        batches,
+                        error: Box::new(error),
+                    });
+                }
             };
             let child_id =
                 match OperationId::parse(&format!("{}.{token}", parent_operation.as_str())) {
                     Ok(child_id) => child_id,
-                    Err(error) => return Err(EmptyTrashError { batches, error }),
+                    Err(error) => {
+                        return Err(EmptyTrashError {
+                            batches,
+                            error: Box::new(error),
+                        });
+                    }
                 };
             let digest = match payload_digest(&(parent_operation, chunk)) {
                 Ok(digest) => digest,
-                Err(error) => return Err(EmptyTrashError { batches, error }),
+                Err(error) => {
+                    return Err(EmptyTrashError {
+                        batches,
+                        error: Box::new(error),
+                    });
+                }
             };
             match self.replay(held, &child_id, &digest) {
                 Ok(Some(receipt)) => {
@@ -370,11 +388,21 @@ impl WorkspaceSession {
                     continue;
                 }
                 Ok(None) => {}
-                Err(error) => return Err(EmptyTrashError { batches, error }),
+                Err(error) => {
+                    return Err(EmptyTrashError {
+                        batches,
+                        error: Box::new(error),
+                    });
+                }
             }
             let receipt = match self.commit_delete_chunk(held, &child_id, chunk, digest) {
                 Ok(receipt) => receipt,
-                Err(error) => return Err(EmptyTrashError { batches, error }),
+                Err(error) => {
+                    return Err(EmptyTrashError {
+                        batches,
+                        error: Box::new(error),
+                    });
+                }
             };
             deleted.extend(chunk.iter().map(|target| target.memo_id.clone()));
             batches.push(receipt);

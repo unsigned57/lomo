@@ -1380,7 +1380,7 @@ pub struct MemoPreviewRenderRequest {
 }
 
 /// Outcome of rendering one requested preview item, preserving caller request order.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MemoPreviewRenderOutcome {
     Rendered {
         memo_id: String,

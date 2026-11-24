@@ -858,9 +858,12 @@ mod tests {
                 "2026_09_03.md",
             ]
         );
-        assert!(full.items[0].is_pinned);
+        let [first, second, third, _] = full.items.as_slice() else {
+            panic!("expected four gallery rows, got {}", full.items.len());
+        };
+        assert!(first.is_pinned);
         assert_eq!(
-            full.items[1].image_urls,
+            second.image_urls,
             vec![
                 "images/z.png",
                 "https://cdn.example.com/r.png",
@@ -910,7 +913,7 @@ mod tests {
         );
 
         let anchored = engine
-            .query_gallery_page(None, 2, Some(full.items[1].memo_id.clone()), false)
+            .query_gallery_page(None, 2, Some(second.memo_id.clone()), false)
             .test_ok("gallery anchor page");
         assert!(anchored.prev_cursor.is_some());
         assert!(anchored.next_cursor.is_some());
@@ -927,7 +930,7 @@ mod tests {
             .query_gallery_page(
                 Some(cursor1.clone()),
                 2,
-                Some(full.items[1].memo_id.clone()),
+                Some(second.memo_id.clone()),
                 false,
             )
             .test_err("mixed cursor and identity");
@@ -936,7 +939,7 @@ mod tests {
         engine
             .session_pin_memo(lomo_native::SessionPinMemoRequest {
                 operation_id: "ffi-gallery-pin-g3".to_owned(),
-                memo_id: full.items[2].memo_id.clone(),
+                memo_id: third.memo_id.clone(),
                 pinned: true,
             })
             .test_ok("pin g3 advances revision");
@@ -959,7 +962,7 @@ mod tests {
     }
 
     #[test]
-    fn session_empty_trash_ffi_handles_empty_multibatch_and_mid_pass_cancel_retry() {
+    fn session_empty_trash_ffi_handles_unattached_and_empty_workspaces() {
         let (_unattached_tmp, _unattached_ws, unattached) = open_engine_without_session();
         let unattached_err = unattached
             .session_empty_trash(
@@ -972,7 +975,7 @@ mod tests {
             .test_err("unattached session_empty_trash");
         assert_eq!(unattached_err.code(), "workspace_session_unavailable");
 
-        let (_tmp, workspace, engine) = open_engine();
+        let (_tmp, _workspace, engine) = open_engine();
         let noop = engine
             .session_empty_trash(
                 "op-ffi-empty-noop".to_owned(),
@@ -983,39 +986,15 @@ mod tests {
             )
             .test_ok("empty trash noop");
         assert_eq!(noop.removed, 0);
-        assert!(noop.batches.is_empty());
+        assert_eq!(noop.batches.len(), 0);
         assert!(!noop.cancelled);
         assert!(noop.failure.is_none());
+    }
 
-        // Seed 66 trashed memos across daily files (> MAX_TRANSACTION_FILES / 2 = 64 -> 2 chunks).
-        let seed_body = |tag: &str| -> String {
-            (0..22)
-                .map(|i| format!("- 10:{i:02}:00 {tag} #{i}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        for day in 1..=3 {
-            seed_markdown(
-                &workspace,
-                &format!("2026_09_{day:02}"),
-                &seed_body(&format!("wave1-{day}")),
-            );
-        }
-        index_workspace(&engine);
-        let all_wave1 = engine
-            .query_memos(StoreMemoQuery::default(), None, 100, None, false)
-            .test_ok("list wave1")
-            .items;
-        assert_eq!(all_wave1.len(), 66);
-        for (idx, summary) in all_wave1.iter().enumerate() {
-            engine
-                .session_delete_memo(SessionDeleteMemoRequest {
-                    operation_id: format!("op-trash-w1-{idx}"),
-                    memo_id: summary.memo_id.clone(),
-                    expected_document_fingerprint: summary.file_fingerprint.clone(),
-                })
-                .test_ok("trash wave1 item");
-        }
+    #[test]
+    fn session_empty_trash_ffi_preserves_committed_batches_on_cancel_and_can_retry() {
+        let (_tmp, workspace, engine) = open_engine();
+        seed_trash_batches(&workspace, &engine);
 
         // Poll 0: page 1 read; Poll 1: chunk 0 (64 items); Poll 2: cancelled before chunk 1 (2 items).
         let partial = engine
@@ -1031,16 +1010,17 @@ mod tests {
         assert!(partial.failure.is_none());
         assert_eq!(partial.removed, 64);
         assert_eq!(partial.batches.len(), 1);
-        assert_eq!(partial.batches[0].deleted.len(), 64);
+        assert_eq!(
+            partial
+                .batches
+                .first()
+                .test_ok("committed batch")
+                .deleted
+                .len(),
+            64
+        );
 
-        let trash_query = StoreMemoQuery {
-            filters: StoreMemoFilters {
-                include_trash: true,
-                trash_only: true,
-                ..StoreMemoFilters::default()
-            },
-            ..StoreMemoQuery::default()
-        };
+        let trash_query = trash_only_query();
         let remaining_trash = engine
             .query_memos(trash_query.clone(), None, 100, None, false)
             .test_ok("remaining trash after cancel");
@@ -1061,36 +1041,18 @@ mod tests {
         assert_eq!(retry.batches.len(), 1);
         assert_eq!(
             engine
-                .query_memos(trash_query.clone(), None, 100, None, false)
+                .query_memos(trash_query, None, 100, None, false)
                 .test_ok("trash empty after retry")
                 .items
                 .len(),
             0
         );
+    }
 
-        // Full multi-batch completion in one call without cancellation.
-        for day in 4..=6 {
-            seed_markdown(
-                &workspace,
-                &format!("2026_09_{day:02}"),
-                &seed_body(&format!("wave2-{day}")),
-            );
-        }
-        index_workspace(&engine);
-        let all_wave2 = engine
-            .query_memos(StoreMemoQuery::default(), None, 100, None, false)
-            .test_ok("list wave2")
-            .items;
-        assert_eq!(all_wave2.len(), 66);
-        for (idx, summary) in all_wave2.iter().enumerate() {
-            engine
-                .session_delete_memo(SessionDeleteMemoRequest {
-                    operation_id: format!("op-trash-w2-{idx}"),
-                    memo_id: summary.memo_id.clone(),
-                    expected_document_fingerprint: summary.file_fingerprint.clone(),
-                })
-                .test_ok("trash wave2 item");
-        }
+    #[test]
+    fn session_empty_trash_ffi_completes_multiple_batches() {
+        let (_tmp, workspace, engine) = open_engine();
+        seed_trash_batches(&workspace, &engine);
         let multi = engine
             .session_empty_trash(
                 "op-ffi-empty-multi".to_owned(),
@@ -1103,15 +1065,57 @@ mod tests {
         assert!(!multi.cancelled);
         assert!(multi.failure.is_none());
         assert_eq!(multi.removed, 66);
-        assert_eq!(multi.batches.len(), 2);
-        assert_eq!(multi.batches[0].deleted.len(), 64);
-        assert_eq!(multi.batches[1].deleted.len(), 2);
-        assert!(
+        let batch_counts = multi
+            .batches
+            .iter()
+            .map(|batch| batch.deleted.len())
+            .collect::<Vec<_>>();
+        assert_eq!(batch_counts, [64, 2]);
+        let trash = engine
+            .query_memos(trash_only_query(), None, 100, None, false)
+            .test_ok("trash empty after both batches");
+        assert_eq!(trash.items.len(), 0);
+    }
+
+    fn trash_only_query() -> StoreMemoQuery {
+        StoreMemoQuery {
+            filters: StoreMemoFilters {
+                include_trash: true,
+                trash_only: true,
+                ..StoreMemoFilters::default()
+            },
+            ..StoreMemoQuery::default()
+        }
+    }
+
+    fn seed_trash_batches(workspace: &Path, engine: &LomoEngine) {
+        let seed_body = |tag: &str| -> String {
+            (0..22)
+                .map(|i| format!("- 10:{i:02}:00 {tag} #{i}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        for day in 1..=3 {
+            seed_markdown(
+                workspace,
+                &format!("2026_09_{day:02}"),
+                &seed_body(&format!("wave1-{day}")),
+            );
+        }
+        index_workspace(engine);
+        let targets = engine
+            .query_memos(StoreMemoQuery::default(), None, 100, None, false)
+            .test_ok("list wave1")
+            .items;
+        assert_eq!(targets.len(), 66);
+        for (idx, summary) in targets.iter().enumerate() {
             engine
-                .query_memos(trash_query, None, 100, None, false)
-                .test_ok("trash empty after wave2")
-                .items
-                .is_empty()
-        );
+                .session_delete_memo(SessionDeleteMemoRequest {
+                    operation_id: format!("op-trash-target-{idx}"),
+                    memo_id: summary.memo_id.clone(),
+                    expected_document_fingerprint: summary.file_fingerprint.clone(),
+                })
+                .test_ok("trash wave1 item");
+        }
     }
 }

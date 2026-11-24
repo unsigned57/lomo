@@ -990,9 +990,9 @@ impl LomoEngine {
                 cancelled: result.cancelled,
                 failure: None,
             }),
-            Err(err) if err.batches.is_empty() => Err(EngineError::from(err.error)),
+            Err(err) if err.batches.is_empty() => Err(EngineError::from(*err.error)),
             Err(err) => {
-                let EngineError::Failure { failure } = EngineError::from(err.error);
+                let EngineError::Failure { failure } = EngineError::from(*err.error);
                 let batches = err
                     .batches
                     .iter()
@@ -1000,8 +1000,8 @@ impl LomoEngine {
                     .collect::<Vec<_>>();
                 let idempotent_replay = batches.iter().all(|batch| batch.idempotent_replay);
                 let removed = batches.iter().try_fold(0_u64, |acc, batch| {
-                    let count = u64::try_from(batch.deleted.len()).map_err(|_| {
-                        session_err("empty_trash_count_overflow", "deleted count exceeds u64")
+                    let count = u64::try_from(batch.deleted.len()).map_err(|error| {
+                        session_err("empty_trash_count_overflow", &error.to_string())
                     })?;
                     acc.checked_add(count).ok_or_else(|| {
                         session_err("empty_trash_count_overflow", "deleted count overflow")
