@@ -229,11 +229,11 @@ lomo_detekt_run() {
   # additional plugins passes `--plugins <jar>` as ordinary detekt CLI arguments —
   # there is no ambient environment channel for arbitrary plugin injection.
 
+  # Parallel walks can race Kotlin PSI initialization and the compiler's Java class cache.
   java_args=(
     -jar "$cli_jar"
     "${plugin_args[@]}"
     --base-path "$(lomo_detekt_repo_root)"
-    --parallel
   )
   java "${java_args[@]}" "$@"
 }
