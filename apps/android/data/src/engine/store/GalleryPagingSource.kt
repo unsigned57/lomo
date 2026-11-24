@@ -16,7 +16,7 @@ import kotlinx.coroutines.CancellationException
  */
 class GalleryPagingSource(
     private val port: StorePort,
-    private val pageSize: Int = 30,
+    private val pageSize: Int = DEFAULT_STORE_PAGING_SIZE,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     registerInvalidation: ((PagingSource<String, GalleryMemo>) -> Unit)? = null,
 ) : PagingSource<String, GalleryMemo>() {

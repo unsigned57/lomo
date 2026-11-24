@@ -2,6 +2,7 @@ package com.lomo.data.engine
 
 import android.content.Intent
 import android.os.Debug
+import com.lomo.data.engine.store.DEFAULT_STORE_PAGING_SIZE
 import com.lomo.data.engine.store.toDomainMemo
 import com.lomo.data.engine.store.toStoreSummary
 import com.lomo.data.source.AttachmentNameClassifier
@@ -38,7 +39,7 @@ import java.io.File
 internal suspend fun EnginePerfProbe.pagingProduction(intent: Intent, run: String): JSONObject {
     requireReadySession()
     val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
-    val pageSize = intent.probeCount("pageSize", PRODUCTION_PAGE_SIZE, LIST_PAGE_SIZE)
+    val pageSize = intent.probeCount("pageSize", DEFAULT_STORE_PAGING_SIZE, LIST_PAGE_SIZE)
     val query = defaultFeedQuery()
     val firstTimes = JSONArray()
     val nextTimes = JSONArray()
@@ -72,9 +73,9 @@ internal suspend fun EnginePerfProbe.pagingProduction(intent: Intent, run: Strin
         put(
             "metrics",
             JSONObject()
-                .put("paging_first_20_ms", firstTimes)
-                .put("paging_next_20_ms", nextTimes)
-                .put("paging_map_20_ms", mapTimes),
+                .put("paging_first_${pageSize}_ms", firstTimes)
+                .put("paging_next_${pageSize}_ms", nextTimes)
+                .put("paging_map_${pageSize}_ms", mapTimes),
         )
         put(
             "facts",
@@ -149,7 +150,7 @@ internal suspend fun EnginePerfProbe.searchProduction(intent: Intent, run: Strin
     }
     val allocated = allocatedBytes() - allocatedBefore
     return okPayload(run, "search_prod").apply {
-        put("metrics", JSONObject().put("search_first_20_ms", times))
+        put("metrics", JSONObject().put("search_first_${pageSize}_ms", times))
         put(
             "facts",
             JSONObject()
@@ -173,7 +174,7 @@ internal suspend fun EnginePerfProbe.searchProduction(intent: Intent, run: Strin
 internal suspend fun EnginePerfProbe.previewRender(intent: Intent, run: String): JSONObject {
     requireReadySession()
     val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
-    val count = intent.probeCount("count", PREVIEW_RENDER_BATCH_SIZE, LIST_PAGE_SIZE)
+    val count = intent.probeCount("count", DEFAULT_LEADING_PREVIEW_WINDOW, LIST_PAGE_SIZE)
     val page = session.queryMemos(defaultFeedQuery(), null, count.toUInt(), null, false)
     check(page.items.isNotEmpty()) { "preview_render requires populated memos" }
     val requests =
@@ -209,8 +210,8 @@ internal suspend fun EnginePerfProbe.previewRender(intent: Intent, run: String):
         put(
             "metrics",
             JSONObject()
-                .put("preview_render_20_ms", times)
-                .put("preview_render_call_floor_20_ms", floorTimes),
+                .put("preview_render_${count}_ms", times)
+                .put("preview_render_call_floor_${count}_ms", floorTimes),
         )
         put(
             "facts",
@@ -219,7 +220,6 @@ internal suspend fun EnginePerfProbe.previewRender(intent: Intent, run: String):
                 .put("memoCount", requests.size)
                 .put("ffiCallsPerSample", batch8Calls)
                 .put("ffiBatchSize", PREVIEW_RENDER_FFI_BATCH_SIZE)
-                .put("requestUtf8Bytes", 0L)
                 .put("sourceBytesSent", 0L)
                 .put("batch2Calls", requests.chunked(2).size)
                 .put("batch4Calls", requests.chunked(4).size)
@@ -394,7 +394,7 @@ private fun ActionOutcome.requireListedPage() = when (this) {
 internal suspend fun EnginePerfProbe.galleryPaging(intent: Intent, run: String): JSONObject {
     requireReadySession()
     val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
-    val pageSize = intent.probeCount("pageSize", PRODUCTION_PAGE_SIZE, LIST_PAGE_SIZE)
+    val pageSize = intent.probeCount("pageSize", DEFAULT_STORE_PAGING_SIZE, LIST_PAGE_SIZE)
     val times = JSONArray()
     var expectedIds: List<String>? = null
     var imageTargets = 0
@@ -411,7 +411,7 @@ internal suspend fun EnginePerfProbe.galleryPaging(intent: Intent, run: String):
         imageRows = page.items.count { item -> item.imageUrls.isNotEmpty() }
     }
     return okPayload(run, "gallery_paging").apply {
-        put("metrics", JSONObject().put("gallery_paging_20_ms", times))
+        put("metrics", JSONObject().put("gallery_paging_${pageSize}_ms", times))
         put(
             "facts",
             JSONObject()

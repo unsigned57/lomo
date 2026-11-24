@@ -12,6 +12,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+internal const val DEFAULT_STORE_PAGING_SIZE = 30
+
 /**
  * Paging3 source over the production [StorePort] (promoted from P3-09 dark-build).
  *
@@ -21,7 +23,7 @@ import java.time.format.DateTimeFormatter
 class StorePagingSource(
     private val port: StorePort,
     private val query: StoreMemoQuery,
-    private val pageSize: Int = 30,
+    private val pageSize: Int = DEFAULT_STORE_PAGING_SIZE,
     private val mapItem: (StoreMemoSummary) -> Memo = {
         it.toDomainMemo(body = it.bodyPreview, contentKind = MemoContentKind.Preview)
     },

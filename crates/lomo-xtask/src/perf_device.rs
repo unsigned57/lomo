@@ -1552,11 +1552,7 @@ impl DeviceRun<'_> {
                 &[("pages", "5"), ("pageSize", "100")],
                 "engine-paging",
             )?,
-            self.run_probe(
-                "paging_prod",
-                &[("samples", "30"), ("pageSize", "20")],
-                "engine-paging-prod",
-            )?,
+            self.run_probe("paging_prod", &[("samples", "30")], "engine-paging-prod")?,
             self.run_probe("search", &[("samples", "9")], "engine-search")?,
             self.run_probe(
                 "search_prod",
@@ -1566,12 +1562,12 @@ impl DeviceRun<'_> {
             self.run_probe("ffi", &[("samples", "15")], "engine-ffi")?,
             self.run_probe(
                 "preview_render",
-                &[("samples", "30"), ("count", "20")],
+                &[("samples", "30")],
                 "engine-preview-render",
             )?,
             self.run_probe(
                 "gallery_paging",
-                &[("samples", "30"), ("pageSize", "20")],
+                &[("samples", "30")],
                 "engine-gallery-paging",
             )?,
             self.run_probe(
