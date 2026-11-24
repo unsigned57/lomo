@@ -19,6 +19,7 @@ import com.lomo.domain.model.canRebuildDerivedIndex
 import com.lomo.domain.model.toDiagnosticReport
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -326,13 +327,18 @@ internal class ManagedEngineSession(
                         val committed = directorySettingsRepository.currentRootLocation()
                         val pending = directorySettingsRepository.pendingRootTransition()
                         if (committed == existing && pending == null) {
-                            promoteWorkspaceWithColdStartRetry(
-                                existing,
-                                directorySettingsRepository.mediaRootsFor(null),
-                            )
+                            val mediaRoots = directorySettingsRepository.mediaRootsFor(null)
+                            retryColdStartSaf(
+                                isSaf = candidateOpen.isContentUri(existing.raw),
+                                retryDelay = retryDelayMillis,
+                                canRetry = { !closed.get() },
+                            ) {
+                                promoteWorkspace(existing, mediaRoots, allowRetainedProjection = true)
+                            }
                         }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
                     } catch (failure: Exception) {
-                        if (failure is kotlinx.coroutines.CancellationException) throw failure
                         holdRecoveryAuthority(recoveryFromThrowable(failure).copy(retryLocation = existing))
                     }
                 }
@@ -368,45 +374,28 @@ internal class ManagedEngineSession(
         }
     }
 
-    private suspend fun promoteWorkspaceWithColdStartRetry(
-        location: StorageLocation,
-        mediaRoots: Map<String, String>,
-    ) {
-        val isSaf = candidateOpen.isContentUri(location.raw)
-        var attempt = 0
-        while (true) {
-            try {
-                promoteWorkspace(
-                    location,
-                    mediaRoots,
-                    allowRetainedProjection = true,
-                )
-                return
-            } catch (failure: Exception) {
-                if (failure is kotlinx.coroutines.CancellationException) throw failure
-                val recovery = recoveryFromThrowable(failure)
-                if (!isSaf ||
-                    attempt >= COLD_START_SAF_RETRY_DELAYS_MS.size ||
-                    !isTransientSafColdStartRecovery(recovery) ||
-                    closed.get()
-                ) {
-                    throw failure
-                }
-                retryDelayMillis(COLD_START_SAF_RETRY_DELAYS_MS[attempt])
-                attempt += 1
-            }
-        }
-    }
-
     /** The activation mutex keeps the same installed adapter throughout retry. */
     private suspend fun revalidateRetainedProjection(adapter: RustEngineAdapter, authority: WorkspaceAuthority) {
         if (adapterLease.read { activeAdapter !== adapter } || closed.get()) return
-        val isSaf = _mount.value.location?.raw?.let(candidateOpen.isContentUri) == true
+        val isSaf = _mount.value.location?.let { candidateOpen.isContentUri(it.raw) } == true
         val result =
             try {
-                runRebuildWithColdStartSafRetry(adapter, isSaf) ?: return
+                retryColdStartSaf(
+                    isSaf = isSaf,
+                    retryDelay = retryDelayMillis,
+                    canRetry = { !closed.get() && adapterLease.read { activeAdapter === adapter } },
+                ) {
+                    adapterLease.read {
+                        if (closed.get() || activeAdapter !== adapter) {
+                            null
+                        } else {
+                            adapter.startRebuild(RECOVERY_REBUILD_BATCH_SIZE)
+                        }
+                    }
+                } ?: return
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (failure: Exception) {
-                if (failure is kotlinx.coroutines.CancellationException) throw failure
                 adapterLease.write {
                     if (!closed.get() && activeAdapter === adapter) {
                         val stageRecovery =
@@ -434,30 +423,6 @@ internal class ManagedEngineSession(
                         freshness = ProjectionFreshness.Verified(result.highWaterRevision),
                     ),
                 )
-            }
-        }
-    }
-
-    private suspend fun runRebuildWithColdStartSafRetry(
-        adapter: RustEngineAdapter,
-        isSaf: Boolean,
-    ): com.lomo.nativebridge.StoreRebuildResult? {
-        var attempt = 0
-        while (true) {
-            if (adapterLease.read { activeAdapter !== adapter } || closed.get()) return null
-            try {
-                return adapterLease.read { adapter.startRebuild(64u) }
-            } catch (failure: Exception) {
-                if (failure is kotlinx.coroutines.CancellationException) throw failure
-                val recovery = recoveryFromThrowable(failure)
-                val canRetry = isSaf &&
-                    attempt < COLD_START_SAF_RETRY_DELAYS_MS.size &&
-                    isTransientSafColdStartRecovery(recovery) &&
-                    !closed.get() &&
-                    adapterLease.read { activeAdapter === adapter }
-                if (!canRetry) throw failure
-                retryDelayMillis(COLD_START_SAF_RETRY_DELAYS_MS[attempt])
-                attempt += 1
             }
         }
     }
@@ -751,20 +716,43 @@ internal class ManagedEngineSession(
 
     companion object {
         private const val RECOVERY_REBUILD_BATCH_SIZE: UInt = 64u
-        private val COLD_START_SAF_RETRY_DELAYS_MS = longArrayOf(150L, 350L)
-        private val TRANSIENT_SAF_COLD_START_CODES = setOf(
-            "metadata_enumeration_loading",
-            "metadata_enumeration_incomplete",
-            "platform_provider_disconnected",
-            "platform_io_error",
-            "workspace_probe_incomplete",
-        )
-
-        private fun isTransientSafColdStartRecovery(recovery: EngineReadiness.ReadOnlyRecovery): Boolean =
-            recovery.retryDisposition == EngineRetryDisposition.TRANSIENT ||
-                recovery.code in TRANSIENT_SAF_COLD_START_CODES
     }
 }
+
+private suspend fun <T> retryColdStartSaf(
+    isSaf: Boolean,
+    retryDelay: suspend (Long) -> Unit,
+    canRetry: () -> Boolean,
+    operation: suspend () -> T,
+): T {
+    var attempt = 0
+    while (true) {
+        try {
+            return operation()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val recovery = recoveryFromThrowable(failure)
+            val transient =
+                recovery.retryDisposition == EngineRetryDisposition.TRANSIENT ||
+                    recovery.code in TRANSIENT_SAF_COLD_START_CODES
+            if (!isSaf || attempt >= COLD_START_SAF_RETRY_DELAYS_MS.size || !transient || !canRetry()) {
+                throw failure
+            }
+            retryDelay(COLD_START_SAF_RETRY_DELAYS_MS[attempt])
+            attempt += 1
+        }
+    }
+}
+
+private val COLD_START_SAF_RETRY_DELAYS_MS = longArrayOf(150L, 350L)
+private val TRANSIENT_SAF_COLD_START_CODES = setOf(
+    "metadata_enumeration_loading",
+    "metadata_enumeration_incomplete",
+    "platform_provider_disconnected",
+    "platform_io_error",
+    "workspace_probe_incomplete",
+)
 
 private suspend fun DirectorySettingsRepository.mediaRootsFor(change: MediaDirectoryChange?): Map<String, String> =
     buildMap {
