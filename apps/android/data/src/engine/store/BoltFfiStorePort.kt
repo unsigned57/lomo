@@ -401,7 +401,7 @@ internal class BoltFfiStorePort(
             withEngineFailureConversion {
                 session.sessionEmptyTrash(
                     operationId = operationId,
-                    cancellation = com.lomo.nativebridge.EmptyTrashCancellation { isCancelled() },
+                    cancellation = ForwardingEmptyTrashCancellation(isCancelled),
                 )
             }
         return StoreEmptyTrashResult(
@@ -411,6 +411,11 @@ internal class BoltFfiStorePort(
             cancelled = result.cancelled,
             failure = result.failure?.toEngineCommandFailure(),
         )
+    }
+
+    private class ForwardingEmptyTrashCancellation(private val cancellationRequested: () -> Boolean) :
+        com.lomo.nativebridge.EmptyTrashCancellation {
+        override fun isCancelled(): Boolean = cancellationRequested()
     }
 
     override fun startRebuild(batchSize: Int): StoreRebuildResult {
