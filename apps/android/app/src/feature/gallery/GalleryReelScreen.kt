@@ -141,7 +141,7 @@ private fun BoxScope.GalleryReelLoadedRoute(
     }
     var activeImageIndicatorState by remember(request.entries, initialMemoIndex, request.initialImageIndex) {
         val initialEntry = request.entries.getOrNull(initialMemoIndex)
-        val initialImageCount = initialEntry?.imageUrls?.size ?: 0
+        val initialImageCount = initialEntry?.let { it.imageUrls.size } ?: 0
         mutableStateOf(
             if (initialEntry != null && initialImageCount > GALLERY_REEL_SINGLE_PAGE_THRESHOLD) {
                 GalleryReelActiveImageState(
@@ -160,7 +160,7 @@ private fun BoxScope.GalleryReelLoadedRoute(
     }
     var activeImageIndex by rememberSaveable { mutableIntStateOf(request.initialImageIndex) }
     val currentEntry = request.entries.getOrNull(verticalPagerState.currentPage)
-    val activeImageUrl = currentEntry?.imageUrls?.getOrNull(activeImageIndex)
+    val activeImageUrl = currentEntry?.let { it.imageUrls.getOrNull(activeImageIndex) }
     val resolvedActiveMemo = activeMemoDetail?.takeIf { detail -> detail.memo.id == activeMemoId }
     val hazeState = rememberHazeState()
 

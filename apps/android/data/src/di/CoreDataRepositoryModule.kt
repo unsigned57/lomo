@@ -151,7 +151,7 @@ val coreDataRepositoryModule = module {
     single<WorkspaceFilesystemRoot> {
         WorkspaceFilesystemRoot {
             val mount = get<ManagedEngineSession>().mount.value
-            val raw = mount.location?.raw?.takeIf { mount.admitsProjectionReads }
+            val raw = mount.location?.takeIf { mount.admitsProjectionReads }?.raw
             if (raw.isNullOrBlank() || raw.startsWith("content:", ignoreCase = true)) {
                 null
             } else {

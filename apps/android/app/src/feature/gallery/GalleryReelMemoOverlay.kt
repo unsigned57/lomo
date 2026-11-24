@@ -87,7 +87,7 @@ fun GalleryReelMemoOverlay(
 
 @Composable
 private fun rememberGalleryReelPanelMode(memo: MemoUiModel?, showMemoDetails: Boolean): GalleryReelPanelMode {
-    val plainText = memo?.renderDocument?.plainText.orEmpty()
+    val plainText = memo?.let { it.renderDocument.plainText }.orEmpty()
     val tags = memo?.tags.orEmpty()
     return remember(plainText, tags, showMemoDetails) {
         if (showMemoDetails && galleryReelHasDisplayContent(plainText, tags)) {

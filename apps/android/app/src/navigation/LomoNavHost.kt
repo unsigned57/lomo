@@ -542,7 +542,7 @@ private fun buildSingleMemoGalleryReelRequest(
         } else {
             listOf(entry).toImmutableList()
         }
-    val pageCount = entry?.imageUrls?.size ?: 0
+    val pageCount = entry?.let { it.imageUrls.size } ?: 0
     val clampedIndex =
         if (pageCount == 0) {
             0
