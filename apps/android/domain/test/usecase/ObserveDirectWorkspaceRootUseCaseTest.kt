@@ -49,13 +49,18 @@ class ObserveDirectWorkspaceRootUseCaseTest : DomainFunSpec() {
                 val useCase = ObserveDirectWorkspaceRootUseCase(readiness)
 
                 useCase.observe().first() shouldBe null
+                useCase.current() shouldBe null
 
                 readiness.activateWorkspace(StorageLocation("/tmp/direct-notes"), mediaChange = null)
+                useCase.current() shouldBe File("/tmp/direct-notes").absolutePath
+
                 readiness.publishProjectionFreshness(ProjectionFreshness.Retained(1uL))
                 useCase.observe().first() shouldBe null
+                useCase.current() shouldBe null
 
                 readiness.publishProjectionFreshness(ProjectionFreshness.Revalidating(1uL))
                 useCase.observe().first() shouldBe null
+                useCase.current() shouldBe null
 
                 readiness.publish(
                     EngineReadiness.ReadOnlyRecovery(
@@ -66,6 +71,7 @@ class ObserveDirectWorkspaceRootUseCaseTest : DomainFunSpec() {
                     ),
                 )
                 useCase.observe().first() shouldBe null
+                useCase.current() shouldBe null
             }
         }
 
@@ -80,6 +86,7 @@ class ObserveDirectWorkspaceRootUseCaseTest : DomainFunSpec() {
                 )
 
                 useCase.observe().first() shouldBe null
+                useCase.current() shouldBe null
             }
         }
 

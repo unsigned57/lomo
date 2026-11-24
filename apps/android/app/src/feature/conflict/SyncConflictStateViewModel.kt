@@ -2,7 +2,9 @@ package com.lomo.app.feature.conflict
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.APP_FLOW_STOP_TIMEOUT_MILLIS
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.domain.model.RemoteSyncCenterFailure
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.usecase.DispatcherProvider
@@ -13,6 +15,7 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
@@ -30,7 +33,7 @@ import kotlinx.coroutines.withContext
 class SyncConflictStateViewModel(
     syncProviderRegistry: SyncProviderRegistry,
     private val remoteSyncConflictDialogUseCase: RemoteSyncConflictDialogUseCase,
-    observeDirectWorkspaceRootUseCase: ObserveDirectWorkspaceRootUseCase,
+    private val observeDirectWorkspaceRootUseCase: ObserveDirectWorkspaceRootUseCase,
     private val dispatcherProvider: DispatcherProvider,
 ) : ViewModel() {
     val syncStates: StateFlow<ImmutableMap<SyncBackendType, UnifiedSyncState>> =
@@ -53,13 +56,37 @@ class SyncConflictStateViewModel(
             .observe()
             .stateIn(
                 scope = viewModelScope,
-                started = appWhileSubscribed(),
+                started =
+                SharingStarted.WhileSubscribed(
+                    stopTimeoutMillis = APP_FLOW_STOP_TIMEOUT_MILLIS,
+                    replayExpirationMillis = 0L,
+                ),
                 initialValue = null,
             )
 
     suspend fun loadRemoteOpenSession(workspaceRoot: String): RemoteSyncConflictDialogUseCase.OpenSession? =
         withContext(dispatcherProvider.io) {
-            remoteSyncConflictDialogUseCase.loadOpenSession(workspaceRoot)
+            if (observeDirectWorkspaceRootUseCase.current() != workspaceRoot) {
+                return@withContext null
+            }
+            try {
+                remoteSyncConflictDialogUseCase.loadOpenSession(workspaceRoot)
+            } catch (error: RemoteSyncCenterFailure) {
+                if (
+                    error.code in CONCURRENT_SWITCH_CODES &&
+                    observeDirectWorkspaceRootUseCase.current() != workspaceRoot
+                ) {
+                    null
+                } else {
+                    throw error
+                }
+            } catch (error: IllegalStateException) {
+                if (observeDirectWorkspaceRootUseCase.current() != workspaceRoot) {
+                    null
+                } else {
+                    throw error
+                }
+            }
         }
 
     internal val hostBindings: SyncConflictStateHostBindings =
@@ -68,6 +95,14 @@ class SyncConflictStateViewModel(
             workspaceRoot = workspaceRoot,
             loadRemoteOpenSession = ::loadRemoteOpenSession,
         )
+
+    private companion object {
+        val CONCURRENT_SWITCH_CODES = setOf(
+            "sync_local_pull_requires_direct_workspace",
+            "sync_cycle_workspace_mismatch",
+            "workspace_session_unavailable",
+        )
+    }
 }
 
 /** Non-ViewModel host bindings exposed by [SyncConflictStateViewModel]. */

@@ -24,6 +24,7 @@ package com.lomo.app.feature.conflict
  * Excludes: Compose UI hosts and real Rust FFI execution.
  */
 
+import com.lomo.app.feature.common.APP_FLOW_STOP_TIMEOUT_MILLIS
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.collectWhileSubscribed
@@ -36,6 +37,7 @@ import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.RemoteSyncBackendLabel
 import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
+import com.lomo.domain.model.RemoteSyncCenterFailure
 import com.lomo.domain.model.RemoteSyncConfigSummary
 import com.lomo.domain.model.RemoteSyncConflictPage
 import com.lomo.domain.model.RemoteSyncConflictPath
@@ -51,14 +53,18 @@ import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.ObserveDirectWorkspaceRootUseCase
 import com.lomo.domain.usecase.RemoteSyncConflictDialogUseCase
 import com.lomo.domain.usecase.SyncProviderRegistry
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldStartWith
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import java.util.concurrent.Executors
@@ -115,6 +121,8 @@ class SyncConflictStateViewModelTest : AppFunSpec() {
         test("loadRemoteOpenSession executes repository work on dispatcherProvider io") {
             runTest(mainDispatcher) {
                 val readiness = FakeEngineReadinessRepository(initial = EngineReadiness.Opening)
+                readiness.activateWorkspace(StorageLocation("/tmp/conflict-ws"), mediaChange = null)
+                val directRoot = File("/tmp/conflict-ws").absolutePath
                 val remoteRepo = RecordingThreadRemoteSyncRepository()
                 val ioDispatcher =
                     Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "sync-conflict-io") }
@@ -127,14 +135,121 @@ class SyncConflictStateViewModelTest : AppFunSpec() {
                             ioDispatcher = ioDispatcher,
                         )
 
-                    viewModel.loadRemoteOpenSession("/tmp/conflict-ws").shouldBeNull()
+                    viewModel.loadRemoteOpenSession(directRoot).shouldBeNull()
 
+                    remoteRepo.configCalls shouldBe 1
                     remoteRepo.configThreadName shouldStartWith "sync-conflict-io"
                 } finally {
                     ioDispatcher.close()
                 }
             }
         }
+
+        test("workspaceRoot resets stale Direct path after WhileSubscribed timeout expires") {
+            runTest(mainDispatcher) {
+                val readiness = FakeEngineReadinessRepository(initial = EngineReadiness.Opening)
+                readiness.activateWorkspace(StorageLocation("/tmp/conflict-ws"), mediaChange = null)
+                val ioDispatcher =
+                    Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "stale-replay-io") }
+                        .asCoroutineDispatcher()
+                try {
+                    val viewModel =
+                        createViewModel(
+                            readiness = readiness,
+                            remoteRepo = RecordingThreadRemoteSyncRepository(),
+                            ioDispatcher = ioDispatcher,
+                        )
+                    val firstCollector = launch { viewModel.workspaceRoot.collect {} }
+                    runCurrent()
+                    viewModel.workspaceRoot.value shouldBe File("/tmp/conflict-ws").absolutePath
+
+                    firstCollector.cancel()
+                    advanceTimeBy(APP_FLOW_STOP_TIMEOUT_MILLIS + 1L)
+                    runCurrent()
+
+                    val safUri = "content://com.android.externalstorage.documents/tree/primary%3ALomo"
+                    readiness.activateWorkspace(StorageLocation(safUri), mediaChange = null)
+                    viewModel.workspaceRoot.value.shouldBeNull()
+
+                    val reEmissions = mutableListOf<String?>()
+                    val secondCollector = backgroundScope.launch { viewModel.workspaceRoot.collect(reEmissions::add) }
+                    runCurrent()
+                    reEmissions shouldBe listOf(null)
+                    viewModel.workspaceRoot.value.shouldBeNull()
+                    secondCollector.cancel()
+                } finally {
+                    ioDispatcher.close()
+                }
+            }
+        }
+
+        test("loadRemoteOpenSession fences stale roots and concurrent switches without swallowing unchanged failures") {
+            runTest(mainDispatcher) {
+                val readiness = FakeEngineReadinessRepository(initial = EngineReadiness.Opening)
+                val directRoot = File("/tmp/conflict-ws").absolutePath
+                var failureMode = FailureMode.NONE
+                val remoteRepo =
+                    RecordingThreadRemoteSyncRepository(
+                        onConfigSummary = {
+                            when (failureMode) {
+                                FailureMode.NONE -> Unit
+
+                                FailureMode.CONCURRENT_SAF_SWITCH -> {
+                                    val saf = "content://com.android.externalstorage.documents/tree/primary%3ALomo"
+                                    readiness.activateWorkspace(StorageLocation(saf), mediaChange = null)
+                                    throw RemoteSyncCenterFailure(
+                                        category = "validation",
+                                        code = "sync_local_pull_requires_direct_workspace",
+                                        retryDisposition = "never",
+                                        diagnostic = "switched",
+                                    )
+                                }
+
+                                FailureMode.UNCHANGED_MOUNT_FAILURE ->
+                                    throw RemoteSyncCenterFailure(
+                                        category = "validation",
+                                        code = "sync_local_pull_requires_direct_workspace",
+                                        retryDisposition = "never",
+                                        diagnostic = "unexpected failure",
+                                    )
+                            }
+                        },
+                    )
+                val ioDispatcher =
+                    Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "switch-fence-io") }
+                        .asCoroutineDispatcher()
+                try {
+                    val viewModel =
+                        createViewModel(
+                            readiness = readiness,
+                            remoteRepo = remoteRepo,
+                            ioDispatcher = ioDispatcher,
+                        )
+
+                    viewModel.loadRemoteOpenSession(directRoot).shouldBeNull()
+                    remoteRepo.configCalls shouldBe 0
+
+                    readiness.activateWorkspace(StorageLocation("/tmp/conflict-ws"), mediaChange = null)
+                    failureMode = FailureMode.CONCURRENT_SAF_SWITCH
+                    viewModel.loadRemoteOpenSession(directRoot).shouldBeNull()
+                    remoteRepo.configCalls shouldBe 1
+
+                    readiness.activateWorkspace(StorageLocation("/tmp/conflict-ws"), mediaChange = null)
+                    failureMode = FailureMode.UNCHANGED_MOUNT_FAILURE
+                    shouldThrow<RemoteSyncCenterFailure> {
+                        viewModel.loadRemoteOpenSession(directRoot)
+                    }.code shouldBe "sync_local_pull_requires_direct_workspace"
+                } finally {
+                    ioDispatcher.close()
+                }
+            }
+        }
+    }
+
+    private enum class FailureMode {
+        NONE,
+        CONCURRENT_SAF_SWITCH,
+        UNCHANGED_MOUNT_FAILURE,
     }
 
     private fun createViewModel(
@@ -158,11 +273,15 @@ class SyncConflictStateViewModelTest : AppFunSpec() {
         },
     )
 
-    private class RecordingThreadRemoteSyncRepository : RemoteSyncCenterRepository {
+    private class RecordingThreadRemoteSyncRepository(private val onConfigSummary: suspend () -> Unit = {}) :
+        RemoteSyncCenterRepository {
         var configThreadName: String = ""
+        var configCalls: Int = 0
 
         override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary {
+            configCalls += 1
             configThreadName = Thread.currentThread().name
+            onConfigSummary()
             return RemoteSyncConfigSummary(
                 backend = RemoteSyncBackendLabel.Git,
                 attentionCount = 0,
