@@ -27,6 +27,7 @@ import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.repository.MemoCreateDraftRepository
 import com.lomo.domain.repository.MemoEditDraftRepository
+import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeInstanceOf
@@ -602,7 +603,9 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                         pendingStages = PendingMediaStageRegistry(NoOpMediaPort()) { workspace.absolutePath },
                     )
 
-                    repository.releaseDraftLeases(DraftId("draft-empty"))
+                    shouldNotThrowAny {
+                        repository.releaseDraftLeases(DraftId("draft-empty"))
+                    }
 
                     readiness.publishProjectionFreshness(ProjectionFreshness.Retained(0uL))
                     readiness.publish(
@@ -614,7 +617,9 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                         ),
                     )
 
-                    repository.releaseDraftLeases(DraftId("draft-empty-retained"))
+                    shouldNotThrowAny {
+                        repository.releaseDraftLeases(DraftId("draft-empty-retained"))
+                    }
                 } finally {
                     workspace.deleteRecursively()
                 }
