@@ -365,19 +365,6 @@ mod tests {
         );
     }
 
-    /// Test Change Justification:
-    /// Reason category: deterministic ordering for a CI-observed test race.
-    /// Old behavior/assertion being replaced: drain a successful local-confirm observation after
-    /// the journal was deleted and the initiator's remote confirmation was sent.
-    /// Why old assertion is no longer correct: the sticky storage failure can already be visible
-    /// by then; a success after fault injection is not part of the service contract.
-    /// Coverage preserved by: observe local success first, inject the same real filesystem fault,
-    /// then require the journal-write failure from both the current and stale-generation waiter.
-    /// Why this is not fitting the test to the implementation: the prior assertion raced with the
-    /// exact failure the test requires, as CI run 43712494734 demonstrates. No error is accepted
-    /// as success and no production behavior changes.
-    /// TDD proof: that CI run fails at "the local confirm observation settles" with
-    /// `lan_journal_write_failed`; GREEN is the same test after ordering the fault boundary.
     #[test]
     fn an_inbound_storage_fault_is_a_sticky_failure_for_every_waiter() {
         let (_root_a, engine_a, key_a, _id_a) = lan_engine("Phone");
@@ -397,6 +384,12 @@ mod tests {
             .parse()
             .test_ok("tablet address parses");
 
+        // The pairing reply can arrive before the responder publishes its inbox generation.
+        let startup_generation = engine_b
+            .await_lan_inbox(0, 0)
+            .test_ok("tablet startup is observable before pairing")
+            .generation;
+
         engine_a
             .update_lan_discovery_snapshot(LanDiscoverySnapshotDto {
                 revision: 1,
@@ -408,7 +401,7 @@ mod tests {
             .begin_lan_pairing(id_b, now, PAIRING_TTL_MS)
             .test_ok("pairing hello exchanges");
         let inbox_b = engine_b
-            .await_lan_inbox(0, 10_000)
+            .await_lan_inbox(startup_generation, 10_000)
             .test_ok("tablet wakes for the hello");
         let challenge_b = inbox_b
             .inbox
