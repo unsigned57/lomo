@@ -105,12 +105,7 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
         }
 
         var activeMemoId by rememberSaveable(route.payloadKey) {
-            mutableStateOf(
-                request.entries
-                    .getOrNull(request.initialMemoIndex)
-                    ?.memoId
-                    ?: "",
-            )
+            mutableStateOf(request.entries.getOrNull(request.initialMemoIndex)?.memoId.orEmpty())
         }
         val activeMemoFlow =
             remember(mainViewModel, activeMemoId) {

@@ -393,48 +393,48 @@ class MemoUiMapper(
         return rendered
     }
 
-    private fun buildRawRenderKey(memo: Memo, authority: WorkspaceAuthority?): RawRenderCacheKey = RawRenderCacheKey(
-        workspaceId = authority?.workspaceId,
-        generation = authority?.generation,
-        memoId = memo.id,
-        contentRevision = memo.contentRevision,
-        contentKind = memo.contentKind,
-        schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION,
-    )
-
-    private fun buildCacheKey(
-        memo: Memo,
-        rootPath: String?,
-        imagePath: String?,
-        imageMap: Map<String, Uri>,
-        reminders: List<com.lomo.domain.model.ReminderMarker>,
-        authority: WorkspaceAuthority?,
-    ): MemoUiCacheKey = MemoUiCacheKey(
-        memo = memo,
-        reminders = reminders.toList(),
-        renderInputs = MemoUiRenderInputs(
-            workspaceId = authority?.workspaceId,
-            generation = authority?.generation,
-            content = memo.content,
-            contentKind = memo.contentKind,
-            contentRevision = memo.contentRevision,
-            schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION,
-            imageUrls = memo.imageUrls.toList(),
-            rootPath = rootPath,
-            imagePath = imagePath,
-            projectedCharCount = memo.projectedCharCount,
-            imageDependencySignature = buildImageMapDependencySignatureForPaths(
-                imagePaths = memo.imageUrls.toSet(),
-                imageMap = imageMap,
-            ),
-        ),
-    )
-
     private companion object {
         private const val INITIAL_PARALLEL_PRECOMPUTE_COUNT = 6
         private const val DEFAULT_CACHE_SIZE = 256
     }
 }
+
+private fun buildRawRenderKey(memo: Memo, authority: WorkspaceAuthority?): RawRenderCacheKey = RawRenderCacheKey(
+    workspaceId = authority?.workspaceId,
+    generation = authority?.generation,
+    memoId = memo.id,
+    contentRevision = memo.contentRevision,
+    contentKind = memo.contentKind,
+    schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION,
+)
+
+private fun buildCacheKey(
+    memo: Memo,
+    rootPath: String?,
+    imagePath: String?,
+    imageMap: Map<String, Uri>,
+    reminders: List<com.lomo.domain.model.ReminderMarker>,
+    authority: WorkspaceAuthority?,
+): MemoUiCacheKey = MemoUiCacheKey(
+    memo = memo,
+    reminders = reminders.toList(),
+    renderInputs = MemoUiRenderInputs(
+        workspaceId = authority?.workspaceId,
+        generation = authority?.generation,
+        content = memo.content,
+        contentKind = memo.contentKind,
+        contentRevision = memo.contentRevision,
+        schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION,
+        imageUrls = memo.imageUrls.toList(),
+        rootPath = rootPath,
+        imagePath = imagePath,
+        projectedCharCount = memo.projectedCharCount,
+        imageDependencySignature = buildImageMapDependencySignatureForPaths(
+            imagePaths = memo.imageUrls.toSet(),
+            imageMap = imageMap,
+        ),
+    ),
+)
 
 /**
  * A preview row hides the rest of its memo exactly when the store's UTF-16 char count of the whole

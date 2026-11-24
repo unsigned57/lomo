@@ -231,13 +231,13 @@ internal class DataMemoPreviewCache(
         isStillValid: () -> Boolean,
         results: MutableMap<String, MarkdownRenderDocument>,
     ) {
-        var failure: Throwable? = null
+        var failure: Exception? = null
         try {
             withContext(dispatcherProvider.io) {
                 for ((schemaVersion, group) in owned.groupBy { it.request.schemaVersion }) {
                     for (chunk in group.chunked(PREVIEW_BATCH_LIMIT)) {
                         if (!isStillValid() || readiness.mount.value.admittedAuthority != authority) {
-                            break
+                            return@withContext
                         }
                         batchCalls.incrementAndGet()
                         val outcomes =
@@ -247,16 +247,18 @@ internal class DataMemoPreviewCache(
                                 schemaVersion = schemaVersion,
                             )
                         require(outcomes.size == chunk.size) {
-                            "preview render batch outcome count ${outcomes.size} did not match request count ${chunk.size}"
+                            "preview render batch returned ${outcomes.size} outcomes for ${chunk.size} requests"
                         }
                         if (!isStillValid() || readiness.mount.value.admittedAuthority != authority) {
-                            break
+                            return@withContext
                         }
                         processChunkOutcomes(chunk, outcomes, results)
                     }
                 }
             }
-        } catch (error: Throwable) {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
             failure = error
             throw error
         } finally {
@@ -300,7 +302,7 @@ internal class DataMemoPreviewCache(
         }
     }
 
-    private fun settleOwnedEntries(owned: List<PendingPreviewEntry>, failure: Throwable?) {
+    private fun settleOwnedEntries(owned: List<PendingPreviewEntry>, failure: Exception?) {
         synchronized(cacheLock) {
             for (entry in owned) {
                 inFlight.remove(entry.key, entry)
