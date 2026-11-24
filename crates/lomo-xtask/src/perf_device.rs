@@ -1916,8 +1916,8 @@ impl DeviceRun<'_> {
             .as_millis();
         let dirty_doc = format!(
             "{:04}_{:02}_{:02}.md",
-            8_000 + (mutation_millis % 1_500),
-            1 + (mutation_millis / 1_500_000) % 12,
+            8_000 + (mutation_millis % 1_000),
+            1 + (mutation_millis / 1_000_000) % 12,
             1 + (mutation_millis / 86_400_000) % 28,
         );
         let root = match self.options.backend {
