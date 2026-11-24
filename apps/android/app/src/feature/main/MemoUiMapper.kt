@@ -240,6 +240,22 @@ class MemoUiMapper(
     }
 
     /**
+     * Resolves gallery image URLs against workspace/image-directory storage without parsing or
+     * rendering Markdown.
+     */
+    fun resolveProjectedImageUrls(
+        imageUrls: List<String>,
+        rootPath: String?,
+        imagePath: String?,
+        imageMap: Map<String, Uri>,
+    ): kotlinx.collections.immutable.ImmutableList<String> = imageContentResolver.resolveProjectedImageUrls(
+        imageUrls = imageUrls,
+        rootPath = rootPath,
+        imagePath = imagePath,
+        imageMap = imageMap,
+    )
+
+    /**
      * Synchronous cache probe for paging transforms. A hit returns the row without a dispatcher
      * hop and without touching the disk-backed parse; a miss falls through to
      * [mapToCachedUiModel], which performs the parse on the background dispatcher.

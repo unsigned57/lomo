@@ -1456,6 +1456,34 @@ pub fn session_query_memos(
     .map(memo_page_to_ffi)
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI page cursor DTO is converted once into the store cursor"
+)]
+pub fn session_query_gallery_page(
+    engine: &LomoEngine,
+    cursor: Option<StorePageCursor>,
+    page_size: u32,
+    start_memo_id: Option<String>,
+    backward: bool,
+) -> Result<crate::StoreGalleryPage, EngineError> {
+    let page_size = PageSize::new(page_size).map_err(EngineError::from)?;
+    let decoded_cursor = cursor
+        .as_ref()
+        .map(|cursor| decode_cursor(&cursor.encoded))
+        .transpose()?;
+    let start_memo_id = start_memo_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let start = ffi_query_start(decoded_cursor.as_ref(), start_memo_id, backward)
+        .map_err(EngineError::from)?;
+    with_session(engine, |session| {
+        session.query_gallery_page(start, page_size)
+    })
+    .map(crate::store_ffi::gallery_page_to_ffi)
+}
+
 pub fn session_query_count(engine: &LomoEngine, query: StoreMemoQuery) -> Result<u64, EngineError> {
     let (mq, _boundary) = memo_query_from_ffi(query);
     with_session(engine, |session| session.query_count(&mq))

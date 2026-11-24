@@ -1,6 +1,7 @@
 package com.lomo.data.engine.store
 
 import com.lomo.data.engine.withEngineFailureConversion
+import com.lomo.nativebridge.StoreGalleryPage as BridgeGalleryPage
 import com.lomo.nativebridge.StoreMemoCommand as BridgeMemoCommand
 import com.lomo.nativebridge.StoreMemoCommit as BridgeMemoCommit
 import com.lomo.nativebridge.StoreMemoPage as BridgeMemoPage
@@ -27,6 +28,15 @@ internal class EngineFailureConvertingStoreBridge(private val delegate: StoreNat
         backward: Boolean,
     ): BridgeMemoPage = withEngineFailureConversion {
         delegate.queryMemos(query, cursor, pageSize, startMemoId, backward)
+    }
+
+    override fun queryGalleryPage(
+        cursor: BridgePageCursor?,
+        pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
+    ): BridgeGalleryPage = withEngineFailureConversion {
+        delegate.queryGalleryPage(cursor, pageSize, startMemoId, backward)
     }
 
     override fun getMemo(memoId: String): BridgeMemoSnapshot? = withEngineFailureConversion { delegate.getMemo(memoId) }

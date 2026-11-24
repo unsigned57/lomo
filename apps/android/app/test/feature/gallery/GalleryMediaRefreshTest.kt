@@ -5,7 +5,6 @@ import androidx.paging.PagingDataEvent
 import androidx.paging.PagingDataPresenter
 import com.lomo.app.feature.main.MainMemoListStateHolder
 import com.lomo.app.feature.main.MainMemoListStateHolderDependencies
-import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
@@ -74,11 +73,15 @@ class GalleryMediaRefreshTest : AppFunSpec() {
                         imageMap = locations,
                     ),
                 )
-                val presenter = object : PagingDataPresenter<MemoUiModel>(mainDispatcher.testDispatcher) {
-                    override suspend fun presentPagingDataEvent(event: PagingDataEvent<MemoUiModel>) = Unit
+                val presenter = object : PagingDataPresenter<com.lomo.app.feature.gallery.GalleryUiItem>(
+                    mainDispatcher.testDispatcher,
+                ) {
+                    override suspend fun presentPagingDataEvent(
+                        event: PagingDataEvent<com.lomo.app.feature.gallery.GalleryUiItem>,
+                    ) = Unit
                 }
                 var collection = backgroundScope.launch {
-                    holder.galleryPagedUiMemos.collectLatest(presenter::collectFrom)
+                    holder.galleryPagedUiItems.collectLatest(presenter::collectFrom)
                 }
                 advanceUntilIdle()
                 presenter.snapshot().items.single().imageUrls shouldBe listOf(destination, remote)
@@ -92,11 +95,15 @@ class GalleryMediaRefreshTest : AppFunSpec() {
                     store.galleryPagingSourceCallCount shouldBe 1
                 }
                 collection.cancel()
-                val reopened = object : PagingDataPresenter<MemoUiModel>(mainDispatcher.testDispatcher) {
-                    override suspend fun presentPagingDataEvent(event: PagingDataEvent<MemoUiModel>) = Unit
+                val reopened = object : PagingDataPresenter<com.lomo.app.feature.gallery.GalleryUiItem>(
+                    mainDispatcher.testDispatcher,
+                ) {
+                    override suspend fun presentPagingDataEvent(
+                        event: PagingDataEvent<com.lomo.app.feature.gallery.GalleryUiItem>,
+                    ) = Unit
                 }
                 collection = backgroundScope.launch {
-                    holder.galleryPagedUiMemos.collectLatest(reopened::collectFrom)
+                    holder.galleryPagedUiItems.collectLatest(reopened::collectFrom)
                 }
                 advanceUntilIdle()
                 reopened.snapshot().items.single().imageUrls shouldBe listOf(

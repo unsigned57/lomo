@@ -1,10 +1,13 @@
 package com.lomo.app.feature.gallery
 
-import com.lomo.app.feature.main.MemoUiModel
+import androidx.compose.runtime.Immutable
 import kotlinx.collections.immutable.ImmutableList
 
+@Immutable
+data class GalleryReelEntry(val memoId: String, val imageUrls: ImmutableList<String>)
+
 data class GalleryReelRequest(
-    val memos: ImmutableList<MemoUiModel>,
+    val entries: ImmutableList<GalleryReelEntry>,
     val initialMemoIndex: Int,
     val initialImageIndex: Int,
 )

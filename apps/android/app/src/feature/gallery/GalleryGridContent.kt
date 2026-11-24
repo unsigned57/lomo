@@ -27,9 +27,6 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.rememberConstraintsSizeResolver
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.lomoSharedKeyImageRequest
-import com.lomo.app.feature.main.MemoUiModel
-import com.lomo.app.feature.memo.MemoMenuSelection
-import com.lomo.app.feature.memo.memoMenuSelection
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.image.RetainedAsyncImage
 import com.lomo.ui.theme.AppShapes
@@ -44,25 +41,25 @@ private const val GALLERY_MOSAIC_CONTENT_TYPE = "gallery-mosaic"
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GalleryGridContent(
-    memos: List<MemoUiModel>,
+    memos: List<GalleryUiItem>,
     onItemAccess: (Int) -> Unit,
     aspectByMemoId: ImmutableMap<String, Float>,
     contentPadding: PaddingValues,
     onCellClick: (memoId: String, imageIndex: Int) -> Unit,
-    onShowMenu: (MemoMenuSelection) -> Unit,
+    onShowMenu: (GalleryUiItem) -> Unit,
     onResolveImageAspect: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val memoIndexById = remember(memos) { memos.withIndex().associate { it.value.memo.id to it.index } }
-    val memoById = remember(memos) { memos.associateBy { uiModel -> uiModel.memo.id } }
+    val memoIndexById = remember(memos) { memos.withIndex().associate { it.value.memoId to it.index } }
+    val memoById = remember(memos) { memos.associateBy { item -> item.memoId } }
     val layout =
         remember(memos, aspectByMemoId) {
             planGalleryMosaicLayout(
                 memos =
-                memos.mapNotNull { uiModel ->
-                    val firstImageUrl = uiModel.imageUrls.firstOrNull() ?: return@mapNotNull null
+                memos.mapNotNull { item ->
+                    val firstImageUrl = item.imageUrls.firstOrNull() ?: return@mapNotNull null
                     galleryLayoutInput(
-                        memoId = uiModel.memo.id,
+                        memoId = item.memoId,
                         firstImageUrl = firstImageUrl,
                     )
                 },
@@ -108,9 +105,9 @@ fun GalleryGridContent(
 }
 
 private data class GalleryMosaicCellContext(
-    val memoById: Map<String, MemoUiModel>,
+    val memoById: Map<String, GalleryUiItem>,
     val onCellClick: (memoId: String, imageIndex: Int) -> Unit,
-    val onShowMenu: (MemoMenuSelection) -> Unit,
+    val onShowMenu: (GalleryUiItem) -> Unit,
     val onResolveImageAspect: suspend (String) -> Unit,
 )
 
@@ -183,9 +180,9 @@ private fun GalleryMosaicCell(
     tile: GalleryMosaicTile,
     modifier: Modifier = Modifier,
 ) {
-    val uiModel = cellContext.memoById[tile.memoId] ?: return
+    val item = cellContext.memoById[tile.memoId] ?: return
     GalleryGridCell(
-        uiModel = uiModel,
+        item = item,
         layout = tile,
         onCellClick = cellContext.onCellClick,
         onShowMenu = cellContext.onShowMenu,
@@ -197,15 +194,15 @@ private fun GalleryMosaicCell(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GalleryGridCell(
-    uiModel: MemoUiModel,
+    item: GalleryUiItem,
     layout: GalleryMosaicTile,
     onCellClick: (memoId: String, imageIndex: Int) -> Unit,
-    onShowMenu: (MemoMenuSelection) -> Unit,
+    onShowMenu: (GalleryUiItem) -> Unit,
     onResolveImageAspect: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val haptic = LocalAppHapticFeedback.current
-    val imageUrls = uiModel.imageUrls
+    val imageUrls = item.imageUrls
     if (imageUrls.isEmpty()) return
 
     val pagerState = rememberPagerState(pageCount = { imageUrls.size })
@@ -221,29 +218,24 @@ private fun GalleryGridCell(
         modifier
             // Anchor before clip/clickable: the tagged node IS the cell, so the
             // harness resolves a settled clickable cell directly.
-            .benchmarkAnchor(BenchmarkAnchorContract.galleryCell(uiModel.memo.id))
+            .benchmarkAnchor(BenchmarkAnchorContract.galleryCell(item.memoId))
             .clip(GALLERY_GRID_CELL_SHAPE)
             .combinedClickable(
                 onClick = {
                     onCellClick(
-                        uiModel.memo.id,
+                        item.memoId,
                         pagerState.currentPage.coerceIn(0, imageUrls.lastIndex),
                     )
                 },
                 onLongClick = {
                     haptic.longPress()
-                    onShowMenu(
-                        memoMenuSelection(
-                            memo = uiModel.memo,
-                            imageUrls = imageUrls,
-                        ),
-                    )
+                    onShowMenu(item)
                 },
             ),
     ) {
         if (imageUrls.size == 1) {
             GalleryGridImage(
-                memoId = uiModel.memo.id,
+                memoId = item.memoId,
                 imageUrl = layout.firstImageUrl,
                 imageIndex = 0,
                 onResolveImageAspect = onResolveImageAspect,
@@ -255,7 +247,7 @@ private fun GalleryGridCell(
                 userScrollEnabled = true,
             ) { page ->
                 GalleryGridImage(
-                    memoId = uiModel.memo.id,
+                    memoId = item.memoId,
                     imageUrl = imageUrls[page],
                     imageIndex = page,
                     onResolveImageAspect = onResolveImageAspect,

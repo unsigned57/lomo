@@ -3,18 +3,22 @@ package com.lomo.app.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import androidx.paging.compose.collectAsLazyPagingItems
+import com.lomo.app.feature.gallery.GalleryReelEntry
 import com.lomo.app.feature.gallery.GalleryReelMode
 import com.lomo.app.feature.gallery.GalleryReelRequest
 import com.lomo.app.feature.gallery.GalleryReelScreen
+import com.lomo.app.feature.gallery.GalleryUiItem
 import com.lomo.app.feature.main.MainViewModel
-import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoMenuBinder
 import com.lomo.app.feature.memo.MemoMenuContextAction
 import com.lomo.app.feature.memo.MemoMenuPresentationState
@@ -26,16 +30,16 @@ import kotlinx.collections.immutable.toImmutableList
 @Composable
 internal fun rememberGalleryReelNavigationAction(
     navController: NavHostController,
-    galleryMemos: List<MemoUiModel>,
+    galleryItems: List<GalleryUiItem>,
 ): (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit =
-    remember(navController, galleryMemos) {
+    remember(navController, galleryItems) {
         { memoId, imageIndex, aspectByMemoId ->
-            val memos = galleryMemos.filter { uiModel -> uiModel.imageUrls.isNotEmpty() }
-            val initialMemoIndex = memos.indexOfFirst { uiModel -> uiModel.memo.id == memoId }
-            val initialMemo = memos.getOrNull(initialMemoIndex)
-            if (initialMemo != null) {
-                val clampedImageIndex = imageIndex.coerceIn(0, initialMemo.imageUrls.lastIndex)
-                val memoIds = memos.map { uiModel -> uiModel.memo.id }
+            val items = galleryItems.filter { item -> item.imageUrls.isNotEmpty() }
+            val initialMemoIndex = items.indexOfFirst { item -> item.memoId == memoId }
+            val initialItem = items.getOrNull(initialMemoIndex)
+            if (initialItem != null) {
+                val clampedImageIndex = imageIndex.coerceIn(0, initialItem.imageUrls.lastIndex)
+                val memoIds = items.map(GalleryUiItem::memoId)
                 val payloadKey =
                     GalleryReelPayloadStore.put(
                         GalleryReelPayloadStore.Payload(
@@ -69,7 +73,7 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
     ) { entry ->
         val route = entry.toRoute<NavRoute.GalleryReel>()
         val mainViewModel: MainViewModel = activityKoinViewModel()
-        val galleryMemos = mainViewModel.galleryPagedUiMemos.collectAsLazyPagingItems()
+        val galleryItems = mainViewModel.galleryPagedUiItems.collectAsLazyPagingItems()
         val appPreferences by mainViewModel.appPreferences.collectAsStateWithLifecycle()
         val payload =
             remember(route.payloadKey) {
@@ -84,21 +88,38 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
         }
 
         val request =
-            remember(payload, galleryMemos.itemSnapshotList.items, route.initialMemoIndex, route.initialImageIndex) {
+            remember(payload, galleryItems.itemSnapshotList.items, route.initialMemoIndex, route.initialImageIndex) {
                 buildGalleryReelRequest(
                     payload = payload,
-                    galleryMemos = galleryMemos.itemSnapshotList.items,
+                    galleryItems = galleryItems.itemSnapshotList.items,
                     initialMemoIndex = route.initialMemoIndex,
                     initialImageIndex = route.initialImageIndex,
                 )
             }
 
         if (request == null) {
-            // Gallery memos are still loading after a cold start — wait for them
+            // Gallery items are still loading after a cold start — wait for them
             // instead of treating the empty initial state as "memo removed" and
             // popping the route right away.
             return@composable
         }
+
+        var activeMemoId by rememberSaveable(route.payloadKey) {
+            mutableStateOf(
+                request.entries
+                    .getOrNull(request.initialMemoIndex)
+                    ?.memoId
+                    ?: "",
+            )
+        }
+        val activeMemoFlow =
+            remember(mainViewModel, activeMemoId) {
+                activeMemoId
+                    .takeIf(String::isNotBlank)
+                    ?.let(mainViewModel.observeMemoUiModel)
+                    ?: kotlinx.coroutines.flow.flowOf(null)
+            }
+        val activeMemoDetail by activeMemoFlow.collectAsStateWithLifecycle(initialValue = null)
 
         CompositionLocalProvider(
             com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
@@ -141,6 +162,8 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
                     onTagClick = { tag -> navController.navigate(NavRoute.Tag(tag)) },
                     request = request,
                     viewerMode = GalleryReelMode.Gallery,
+                    activeMemoDetail = activeMemoDetail,
+                    onActiveMemoIdChanged = { memoId -> activeMemoId = memoId },
                     onBackClick = popBackStackSafely,
                     onTodoClick = mainViewModel.updateMemo,
                     onShowMenu = showMenu,
@@ -155,30 +178,35 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
 
 private fun buildGalleryReelRequest(
     payload: GalleryReelPayloadStore.Payload,
-    galleryMemos: List<MemoUiModel>,
+    galleryItems: List<GalleryUiItem>,
     initialMemoIndex: Int,
     initialImageIndex: Int,
 ): GalleryReelRequest? {
-    // Cold-start race guard: the gallery's UI memo flow seeds with an empty
+    // Cold-start race guard: the gallery's UI flow seeds with an empty
     // list before the first DB emission. If the payload has memo ids but the
     // live list is still empty, treat it as "loading" and signal the caller
     // to wait — returning an empty request here would auto-pop the screen
     // before the user has a chance to see anything.
-    if (galleryMemos.isEmpty() && payload.memoIds.isNotEmpty()) return null
+    if (galleryItems.isEmpty() && payload.memoIds.isNotEmpty()) return null
 
-    val liveMemoById = galleryMemos.associateBy { uiModel -> uiModel.memo.id }
-    val orderedMemos =
+    val liveItemById = galleryItems.associateBy(GalleryUiItem::memoId)
+    val orderedEntries =
         payload.memoIds
-            .mapNotNull(liveMemoById::get)
-            .toImmutableList()
+            .mapNotNull(liveItemById::get)
+            .map { item ->
+                GalleryReelEntry(
+                    memoId = item.memoId,
+                    imageUrls = item.imageUrls,
+                )
+            }.toImmutableList()
     val clampedMemoIndex =
-        if (orderedMemos.isEmpty()) {
+        if (orderedEntries.isEmpty()) {
             0
         } else {
-            initialMemoIndex.coerceIn(0, orderedMemos.lastIndex)
+            initialMemoIndex.coerceIn(0, orderedEntries.lastIndex)
         }
     val clampedImageIndex =
-        orderedMemos
+        orderedEntries
             .getOrNull(clampedMemoIndex)
             ?.imageUrls
             ?.lastIndex
@@ -187,7 +215,7 @@ private fun buildGalleryReelRequest(
             ?: 0
 
     return GalleryReelRequest(
-        memos = orderedMemos,
+        entries = orderedEntries,
         initialMemoIndex = clampedMemoIndex,
         initialImageIndex = clampedImageIndex,
     )

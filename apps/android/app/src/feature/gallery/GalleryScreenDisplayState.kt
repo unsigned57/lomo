@@ -1,7 +1,6 @@
 package com.lomo.app.feature.gallery
 
 import com.lomo.app.feature.main.GalleryUiMemosState
-import com.lomo.app.feature.main.MemoUiModel
 import kotlinx.collections.immutable.ImmutableMap
 
 internal sealed interface GalleryScreenDisplayState {
@@ -9,7 +8,7 @@ internal sealed interface GalleryScreenDisplayState {
 
     data object Empty : GalleryScreenDisplayState
 
-    data class Grid(val memos: List<MemoUiModel>, val aspectByMemoId: ImmutableMap<String, Float>) :
+    data class Grid(val memos: List<GalleryUiItem>, val aspectByMemoId: ImmutableMap<String, Float>) :
         GalleryScreenDisplayState
 }
 

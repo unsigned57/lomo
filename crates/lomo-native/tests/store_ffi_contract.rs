@@ -794,4 +794,155 @@ mod tests {
             )
             .test_ok("snooze through session");
     }
+
+    #[test]
+    fn query_gallery_page_ffi_round_trip_contract() {
+        let (_unattached_tmp, _unattached_ws, unattached) = open_engine_without_session();
+        let unattached_err = unattached
+            .query_gallery_page(None, 10, None, false)
+            .test_err("unattached session");
+        assert_eq!(unattached_err.code(), "workspace_session_unavailable");
+
+        let (_tmp, workspace, engine) = open_engine();
+        seed_markdown(&workspace, "2026_09_01", "plain memo without attachment");
+        seed_markdown(&workspace, "2026_09_02", "![voice](voice/clip.m4a)");
+        seed_markdown(&workspace, "2026_09_03", "![g1](images/g1.png)");
+        seed_markdown(&workspace, "2026_09_04", "![g2](images/g2.png)");
+        seed_markdown(&workspace, "2026_09_05", "![g3](images/g3.png)");
+        seed_markdown(
+            &workspace,
+            "2026_09_06",
+            "![z](images/z.png)\n![remote](https://cdn.example.com/r.png)\n![a](images/a.png)\n![voice](voice/skip.m4a)",
+        );
+        seed_markdown(&workspace, "2026_09_07", "![gone](images/gone.png)");
+        index_workspace(&engine);
+
+        let initial = engine
+            .query_gallery_page(None, 10, None, false)
+            .test_ok("initial gallery page");
+        let by_path = initial
+            .items
+            .iter()
+            .map(|item| (item.source_path.as_str(), item))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let g2 = by_path.get("2026_09_04.md").copied().test_ok("g2 present");
+        let trashed = by_path.get("2026_09_07.md").copied().test_ok("g7 present");
+
+        engine
+            .session_pin_memo(lomo_native::SessionPinMemoRequest {
+                operation_id: "ffi-gallery-pin-g2".to_owned(),
+                memo_id: g2.memo_id.clone(),
+                pinned: true,
+            })
+            .test_ok("pin g2");
+        engine
+            .session_delete_memo(SessionDeleteMemoRequest {
+                operation_id: "ffi-gallery-trash-g7".to_owned(),
+                memo_id: trashed.memo_id.clone(),
+                expected_document_fingerprint: trashed.file_fingerprint.clone(),
+            })
+            .test_ok("trash g7");
+
+        let full = engine
+            .query_gallery_page(None, 10, None, false)
+            .test_ok("full gallery after pin and trash");
+        assert_eq!(
+            full.items
+                .iter()
+                .map(|item| item.source_path.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "2026_09_04.md",
+                "2026_09_06.md",
+                "2026_09_05.md",
+                "2026_09_03.md",
+            ]
+        );
+        assert!(full.items[0].is_pinned);
+        assert_eq!(
+            full.items[1].image_urls,
+            vec![
+                "images/z.png",
+                "https://cdn.example.com/r.png",
+                "images/a.png"
+            ]
+        );
+
+        let page1 = engine
+            .query_gallery_page(None, 2, None, false)
+            .test_ok("gallery page 1");
+        assert!(page1.prev_cursor.is_none());
+        let cursor1 = page1.next_cursor.clone().test_ok("page 1 next_cursor");
+        assert_eq!(
+            page1
+                .items
+                .iter()
+                .map(|item| item.source_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2026_09_04.md", "2026_09_06.md"]
+        );
+
+        let page2 = engine
+            .query_gallery_page(Some(cursor1.clone()), 2, None, false)
+            .test_ok("gallery page 2");
+        assert!(page2.next_cursor.is_none());
+        let cursor2_prev = page2.prev_cursor.clone().test_ok("page 2 prev_cursor");
+        assert_eq!(
+            page2
+                .items
+                .iter()
+                .map(|item| item.source_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2026_09_05.md", "2026_09_03.md"]
+        );
+
+        let back = engine
+            .query_gallery_page(Some(cursor2_prev), 2, None, true)
+            .test_ok("gallery backward page");
+        assert!(back.prev_cursor.is_none());
+        assert!(back.next_cursor.is_some());
+        assert_eq!(
+            back.items
+                .iter()
+                .map(|item| item.source_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2026_09_04.md", "2026_09_06.md"]
+        );
+
+        let anchored = engine
+            .query_gallery_page(None, 2, Some(full.items[1].memo_id.clone()), false)
+            .test_ok("gallery anchor page");
+        assert!(anchored.prev_cursor.is_some());
+        assert!(anchored.next_cursor.is_some());
+        assert_eq!(
+            anchored
+                .items
+                .iter()
+                .map(|item| item.source_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2026_09_06.md", "2026_09_05.md"]
+        );
+
+        let mixed = engine
+            .query_gallery_page(
+                Some(cursor1.clone()),
+                2,
+                Some(full.items[1].memo_id.clone()),
+                false,
+            )
+            .test_err("mixed cursor and identity");
+        assert_eq!(mixed.code(), "invalid_page_start");
+
+        engine
+            .session_pin_memo(lomo_native::SessionPinMemoRequest {
+                operation_id: "ffi-gallery-pin-g3".to_owned(),
+                memo_id: full.items[2].memo_id.clone(),
+                pinned: true,
+            })
+            .test_ok("pin g3 advances revision");
+        let stale = engine
+            .query_gallery_page(Some(cursor1), 2, None, false)
+            .test_err("stale gallery cursor after mutation");
+        assert_eq!(stale.code(), "stale_cursor");
+    }
 }

@@ -2,10 +2,11 @@ package com.lomo.app.feature.main
 
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import androidx.paging.filter
 import androidx.paging.map
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.memoPager
+import com.lomo.app.feature.gallery.GalleryUiItem
+import com.lomo.domain.model.GalleryMemo
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.WorkspaceAuthority
@@ -34,7 +35,7 @@ private const val DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS = true
 sealed interface GalleryUiMemosState {
     data object Loading : GalleryUiMemosState
 
-    data class Loaded(val memos: List<MemoUiModel>) : GalleryUiMemosState
+    data class Loaded(val memos: List<GalleryUiItem>) : GalleryUiMemosState
 }
 
 /** Inputs for the main memo list state holder: the query sources plus the current media mapping. */
@@ -148,7 +149,7 @@ internal class MainMemoListStateHolder(dependencies: MainMemoListStateHolderDepe
 
     @OptIn(ExperimentalCoroutinesApi::class)
     // behavior-contract: uncached-paging-ok: private intermediate; public surfaces use cachedIn
-    private val galleryPagingData: StateFlow<PagingData<Memo>?> =
+    private val galleryPagingData: StateFlow<PagingData<GalleryMemo>?> =
         mount
             .map { it.admittedAuthority }
             .distinctUntilChanged()
@@ -164,33 +165,36 @@ internal class MainMemoListStateHolder(dependencies: MainMemoListStateHolderDepe
                         initialLoadSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
                         prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
                         enablePlaceholders = false,
-                        pagingSourceFactory = { mainMemoListQueryUseCase.getGalleryMemosPagingSource() },
+                        pagingSourceFactory = { mainMemoListQueryUseCase.getGalleryItemsPagingSource() },
                     )
-                        .map { pagingData ->
-                            pagingData.filter { memo ->
-                                memo.imageUrls.isNotEmpty()
-                            }
-                        }
                 }
             }.stateIn(scope, appWhileSubscribed(), null)
 
     /**
      * Gallery rows re-map in place when media dependencies move: the pager's identity is the
      * admitted workspace authority alone, while the per-row image-map signature in
-     * [UiMemoMappingInput] decides which cached rows invalidate.
+     * [UiMemoMappingInput] decides which resolved URLs invalidate — without rendering Markdown.
      */
-    val galleryPagedUiMemos: Flow<PagingData<MemoUiModel>> =
+    val galleryPagedUiItems: Flow<PagingData<GalleryUiItem>> =
         combine(
             mappingInput,
             galleryPagingData.filterNotNull(),
         ) { currentMappingInput, pagingData ->
-            pagingData.map { memo ->
-                memoUiMapper.peekOrMapToCachedUiModel(
-                    memo = memo,
-                    rootPath = currentMappingInput.rootDirectory,
-                    imagePath = currentMappingInput.imageDirectory,
-                    imageMap = currentMappingInput.imageMap,
-                    reminders = memo.reminders,
+            pagingData.map { item ->
+                GalleryUiItem(
+                    memoId = item.id,
+                    timestamp = item.timestamp,
+                    updatedAt = item.updatedAt,
+                    dateKey = item.dateKey,
+                    timePart = item.timePart,
+                    imageUrls =
+                    memoUiMapper.resolveProjectedImageUrls(
+                        imageUrls = item.imageUrls,
+                        rootPath = currentMappingInput.rootDirectory,
+                        imagePath = currentMappingInput.imageDirectory,
+                        imageMap = currentMappingInput.imageMap,
+                    ),
+                    isPinned = item.isPinned,
                 )
             }
         }.cachedIn(scope)

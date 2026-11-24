@@ -2,6 +2,7 @@ package com.lomo.domain.repository
 
 import androidx.paging.PagingSource
 import com.lomo.domain.model.DailyReviewCandidatePage
+import com.lomo.domain.model.GalleryMemo
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoOperationId
@@ -22,7 +23,7 @@ import java.time.ZoneId
  */
 interface MemoListQueryRepository {
     /** Returns a Rust-cursor-backed source; each load transfers one bounded gallery page. */
-    fun getGalleryMemosPagingSource(): PagingSource<String, Memo>
+    fun getGalleryItemsPagingSource(): PagingSource<String, GalleryMemo>
 
     suspend fun getRecentMemos(limit: Int): List<Memo>
 

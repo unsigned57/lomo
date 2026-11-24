@@ -48,8 +48,9 @@ pub use lifecycle::{
     RestoreRevisionRequest,
 };
 pub use lomo_store::{
-    MemoFilters, MemoPage, MemoQuery, MemoQueryStart, MemoSnapshot, MemoSort, MemoSummary,
-    MemoWindowSides, PageCursor, PlannedAlarm, ReminderPlan, TagSelectionMode,
+    GalleryPage, GalleryRow, MemoFilters, MemoPage, MemoQuery, MemoQueryStart, MemoSnapshot,
+    MemoSort, MemoSummary, MemoWindowSides, PageCursor, PlannedAlarm, ReminderPlan,
+    TagSelectionMode,
 };
 pub use media_index::{AttachmentIndexStats, AttachmentObservation, DraftEvidenceStats};
 pub use paging::ProjectionQueryStats;

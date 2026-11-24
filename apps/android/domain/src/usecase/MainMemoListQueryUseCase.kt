@@ -1,6 +1,7 @@
 package com.lomo.domain.usecase
 
 import androidx.paging.PagingSource
+import com.lomo.domain.model.GalleryMemo
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoQuerySpec
@@ -17,8 +18,8 @@ class MainMemoListQueryUseCase(
             spec = MemoQuerySpec.fromFilter(queryText = query, filter = filter),
         )
 
-    fun getGalleryMemosPagingSource(): PagingSource<String, Memo> =
-        memoListQueryRepository.getGalleryMemosPagingSource()
+    fun getGalleryItemsPagingSource(): PagingSource<String, GalleryMemo> =
+        memoListQueryRepository.getGalleryItemsPagingSource()
 
     suspend fun rankInDefaultMainList(id: String): Int? = mainListQueryRepository.rankInDefaultMainList(id)
 

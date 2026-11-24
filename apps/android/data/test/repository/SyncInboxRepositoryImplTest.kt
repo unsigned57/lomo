@@ -527,6 +527,13 @@ private class InboxRecordingStorePort : StorePort {
         backward: Boolean,
     ): StoreMemoPage = error("unexpected")
 
+    override fun queryGalleryPage(
+        cursor: StorePageCursor?,
+        pageSize: Int,
+        startMemoId: String?,
+        backward: Boolean,
+    ): com.lomo.data.engine.store.StoreGalleryPage = error("unexpected")
+
     override fun getMemo(memoId: String): StoreMemoSnapshot? = error("unexpected")
 
     override fun queryCount(query: StoreMemoQuery): Long = error("unexpected")

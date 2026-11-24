@@ -62,7 +62,7 @@ private enum class GalleryReelPanelMode {
 fun GalleryReelMemoOverlay(
     hazeState: HazeState,
     onTagClick: (String) -> Unit,
-    memo: MemoUiModel,
+    memo: MemoUiModel?,
     onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     modifier: Modifier = Modifier,
     showMemoDetails: Boolean = true,
@@ -86,10 +86,11 @@ fun GalleryReelMemoOverlay(
 }
 
 @Composable
-private fun rememberGalleryReelPanelMode(memo: MemoUiModel, showMemoDetails: Boolean): GalleryReelPanelMode {
-    val plainText = memo.renderDocument.plainText
-    return remember(plainText, memo.tags, showMemoDetails) {
-        if (showMemoDetails && galleryReelHasDisplayContent(plainText, memo.tags)) {
+private fun rememberGalleryReelPanelMode(memo: MemoUiModel?, showMemoDetails: Boolean): GalleryReelPanelMode {
+    val plainText = memo?.renderDocument?.plainText.orEmpty()
+    val tags = memo?.tags.orEmpty()
+    return remember(plainText, tags, showMemoDetails) {
+        if (showMemoDetails && galleryReelHasDisplayContent(plainText, tags)) {
             GalleryReelPanelMode.Content
         } else {
             GalleryReelPanelMode.Compact
@@ -104,7 +105,7 @@ private fun galleryReelHasDisplayContent(plainText: String, tags: List<String>):
 private fun GalleryReelPanelSurface(
     hazeState: HazeState,
     onTagClick: (String) -> Unit,
-    memo: MemoUiModel,
+    memo: MemoUiModel?,
     panelTransition: Transition<GalleryReelPanelMode>,
     showMemoDetails: Boolean,
     onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
@@ -173,17 +174,19 @@ private fun GalleryReelPanelSurface(
         ) { mode ->
             when (mode) {
                 GalleryReelPanelMode.Content ->
-                    GalleryReelTextPanelContent(
-                        onTagClick = onTagClick,
-                        memo = memo,
-                        imageIndicator = imageIndicator,
-                        onTodoClick = onTodoClick,
-                    )
+                    memo?.let { resolvedMemo ->
+                        GalleryReelTextPanelContent(
+                            onTagClick = onTagClick,
+                            memo = resolvedMemo,
+                            imageIndicator = imageIndicator,
+                            onTodoClick = onTodoClick,
+                        )
+                    }
 
                 GalleryReelPanelMode.Compact ->
                     GalleryReelCompactPillContent(
                         memo = memo,
-                        showMemoDetails = showMemoDetails,
+                        showMemoDetails = showMemoDetails && memo != null,
                         imageIndicator = imageIndicator,
                     )
             }
@@ -251,7 +254,7 @@ private fun GalleryReelTextPanelContent(
 
 @Composable
 private fun GalleryReelCompactPillContent(
-    memo: MemoUiModel,
+    memo: MemoUiModel?,
     showMemoDetails: Boolean,
     imageIndicator: GalleryReelImageIndicatorState?,
 ) {
@@ -264,7 +267,8 @@ private fun GalleryReelCompactPillContent(
             vertical = GALLERY_REEL_PANEL_COMPACT_PILL_PADDING_VERTICAL,
         ),
     ) {
-        if (showMemoDetails) {
+        val showMemoDate = showMemoDetails && memo != null
+        if (showMemoDate) {
             val dateText = remember(memo.memo) {
                 memo.memo.displayTimestamp()
             }
@@ -275,7 +279,7 @@ private fun GalleryReelCompactPillContent(
             )
         }
         imageIndicator?.let { state ->
-            if (showMemoDetails) {
+            if (showMemoDate) {
                 Text(
                     text = "·",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

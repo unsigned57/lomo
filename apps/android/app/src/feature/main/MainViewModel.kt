@@ -265,7 +265,8 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
 
     val pagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.pagedUiMemos
 
-    val galleryPagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.galleryPagedUiMemos
+    val galleryPagedUiItems: Flow<PagingData<com.lomo.app.feature.gallery.GalleryUiItem>> =
+        memoListStateHolder.galleryPagedUiItems
 
     suspend fun prefetchVisiblePreviews(memos: List<com.lomo.domain.model.Memo>) {
         memoUiMapper.prefetchPreviews(memos)

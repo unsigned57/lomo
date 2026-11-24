@@ -1,9 +1,7 @@
 package com.lomo.app.feature.gallery
 
 import com.lomo.app.feature.main.GalleryUiMemosState
-import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.testing.AppFunSpec
-import com.lomo.domain.model.Memo
 import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
@@ -125,19 +123,12 @@ class GalleryScreenDisplayStateTest : AppFunSpec() {
         }
     }
 
-    private fun galleryMemo(id: String, imageUrl: String): MemoUiModel = MemoUiModel(
-        memo =
-        Memo(
-            id = id,
-            timestamp = 1L,
-            content = "![image]($imageUrl)",
-            rawContent = "![image]($imageUrl)",
-            dateKey = "2026_05_13",
-            imageUrls = listOf(imageUrl),
-        ),
-        processedContent = id,
-        renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
-        tags = persistentListOf(),
+    private fun galleryMemo(id: String, imageUrl: String): GalleryUiItem = GalleryUiItem(
+        memoId = id,
+        timestamp = 1L,
+        updatedAt = 1L,
+        dateKey = "2026_05_13",
+        timePart = "",
         imageUrls = persistentListOf(imageUrl),
     )
 }

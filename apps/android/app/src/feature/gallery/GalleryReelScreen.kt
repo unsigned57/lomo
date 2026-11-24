@@ -45,6 +45,7 @@ import dev.chrisbanes.haze.blur.HazeColorEffect
 import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.collectLatest
 import me.saket.telephoto.zoomable.EnabledZoomGestures
 import me.saket.telephoto.zoomable.ZoomSpec
@@ -76,6 +77,8 @@ fun GalleryReelScreen(
     modifier: Modifier = Modifier,
     viewerMode: GalleryReelMode = GalleryReelMode.Gallery,
     memoChromeEnabled: Boolean = true,
+    activeMemoDetail: com.lomo.app.feature.main.MemoUiModel? = null,
+    onActiveMemoIdChanged: (String) -> Unit = {},
     onShowMenu: ((MemoMenuSelection) -> Unit)? = null,
 ) {
     Box(
@@ -85,7 +88,7 @@ fun GalleryReelScreen(
             .background(Color.Black)
             .benchmarkAnchorRoot(BenchmarkAnchorContract.GALLERY_REEL_ROOT),
     ) {
-        if (request.memos.isEmpty()) {
+        if (request.entries.isEmpty()) {
             LaunchedEffect(Unit) {
                 onBackClick()
             }
@@ -95,6 +98,8 @@ fun GalleryReelScreen(
                 request = request,
                 viewerMode = viewerMode,
                 memoChromeEnabled = memoChromeEnabled,
+                activeMemoDetail = activeMemoDetail,
+                onActiveMemoIdChanged = onActiveMemoIdChanged,
                 onBackClick = onBackClick,
                 onShowMenu = onShowMenu,
                 onTodoClick = onTodoClick,
@@ -109,32 +114,38 @@ private fun BoxScope.GalleryReelLoadedRoute(
     request: GalleryReelRequest,
     viewerMode: GalleryReelMode,
     memoChromeEnabled: Boolean,
+    activeMemoDetail: com.lomo.app.feature.main.MemoUiModel?,
+    onActiveMemoIdChanged: (String) -> Unit,
     onBackClick: () -> Unit,
     onShowMenu: ((MemoMenuSelection) -> Unit)?,
     onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
 ) {
     GalleryReelImmersiveSystemBars()
 
-    val initialMemoIndex = request.initialMemoIndex.coerceIn(0, request.memos.lastIndex)
+    val initialMemoIndex = request.initialMemoIndex.coerceIn(0, request.entries.lastIndex)
     val verticalPagerState =
         rememberPagerState(
             initialPage = initialMemoIndex,
-            pageCount = { request.memos.size },
+            pageCount = { request.entries.size },
         )
     var chromeVisibility by rememberSaveable {
         mutableStateOf(GalleryReelChromeVisibility.Visible)
     }
     var activeZoomFraction by remember { mutableFloatStateOf(0f) }
     var activeMemoId by rememberSaveable {
-        mutableStateOf(request.memos[initialMemoIndex].memo.id)
+        mutableStateOf(request.entries[initialMemoIndex].memoId)
     }
-    var activeImageIndicatorState by remember(request.memos, initialMemoIndex, request.initialImageIndex) {
-        val initialMemo = request.memos.getOrNull(initialMemoIndex)
-        val initialImageCount = initialMemo?.run { imageUrls.size } ?: 0
+    val latestOnActiveMemoIdChanged by rememberUpdatedState(onActiveMemoIdChanged)
+    LaunchedEffect(activeMemoId) {
+        latestOnActiveMemoIdChanged(activeMemoId)
+    }
+    var activeImageIndicatorState by remember(request.entries, initialMemoIndex, request.initialImageIndex) {
+        val initialEntry = request.entries.getOrNull(initialMemoIndex)
+        val initialImageCount = initialEntry?.imageUrls?.size ?: 0
         mutableStateOf(
-            if (initialMemo != null && initialImageCount > GALLERY_REEL_SINGLE_PAGE_THRESHOLD) {
+            if (initialEntry != null && initialImageCount > GALLERY_REEL_SINGLE_PAGE_THRESHOLD) {
                 GalleryReelActiveImageState(
-                    memoId = initialMemo.memo.id,
+                    memoId = initialEntry.memoId,
                     currentPage =
                     request.initialImageIndex.coerceIn(
                         0,
@@ -148,8 +159,9 @@ private fun BoxScope.GalleryReelLoadedRoute(
         )
     }
     var activeImageIndex by rememberSaveable { mutableIntStateOf(request.initialImageIndex) }
-    val currentMemo = request.memos.getOrNull(verticalPagerState.currentPage)
-    val activeImageUrl = currentMemo?.run { imageUrls.getOrNull(activeImageIndex) }
+    val currentEntry = request.entries.getOrNull(verticalPagerState.currentPage)
+    val activeImageUrl = currentEntry?.imageUrls?.getOrNull(activeImageIndex)
+    val resolvedActiveMemo = activeMemoDetail?.takeIf { detail -> detail.memo.id == activeMemoId }
     val hazeState = rememberHazeState()
 
     GalleryReelScreenEffects(
@@ -169,7 +181,9 @@ private fun BoxScope.GalleryReelLoadedRoute(
         activeImageUrl = activeImageUrl,
         onTagClick = onTagClick,
         request = request,
-        currentMemo = currentMemo,
+        activeEntry = currentEntry,
+        activeMemoId = activeMemoId,
+        currentMemo = resolvedActiveMemo,
         initialMemoIndex = initialMemoIndex,
         verticalPagerState = verticalPagerState,
         viewerMode = viewerMode,
@@ -200,6 +214,8 @@ private fun BoxScope.GalleryReelContent(
     activeImageUrl: String?,
     onTagClick: (String) -> Unit,
     request: GalleryReelRequest,
+    activeEntry: GalleryReelEntry?,
+    activeMemoId: String,
     currentMemo: com.lomo.app.feature.main.MemoUiModel?,
     initialMemoIndex: Int,
     verticalPagerState: PagerState,
@@ -232,7 +248,7 @@ private fun BoxScope.GalleryReelContent(
             )
         } else {
             GalleryReelSingleMemoPage(
-                memo = currentMemo,
+                entry = activeEntry ?: request.entries.getOrNull(initialMemoIndex),
                 initialMemoIndex = initialMemoIndex,
                 initialImageIndex = request.initialImageIndex,
                 onImageClick = onToggleChrome,
@@ -244,6 +260,7 @@ private fun BoxScope.GalleryReelContent(
     GalleryReelChrome(
         hazeState = hazeState,
         onTagClick = onTagClick,
+        activeMemoId = activeMemoId,
         memo = currentMemo,
         memoChromeEnabled = memoChromeEnabled,
         chromeVisibility = chromeVisibility,
@@ -286,9 +303,10 @@ private fun GalleryReelVerticalPager(
         beyondViewportPageCount = GALLERY_REEL_SINGLE_PAGE_THRESHOLD,
         userScrollEnabled = activeZoomFraction <= GALLERY_REEL_SCROLL_LOCK_THRESHOLD,
     ) { page ->
-        val memo = request.memos[page]
+        val entry = request.entries[page]
         GalleryReelPage(
-            memo = memo,
+            memoId = entry.memoId,
+            imageUrls = entry.imageUrls,
             memoIndex = page,
             initialMemoIndex = initialMemoIndex,
             initialImageIndex = request.initialImageIndex,
@@ -306,16 +324,17 @@ private fun GalleryReelVerticalPager(
 
 @Composable
 private fun GalleryReelSingleMemoPage(
-    memo: com.lomo.app.feature.main.MemoUiModel?,
+    entry: GalleryReelEntry?,
     initialMemoIndex: Int,
     initialImageIndex: Int,
     onImageClick: () -> Unit,
     onActiveZoomFractionChanged: (Float) -> Unit,
     onActiveImagePageChanged: (memoId: String, currentPage: Int, pageCount: Int) -> Unit,
 ) {
-    memo ?: return
+    entry ?: return
     GalleryReelPage(
-        memo = memo,
+        memoId = entry.memoId,
+        imageUrls = entry.imageUrls,
         memoIndex = initialMemoIndex,
         initialMemoIndex = initialMemoIndex,
         initialImageIndex = initialImageIndex,
@@ -330,6 +349,7 @@ private fun GalleryReelSingleMemoPage(
 private fun BoxScope.GalleryReelChrome(
     hazeState: HazeState,
     onTagClick: (String) -> Unit,
+    activeMemoId: String,
     memo: com.lomo.app.feature.main.MemoUiModel?,
     memoChromeEnabled: Boolean,
     chromeVisibility: GalleryReelChromeVisibility,
@@ -338,21 +358,24 @@ private fun BoxScope.GalleryReelChrome(
     onShowMenu: ((MemoMenuSelection) -> Unit)?,
     onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
 ) {
-    memo ?: return
     val showMenu =
-        onShowMenu?.let { show ->
-            {
-                show(
-                    memoMenuSelection(
-                        memo = memo.memo,
-                        imageUrls = memo.imageUrls,
-                    ),
-                )
+        if (memo != null) {
+            onShowMenu?.let { show ->
+                {
+                    show(
+                        memoMenuSelection(
+                            memo = memo.memo,
+                            imageUrls = memo.imageUrls,
+                        ),
+                    )
+                }
             }
+        } else {
+            null
         }
     val visibleImageIndicatorState =
         imageIndicatorState?.takeIf { indicatorState ->
-            indicatorState.memoId == memo.memo.id &&
+            indicatorState.memoId == activeMemoId &&
                 indicatorState.pageCount > GALLERY_REEL_SINGLE_PAGE_THRESHOLD
         }
     val indicatorViewState =
@@ -373,14 +396,14 @@ private fun BoxScope.GalleryReelChrome(
             androidx.compose.animation.slideOutVertically(motion.layout.fastSpatialSpec()) { it },
         modifier = Modifier.align(Alignment.BottomCenter).zIndex(1f),
     ) {
-        if (memoChromeEnabled || indicatorViewState != null) {
+        if ((memoChromeEnabled && memo != null) || indicatorViewState != null) {
             GalleryReelMemoOverlay(
                 hazeState = hazeState,
                 onTagClick = onTagClick,
                 memo = memo,
                 onTodoClick = onTodoClick,
                 imageIndicator = indicatorViewState,
-                showMemoDetails = memoChromeEnabled,
+                showMemoDetails = memoChromeEnabled && memo != null,
             )
         }
     }
@@ -410,22 +433,22 @@ private fun GalleryReelScreenEffects(
 ) {
     val latestChromeVisibility by rememberUpdatedState(chromeVisibility)
 
-    LaunchedEffect(verticalPagerState, request.memos) {
+    LaunchedEffect(verticalPagerState, request.entries) {
         snapshotFlow { verticalPagerState.currentPage }
             .collectLatest { page ->
                 onActiveZoomFractionChanged(0f)
-                request.memos.getOrNull(page)?.let { onActiveMemoIdChanged(it.memo.id) }
+                request.entries.getOrNull(page)?.let { onActiveMemoIdChanged(it.memoId) }
                 onChromeVisibilityChanged(nextChromeVisibilityOnPageChange(latestChromeVisibility))
             }
     }
 
-    LaunchedEffect(request.memos, viewerMode, activeMemoId) {
+    LaunchedEffect(request.entries, viewerMode, activeMemoId) {
         when (
             val resolution =
                 resolveGalleryReelActiveMemo(
                     viewerMode = viewerMode,
                     activeMemoId = activeMemoId,
-                    requestMemoIds = request.memos.map { uiModel -> uiModel.memo.id },
+                    requestMemoIds = request.entries.map(GalleryReelEntry::memoId),
                 )
         ) {
             GalleryReelActiveMemoResolution.KeepActiveMemo -> Unit
@@ -441,7 +464,8 @@ private fun GalleryReelScreenEffects(
 
 @Composable
 private fun GalleryReelPage(
-    memo: com.lomo.app.feature.main.MemoUiModel,
+    memoId: String,
+    imageUrls: ImmutableList<String>,
     memoIndex: Int,
     initialMemoIndex: Int,
     initialImageIndex: Int,
@@ -450,7 +474,6 @@ private fun GalleryReelPage(
     onZoomFractionChanged: (Float) -> Unit,
     onImagePageChanged: (memoId: String, currentPage: Int, pageCount: Int) -> Unit,
 ) {
-    val imageUrls = memo.imageUrls
     if (imageUrls.isEmpty()) return
 
     val effectiveInitialImageIndex =
@@ -464,7 +487,7 @@ private fun GalleryReelPage(
             initialPage = effectiveInitialImageIndex,
             pageCount = { imageUrls.size },
         )
-    var initialPageConsumed by rememberSaveable(memo.memo.id) {
+    var initialPageConsumed by rememberSaveable(memoId) {
         mutableStateOf(false)
     }
     var activeZoomFraction by remember { mutableFloatStateOf(0f) }
@@ -474,7 +497,7 @@ private fun GalleryReelPage(
     val currentOnImagePageChanged by rememberUpdatedState(onImagePageChanged)
     val currentOnZoomFractionChanged by rememberUpdatedState(onZoomFractionChanged)
 
-    LaunchedEffect(isActive, memo.memo.id) {
+    LaunchedEffect(isActive, memoId) {
         if (isActive) {
             val targetPage =
                 if (!initialPageConsumed && memoIndex == initialMemoIndex) {
@@ -489,11 +512,11 @@ private fun GalleryReelPage(
     LaunchedEffect(isActive, activeZoomFraction) {
         if (isActive) currentOnZoomFractionChanged(activeZoomFraction)
     }
-    LaunchedEffect(isActive, pagerState, memo.memo.id, imageUrls.size) {
+    LaunchedEffect(isActive, pagerState, memoId, imageUrls.size) {
         if (isActive) {
             snapshotFlow { pagerState.currentPage }
                 .collectLatest { currentPage ->
-                    currentOnImagePageChanged(memo.memo.id, currentPage, imageUrls.size)
+                    currentOnImagePageChanged(memoId, currentPage, imageUrls.size)
                 }
         }
     }
@@ -507,7 +530,7 @@ private fun GalleryReelPage(
                 activeZoomFraction <= GALLERY_REEL_SCROLL_LOCK_THRESHOLD,
         ) { imageIndex ->
             GalleryReelImage(
-                memoId = memo.memo.id,
+                memoId = memoId,
                 imageUrl = imageUrls[imageIndex],
                 imageIndex = imageIndex,
                 isInitiallyShared = memoIndex == initialMemoIndex && imageIndex == effectiveInitialImageIndex,

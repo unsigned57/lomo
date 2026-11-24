@@ -4,7 +4,6 @@ import androidx.paging.PagingDataEvent
 import androidx.paging.PagingDataPresenter
 import com.lomo.app.feature.main.MainMemoListStateHolder
 import com.lomo.app.feature.main.MainMemoListStateHolderDependencies
-import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
@@ -73,22 +72,26 @@ class GalleryPagingContinuationTest : AppFunSpec() {
                         imageMap = MutableStateFlow(emptyMap()),
                     ),
                 )
-                val presenter = object : PagingDataPresenter<MemoUiModel>(mainDispatcher.testDispatcher) {
-                    override suspend fun presentPagingDataEvent(event: PagingDataEvent<MemoUiModel>) = Unit
+                val presenter = object : PagingDataPresenter<com.lomo.app.feature.gallery.GalleryUiItem>(
+                    mainDispatcher.testDispatcher,
+                ) {
+                    override suspend fun presentPagingDataEvent(
+                        event: PagingDataEvent<com.lomo.app.feature.gallery.GalleryUiItem>,
+                    ) = Unit
                 }
-                val collection = launch { holder.galleryPagedUiMemos.collectLatest(presenter::collectFrom) }
+                val collection = launch { holder.galleryPagedUiItems.collectLatest(presenter::collectFrom) }
                 try {
                     advanceUntilIdle()
 
-                    presenter.snapshot().items.map { it.memo.id } shouldBe memos.take(20).map { it.id }
+                    presenter.snapshot().items.map { it.memoId } shouldBe memos.take(20).map { it.id }
                     for (expectedCount in listOf(40, 60, 80, 100)) {
                         val loaded = presenter.snapshot().items
-                        val indices = loaded.withIndex().associate { it.value.memo.id to it.index }
+                        val indices = loaded.withIndex().associate { it.value.memoId to it.index }
                         // The most recent source index need not be the last tile geometrically.
                         val band = GalleryMosaicLayout(
                             tiles = listOf(loaded.last(), loaded.first()).map { ui ->
                                 GalleryMosaicTile(
-                                    ui.memo.id,
+                                    ui.memoId,
                                     ui.imageUrls.first(),
                                     GalleryAspectKind.Square,
                                     1f,
@@ -102,9 +105,65 @@ class GalleryPagingContinuationTest : AppFunSpec() {
                         )
                         presenter[galleryBandPagingIndex(band, indices)]
                         advanceUntilIdle()
-                        presenter.snapshot().items.map { it.memo.id } shouldBe memos.take(expectedCount).map { it.id }
+                        presenter.snapshot().items.map { it.memoId } shouldBe memos.take(expectedCount).map { it.id }
                     }
-                    presenter.snapshot().items.last().memo.id shouldBe "memo-99"
+                    presenter.snapshot().items.last().memoId shouldBe "memo-99"
+                } finally {
+                    collection.cancel()
+                }
+            }
+        }
+
+        test("collecting gallery pages resolves image URLs with zero Markdown render calls") {
+            runTest(mainDispatcher.testDispatcher) {
+                val memos = (0 until 40).map { index ->
+                    Memo(
+                        id = "gallery-$index",
+                        timestamp = index.toLong(),
+                        content = "#tag **markdown $index**",
+                        rawContent = "#tag **markdown $index**",
+                        dateKey = "2026_10_24",
+                        imageUrls = listOf("images/photo-$index.jpg", "https://cdn.example.com/$index.jpg"),
+                    )
+                }
+                val store = FakeMemoStore(initialActive = memos)
+                val query = FakeMemoQueryRepository(store)
+                var renderCalls = 0
+                val workspace = com.lomo.app.testing.fakes.FakeMarkdownWorkspaceRepository(
+                    onRender = { renderCalls += 1 },
+                )
+                val mapper = testMemoUiMapper(
+                    workspace = workspace,
+                    dispatcherProvider = SingleDispatcherProvider(mainDispatcher.testDispatcher),
+                )
+                val holder = MainMemoListStateHolder(
+                    MainMemoListStateHolderDependencies(
+                        scope = backgroundScope,
+                        mainMemoListQueryUseCase = MainMemoListQueryUseCase(query, query),
+                        memoUiMapper = mapper,
+                        searchQuery = MutableStateFlow(""),
+                        memoListFilter = MutableStateFlow(MemoListFilter()),
+                        mount = FakeEngineReadinessRepository().mount,
+                        rootDirectory = MutableStateFlow("/workspace"),
+                        imageDirectory = MutableStateFlow(null),
+                        imageMap = MutableStateFlow(emptyMap()),
+                    ),
+                )
+                val presenter = object : PagingDataPresenter<GalleryUiItem>(mainDispatcher.testDispatcher) {
+                    override suspend fun presentPagingDataEvent(event: PagingDataEvent<GalleryUiItem>) = Unit
+                }
+                val collection = launch { holder.galleryPagedUiItems.collectLatest(presenter::collectFrom) }
+                try {
+                    advanceUntilIdle()
+                    presenter.snapshot().items.first().imageUrls shouldBe listOf(
+                        "/workspace/images/photo-0.jpg",
+                        "https://cdn.example.com/0.jpg",
+                    )
+                    presenter[35]
+                    advanceUntilIdle()
+                    presenter.snapshot().items.size shouldBe 40
+                    renderCalls shouldBe 0
+                    mapper.cacheStats().size shouldBe 0
                 } finally {
                     collection.cancel()
                 }

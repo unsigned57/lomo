@@ -390,28 +390,25 @@ private fun ActionOutcome.requireListedPage() = when (this) {
     is ActionOutcome.AlreadySatisfied -> error("media_classify listing cannot replay as AlreadySatisfied")
 }
 
-/** The gallery's source query at the production page size. */
+/** The gallery's dedicated cursor page query at the production page size. */
 internal suspend fun EnginePerfProbe.galleryPaging(intent: Intent, run: String): JSONObject {
     requireReadySession()
     val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
     val pageSize = intent.probeCount("pageSize", PRODUCTION_PAGE_SIZE, LIST_PAGE_SIZE)
-    val galleryQuery = defaultFeedQuery().copy(filters = EMPTY_FILTERS.copy(hasAttachment = true))
     val times = JSONArray()
     var expectedIds: List<String>? = null
     var imageTargets = 0
     var imageRows = 0
-    var previewBytes = 0L
     repeat(samples) {
         val t0 = System.nanoTime()
-        val page = session.queryMemos(galleryQuery, null, pageSize.toUInt(), null, false)
+        val page = session.queryGalleryPage(null, pageSize.toUInt(), null, false)
         times.put(elapsedMs(t0))
         val ids = page.items.map { item -> item.memoId }
-        check(ids.isNotEmpty()) { "gallery_paging expected attachment-bearing memos" }
+        check(ids.isNotEmpty()) { "gallery_paging expected image-bearing memos" }
         check(expectedIds == null || expectedIds == ids) { "gallery_paging output drifted across samples" }
         expectedIds = ids
         imageTargets = page.items.sumOf { item -> item.imageUrls.size }
         imageRows = page.items.count { item -> item.imageUrls.isNotEmpty() }
-        previewBytes = page.items.sumOf { item -> item.bodyPreview.utf8Size() }
     }
     return okPayload(run, "gallery_paging").apply {
         put("metrics", JSONObject().put("gallery_paging_20_ms", times))
@@ -424,7 +421,7 @@ internal suspend fun EnginePerfProbe.galleryPaging(intent: Intent, run: String):
                 .put("itemsFetched", expectedIds.orEmpty().size)
                 .put("itemsWithImageTargets", imageRows)
                 .put("imageTargetCount", imageTargets)
-                .put("previewUtf8Bytes", previewBytes),
+                .put("previewUtf8Bytes", 0L),
         )
     }
 }

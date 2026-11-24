@@ -91,6 +91,41 @@ internal class BoltFfiStorePort(
         )
     }
 
+    override fun queryGalleryPage(
+        cursor: StorePageCursor?,
+        pageSize: Int,
+        startMemoId: String?,
+        backward: Boolean,
+    ): StoreGalleryPage {
+        val page =
+            bridge.queryGalleryPage(
+                cursor?.let { BridgePageCursor(encoded = it.encoded) },
+                pageSize.toUInt(),
+                startMemoId,
+                backward,
+            )
+        return StoreGalleryPage(
+            items =
+            page.items.map { item ->
+                StoreGalleryItem(
+                    memoId = item.memoId,
+                    sourcePath = item.sourcePath,
+                    timePart = item.timePart,
+                    createdAtMs = item.createdAtMs,
+                    updatedAtMs = item.updatedAtMs,
+                    isPinned = item.isPinned,
+                    contentRevision = item.contentRevision.toStoreLong("content_revision"),
+                    fileFingerprint = item.fileFingerprint,
+                    imageUrls = item.imageUrls,
+                )
+            },
+            nextCursor = page.nextCursor?.let { StorePageCursor(encoded = it.encoded) },
+            prevCursor = page.prevCursor?.let { StorePageCursor(encoded = it.encoded) },
+            highWaterRevision = page.highWaterRevision.toLong(),
+            queryFingerprint = page.queryFingerprint,
+        )
+    }
+
     override fun getMemo(memoId: String): StoreMemoSnapshot? {
         val snap = bridge.getMemo(memoId) ?: return null
         return StoreMemoSnapshot(summary = snap.summary.toStoreSummary(), body = snap.body)

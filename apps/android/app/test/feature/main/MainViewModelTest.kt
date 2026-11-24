@@ -1185,10 +1185,11 @@ class MainViewModelTest : AppFunSpec() {
                     )
                 imageMapProvider = FakeImageMapProvider(mediaRepository, imageMapFlow)
                 val viewModel = createViewModel()
-                val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
+                val pagingEmissions =
+                    mutableListOf<androidx.paging.PagingData<com.lomo.app.feature.gallery.GalleryUiItem>>()
                 val collectJob =
                     backgroundScope.launch(testDispatcher) {
-                        viewModel.galleryPagedUiMemos.collect { pagingEmissions += it }
+                        viewModel.galleryPagedUiItems.collect { pagingEmissions += it }
                     }
                 advanceUntilIdle()
 

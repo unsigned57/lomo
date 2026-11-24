@@ -781,7 +781,8 @@ class WidgetProjectionBinderTest : AppFunSpec() {
         var failOnRecent = false
         var cancelOnRecent = false
 
-        override fun getGalleryMemosPagingSource(): PagingSource<String, Memo> = UnusedPagingSource()
+        override fun getGalleryItemsPagingSource(): PagingSource<String, com.lomo.domain.model.GalleryMemo> =
+            UnusedPagingSource()
 
         override suspend fun getRecentMemos(limit: Int): List<Memo> {
             if (cancelOnRecent) throw CancellationException("projection query cancelled")
@@ -794,11 +795,11 @@ class WidgetProjectionBinderTest : AppFunSpec() {
         override fun observeListProjection() = publications
     }
 
-    private class UnusedPagingSource : PagingSource<String, Memo>() {
-        override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> =
+    private class UnusedPagingSource : PagingSource<String, com.lomo.domain.model.GalleryMemo>() {
+        override suspend fun load(params: LoadParams<String>): LoadResult<String, com.lomo.domain.model.GalleryMemo> =
             LoadResult.Page(data = emptyList(), prevKey = null, nextKey = null)
 
-        override fun getRefreshKey(state: PagingState<String, Memo>): String? = null
+        override fun getRefreshKey(state: PagingState<String, com.lomo.domain.model.GalleryMemo>): String? = null
     }
 
     private class RecordingWidgetRepository : AppWidgetRepository(mockk()) {

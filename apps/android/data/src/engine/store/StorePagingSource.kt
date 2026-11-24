@@ -112,7 +112,7 @@ class StorePagingSource(
     }
 }
 
-private fun requirePagingCursor(key: String?, direction: String): String {
+internal fun requirePagingCursor(key: String?, direction: String): String {
     require(!key.isNullOrBlank()) { "$direction requires a page cursor" }
     return key
 }
@@ -126,21 +126,22 @@ private fun Long.toPagingPlaceholderCount(field: String): Int {
 
 private val FALLBACK_DATE_KEY: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy_MM_dd")
 
+internal fun sourcePathToDateKey(sourcePath: String, createdAtMs: Long): String = sourcePath
+    .substringAfterLast('/')
+    .removeSuffix(".md")
+    .ifBlank {
+        Instant
+            .ofEpochMilli(createdAtMs)
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+            .format(FALLBACK_DATE_KEY)
+    }
+
 internal fun StoreMemoSummary.toDomainMemo(
     body: String,
     contentKind: MemoContentKind = MemoContentKind.Preview,
 ): Memo {
-    val dateKey =
-        sourcePath
-            .substringAfterLast('/')
-            .removeSuffix(".md")
-            .ifBlank {
-                Instant
-                    .ofEpochMilli(createdAtMs)
-                    .atZone(ZoneId.systemDefault())
-                    .toLocalDate()
-                    .format(FALLBACK_DATE_KEY)
-            }
+    val dateKey = sourcePathToDateKey(sourcePath, createdAtMs)
     val localDate: LocalDate? =
         // behavior-contract: silent-result-ok: invalid epoch remains displayable without date
         runCatching {

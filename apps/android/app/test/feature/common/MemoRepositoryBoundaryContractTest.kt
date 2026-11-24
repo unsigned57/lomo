@@ -490,7 +490,7 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
         private val MEMO_CAPABILITY_METHOD_FAMILIES =
             listOf(
                 setOf(
-                    "getGalleryMemosPagingSource",
+                    "getGalleryItemsPagingSource",
                     "getRecentMemos",
                     "getMemoCount",
                     "getDailyReviewPage",

@@ -9,7 +9,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 class FakeMemoQueryRepository(private val store: FakeMemoStore) : MemoQueryRepository {
-    override fun getGalleryMemosPagingSource(): PagingSource<String, Memo> = store.galleryPagingSource()
+    override fun getGalleryItemsPagingSource(): PagingSource<String, com.lomo.domain.model.GalleryMemo> =
+        store.galleryPagingSource()
 
     override suspend fun getRecentMemos(limit: Int): List<Memo> = store.recentActiveMemos(limit)
 

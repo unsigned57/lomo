@@ -196,6 +196,29 @@ private class RecordingStoreNativeBridge :
         return page
     }
 
+    var galleryPage: com.lomo.nativebridge.StoreGalleryPage =
+        com.lomo.nativebridge.StoreGalleryPage(
+            items = emptyList(),
+            nextCursor = null,
+            prevCursor = null,
+            highWaterRevision = 1uL,
+            queryFingerprint = "gallery:v1",
+        )
+
+    override fun queryGalleryPage(
+        cursor: BridgePageCursor?,
+        pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
+    ): com.lomo.nativebridge.StoreGalleryPage {
+        lastCursor = cursor
+        lastPageSize = pageSize
+        lastStartMemoId = startMemoId
+        lastBackward = backward
+        failure?.let { throw it }
+        return galleryPage
+    }
+
     override fun queryCount(query: BridgeMemoQuery): ULong {
         failure?.let { throw it }
         return 0uL
@@ -783,6 +806,52 @@ class BoltFfiStorePortTest :
             val page = storePort(bridge).queryMemos(StoreMemoQuery(), null, 10)
             page.items.single().tags shouldBe listOf("work")
             page.items.single().imageUrls shouldBe listOf("images/a.png")
+        }
+
+        test("given a Rust gallery page when queried then fields and cursors map through the store port") {
+            val bridge =
+                RecordingStoreNativeBridge().apply {
+                    galleryPage =
+                        com.lomo.nativebridge.StoreGalleryPage(
+                            items =
+                            listOf(
+                                com.lomo.nativebridge.StoreGalleryItem(
+                                    memoId = "g1",
+                                    sourcePath = "memos/2026_10_01.md",
+                                    timePart = "12:00:00",
+                                    createdAtMs = 1_700_000_000_000L,
+                                    updatedAtMs = 1_700_000_000_500L,
+                                    isPinned = true,
+                                    contentRevision = 7uL,
+                                    fileFingerprint = "fp-g1",
+                                    imageUrls = listOf("images/z.png", "https://cdn.example.com/a.jpg"),
+                                ),
+                            ),
+                            nextCursor = BridgePageCursor("next-g"),
+                            prevCursor = BridgePageCursor("prev-g"),
+                            highWaterRevision = 12uL,
+                            queryFingerprint = "gallery:v1",
+                        )
+                }
+            val page = storePort(
+                bridge,
+            ).queryGalleryPage(StorePageCursor("c0"), 20, startMemoId = null, backward = false)
+            bridge.lastCursor?.encoded shouldBe "c0"
+            bridge.lastPageSize shouldBe 20u
+            bridge.lastStartMemoId shouldBe null
+            bridge.lastBackward shouldBe false
+            page.nextCursor?.encoded shouldBe "next-g"
+            page.prevCursor?.encoded shouldBe "prev-g"
+            page.highWaterRevision shouldBe 12L
+            page.queryFingerprint shouldBe "gallery:v1"
+            val item = page.items.single()
+            item.memoId shouldBe "g1"
+            item.sourcePath shouldBe "memos/2026_10_01.md"
+            item.timePart shouldBe "12:00:00"
+            item.isPinned shouldBe true
+            item.contentRevision shouldBe 7L
+            item.fileFingerprint shouldBe "fp-g1"
+            item.imageUrls shouldBe listOf("images/z.png", "https://cdn.example.com/a.jpg")
         }
 
         test("given a Rust reminder plan when queried then session facts and alarms map exactly") {

@@ -1,5 +1,6 @@
 package com.lomo.data.engine.store
 
+import com.lomo.nativebridge.StoreGalleryPage as BridgeGalleryPage
 import com.lomo.nativebridge.StoreMemoCommand as BridgeMemoCommand
 import com.lomo.nativebridge.StoreMemoCommit as BridgeMemoCommit
 import com.lomo.nativebridge.StoreMemoPage as BridgeMemoPage
@@ -27,6 +28,13 @@ internal interface StoreNativeReadBridge {
         startMemoId: String?,
         backward: Boolean,
     ): BridgeMemoPage
+
+    fun queryGalleryPage(
+        cursor: BridgePageCursor?,
+        pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
+    ): BridgeGalleryPage
 
     fun getMemo(memoId: String): BridgeMemoSnapshot?
 

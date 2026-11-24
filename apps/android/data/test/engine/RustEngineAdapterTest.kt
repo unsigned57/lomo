@@ -568,6 +568,13 @@ private class FakeNativeEnginePort(initialSnapshot: NativeEngineSnapshot) : Work
         backward: Boolean,
     ): com.lomo.nativebridge.StoreMemoPage = error("store query not expected")
 
+    override fun queryGalleryPage(
+        cursor: com.lomo.nativebridge.StorePageCursor?,
+        pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
+    ): com.lomo.nativebridge.StoreGalleryPage = error("gallery query not expected")
+
     override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong = error("store count not expected")
 
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =

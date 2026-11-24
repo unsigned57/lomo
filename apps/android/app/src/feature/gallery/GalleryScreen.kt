@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,12 +31,12 @@ import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.main.GalleryUiMemosState
 import com.lomo.app.feature.main.MainViewModel
-import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoMenuBinder
 import com.lomo.app.feature.memo.MemoMenuContextAction
 import com.lomo.app.feature.memo.MemoMenuPresentationState
 import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.app.feature.memo.handleMemoJumpToMain
+import com.lomo.app.feature.memo.memoMenuSelection
 import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
 import com.lomo.app.util.activityKoinViewModel
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
@@ -51,6 +52,7 @@ import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.collections.immutable.toPersistentMap
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -62,7 +64,7 @@ fun GalleryScreen(
     lanShareEnabled: Boolean = true,
 ) {
     val viewModel: MainViewModel = activityKoinViewModel()
-    val galleryItems = viewModel.galleryPagedUiMemos.collectAsLazyPagingItems()
+    val galleryItems = viewModel.galleryPagedUiItems.collectAsLazyPagingItems()
     val galleryState =
         remember(galleryItems.loadState, galleryItems.itemSnapshotList.items) {
             when {
@@ -113,6 +115,7 @@ fun GalleryScreen(
         onDeleteMemo = viewModel.deleteMemo,
         onRequestFocusMemo = viewModel.requestFocusMemoInDefaultMainList,
         onLoadVersionHistory = { selection -> viewModel.loadVersionHistory(selection.memo) },
+        onResolveMemoById = viewModel.resolveMemoById,
         shareCardShowTime = appPreferences.shareCardShowTime,
         shareCardShowSignature = appPreferences.shareCardShowBrand,
         shareCardSignatureText = appPreferences.shareCardSignatureText,
@@ -142,15 +145,15 @@ private data class GalleryEntryReadiness(
 
 @Composable
 private fun rememberGalleryEntryReadiness(
-    memos: List<MemoUiModel>,
+    memos: List<GalleryUiItem>,
     dimensionResolver: GalleryImageDimensionResolver,
 ): GalleryEntryReadiness {
     val aspectByPath by dimensionResolver.aspectFlow.collectAsStateWithLifecycle()
     val galleryLayoutInputs =
         remember(memos) {
-            memos.mapNotNull { uiModel ->
-                val firstImageUrl = uiModel.imageUrls.firstOrNull() ?: return@mapNotNull null
-                galleryLayoutInput(memoId = uiModel.memo.id, firstImageUrl = firstImageUrl)
+            memos.mapNotNull { item ->
+                val firstImageUrl = item.imageUrls.firstOrNull() ?: return@mapNotNull null
+                galleryLayoutInput(memoId = item.memoId, firstImageUrl = firstImageUrl)
             }
         }
     // The entry gate only waits on the leading window's aspects: bounding the wait to the first
@@ -188,6 +191,7 @@ private fun GalleryScreenMenuContent(
     onDeleteMemo: (com.lomo.domain.model.Memo, String?) -> Unit,
     onRequestFocusMemo: (String) -> Unit,
     onLoadVersionHistory: (MemoMenuSelection) -> Unit,
+    onResolveMemoById: suspend (String) -> com.lomo.domain.model.Memo?,
     shareCardShowTime: Boolean,
     shareCardShowSignature: Boolean,
     shareCardSignatureText: String,
@@ -202,6 +206,7 @@ private fun GalleryScreenMenuContent(
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     snackbarHostState: SnackbarHostState,
 ) {
+    val scope = rememberCoroutineScope()
     val memoMenuCommandHandler =
         rememberMemoMenuCommandHandler(
             presentationState =
@@ -248,7 +253,17 @@ private fun GalleryScreenMenuContent(
                 aspectByMemoId = aspectByMemoId,
                 aspectsReady = aspectsReady,
                 padding = padding,
-                onShowMenu = showMenu,
+                onShowMenu = { item ->
+                    scope.launch {
+                        val resolved = onResolveMemoById(item.memoId) ?: return@launch
+                        showMenu(
+                            memoMenuSelection(
+                                memo = resolved,
+                                imageUrls = item.imageUrls,
+                            ),
+                        )
+                    }
+                },
                 onNavigateToReel = onNavigateToReel,
                 onResolveImageAspect = onResolveImageAspect,
             )
@@ -261,7 +276,7 @@ private fun GalleryScreenEffects(
     errorMessage: String?,
     snackbarHostState: SnackbarHostState,
     onClearError: () -> Unit,
-    memos: List<MemoUiModel>,
+    memos: List<GalleryUiItem>,
     deletingMemoIds: ImmutableSet<String>,
     onDeleteAnimationSettled: (String) -> Unit,
     dimensionImageUrls: ImmutableList<String>,
@@ -282,7 +297,7 @@ private fun GalleryScreenEffects(
         }
     }
     LaunchedEffect(memos, deletingMemoIds) {
-        val visibleMemoIds = memos.asSequence().map { uiModel -> uiModel.memo.id }.toSet()
+        val visibleMemoIds = memos.asSequence().map { item -> item.memoId }.toSet()
         deletingMemoIds
             .asSequence()
             .filterNot { memoId -> memoId in visibleMemoIds }
@@ -345,7 +360,7 @@ private fun GalleryScreenContent(
     aspectByMemoId: ImmutableMap<String, Float>?,
     aspectsReady: Boolean,
     padding: PaddingValues,
-    onShowMenu: (MemoMenuSelection) -> Unit,
+    onShowMenu: (GalleryUiItem) -> Unit,
     onNavigateToReel: (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit,
     onResolveImageAspect: suspend (String) -> Unit,
 ) {

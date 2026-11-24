@@ -635,4 +635,212 @@ mod tests {
             head.items.last().map(|memo| memo.memo_id.as_str())
         );
     }
+
+    #[test]
+    fn gallery_page_uses_partial_index_filters_orders_pages_and_fails_closed() {
+        let dir = tempdir().expect("tempdir");
+        seed_memo(dir.path(), "plain", "just text", &[]);
+        seed_memo(dir.path(), "audio", "![voice](voice/clip.m4a)", &[]);
+        seed_memo(dir.path(), "g1", "![img](images/g1.png)", &[]);
+        seed_memo(dir.path(), "g2", "![img](images/g2.png)", &[]);
+        seed_memo(dir.path(), "g3", "![img](images/g3.png)", &[]);
+        seed_memo(
+            dir.path(),
+            "g4",
+            "![z](images/z.png)\n![remote](https://cdn.example.com/r.png)\n![a](images/a.png)\n![voice](voice/skip.m4a)",
+            &[],
+        );
+        seed_memo(dir.path(), "trashed-img", "![gone](images/gone.png)", &[]);
+
+        let mut store = indexed_store(dir.path());
+        publish_pin(&mut store, "g2", "op-gallery-pin-g2");
+        super::support::publish_trash(&mut store, "trashed-img", "op-gallery-trash");
+
+        let db_path = store.open_info().database_path.clone();
+        let explain_conn = rusqlite::Connection::open(&db_path).expect("open explain conn");
+        for sql in [
+            "SELECT m.memo_id FROM memo m INDEXED BY idx_memo_gallery \
+             WHERE m.is_trashed = 0 AND m.has_attachment = 1 AND m.image_urls_json <> '[]' \
+             ORDER BY m.is_pinned DESC, m.created_at_ms DESC, m.memo_id DESC LIMIT 21",
+            "SELECT m.memo_id FROM memo m INDEXED BY idx_memo_gallery \
+             WHERE m.is_trashed = 0 AND m.has_attachment = 1 AND m.image_urls_json <> '[]' \
+             AND (m.is_pinned, m.created_at_ms, m.memo_id) < (0, 1000, 'm1') \
+             ORDER BY m.is_pinned DESC, m.created_at_ms DESC, m.memo_id DESC LIMIT 21",
+            "SELECT m.memo_id FROM memo m INDEXED BY idx_memo_gallery \
+             WHERE m.is_trashed = 0 AND m.has_attachment = 1 AND m.image_urls_json <> '[]' \
+             AND (m.is_pinned, m.created_at_ms, m.memo_id) > (0, 1000, 'm1') \
+             ORDER BY m.is_pinned ASC, m.created_at_ms ASC, m.memo_id ASC LIMIT 21",
+            "SELECT EXISTS(SELECT 1 FROM memo m INDEXED BY idx_memo_gallery \
+             WHERE m.is_trashed = 0 AND m.has_attachment = 1 AND m.image_urls_json <> '[]' \
+             AND (m.is_pinned, m.created_at_ms, m.memo_id) > (0, 1000, 'm1'))",
+        ] {
+            let mut stmt = explain_conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .expect("prepare explain");
+            let plan = stmt
+                .query_map([], |row| row.get::<_, String>(3))
+                .expect("query explain")
+                .map(|r| r.expect("detail"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                plan.contains("idx_memo_gallery"),
+                "expected idx_memo_gallery in plan:\n{plan}"
+            );
+            assert!(
+                !plan.contains("TEMP B-TREE"),
+                "unexpected TEMP B-TREE in gallery plan:\n{plan}"
+            );
+        }
+        drop(explain_conn);
+
+        let all = store
+            .query_gallery_page(MemoQueryStart::Head, PageSize::new(10).expect("page"))
+            .expect("full gallery");
+        assert_eq!(all.items.len(), 4, "must exclude plain, audio, and trashed");
+        assert!(all.items[0].is_pinned && all.items[0].memo_id == "g2");
+        assert!(all.items.iter().all(|row| row.memo_id != "plain"));
+        assert!(all.items.iter().all(|row| row.memo_id != "audio"));
+        assert!(all.items.iter().all(|row| row.memo_id != "trashed-img"));
+        let g4 = all
+            .items
+            .iter()
+            .find(|row| row.memo_id == "g4")
+            .expect("g4 present");
+        assert_eq!(
+            g4.image_urls,
+            vec![
+                "images/z.png",
+                "https://cdn.example.com/r.png",
+                "images/a.png"
+            ]
+        );
+
+        let ordered_ids: Vec<String> = all.items.iter().map(|row| row.memo_id.clone()).collect();
+        let page1 = store
+            .query_gallery_page(MemoQueryStart::Head, PageSize::new(2).expect("p1"))
+            .expect("page 1");
+        assert!(page1.prev_cursor.is_none());
+        let cursor1 = page1.next_cursor.clone().expect("next_cursor on page 1");
+        assert_eq!(
+            page1
+                .items
+                .iter()
+                .map(|row| row.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![ordered_ids[0].as_str(), ordered_ids[1].as_str()]
+        );
+
+        let page2 = store
+            .query_gallery_page(
+                MemoQueryStart::After(&cursor1),
+                PageSize::new(2).expect("p2"),
+            )
+            .expect("page 2");
+        assert!(page2.next_cursor.is_none());
+        let cursor2_prev = page2.prev_cursor.clone().expect("prev_cursor on page 2");
+        assert_eq!(
+            page2
+                .items
+                .iter()
+                .map(|row| row.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![ordered_ids[2].as_str(), ordered_ids[3].as_str()]
+        );
+
+        let back = store
+            .query_gallery_page(
+                MemoQueryStart::Before(&cursor2_prev),
+                PageSize::new(2).expect("back"),
+            )
+            .expect("back page");
+        assert!(back.prev_cursor.is_none());
+        assert!(back.next_cursor.is_some());
+        assert_eq!(
+            back.items
+                .iter()
+                .map(|row| row.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![ordered_ids[0].as_str(), ordered_ids[1].as_str()]
+        );
+
+        let anchored = store
+            .query_gallery_page(
+                MemoQueryStart::AtMemo(&ordered_ids[1]),
+                PageSize::new(2).expect("anchor"),
+            )
+            .expect("anchored");
+        assert!(anchored.prev_cursor.is_some());
+        assert!(anchored.next_cursor.is_some());
+        assert_eq!(
+            anchored
+                .items
+                .iter()
+                .map(|row| row.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![ordered_ids[1].as_str(), ordered_ids[2].as_str()]
+        );
+
+        let fallback = store
+            .query_gallery_page(
+                MemoQueryStart::AtMemo("plain"),
+                PageSize::new(2).expect("fallback"),
+            )
+            .expect("filtered anchor falls back to head");
+        assert!(fallback.prev_cursor.is_none());
+        assert_eq!(
+            fallback
+                .items
+                .iter()
+                .map(|row| row.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![ordered_ids[0].as_str(), ordered_ids[1].as_str()]
+        );
+
+        let pool = lomo_store::StoreReaderPool::new(
+            dir.path().to_owned(),
+            lomo_store::ReaderPoolOptions::new(2, std::time::Duration::ZERO).expect("pool opts"),
+        );
+        let reader_lease = pool.checkout().expect("checkout reader");
+        let reader_page = reader_lease
+            .reader()
+            .expect("reader")
+            .query_gallery_page(MemoQueryStart::Head, PageSize::new(4).expect("rp"))
+            .expect("reader gallery");
+        assert_eq!(
+            reader_page
+                .items
+                .iter()
+                .map(|row| row.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            ordered_ids.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        drop(reader_lease);
+
+        publish_pin(&mut store, "g3", "op-gallery-pin-g3");
+        let stale = store
+            .query_gallery_page(
+                MemoQueryStart::After(&cursor1),
+                PageSize::new(2).expect("stale"),
+            )
+            .expect_err("mutation must stale gallery cursor");
+        assert_eq!(stale.code(), "stale_cursor");
+        drop(store);
+
+        let corrupt_conn = rusqlite::Connection::open(&db_path).expect("corrupt conn");
+        corrupt_conn
+            .execute(
+                "UPDATE memo SET image_urls_json = '{not-json' WHERE memo_id = 'g4'",
+                [],
+            )
+            .expect("corrupt row");
+        drop(corrupt_conn);
+
+        let reopened = lomo_store::Store::open(dir.path()).expect("reopen");
+        let err = reopened
+            .query_gallery_page(MemoQueryStart::Head, PageSize::new(10).expect("corrupt"))
+            .expect_err("corrupt image_urls_json must fail closed");
+        assert_eq!(err.category(), ErrorCategory::Corruption);
+        assert_eq!(err.code(), "invalid_image_urls_projection");
+    }
 }

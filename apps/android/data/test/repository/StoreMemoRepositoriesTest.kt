@@ -267,6 +267,79 @@ private class RecordingStorePort : StorePort {
         )
     }
 
+    var galleryPagesLoaded: Int = 0
+
+    override fun queryGalleryPage(
+        cursor: StorePageCursor?,
+        pageSize: Int,
+        startMemoId: String?,
+        backward: Boolean,
+    ): com.lomo.data.engine.store.StoreGalleryPage {
+        galleryPagesLoaded += 1
+        val all =
+            memos.values
+                .map { it.summary }
+                .filter { summary ->
+                    !summary.isTrashed && summary.hasAttachment && summary.imageUrls.isNotEmpty()
+                }.sortedWith(
+                    compareByDescending<com.lomo.data.engine.store.StoreMemoSummary> { it.isPinned }
+                        .thenByDescending { it.createdAtMs }
+                        .thenByDescending { it.memoId },
+                )
+        val start =
+            when {
+                startMemoId != null ->
+                    all.indexOfFirst { it.memoId == startMemoId }.let { index -> if (index < 0) 0 else index }
+
+                cursor == null -> 0
+
+                backward ->
+                    all.indexOfFirst { it.memoId == cursor.encoded }.let { index ->
+                        if (index <= 0) 0 else (index - pageSize.coerceAtLeast(1)).coerceAtLeast(0)
+                    }
+
+                else ->
+                    all.indexOfFirst { it.memoId == cursor.encoded }.let { index ->
+                        if (index < 0) 0 else index + 1
+                    }
+            }
+        val slice =
+            if (backward && cursor != null) {
+                val anchorIdx = all.indexOfFirst { it.memoId == cursor.encoded }
+                if (anchorIdx <= 0) emptyList() else all.subList(start, anchorIdx)
+            } else {
+                all.drop(start).take(pageSize.coerceAtLeast(1))
+            }
+        val next =
+            slice.lastOrNull()?.takeIf { last ->
+                all.indexOfFirst { it.memoId == last.memoId } < all.lastIndex
+            }?.let { StorePageCursor(it.memoId) }
+        val prev =
+            slice.firstOrNull()?.takeIf { first ->
+                all.indexOfFirst { it.memoId == first.memoId } > 0
+            }?.let { StorePageCursor(it.memoId) }
+        return com.lomo.data.engine.store.StoreGalleryPage(
+            items =
+            slice.map { summary ->
+                com.lomo.data.engine.store.StoreGalleryItem(
+                    memoId = summary.memoId,
+                    sourcePath = summary.sourcePath,
+                    timePart = summary.timePart,
+                    createdAtMs = summary.createdAtMs,
+                    updatedAtMs = summary.updatedAtMs,
+                    isPinned = summary.isPinned,
+                    contentRevision = summary.contentRevision,
+                    fileFingerprint = summary.fileFingerprint,
+                    imageUrls = summary.imageUrls,
+                )
+            },
+            nextCursor = next,
+            prevCursor = prev,
+            highWaterRevision = all.size.toLong(),
+            queryFingerprint = "gallery:v1",
+        )
+    }
+
     override fun getMemo(memoId: String): StoreMemoSnapshot? {
         getMemoCallCount += 1
         return memos[memoId]
@@ -737,10 +810,17 @@ class StoreMemoRepositoriesTest :
             runTest {
                 val port = RecordingStorePort()
                 repeat(31) { index ->
-                    port.seed(seededSnapshot("gallery-$index", "body", hasAttachment = true))
+                    port.seed(
+                        seededSnapshot(
+                            "gallery-$index",
+                            "body",
+                            hasAttachment = true,
+                            imageUrls = listOf("images/g-$index.png"),
+                        ),
+                    )
                 }
                 val repo = StoreMemoQueryRepository(port, StoreInvalidationBus(), FakeEngineReadinessRepository())
-                val source = repo.getGalleryMemosPagingSource()
+                val source = repo.getGalleryItemsPagingSource()
 
                 val result = source.load(
                     PagingSource.LoadParams.Refresh(
@@ -750,9 +830,16 @@ class StoreMemoRepositoriesTest :
                     ),
                 )
 
-                result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, Memo>>()
-                    .data shouldHaveSize 30
-                port.queryCount shouldBe 1
+                val page =
+                    result.shouldBeInstanceOf<
+                        PagingSource.LoadResult.Page<String, com.lomo.domain.model.GalleryMemo>,
+                        >()
+                page.data shouldHaveSize 30
+                page.itemsBefore shouldBe PagingSource.LoadResult.Page.COUNT_UNDEFINED
+                page.itemsAfter shouldBe PagingSource.LoadResult.Page.COUNT_UNDEFINED
+                port.galleryPagesLoaded shouldBe 1
+                port.queryCount shouldBe 0
+                port.queryCountCallCount shouldBe 0
             }
         }
 

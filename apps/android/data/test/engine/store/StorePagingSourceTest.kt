@@ -96,6 +96,19 @@ private class FakeStorePort : StorePort {
 
     override fun getMemo(memoId: String): StoreMemoSnapshot? = null
 
+    override fun queryGalleryPage(
+        cursor: StorePageCursor?,
+        pageSize: Int,
+        startMemoId: String?,
+        backward: Boolean,
+    ): StoreGalleryPage = StoreGalleryPage(
+        items = emptyList(),
+        nextCursor = null,
+        prevCursor = null,
+        highWaterRevision = 0L,
+        queryFingerprint = "gallery:v1",
+    )
+
     override fun queryCount(query: StoreMemoQuery): Long = 0L
 
     override fun sidebarProjection(): StoreSidebarProjection = StoreSidebarProjection(1u, 0, emptyList(), emptyList())

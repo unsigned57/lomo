@@ -3593,8 +3593,8 @@ private class SessionFakeNativeEnginePort(initialSnapshot: NativeEngineSnapshot)
     var onStageRecordsForOwner: (() -> List<com.lomo.nativebridge.MediaStageRecordDto>)? = null
     var onReleaseStageLease: (
         (
-        com.lomo.nativebridge.MediaStageLeaseDto,
-    ) -> com.lomo.nativebridge.MediaStageReleaseDto
+            com.lomo.nativebridge.MediaStageLeaseDto,
+        ) -> com.lomo.nativebridge.MediaStageReleaseDto
     )? = null
 
     override fun stageRecordsForOwner(
@@ -3798,6 +3798,19 @@ private class SessionFakeNativeEnginePort(initialSnapshot: NativeEngineSnapshot)
         itemsAfter = 0uL,
         highWaterRevision = projectionHighWaterRevision,
         queryFingerprint = "fake-query",
+    )
+
+    override fun queryGalleryPage(
+        cursor: com.lomo.nativebridge.StorePageCursor?,
+        pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
+    ): com.lomo.nativebridge.StoreGalleryPage = com.lomo.nativebridge.StoreGalleryPage(
+        items = emptyList(),
+        nextCursor = null,
+        prevCursor = null,
+        highWaterRevision = projectionHighWaterRevision,
+        queryFingerprint = "gallery:v1",
     )
 
     override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong =

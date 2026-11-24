@@ -36,7 +36,6 @@ import com.lomo.app.feature.synccenter.SyncCenterViewModel
 import com.lomo.app.feature.tag.TagFilterScreen
 import com.lomo.app.feature.trash.TrashScreen
 import com.lomo.app.util.activityKoinViewModel
-import com.lomo.domain.model.Memo
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import java.net.URLDecoder
@@ -324,11 +323,11 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
         val animatedVisibilityScope = this
         androidx.compose.animation.SharedTransitionLayout {
             val mainViewModel: MainViewModel = activityKoinViewModel()
-            val galleryMemos = mainViewModel.galleryPagedUiMemos.collectAsLazyPagingItems()
+            val galleryItems = mainViewModel.galleryPagedUiItems.collectAsLazyPagingItems()
             val navigateToGalleryReel =
                 rememberGalleryReelNavigationAction(
                     navController = navContext.navController,
-                    galleryMemos = galleryMemos.itemSnapshotList.items,
+                    galleryItems = galleryItems.itemSnapshotList.items,
                 )
             ProvideSharedAnimationLocals(
                 sharedTransitionScope = this,
@@ -467,20 +466,17 @@ private fun NavGraphBuilder.addImageViewerDestination(
                     imagePayload?.imageUrls
                         ?: decodedUrl.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
                 }
-            val (request, memoChromeEnabled) =
+            val singleMemoViewer =
                 androidx.compose.runtime.remember(
                     imagePayload,
                     imageUrls,
                     route.initialIndex,
-                    route.memoId,
                     liveMemo,
                 ) {
                     buildSingleMemoGalleryReelRequest(
                         sourceMemo = liveMemo ?: imagePayload?.memo,
                         imageUrls = imageUrls,
                         initialIndex = route.initialIndex,
-                        memoId = route.memoId,
-                        galleryMemos = listOfNotNull(liveMemo),
                     )
                 }
             ProvideSharedAnimationLocals(
@@ -489,9 +485,10 @@ private fun NavGraphBuilder.addImageViewerDestination(
             ) {
                 GalleryReelScreen(
                     onTagClick = { tag -> navController.navigate(NavRoute.Tag(tag)) },
-                    request = request,
+                    request = singleMemoViewer.request,
                     viewerMode = GalleryReelMode.SingleMemo,
-                    memoChromeEnabled = memoChromeEnabled,
+                    memoChromeEnabled = singleMemoViewer.memoChromeEnabled,
+                    activeMemoDetail = singleMemoViewer.memoDetail,
                     onBackClick = popBackStackSafely,
                     onTodoClick = mainViewModel.updateMemo,
                 )
@@ -500,30 +497,52 @@ private fun NavGraphBuilder.addImageViewerDestination(
     }
 }
 
+private data class SingleMemoViewerRequest(
+    val request: GalleryReelRequest,
+    val memoDetail: MemoUiModel?,
+    val memoChromeEnabled: Boolean,
+)
+
 private fun buildSingleMemoGalleryReelRequest(
     sourceMemo: MemoUiModel?,
     imageUrls: List<String>,
     initialIndex: Int,
-    memoId: String?,
-    galleryMemos: List<MemoUiModel>,
-): Pair<GalleryReelRequest, Boolean> {
+): SingleMemoViewerRequest {
     val normalizedUrls =
         imageUrls
             .asSequence()
             .map(String::trim)
             .filter(String::isNotEmpty)
             .toList()
-    val matchingMemo = sourceMemo ?: memoId
-        ?.let { id -> galleryMemos.firstOrNull { uiModel -> uiModel.memo.id == id } }
-        ?.takeIf { uiModel -> uiModel.imageUrls.isNotEmpty() }
-    val viewerMemo = matchingMemo ?: buildFallbackImageViewerMemo(normalizedUrls)
-    val requestMemos =
-        if (viewerMemo == null) {
-            persistentListOf<MemoUiModel>()
-        } else {
-            listOf(viewerMemo).toImmutableList()
+    val entry =
+        when {
+            sourceMemo != null -> {
+                val resolvedUrls = sourceMemo.imageUrls.ifEmpty { normalizedUrls.toImmutableList() }
+                if (resolvedUrls.isEmpty()) {
+                    null
+                } else {
+                    com.lomo.app.feature.gallery.GalleryReelEntry(
+                        memoId = sourceMemo.memo.id,
+                        imageUrls = resolvedUrls,
+                    )
+                }
+            }
+
+            normalizedUrls.isNotEmpty() ->
+                com.lomo.app.feature.gallery.GalleryReelEntry(
+                    memoId = "image-viewer:${normalizedUrls.joinToString(separator = "|").hashCode()}",
+                    imageUrls = normalizedUrls.toImmutableList(),
+                )
+
+            else -> null
         }
-    val pageCount = viewerMemo?.run { imageUrls.size } ?: 0
+    val entries =
+        if (entry == null) {
+            persistentListOf()
+        } else {
+            listOf(entry).toImmutableList()
+        }
+    val pageCount = entry?.imageUrls?.size ?: 0
     val clampedIndex =
         if (pageCount == 0) {
             0
@@ -531,36 +550,14 @@ private fun buildSingleMemoGalleryReelRequest(
             initialIndex.coerceIn(0, pageCount - 1)
         }
 
-    return GalleryReelRequest(
-        memos = requestMemos,
-        initialMemoIndex = 0,
-        initialImageIndex = clampedIndex,
-    ) to (matchingMemo != null)
-}
-
-private fun buildFallbackImageViewerMemo(imageUrls: List<String>): MemoUiModel? {
-    if (imageUrls.isEmpty()) return null
-
-    return MemoUiModel(
-        memo =
-        Memo(
-            id = "image-viewer:${imageUrls.joinToString(separator = "|").hashCode()}",
-            timestamp = 0L,
-            content = "",
-            rawContent = "",
-            dateKey = "",
-            imageUrls = imageUrls,
+    return SingleMemoViewerRequest(
+        request =
+        GalleryReelRequest(
+            entries = entries,
+            initialMemoIndex = 0,
+            initialImageIndex = clampedIndex,
         ),
-        processedContent = "",
-        renderDocument =
-        com.lomo.domain.model.markdown.MarkdownRenderDocument(
-            sourceByteLength = 0uL,
-            plainText = "",
-            tagNames = emptyList(),
-            attachments = emptyList(),
-            blocks = emptyList(),
-        ),
-        tags = persistentListOf(),
-        imageUrls = imageUrls.toImmutableList(),
+        memoDetail = sourceMemo,
+        memoChromeEnabled = sourceMemo != null,
     )
 }

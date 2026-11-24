@@ -941,6 +941,18 @@ impl WorkspaceSession {
         self.with_reader(|store| store.query_memos_starting_at(query, boundary, start, page_size))
     }
 
+    /// Queries one lightweight gallery page from `idx_memo_gallery`.
+    ///
+    /// # Errors
+    /// Propagates cursor validation, JSON/revision corruption, and projection storage failures.
+    pub fn query_gallery_page(
+        &self,
+        start: MemoQueryStart<'_>,
+        page_size: PageSize,
+    ) -> Result<lomo_store::GalleryPage, LomoError> {
+        self.with_reader(|store| store.query_gallery_page(start, page_size))
+    }
+
     /// Counts rows accepted by the same predicate as [`Self::query_memos_page`].
     ///
     /// # Errors

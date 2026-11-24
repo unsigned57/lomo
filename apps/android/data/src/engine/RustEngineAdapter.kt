@@ -202,6 +202,13 @@ internal class RustEngineAdapter private constructor(
         backward: Boolean,
     ): com.lomo.nativebridge.StoreMemoPage = native.queryMemos(query, cursor, pageSize, startMemoId, backward)
 
+    override fun queryGalleryPage(
+        cursor: com.lomo.nativebridge.StorePageCursor?,
+        pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
+    ): com.lomo.nativebridge.StoreGalleryPage = native.queryGalleryPage(cursor, pageSize, startMemoId, backward)
+
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? = native.getMemo(memoId)
 
     override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong = native.queryCount(query)

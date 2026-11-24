@@ -53,15 +53,16 @@ pub use session_ffi::{
     batch_from_ffi, result_to_ffi,
 };
 pub use store_ffi::{
-    StoreInvalidationScope, StoreMemoBatchCommit, StoreMemoBatchDelete, StoreMemoCommand,
-    StoreMemoCommandKind, StoreMemoCommit, StoreMemoDeleteTarget, StoreMemoDeletedMemo,
-    StoreMemoFilters, StoreMemoHistoryPage, StoreMemoHistoryRevision, StoreMemoPage,
-    StoreMemoQuery, StoreMemoQueryBoundary, StoreMemoSnapshot, StoreMemoSort, StoreMemoSortField,
-    StoreMemoStatisticsRow, StoreMemoSummary, StorePageCursor, StorePlannedAlarm,
-    StoreRebuildResult, StoreReminderPlan, StoreSafHistoryProjectionReference,
-    StoreSafMemoCreateBegin, StoreSafMemoCreateBeginResult, StoreSafMemoProjection,
-    StoreSafMemoProjectionReference, StoreSafMemoRollbackResult, StoreSafTrashProjectionReference,
-    StoreSidebarDateCount, StoreSidebarProjection, StoreSidebarTagCount, StoreSortDirection,
+    StoreGalleryItem, StoreGalleryPage, StoreInvalidationScope, StoreMemoBatchCommit,
+    StoreMemoBatchDelete, StoreMemoCommand, StoreMemoCommandKind, StoreMemoCommit,
+    StoreMemoDeleteTarget, StoreMemoDeletedMemo, StoreMemoFilters, StoreMemoHistoryPage,
+    StoreMemoHistoryRevision, StoreMemoPage, StoreMemoQuery, StoreMemoQueryBoundary,
+    StoreMemoSnapshot, StoreMemoSort, StoreMemoSortField, StoreMemoStatisticsRow, StoreMemoSummary,
+    StorePageCursor, StorePlannedAlarm, StoreRebuildResult, StoreReminderPlan,
+    StoreSafHistoryProjectionReference, StoreSafMemoCreateBegin, StoreSafMemoCreateBeginResult,
+    StoreSafMemoProjection, StoreSafMemoProjectionReference, StoreSafMemoRollbackResult,
+    StoreSafTrashProjectionReference, StoreSidebarDateCount, StoreSidebarProjection,
+    StoreSidebarTagCount, StoreSortDirection,
 };
 pub use sync_ffi::{
     SyncBackendConfigDto, SyncBackendProbeDto, SyncConflictPageDto, SyncConflictPathDto,
@@ -1993,6 +1994,16 @@ impl LomoEngine {
         backward: bool,
     ) -> Result<StoreMemoPage, EngineError> {
         session_ffi::session_query_memos(self, query, cursor, page_size, start_memo_id, backward)
+    }
+
+    pub fn query_gallery_page(
+        &self,
+        cursor: Option<StorePageCursor>,
+        page_size: u32,
+        start_memo_id: Option<String>,
+        backward: bool,
+    ) -> Result<StoreGalleryPage, EngineError> {
+        session_ffi::session_query_gallery_page(self, cursor, page_size, start_memo_id, backward)
     }
 
     /// Counts the rows accepted by the same predicate as `query_memos` without transferring them.

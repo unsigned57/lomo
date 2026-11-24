@@ -80,8 +80,24 @@ class FakeMemoStore(
     internal fun mainListPagingSourceFor(spec: MemoQuerySpec): PagingSource<String, Memo> =
         InMemoryMemoPagingSource(memos.value.matching(spec))
 
-    internal fun galleryPagingSource(): PagingSource<String, Memo> =
-        InMemoryCursorMemoPagingSource(memos.value.filter { it.imageUrls.isNotEmpty() })
+    internal fun galleryPagingSource(): PagingSource<String, com.lomo.domain.model.GalleryMemo> =
+        InMemoryCursorGalleryPagingSource(
+            memos.value
+                .filter { it.imageUrls.isNotEmpty() }
+                .map { memo ->
+                    com.lomo.domain.model.GalleryMemo(
+                        id = memo.id,
+                        timestamp = memo.timestamp,
+                        updatedAt = memo.updatedAt,
+                        dateKey = memo.dateKey,
+                        timePart = memo.timePart,
+                        imageUrls = memo.imageUrls,
+                        isPinned = memo.isPinned,
+                        contentRevision = memo.contentRevision,
+                        fileFingerprint = memo.fileFingerprint,
+                    )
+                },
+        )
 
     internal fun observeMainListCount(spec: MemoQuerySpec): Flow<Int> =
         memos.map { values -> values.matching(spec).size }
@@ -284,10 +300,11 @@ private fun decodeMainCursor(cursor: String?): Int =
     cursor?.removePrefix("fake-main-cursor:")?.toIntOrNull()?.coerceAtLeast(0)
         ?: 0
 
-private class InMemoryCursorMemoPagingSource(private val snapshot: List<Memo>) : PagingSource<String, Memo>() {
-    override fun getRefreshKey(state: PagingState<String, Memo>): String? = null
+private class InMemoryCursorGalleryPagingSource(private val snapshot: List<com.lomo.domain.model.GalleryMemo>) :
+    PagingSource<String, com.lomo.domain.model.GalleryMemo>() {
+    override fun getRefreshKey(state: PagingState<String, com.lomo.domain.model.GalleryMemo>): String? = null
 
-    override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> {
+    override suspend fun load(params: LoadParams<String>): LoadResult<String, com.lomo.domain.model.GalleryMemo> {
         val start = params.key?.toIntOrNull() ?: 0
         val end = (start + params.loadSize).coerceAtMost(snapshot.size)
         val data = if (start >= snapshot.size) emptyList() else snapshot.subList(start, end)

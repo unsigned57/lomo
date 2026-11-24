@@ -234,6 +234,15 @@ internal abstract class ManagedEngineCapabilities :
         adapter.queryMemos(query, cursor, pageSize, startMemoId, backward)
     }
 
+    override fun queryGalleryPage(
+        cursor: com.lomo.nativebridge.StorePageCursor?,
+        pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
+    ): com.lomo.nativebridge.StoreGalleryPage = withProjectionAdapter { adapter ->
+        adapter.queryGalleryPage(cursor, pageSize, startMemoId, backward)
+    }
+
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withProjectionAdapter { adapter -> adapter.getMemo(memoId) }
 

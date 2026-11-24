@@ -12,14 +12,15 @@ use rusqlite::{Connection, OpenFlags};
 use crate::error::{from_sqlite, storage, validation};
 use crate::open::{IntegrityWitness, database_path, quick_integrity};
 use crate::{
-    HistoryAttachmentRef, HistoryRevisionBody, MemoHistoryPage, MemoPage, MemoPreviewSource,
-    MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoStatisticsRow, MemoSummary,
-    MemoWindowSides, PageCursor, ProjectedAttachmentRef, SidebarProjection, StoreStats,
-    active_memo_ids_for_source_path, get_memo, get_memo_preview_sources, get_memo_projection,
-    get_projected_memo, get_projected_memos, list_history_attachment_refs,
-    list_history_revision_bodies, list_memo_history, list_projected_attachment_refs, query_count,
-    query_memo_statistics_rows, query_memos_starting_at, query_memos_with_boundary,
-    query_sidebar_projection, query_stats, source_document_fingerprint,
+    GalleryPage, HistoryAttachmentRef, HistoryRevisionBody, MemoHistoryPage, MemoPage,
+    MemoPreviewSource, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot,
+    MemoStatisticsRow, MemoSummary, MemoWindowSides, PageCursor, ProjectedAttachmentRef,
+    SidebarProjection, StoreStats, active_memo_ids_for_source_path, get_memo,
+    get_memo_preview_sources, get_memo_projection, get_projected_memo, get_projected_memos,
+    list_history_attachment_refs, list_history_revision_bodies, list_memo_history,
+    list_projected_attachment_refs, query_count, query_gallery_page, query_memo_statistics_rows,
+    query_memos_starting_at, query_memos_with_boundary, query_sidebar_projection, query_stats,
+    source_document_fingerprint,
 };
 use crate::{
     history_record_owner, memo_source_path, purged_memo_ids, trashed_memo_ids,
@@ -201,6 +202,21 @@ impl StoreReader {
     ) -> Result<MemoPage, LomoError> {
         self.snapshot(|connection, revision| {
             query_memos_starting_at(connection, query, boundary, start, page_size, revision)
+        })
+    }
+
+    /// Queries one lightweight gallery page using `idx_memo_gallery`.
+    ///
+    /// # Errors
+    ///
+    /// Returns cursor validation, corruption, or projection storage errors.
+    pub fn query_gallery_page(
+        &self,
+        start: MemoQueryStart<'_>,
+        page_size: PageSize,
+    ) -> Result<GalleryPage, LomoError> {
+        self.snapshot(|connection, revision| {
+            query_gallery_page(connection, start, page_size, revision)
         })
     }
 

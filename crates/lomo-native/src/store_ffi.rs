@@ -248,6 +248,30 @@ pub struct StoreMemoPage {
 
 #[data]
 #[derive(Clone, Debug)]
+pub struct StoreGalleryItem {
+    pub memo_id: String,
+    pub source_path: String,
+    pub time_part: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub is_pinned: bool,
+    pub content_revision: u64,
+    pub file_fingerprint: String,
+    pub image_urls: Vec<String>,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreGalleryPage {
+    pub items: Vec<StoreGalleryItem>,
+    pub next_cursor: Option<StorePageCursor>,
+    pub prev_cursor: Option<StorePageCursor>,
+    pub high_water_revision: u64,
+    pub query_fingerprint: String,
+}
+
+#[data]
+#[derive(Clone, Debug)]
 pub struct StoreSidebarDateCount {
     pub date: String,
     pub count: i64,
@@ -762,6 +786,34 @@ pub fn memo_page_to_ffi(page: store::MemoPage) -> StoreMemoPage {
         }),
         items_before: page.items_before,
         items_after: page.items_after,
+        high_water_revision: page.high_water_revision,
+        query_fingerprint: page.query_fingerprint,
+    }
+}
+
+fn gallery_row_to_ffi(row: store::GalleryRow) -> StoreGalleryItem {
+    StoreGalleryItem {
+        memo_id: row.memo_id,
+        source_path: row.source_path,
+        time_part: row.time_part,
+        created_at_ms: row.created_at_ms,
+        updated_at_ms: row.updated_at_ms,
+        is_pinned: row.is_pinned,
+        content_revision: row.content_revision,
+        file_fingerprint: row.file_fingerprint,
+        image_urls: row.image_urls,
+    }
+}
+
+pub fn gallery_page_to_ffi(page: store::GalleryPage) -> StoreGalleryPage {
+    StoreGalleryPage {
+        items: page.items.into_iter().map(gallery_row_to_ffi).collect(),
+        next_cursor: page.next_cursor.map(|cursor| StorePageCursor {
+            encoded: encode_cursor(&cursor),
+        }),
+        prev_cursor: page.prev_cursor.map(|cursor| StorePageCursor {
+            encoded: encode_cursor(&cursor),
+        }),
         high_water_revision: page.high_water_revision,
         query_fingerprint: page.query_fingerprint,
     }

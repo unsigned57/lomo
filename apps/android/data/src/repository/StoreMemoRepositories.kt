@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import androidx.paging.PagingSource
 import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.data.engine.engineCommandFailure
+import com.lomo.data.engine.store.GalleryPagingSource
 import com.lomo.data.engine.store.SessionSearchPagingSource
 import com.lomo.data.engine.store.StoreInvalidationScope
 import com.lomo.data.engine.store.StoreMemoCommand
@@ -27,6 +28,7 @@ import com.lomo.domain.model.EngineDiagnosticEvent
 import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.GalleryMemo
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoContentKind
 import com.lomo.domain.model.MemoFilterCriterion
@@ -99,9 +101,8 @@ class StoreMemoQueryRepository(
     private val pendingMainListFocusIdentity = AtomicReference<String?>(null)
     private val liveMainListSource = AtomicReference<PagingSource<String, Memo>?>(null)
 
-    override fun getGalleryMemosPagingSource(): PagingSource<String, Memo> = StorePagingSource(
+    override fun getGalleryItemsPagingSource(): PagingSource<String, GalleryMemo> = GalleryPagingSource(
         port = port,
-        query = StoreMemoQuery(filters = StoreMemoFilters(hasAttachment = true)),
         dispatcherProvider = dispatcherProvider,
         registerInvalidation = { source ->
             invalidation.register(source)

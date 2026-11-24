@@ -193,6 +193,13 @@ private class RecordingWritePort(
         backward: Boolean,
     ): StoreMemoPage = error("read not expected")
 
+    override fun queryGalleryPage(
+        cursor: StorePageCursor?,
+        pageSize: Int,
+        startMemoId: String?,
+        backward: Boolean,
+    ): StoreGalleryPage = error("read not expected")
+
     override fun getMemo(memoId: String): StoreMemoSnapshot? = error("read not expected")
 
     override fun queryCount(query: StoreMemoQuery): Long = error("read not expected")

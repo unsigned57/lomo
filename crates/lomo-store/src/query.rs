@@ -1430,6 +1430,249 @@ pub fn get_memo_preview_sources(
     Ok(sources)
 }
 
+/// Minimal materialized gallery row (identity, timestamps, ordered image paths; no body/tags/reminders).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GalleryRow {
+    pub memo_id: String,
+    pub source_path: String,
+    pub time_part: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub is_pinned: bool,
+    pub content_revision: u64,
+    pub file_fingerprint: String,
+    pub image_urls: Vec<String>,
+}
+
+/// Bounded lightweight gallery page backed by `idx_memo_gallery` (no `COUNT(*)`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GalleryPage {
+    pub items: Vec<GalleryRow>,
+    pub next_cursor: Option<PageCursor>,
+    pub prev_cursor: Option<PageCursor>,
+    pub high_water_revision: u64,
+    pub query_fingerprint: String,
+}
+
+const GALLERY_FILTER_PREDICATE: &str =
+    "m.is_trashed = 0 AND m.has_attachment = 1 AND m.image_urls_json <> '[]'";
+
+fn gallery_cursor_for(
+    row: &GalleryRow,
+    query_fingerprint: String,
+    high_water_revision: u64,
+) -> PageCursor {
+    PageCursor::new(
+        query_fingerprint,
+        None,
+        row.is_pinned,
+        row.created_at_ms,
+        row.created_at_ms,
+        row.memo_id.clone(),
+        high_water_revision,
+    )
+}
+
+fn gallery_row_from_sql(row: &Row<'_>) -> Result<GalleryRow, lomo_core::LomoError> {
+    let raw_revision: i64 = row.get(6).map_err(|err| from_sqlite(&err))?;
+    let content_revision = u64::try_from(raw_revision).map_err(|_overflow| {
+        corruption(
+            "invalid_content_revision",
+            "content_revision must be non-negative",
+        )
+    })?;
+    let image_urls_json: String = row.get(8).map_err(|err| from_sqlite(&err))?;
+    let image_urls: Vec<String> = serde_json::from_str(&image_urls_json).map_err(|error| {
+        corruption(
+            "invalid_image_urls_projection",
+            &format!("corrupt gallery image_urls_json: {error}"),
+        )
+    })?;
+    Ok(GalleryRow {
+        memo_id: row.get(0).map_err(|err| from_sqlite(&err))?,
+        source_path: row.get(1).map_err(|err| from_sqlite(&err))?,
+        time_part: row.get(2).map_err(|err| from_sqlite(&err))?,
+        created_at_ms: row.get(3).map_err(|err| from_sqlite(&err))?,
+        updated_at_ms: row.get(4).map_err(|err| from_sqlite(&err))?,
+        is_pinned: row.get::<_, i64>(5).map_err(|err| from_sqlite(&err))? != 0,
+        content_revision,
+        file_fingerprint: row.get(7).map_err(|err| from_sqlite(&err))?,
+        image_urls,
+    })
+}
+
+fn gallery_side_exists(
+    connection: &Connection,
+    cmp: &str,
+    row: &GalleryRow,
+) -> Result<bool, lomo_core::LomoError> {
+    let sql = format!(
+        "SELECT EXISTS(SELECT 1 FROM memo m INDEXED BY idx_memo_gallery \
+         WHERE {GALLERY_FILTER_PREDICATE} \
+         AND (m.is_pinned, m.created_at_ms, m.memo_id) {cmp} (?1, ?2, ?3))"
+    );
+    let exists: i64 = connection
+        .query_row(
+            &sql,
+            params![i64::from(row.is_pinned), row.created_at_ms, row.memo_id],
+            |r| r.get(0),
+        )
+        .map_err(|err| from_sqlite(&err))?;
+    Ok(exists != 0)
+}
+
+/// Queries one lightweight gallery cursor page using `idx_memo_gallery` (`LIMIT page_size + 1`,
+/// opposite-side `EXISTS`, zero `COUNT(*)` and zero body/tags/reminders transfers).
+///
+/// # Errors
+///
+/// Returns `stale_cursor` / `invalid_page_cursor` for invalid cursors, `corruption` if
+/// `image_urls_json` or `content_revision` is corrupt, and `SQLite` storage failures.
+pub fn query_gallery_page(
+    connection: &Connection,
+    start: MemoQueryStart<'_>,
+    page_size: PageSize,
+    high_water_revision: u64,
+) -> Result<GalleryPage, lomo_core::LomoError> {
+    let query_fingerprint = fingerprint_query(None, "gallery:v1", TOKENIZER_VERSION);
+    let limit_usize = usize::try_from(page_size.get()).map_err(|_overflow| {
+        validation("invalid_page_size", "gallery page size exceeds usize range")
+    })?;
+    let fetch_limit = i64::from(page_size.get()) + 1;
+
+    let (bound_tuple, cmp, invert, is_head_start): (Option<(i64, i64, String)>, &str, bool, bool) =
+        match start {
+            MemoQueryStart::Head => (None, "<", false, true),
+            MemoQueryStart::After(cursor) => {
+                cursor.validate_against(&query_fingerprint, high_water_revision)?;
+                let _ = cursor.validated_sort_rank(false)?;
+                (
+                    Some((
+                        i64::from(cursor.sort_pinned),
+                        cursor.sort_primary_ms,
+                        cursor.sort_memo_id.clone(),
+                    )),
+                    "<",
+                    false,
+                    false,
+                )
+            }
+            MemoQueryStart::Before(cursor) => {
+                cursor.validate_against(&query_fingerprint, high_water_revision)?;
+                let _ = cursor.validated_sort_rank(false)?;
+                (
+                    Some((
+                        i64::from(cursor.sort_pinned),
+                        cursor.sort_primary_ms,
+                        cursor.sort_memo_id.clone(),
+                    )),
+                    ">",
+                    true,
+                    false,
+                )
+            }
+            MemoQueryStart::AtMemo(memo_id) => {
+                let anchor: Option<(i64, i64, String)> = connection
+                    .query_row(
+                        &format!(
+                            "SELECT m.is_pinned, m.created_at_ms, m.memo_id FROM memo m \
+                             WHERE m.memo_id = ?1 AND {GALLERY_FILTER_PREDICATE}"
+                        ),
+                        params![memo_id],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .optional()
+                    .map_err(|err| from_sqlite(&err))?;
+                match anchor {
+                    Some(tuple) => (Some(tuple), "<=", false, false),
+                    None => (None, "<", false, true),
+                }
+            }
+        };
+
+    let order_sql = if invert {
+        "ORDER BY m.is_pinned ASC, m.created_at_ms ASC, m.memo_id ASC"
+    } else {
+        "ORDER BY m.is_pinned DESC, m.created_at_ms DESC, m.memo_id DESC"
+    };
+    let mut items = if let Some((pin, created_at_ms, memo_id)) = bound_tuple {
+        let sql = format!(
+            "SELECT m.memo_id, m.source_path, m.time_part, m.created_at_ms, m.updated_at_ms, \
+             m.is_pinned, m.content_revision, m.file_fingerprint, m.image_urls_json \
+             FROM memo m INDEXED BY idx_memo_gallery WHERE {GALLERY_FILTER_PREDICATE} \
+             AND (m.is_pinned, m.created_at_ms, m.memo_id) {cmp} (?1, ?2, ?3) \
+             {order_sql} LIMIT ?4"
+        );
+        let mut statement = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
+        let mut rows = statement
+            .query(params![pin, created_at_ms, memo_id, fetch_limit])
+            .map_err(|err| from_sqlite(&err))?;
+        let mut collected = Vec::with_capacity(limit_usize.saturating_add(1));
+        while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
+            collected.push(gallery_row_from_sql(row)?);
+        }
+        collected
+    } else {
+        let sql = format!(
+            "SELECT m.memo_id, m.source_path, m.time_part, m.created_at_ms, m.updated_at_ms, \
+             m.is_pinned, m.content_revision, m.file_fingerprint, m.image_urls_json \
+             FROM memo m INDEXED BY idx_memo_gallery WHERE {GALLERY_FILTER_PREDICATE} \
+             {order_sql} LIMIT ?1"
+        );
+        let mut statement = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
+        let mut rows = statement
+            .query(params![fetch_limit])
+            .map_err(|err| from_sqlite(&err))?;
+        let mut collected = Vec::with_capacity(limit_usize.saturating_add(1));
+        while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
+            collected.push(gallery_row_from_sql(row)?);
+        }
+        collected
+    };
+
+    let has_more_in_scan_dir = items.len() > limit_usize;
+    if has_more_in_scan_dir {
+        items.truncate(limit_usize);
+    }
+    if invert {
+        items.reverse();
+    }
+
+    let (has_before, has_after) = match (items.first(), items.last()) {
+        (Some(first), Some(last)) => {
+            if invert {
+                let after = gallery_side_exists(connection, "<", last)?;
+                (has_more_in_scan_dir, after)
+            } else {
+                let before = if is_head_start {
+                    false
+                } else {
+                    gallery_side_exists(connection, ">", first)?
+                };
+                (before, has_more_in_scan_dir)
+            }
+        }
+        _ => (false, false),
+    };
+
+    let prev_cursor = items
+        .first()
+        .filter(|_| has_before)
+        .map(|first| gallery_cursor_for(first, query_fingerprint.clone(), high_water_revision));
+    let next_cursor = items
+        .last()
+        .filter(|_| has_after)
+        .map(|last| gallery_cursor_for(last, query_fingerprint.clone(), high_water_revision));
+
+    Ok(GalleryPage {
+        items,
+        next_cursor,
+        prev_cursor,
+        high_water_revision,
+        query_fingerprint,
+    })
+}
+
 /// Reads the one canonical fingerprint shared by every memo projected from a source document.
 ///
 /// # Errors

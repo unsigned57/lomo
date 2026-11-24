@@ -89,6 +89,26 @@ data class StoreMemoPage(
     val itemsAfter: Long = 0,
 )
 
+data class StoreGalleryItem(
+    val memoId: String,
+    val sourcePath: String,
+    val timePart: String,
+    val createdAtMs: Long,
+    val updatedAtMs: Long,
+    val isPinned: Boolean,
+    val contentRevision: Long,
+    val fileFingerprint: String,
+    val imageUrls: List<String>,
+)
+
+data class StoreGalleryPage(
+    val items: List<StoreGalleryItem>,
+    val nextCursor: StorePageCursor?,
+    val prevCursor: StorePageCursor? = null,
+    val highWaterRevision: Long,
+    val queryFingerprint: String,
+)
+
 data class StoreMemoSnapshot(val summary: StoreMemoSummary, val body: String)
 
 /** Rust-owned projection domains attached to each committed store mutation. */
@@ -228,6 +248,13 @@ interface StoreReadPort {
         startMemoId: String? = null,
         backward: Boolean = false,
     ): StoreMemoPage
+
+    fun queryGalleryPage(
+        cursor: StorePageCursor?,
+        pageSize: Int,
+        startMemoId: String? = null,
+        backward: Boolean = false,
+    ): StoreGalleryPage
 
     fun getMemo(memoId: String): StoreMemoSnapshot?
 
