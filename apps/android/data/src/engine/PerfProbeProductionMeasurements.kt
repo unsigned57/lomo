@@ -5,16 +5,7 @@ import android.os.Debug
 import com.lomo.data.engine.store.DEFAULT_STORE_PAGING_SIZE
 import com.lomo.data.engine.store.toDomainMemo
 import com.lomo.data.engine.store.toStoreSummary
-import com.lomo.data.source.AttachmentNameClassifier
-import com.lomo.data.source.ImageEntrySelector
-import com.lomo.data.source.NativeAttachmentNameClassifier
-import com.lomo.data.source.isContentStorageUri
-import com.lomo.data.source.isImageAttachmentFileName
 import com.lomo.domain.model.MemoContentKind
-import com.lomo.nativebridge.ActionOutcome
-import com.lomo.nativebridge.ListingView
-import com.lomo.nativebridge.PlatformAction
-import com.lomo.nativebridge.PlatformActionOutput
 import com.lomo.nativebridge.SessionSearchMode
 import com.lomo.nativebridge.SessionSearchOutcome
 import com.lomo.nativebridge.SessionSearchRequest
@@ -23,10 +14,8 @@ import com.lomo.nativebridge.StoreMemoQuery
 import com.lomo.nativebridge.StoreMemoSort
 import com.lomo.nativebridge.StoreMemoSortField
 import com.lomo.nativebridge.StoreSortDirection
-import com.lomo.nativebridge.WorkspaceTarget
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 
 /*
  * Production-shaped engine probes: the main feed's page size, the search first page, the card
@@ -198,8 +187,10 @@ internal suspend fun EnginePerfProbe.previewRender(intent: Intent, run: String):
     val allocated = allocatedBytes() - allocatedBefore
     val facts = checkNotNull(expected) { "preview_render produced no samples" }
     val batch8Calls = requests.chunked(PREVIEW_RENDER_FFI_BATCH_SIZE).size
-    val batch2P50Ms = measureBatchP50(requests, expectedLengths, batchSize = 2, samples = samples)
-    val batch4P50Ms = measureBatchP50(requests, expectedLengths, batchSize = 4, samples = samples)
+    val batch2P50Ms =
+        measureBatchP50(requests, expectedLengths, batchSize = SMALL_PREVIEW_RENDER_BATCH, samples = samples)
+    val batch4P50Ms =
+        measureBatchP50(requests, expectedLengths, batchSize = MEDIUM_PREVIEW_RENDER_BATCH, samples = samples)
     val floorTimes = JSONArray()
     repeat(samples) {
         val t0 = System.nanoTime()
@@ -221,8 +212,8 @@ internal suspend fun EnginePerfProbe.previewRender(intent: Intent, run: String):
                 .put("ffiCallsPerSample", batch8Calls)
                 .put("ffiBatchSize", PREVIEW_RENDER_FFI_BATCH_SIZE)
                 .put("sourceBytesSent", 0L)
-                .put("batch2Calls", requests.chunked(2).size)
-                .put("batch4Calls", requests.chunked(4).size)
+                .put("batch2Calls", requests.chunked(SMALL_PREVIEW_RENDER_BATCH).size)
+                .put("batch4Calls", requests.chunked(MEDIUM_PREVIEW_RENDER_BATCH).size)
                 .put("batch2P50Ms", batch2P50Ms)
                 .put("batch4P50Ms", batch4P50Ms)
                 .put("nodeCount", facts.nodes)
@@ -270,125 +261,19 @@ private fun EnginePerfProbe.measureBatchP50(
     repeat(samples) {
         val t0 = System.nanoTime()
         runPreviewRenderBatch(requests, expectedLengths, batchSize)
-        timings += (System.nanoTime() - t0) / 1_000_000.0
+        timings += elapsedMs(t0)
     }
     timings.sort()
     return timings[timings.size / 2]
 }
 
 private const val RENDER_FLOOR_BODY = "x"
+private const val SMALL_PREVIEW_RENDER_BATCH = 2
+private const val MEDIUM_PREVIEW_RENDER_BATCH = 4
 private const val PREVIEW_RENDER_FFI_BATCH_SIZE = 8
 private const val PREVIEW_RENDER_SCHEMA_V1 = 1u
 
 private data class PreviewRenderFacts(val nodes: Int, val attachments: Int, val plainTextLength: Long)
-
-/** Selects the images of one workspace directory the way a storage inventory does: in bounded batches. */
-internal suspend fun EnginePerfProbe.mediaClassify(intent: Intent, run: String): JSONObject {
-    requireReadySession()
-    val path =
-        intent.getStringExtra("path")
-            ?: return errorPayload(run, "media_classify requires --es path")
-    val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
-    val pageSize = intent.probeCount("pageSize", LIST_PAGE_SIZE, LIST_PAGE_SIZE)
-    val names = listRelativeChildren(path, pageSize, run)
-    check(names.isNotEmpty()) { "media_classify directory $path is empty" }
-    val classifier = CountingAttachmentNameClassifier(NativeAttachmentNameClassifier)
-    val times = JSONArray()
-    val singleTimes = JSONArray()
-    var expectedImages: List<String>? = null
-    repeat(samples) {
-        val t0 = System.nanoTime()
-        val selector = ImageEntrySelector<String>(classifier) { name -> name }
-        names.forEach(selector::offer)
-        val images = selector.finish()
-        times.put(elapsedMs(t0))
-        // The single-name owner entry over the same names, in the same process: the reference
-        // for both the selection and the cost of one call per file.
-        val t1 = System.nanoTime()
-        val reference = names.filter(::isImageAttachmentFileName)
-        singleTimes.put(elapsedMs(t1))
-        check(images == reference) { "media_classify batch selection disagrees with the single-name classifier" }
-        check(expectedImages == null || expectedImages == images) { "media_classify output drifted across samples" }
-        expectedImages = images
-    }
-    return okPayload(run, "media_classify").apply {
-        put(
-            "metrics",
-            JSONObject()
-                .put("media_classify_bulk_ms", times)
-                .put("media_classify_single_calls_ms", singleTimes),
-        )
-        put(
-            "facts",
-            JSONObject()
-                .put("path", path)
-                .put("samples", samples)
-                .put("itemsClassified", names.size)
-                .put("imageCount", expectedImages?.size ?: 0)
-                .put("ffiCallsPerSample", classifier.calls / samples)
-                .put("singleEntryCallsPerSample", names.size)
-                .put("requestUtf8Bytes", names.sumOf { name -> name.utf8Size() }),
-        )
-    }
-}
-
-private class CountingAttachmentNameClassifier(private val delegate: AttachmentNameClassifier) :
-    AttachmentNameClassifier by delegate {
-    var calls = 0
-        private set
-
-    override fun classify(names: List<String>): List<com.lomo.nativebridge.MediaClass> {
-        calls += 1
-        return delegate.classify(names)
-    }
-}
-
-/** Relative paths of every child of [path], enumerated once through the production listing lane. */
-private fun EnginePerfProbe.listRelativeChildren(path: String, pageSize: Int, run: String): List<String> {
-    val location = checkNotNull(session.activeWorkspaceLocation.value) { "media_classify requires an active workspace" }
-    val grant =
-        if (isContentStorageUri(location.raw)) {
-            capabilityRegistry.register(treeUri = location.raw)
-        } else {
-            capabilityRegistry.registerDirect(rootPath = File(location.raw))
-        }
-    try {
-        val collected = mutableListOf<String>()
-        var cursor: String? = null
-        var pageIndex = 0
-        // behavior-contract: loop-io-ok: enumerates the target directory once before the timed classification
-        do {
-            val outcome =
-                platformAccess.execute(
-                    PlatformAction.ListChildren(
-                        actionId = "probe-classify-$run-$pageIndex",
-                        capabilityToken = grant.capabilityToken,
-                        target = WorkspaceTarget.Relative(path),
-                        cursor = cursor,
-                        pageSize = pageSize.toUInt(),
-                        view = ListingView.WORKSPACE,
-                    ),
-                )
-            val page = outcome.requireListedPage()
-            page.items.mapNotNullTo(collected) { entry -> (entry.target as? WorkspaceTarget.Relative)?.path }
-            pageIndex += 1
-            cursor = page.nextCursor
-        } while (cursor != null)
-        return collected
-    } finally {
-        capabilityRegistry.revoke(grant.capabilityToken)
-    }
-}
-
-private fun ActionOutcome.requireListedPage() = when (this) {
-    is ActionOutcome.Applied ->
-        (output as? PlatformActionOutput.Listed)?.page
-            ?: error("media_classify listing returned ${output.javaClass.simpleName}")
-
-    is ActionOutcome.Failed -> throw com.lomo.nativebridge.EngineError.Failure(failure)
-
-    is ActionOutcome.AlreadySatisfied -> error("media_classify listing cannot replay as AlreadySatisfied")
-}
 
 /** The gallery's dedicated cursor page query at the production page size. */
 internal suspend fun EnginePerfProbe.galleryPaging(intent: Intent, run: String): JSONObject {
@@ -439,7 +324,7 @@ private fun defaultFeedQuery(): StoreMemoQuery = StoreMemoQuery(
     boundary = null,
 )
 
-private fun String.utf8Size(): Long = encodeToByteArray().size.toLong()
+internal fun String.utf8Size(): Long = encodeToByteArray().size.toLong()
 
 /** Process-wide ART allocation counter; a per-sample delta bounds what the measured calls allocated. */
 private fun allocatedBytes(): Long = requireNotNull(Debug.getRuntimeStat("art.gc.bytes-allocated").toLongOrNull()) {

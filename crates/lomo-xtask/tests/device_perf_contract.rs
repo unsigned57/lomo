@@ -537,7 +537,6 @@ mod tests {
         "uninstall",
         // §3-D scale probes: seeded .rec history depth + the ≥500-file bulk
         // enumeration through the production ListChildren lane + production-shaped probes.
-        "history_seed",
         "listchildren",
         "paging_prod",
         "search_prod",
@@ -587,7 +586,6 @@ mod tests {
         "\"media_classify\"",
         "\"gallery_paging\"",
         "\"history\"",
-        "\"history_seed\"",
         "\"sync_cycle\"",
         "\"views\"",
         "\"trash_cycle\"",

@@ -41,7 +41,7 @@
 //! - Given `engine`, when probes run, then an `am broadcast` sent under `run-as` (same-uid,
 //!   so non-exported registration stays enforced) reaches the debug-gated `PerfProbeReceiver`,
 //!   and results are pulled with `run-as` and merged. The probe set covers paging, search,
-//!   ffi, an N-parameterized `.rec` history traversal (`history_seed` first materializes N
+//!   ffi, an N-parameterized `.rec` history traversal (the probe first materializes N
 //!   real revisions through the production `sessionUpdateMemo` CAS chain), and the ≥500-file
 //!   `listchildren` enumeration driven through the production `PlatformAction.ListChildren`
 //!   lane. Every metric lands in the P6 noise gate: p50/p95/sample-count vs the persisted
@@ -1537,9 +1537,9 @@ impl DeviceRun<'_> {
         // History depth: Direct updates land in ms; SAF writes cost ~seconds per document
         // operation, so the seeded revision count is scaled to the backend budget while the
         // traversal contract (cursor until N or exhaustion) stays identical.
-        let (seed_n, history_n) = match self.options.backend {
-            DeviceBackend::Direct => ("120", "120"),
-            DeviceBackend::Saf => ("30", "30"),
+        let history_n = match self.options.backend {
+            DeviceBackend::Direct => "120",
+            DeviceBackend::Saf => "30",
         };
         let as_of = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1575,16 +1575,12 @@ impl DeviceRun<'_> {
                 &[("samples", "5"), ("asOfEpochMs", &as_of)],
                 "engine-views",
             )?,
-            // Seed before traverse — a fresh corpus memo has ~1 revision; N-parameterized
-            // traversal measures something only when `.rec` history is actually deep.
-            self.run_probe("history_seed", &[("n", seed_n)], "engine-history-seed")?,
             self.run_probe(
                 "history",
                 &[("samples", "7"), ("n", history_n)],
                 "engine-history",
             )?,
-            // Idle rebuilds come first — the dirty mutation lands before the dirty rebuild
-            // probe so its first sample is a real unindexed-change reconcile.
+            // Idle rebuilds come first, before the dirty corpus fixture is introduced.
             self.run_probe("rebuild", &[("samples", "5")], "engine-rebuild-idle")?,
         ];
         if self.options.corpus.is_some() {
@@ -1899,53 +1895,6 @@ impl DeviceRun<'_> {
             "xtask: staged git remote ({GIT_SEED_DOC}, head={head}) at {endpoint}"
         ));
         Ok((endpoint, head))
-    }
-
-    /// Shell-side workspace mutation that leaves the next engine rebuild dirty: an append to
-    /// the first dated corpus doc plus a fresh unindexed document. Mirrors `startupDirty`'s
-    /// `makeWorkspaceDirty`: every `.md` under a workspace root is parsed as a `yyyy_MM_dd`
-    /// date key during reconcile, so the fresh document's name must itself be a valid date —
-    /// a decorative `zz_bench_dirty_*` name would fail the rebuild it is meant to dirty
-    /// (`calendar_epoch_out_of_range`). The reserved `8xxx` year range keeps dirty docs distinct
-    /// from corpus dates and lets the mutation remove the previous run's leftovers first,
-    /// so exactly one unindexed add exists per run.
-    fn mutate_workspace(&self) -> Result<()> {
-        let mutation_millis = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .context("system clock before unix epoch")?
-            .as_millis();
-        let dirty_doc = format!(
-            "{:04}_{:02}_{:02}.md",
-            8_000 + (mutation_millis % 1_000),
-            1 + (mutation_millis / 1_000_000) % 12,
-            1 + (mutation_millis / 86_400_000) % 28,
-        );
-        let root = match self.options.backend {
-            DeviceBackend::Saf => format!("/sdcard/Documents/{DEFAULT_WORKSPACE_NAME}"),
-            DeviceBackend::Direct => direct_workspace_root(),
-        };
-        let statements = [
-            format!(
-                "printf -- '- 23:59:58 dirty-append-{mutation_millis}\\n' >> '{root}/2020_01_01.md'"
-            ),
-            format!("rm -f '{root}'/8???_??_??.md"),
-            format!(
-                "printf -- '- 23:59:59\\nbench-dirty-{mutation_millis}\\n' > '{root}/{dirty_doc}'"
-            ),
-        ];
-        for statement in &statements {
-            match self.options.backend {
-                DeviceBackend::Saf => self.shell_script(statement),
-                DeviceBackend::Direct => self.run_as_script(statement),
-            }
-            .context("workspace dirty mutation failed")
-            .map(|_| ())?;
-        }
-        crate::util::emit_stderr(format_args!(
-            "xtask: dirtied {} workspace (append + new doc {dirty_doc})",
-            self.options.backend.name()
-        ));
-        Ok(())
     }
 
     fn shell(&self, args: &[&str]) -> Result<String> {

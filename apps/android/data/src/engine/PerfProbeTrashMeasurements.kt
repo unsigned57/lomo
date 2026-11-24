@@ -143,8 +143,8 @@ private const val TRASH_BATCH_OFFSET = 8
 private const val TRASH_REDELETE_OFFSET = 3
 internal const val MAX_MUTATION_PROBE_SAMPLES = 10
 
-/** The trash probe times only delete/restore; the seed create's publications are not measured. */
-private object ReturnedCommitOnly : com.lomo.nativebridge.MemoCreateObserver {
+/** The mutation probes keep seed-create publications outside their samples. */
+internal object ReturnedCommitOnly : com.lomo.nativebridge.MemoCreateObserver {
     override fun accepted(publication: com.lomo.nativebridge.StoreMemoCommit) = Unit
 
     override fun withdrawn(publication: com.lomo.nativebridge.StoreMemoCommit) = Unit

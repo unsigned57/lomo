@@ -7,10 +7,6 @@ import com.lomo.data.engine.sync.RemoteSyncRepository
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
-import com.lomo.nativebridge.StoreMemoQuery
-import com.lomo.nativebridge.StoreMemoSort
-import com.lomo.nativebridge.StoreMemoSortField
-import com.lomo.nativebridge.StoreSortDirection
 import kotlinx.coroutines.CoroutineDispatcher
 import org.json.JSONArray
 import org.json.JSONObject
@@ -36,7 +32,6 @@ internal class EnginePerfProbe(
             "media_classify" -> mediaClassify(intent, run)
             "gallery_paging" -> galleryPaging(intent, run)
             "history" -> history(intent, run)
-            "history_seed" -> historySeed(intent, run)
             "listchildren" -> listChildren(intent, run)
             "sync_cycle" -> syncCycle(intent, run)
             "ffi" -> ffi(intent, run)
@@ -102,28 +97,6 @@ internal class EnginePerfProbe(
             )
         }
     }
-
-    internal fun firstMemoId(): String? = session
-        .queryMemos(
-            StoreMemoQuery(
-                searchText = null,
-                filters = EMPTY_FILTERS,
-                sort =
-                StoreMemoSort(
-                    seed = 0L,
-                    timeZone = "UTC",
-                    field = StoreMemoSortField.CREATED_AT,
-                    direction = StoreSortDirection.DESCENDING,
-                ),
-                boundary = null,
-            ),
-            null,
-            1u,
-            null,
-            false,
-        ).items
-        .firstOrNull()
-        ?.memoId
 
     internal suspend fun ffi(intent: Intent, run: String): JSONObject {
         requireReadySession()

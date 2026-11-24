@@ -46,7 +46,9 @@ claim unexecuted scenarios.
   `reports/device-perf-engine-baseline.v2.json`, keyed independently by backend (`saf` / `direct`)
   and metric. Missing history reports `no_baseline`; malformed history or samples fail closed; fewer
   than 5 samples or p50 deltas >15% report `inconclusive`. Compare only on the same device and corpus.
-  Dirty-rebuild probes modify the workspace before every sample (`engine-rebuild-dirty-each-sample`).
+  Dirty-rebuild probes append to a probe-owned document and add a new file before every sample
+  (`engine-rebuild-dirty-each-sample`). The history probe also seeds its own memo. Both clean up
+  their fixtures outside timed samples so later runs can re-stage the same corpus.
 - **Workspace plane (`workspace`, explicit only — excluded from `all`)**: resets test-owned roots
   and measures 5 fresh-index samples, 5 cold reopens, 5 cross-workspace switches, and 5 reconciles
   (external append + new dated document), checking memo/task counts and markers. SAF first index

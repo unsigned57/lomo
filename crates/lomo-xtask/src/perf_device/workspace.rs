@@ -6,7 +6,10 @@ use super::{
     percentile,
 };
 use anyhow::Context;
-use std::process::Command;
+use std::{
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 const SAMPLES: usize = 5;
 const MEMOS: usize = 240;
@@ -15,32 +18,86 @@ const ALTERNATE_NAME: &str = "lomo-perf-workspace-alternate";
 
 impl DeviceRun<'_> {
     pub(super) fn dirty_rebuild_probe(&self) -> Result<Value> {
-        let mut samples: Vec<f64> = Vec::new();
-        let mut runs = Vec::new();
-        for sample in 0..SAMPLES {
-            self.mutate_workspace()?;
-            let probe = self.run_probe(
-                "rebuild",
-                &[("samples", "1")],
-                &format!("engine-rebuild-dirty-{sample}"),
-            )?;
-            // Reuse the engine's strict metric parser before aggregating five real changes.
-            let metrics = super::engine_probe_metrics(std::slice::from_ref(&probe))?;
-            let values = metrics
-                .values()
-                .next()
-                .context("dirty rebuild has no metric")?;
-            ensure!(
-                metrics.len() == 1 && values.len() == 1,
-                "dirty rebuild must produce one timing"
-            );
-            samples.extend(values.iter().copied());
-            runs.push(probe);
+        let root = match self.options.backend {
+            DeviceBackend::Saf => format!("/sdcard/Documents/{DEFAULT_WORKSPACE_NAME}"),
+            DeviceBackend::Direct => direct_workspace_root(),
+        };
+        let script = |statement: &str| match self.options.backend {
+            DeviceBackend::Saf => self.shell_script(statement),
+            DeviceBackend::Direct => self.run_as_script(statement),
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .context("system clock before unix epoch")?;
+        // Group six distinct dated paths under one slot: the anchor and one new file per
+        // sample. Scope every shell mutation to these disposable documents.
+        let slot_width = SAMPLES as u128 + 1;
+        let first_day = now.as_millis() % (1_000 * 12 * 28 / slot_width) * slot_width;
+        let fixture = |offset: usize| {
+            let day = first_day + offset as u128;
+            format!(
+                "{root}/{:04}_{:02}_{:02}.md",
+                8_000 + day / (12 * 28),
+                1 + (day / 28) % 12,
+                1 + day % 28,
+            )
+        };
+        let anchor = fixture(0);
+        script(&format!(
+            "set -C; printf -- '- 23:58:00\nbenchmark dirty rebuild anchor\n' > '{anchor}'"
+        ))
+        .context("prepare dirty rebuild anchor")?;
+        let mut owned_paths = vec![anchor.clone()];
+        let measured = (|| {
+            self.run_probe("rebuild", &[("samples", "1")], "engine-dirty-prepare")?;
+            let mut samples = Vec::with_capacity(SAMPLES);
+            let mut runs = Vec::with_capacity(SAMPLES);
+            for sample in 0..SAMPLES {
+                let added = fixture(sample + 1);
+                script(&format!(
+                    "set -C; printf -- '- 23:59:00\nbenchmark dirty rebuild new file {sample}\n' > '{added}'"
+                ))?;
+                owned_paths.push(added);
+                script(&format!(
+                    "printf -- '- 23:59:{sample:02}\nbenchmark dirty rebuild append {sample}\n' >> '{anchor}'"
+                ))?;
+                let probe = self.run_probe(
+                    "rebuild",
+                    &[("samples", "1")],
+                    &format!("engine-rebuild-dirty-{sample}"),
+                )?;
+                let metrics = super::engine_probe_metrics(std::slice::from_ref(&probe))?;
+                let values = metrics
+                    .values()
+                    .next()
+                    .context("dirty rebuild has no metric")?;
+                ensure!(
+                    metrics.len() == 1 && values.len() == 1,
+                    "dirty rebuild must produce one timing"
+                );
+                samples.extend(values.iter().copied());
+                runs.push(probe);
+            }
+            Ok(json!({
+                "op": "rebuild", "run": "engine-rebuild-dirty-each-sample", "runs": runs,
+                "result": {"status": "ok", "metrics": {"reconcile_ms": samples}}
+            }))
+        })();
+        let paths = owned_paths
+            .into_iter()
+            .map(|path| format!("'{path}'"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let cleanup = script(&format!("rm -f {paths}"))
+            .and_then(|_| self.run_probe("rebuild", &[("samples", "1")], "engine-dirty-cleanup"))
+            .context("clean up dirty rebuild fixtures");
+        match (measured, cleanup) {
+            (Ok(result), Ok(_)) => Ok(result),
+            (Err(error), Ok(_)) | (Ok(_), Err(error)) => Err(error),
+            (Err(error), Err(cleanup)) => {
+                Err(error.context(format!("dirty fixture cleanup also failed: {cleanup:#}")))
+            }
         }
-        Ok(
-            json!({"op": "rebuild", "run": "engine-rebuild-dirty-each-sample", "runs": runs,
-            "result": {"status": "ok", "metrics": {"reconcile_ms": samples}}}),
-        )
     }
 
     pub(super) fn workspace_plane(&mut self) -> Value {

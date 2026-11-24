@@ -6,6 +6,9 @@ import com.lomo.nativebridge.ActionOutcome
 import com.lomo.nativebridge.ListingView
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
+import com.lomo.nativebridge.SessionCreateMemoRequest
+import com.lomo.nativebridge.SessionDeleteMemoRequest
+import com.lomo.nativebridge.SessionRestoreRequest
 import com.lomo.nativebridge.SessionSearchMode
 import com.lomo.nativebridge.SessionSearchOutcome
 import com.lomo.nativebridge.SessionSearchRequest
@@ -17,6 +20,7 @@ import com.lomo.nativebridge.StoreSortDirection
 import com.lomo.nativebridge.WorkspaceTarget
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.Closeable
 import java.io.File
 
 internal suspend fun EnginePerfProbe.paging(intent: Intent, run: String): JSONObject {
@@ -103,9 +107,47 @@ internal suspend fun EnginePerfProbe.history(intent: Intent, run: String): JSONO
     val n = intent.probeCount("n", DEFAULT_HISTORY_N)
     val pageLimit =
         intent.probeCount("limit", HISTORY_PAGE_LIMIT, LIST_PAGE_SIZE)
-    val memoId =
-        firstMemoId()
-            ?: return errorPayload(run, "history probe requires at least one memo")
+    val invocation = ProbeWriteInvocation.newInvocation(run)
+    val body = "benchmark owned history probe ${invocation.operationId(0)}"
+    val created = session.sessionCreateMemo(
+        SessionCreateMemoRequest(
+            operationId = invocation.operationId(0),
+            relativePath = null,
+            timeToken = null,
+            content = body,
+            expectedDocumentFingerprint = null,
+            pinned = false,
+            pendingPromotes = emptyList(),
+            chronologyEpochMs = null,
+            dateFormat = null,
+            timestampFormat = null,
+        ),
+        ReturnedCommitOnly,
+    )
+    val memoId = created.memoId
+    return Closeable {
+        val snapshot = checkNotNull(session.getMemo(memoId)) { "history probe memo vanished: $memoId" }
+        val cleanup = ProbeWriteInvocation.newInvocation(run)
+        session.sessionDeleteMemo(
+            SessionDeleteMemoRequest(cleanup.operationId(0), memoId, snapshot.summary.fileFingerprint),
+        )
+        session.sessionPermanentlyDeleteMemo(SessionRestoreRequest(cleanup.operationId(1), memoId))
+    }.use {
+        val seedTimes = seedHistory(invocation, memoId, body, created.fileFingerprint, n)
+        measureHistory(run, memoId, n, pageLimit, samples).apply {
+            getJSONObject("metrics").put("seed_ms", seedTimes)
+            getJSONObject("facts").put("revisionsSeeded", seedTimes.length())
+        }
+    }
+}
+
+private fun EnginePerfProbe.measureHistory(
+    run: String,
+    memoId: String,
+    n: Int,
+    pageLimit: Int,
+    samples: Int,
+): JSONObject {
     val times = JSONArray()
     var revisions = 0
     var pages = 0
@@ -150,49 +192,31 @@ internal suspend fun EnginePerfProbe.history(intent: Intent, run: String): JSONO
     }
 }
 
-internal suspend fun EnginePerfProbe.historySeed(intent: Intent, run: String): JSONObject {
-    requireReadySession()
-    val n = intent.probeCount("n", DEFAULT_HISTORY_N)
-    val memoId =
-        firstMemoId()
-            ?: return errorPayload(run, "history_seed requires at least one memo")
-    val snapshot =
-        session.getMemo(memoId)
-            ?: return errorPayload(run, "history_seed memo vanished: $memoId")
-    // Operation ids are idempotency keys fenced by the durable intents journal in the
-    // session control root — that journal survives corpus re-staging, so an opId reused
-    // across probe invocations with a different payload is (correctly) an
-    // `operation_payload_mismatch`. A per-invocation nonce keeps each run's keys unique.
-    val invocation = ProbeWriteInvocation.newInvocation(run)
-    var fingerprint = snapshot.summary.fileFingerprint
+private fun EnginePerfProbe.seedHistory(
+    invocation: ProbeWriteInvocation,
+    memoId: String,
+    body: String,
+    initialFingerprint: String,
+    n: Int,
+): JSONArray {
+    var fingerprint = initialFingerprint
     val times = JSONArray()
-    var contentRevision = 0uL
     repeat(n) { index ->
         val t0 = System.nanoTime()
         val commit =
             session.sessionUpdateMemo(
                 SessionUpdateMemoRequest(
-                    operationId = invocation.operationId(index),
+                    operationId = invocation.operationId(index + 1),
                     memoId = memoId,
-                    content = "${snapshot.body}\nseed-revision-$index",
+                    content = "$body\nseed-revision-$index",
                     expectedDocumentFingerprint = fingerprint,
                     pendingPromotes = emptyList(),
                 ),
             )
         times.put(elapsedMs(t0))
         fingerprint = commit.fileFingerprint
-        contentRevision = commit.contentRevision
     }
-    return okPayload(run, "history_seed").apply {
-        put("metrics", JSONObject().put("seed_ms", times))
-        put(
-            "facts",
-            JSONObject()
-                .put("memoId", memoId)
-                .put("revisionsSeeded", n)
-                .put("finalContentRevision", contentRevision.toLong()),
-        )
-    }
+    return times
 }
 
 internal suspend fun EnginePerfProbe.listChildren(intent: Intent, run: String): JSONObject {
