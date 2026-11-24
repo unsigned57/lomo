@@ -110,6 +110,18 @@ pub struct EmptyTrashError {
     pub error: Box<LomoError>,
 }
 
+impl std::fmt::Display for EmptyTrashError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.error, formatter)
+    }
+}
+
+impl std::error::Error for EmptyTrashError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.error.as_ref())
+    }
+}
+
 /// Committed state of one chunked permanent-delete pass.
 struct DeleteTargetsOutcome {
     /// Targets whose child batch committed or replayed a committed receipt, in canonical order.
