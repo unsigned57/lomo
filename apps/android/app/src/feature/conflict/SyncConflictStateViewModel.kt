@@ -15,6 +15,7 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -80,6 +81,8 @@ class SyncConflictStateViewModel(
                 } else {
                     throw error
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: IllegalStateException) {
                 if (observeDirectWorkspaceRootUseCase.current() != workspaceRoot) {
                     null

@@ -87,8 +87,9 @@ internal class SessionSearchPagingSource(
                         }
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
-                if (error is CancellationException) throw error
                 LoadResult.Error(error)
             }
         }
