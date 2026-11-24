@@ -308,6 +308,12 @@ internal class BoltFfiNativeEnginePort(engine: LomoEngine) :
     ): com.lomo.nativebridge.StoreMemoBatchCommit =
         withReadLease { engine -> engine.sessionPermanentlyDeleteMany(request) }
 
+    override fun sessionEmptyTrash(
+        operationId: String,
+        cancellation: com.lomo.nativebridge.EmptyTrashCancellation,
+    ): com.lomo.nativebridge.SessionEmptyTrashResult =
+        withReadLease { engine -> engine.sessionEmptyTrash(operationId, cancellation) }
+
     override fun sessionPlanReminderRewrite(
         request: com.lomo.nativebridge.SessionReminderRewriteRequest,
     ): com.lomo.nativebridge.SessionReminderRewritePlan =

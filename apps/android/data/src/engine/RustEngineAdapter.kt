@@ -290,6 +290,11 @@ internal class RustEngineAdapter private constructor(
         request: com.lomo.nativebridge.StoreMemoBatchDelete,
     ): com.lomo.nativebridge.StoreMemoBatchCommit = native.sessionPermanentlyDeleteMany(request)
 
+    override fun sessionEmptyTrash(
+        operationId: String,
+        cancellation: com.lomo.nativebridge.EmptyTrashCancellation,
+    ): com.lomo.nativebridge.SessionEmptyTrashResult = native.sessionEmptyTrash(operationId, cancellation)
+
     override fun sessionPlanReminderRewrite(
         request: com.lomo.nativebridge.SessionReminderRewriteRequest,
     ): com.lomo.nativebridge.SessionReminderRewritePlan = native.sessionPlanReminderRewrite(request)

@@ -78,6 +78,11 @@ internal interface SessionNativeBridge {
     fun sessionPermanentlyDeleteMany(request: StoreMemoBatchDelete): StoreMemoBatchCommit =
         error("session permanent delete batch is not expected")
 
+    fun sessionEmptyTrash(
+        operationId: String,
+        cancellation: com.lomo.nativebridge.EmptyTrashCancellation,
+    ): com.lomo.nativebridge.SessionEmptyTrashResult = error("session empty trash is not expected")
+
     fun sessionPlanReminderRewrite(
         request: com.lomo.nativebridge.SessionReminderRewriteRequest,
     ): com.lomo.nativebridge.SessionReminderRewritePlan = error("session reminder rewrite planning is not expected")

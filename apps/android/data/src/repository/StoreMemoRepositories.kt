@@ -9,7 +9,6 @@ import com.lomo.data.engine.store.StoreInvalidationScope
 import com.lomo.data.engine.store.StoreMemoCommand
 import com.lomo.data.engine.store.StoreMemoCommandKind
 import com.lomo.data.engine.store.StoreMemoCommandPublication
-import com.lomo.data.engine.store.StoreMemoDeleteTarget
 import com.lomo.data.engine.store.StoreMemoFilters
 import com.lomo.data.engine.store.StoreMemoQuery
 import com.lomo.data.engine.store.StoreMemoSort
@@ -64,6 +63,8 @@ import com.lomo.nativebridge.SessionStatistics
 import com.lomo.nativebridge.SessionStatisticsSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -74,6 +75,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.time.DayOfWeek
@@ -84,8 +86,6 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
-
-private const val STORE_PAGE_SIZE = 50
 
 /**
  * Production memo repositories after P3-10: sole owner is Rust store via [StorePort].
@@ -688,26 +688,28 @@ class StoreMemoTrashRepository(
 
     override suspend fun clearTrash(operationId: com.lomo.domain.model.MemoOperationId) {
         mutate {
-            val trashQuery = StoreMemoQuery(filters = StoreMemoFilters(trashOnly = true, includeTrash = true))
-            val targets =
-                walkStorePages(port, trashQuery)
-                    .map { summary ->
-                        check(summary.isTrashed) { "Trash query returned a non-trashed memo" }
-                        check(!summary.isPending) { "Pending memo cannot be permanently deleted" }
-                        StoreMemoDeleteTarget(
-                            memoId = summary.memoId,
-                            sourcePath = summary.sourcePath,
-                            expectedRevision = summary.contentRevision,
-                            expectedFingerprint = summary.fileFingerprint,
-                        )
-                    }.sortedBy(StoreMemoDeleteTarget::memoId)
-                    .toList()
-            if (targets.isEmpty()) return@mutate
-            val commit = port.permanentDeleteMany(operationId.value, targets)
-            commit.deleted.forEach { deleted ->
-                reminderScheduler.cancelForMemo(deleted.memoId, deleted.reminderIds.toSet())
+            val callerContext = currentCoroutineContext()
+            val result =
+                port.emptyTrash(
+                    operationId = operationId.value,
+                    isCancelled = { !callerContext.isActive },
+                )
+            if (result.batches.isNotEmpty()) {
+                withContext(NonCancellable) {
+                    result.batches.forEach { batch ->
+                        batch.deleted.forEach { deleted ->
+                            reminderScheduler.cancelForMemo(deleted.memoId, deleted.reminderIds.toSet())
+                        }
+                    }
+                    sweepOrphansPostCommit(mediaRepository)
+                }
             }
-            sweepOrphansPostCommit(mediaRepository)
+            result.failure?.let { failure ->
+                throw EngineCommandFailureException(failure)
+            }
+            if (result.cancelled) {
+                throw CancellationException("Empty trash cancelled")
+            }
         }
     }
 
@@ -1090,25 +1092,6 @@ private fun Memo.requireSessionCasBaseline(): Pair<Long, String> {
                 diagnostic = "Memo edit session does not carry a verified file fingerprint",
             )
     return expectedRevision to expectedFingerprint
-}
-
-private fun walkStorePages(
-    port: StorePort,
-    query: StoreMemoQuery,
-): Sequence<com.lomo.data.engine.store.StoreMemoSummary> = sequence {
-    var cursor: com.lomo.data.engine.store.StorePageCursor? = null
-    val seenCursors = mutableSetOf<String>()
-    while (true) {
-        // behavior-contract: loop-io-ok: no bulk queryMemos API; each iteration is one bounded page
-        val page = port.queryMemos(query, cursor, pageSize = STORE_PAGE_SIZE)
-        if (page.items.isEmpty()) {
-            return@sequence
-        }
-        yieldAll(page.items)
-        val next = page.nextCursor ?: return@sequence
-        check(seenCursors.add(next.encoded)) { "Store page cursor repeated before traversal completed" }
-        cursor = next
-    }
 }
 
 /**

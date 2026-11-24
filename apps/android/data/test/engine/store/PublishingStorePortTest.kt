@@ -168,6 +168,97 @@ class PublishingStorePortTest :
             bus.publications.value.coreRevision shouldBe 5L
             bus.publications.value.eventSequence shouldBe 8L
         }
+
+        test("emptyTrash publishes every committed batch even when cancelled or partially failed") {
+            val batch0 =
+                StoreMemoBatchCommit(
+                    operationId = "et-1.b0",
+                    deleted = listOf(StoreMemoDeletedMemo("m-1", emptyList())),
+                    coreRevision = 10L,
+                    eventSequence = 14L,
+                    scopes = listOf(StoreInvalidationScope.Trash),
+                    idempotentReplay = false,
+                )
+            val batch1 =
+                StoreMemoBatchCommit(
+                    operationId = "et-1.b1",
+                    deleted = listOf(StoreMemoDeletedMemo("m-2", emptyList())),
+                    coreRevision = 11L,
+                    eventSequence = 15L,
+                    scopes = listOf(StoreInvalidationScope.Trash),
+                    idempotentReplay = false,
+                )
+
+            val multiBus = StoreInvalidationBus()
+            val multiPaging = ProjectionPagingSource()
+            multiBus.register(multiPaging)
+            PublishingStorePort(
+                RecordingWritePort(
+                    emptyTrashOutcome =
+                    StoreEmptyTrashResult(
+                        removed = 2L,
+                        batches = listOf(batch0, batch1),
+                        idempotentReplay = false,
+                        cancelled = false,
+                    ),
+                ),
+                StoreProjectionObserver(multiBus),
+            ).emptyTrash("et-1")
+            multiPaging.invalid shouldBe true
+            multiBus.publications.value.coreRevision shouldBe 11L
+            multiBus.publications.value.eventSequence shouldBe 15L
+
+            val cancelledBus = StoreInvalidationBus()
+            val cancelledPaging = ProjectionPagingSource()
+            cancelledBus.register(cancelledPaging)
+            val cancelledResult =
+                PublishingStorePort(
+                    RecordingWritePort(
+                        emptyTrashOutcome =
+                        StoreEmptyTrashResult(
+                            removed = 1L,
+                            batches = listOf(batch0),
+                            idempotentReplay = false,
+                            cancelled = true,
+                        ),
+                    ),
+                    StoreProjectionObserver(cancelledBus),
+                ).emptyTrash("et-cancel")
+            cancelledResult.cancelled shouldBe true
+            cancelledPaging.invalid shouldBe true
+            cancelledBus.publications.value.coreRevision shouldBe 10L
+            cancelledBus.publications.value.eventSequence shouldBe 14L
+
+            val failedBus = StoreInvalidationBus()
+            val failedPaging = ProjectionPagingSource()
+            failedBus.register(failedPaging)
+            val failedOutcome =
+                PublishingStorePort(
+                    RecordingWritePort(
+                        emptyTrashOutcome =
+                        StoreEmptyTrashResult(
+                            removed = 1L,
+                            batches = listOf(batch0),
+                            idempotentReplay = false,
+                            cancelled = false,
+                            failure =
+                            com.lomo.domain.model.EngineCommandFailure(
+                                category = com.lomo.domain.model.EngineFailureCategory.STORAGE,
+                                code = "trash_io_error",
+                                retryDisposition = com.lomo.domain.model.EngineRetryDisposition.AFTER_USER_ACTION,
+                                operationId = "et-fail",
+                                jobId = null,
+                                diagnostic = "batch 1 failed",
+                            ),
+                        ),
+                    ),
+                    StoreProjectionObserver(failedBus),
+                ).emptyTrash("et-fail")
+            failedOutcome.failure?.code shouldBe "trash_io_error"
+            failedPaging.invalid shouldBe true
+            failedBus.publications.value.coreRevision shouldBe 10L
+            failedBus.publications.value.eventSequence shouldBe 14L
+        }
     })
 
 private class ProjectionPagingSource : PagingSource<Int, String>() {
@@ -183,6 +274,7 @@ private class RecordingWritePort(
     private val afterPending: () -> Unit = {},
     private val withdrawal: StoreMemoCommit? = null,
     private val batch: StoreMemoBatchCommit? = null,
+    private val emptyTrashOutcome: StoreEmptyTrashResult? = null,
     private val rebuild: StoreRebuildResult = sampleRebuild(),
 ) : StorePort {
     override fun queryMemos(
@@ -225,6 +317,9 @@ private class RecordingWritePort(
 
     override fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit =
         batch ?: error("batch not expected")
+
+    override fun emptyTrash(operationId: String, isCancelled: () -> Boolean): StoreEmptyTrashResult =
+        emptyTrashOutcome ?: error("emptyTrash not expected")
 
     override fun startRebuild(batchSize: Int): StoreRebuildResult = rebuild
 

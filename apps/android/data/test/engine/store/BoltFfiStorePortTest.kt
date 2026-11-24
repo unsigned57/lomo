@@ -288,6 +288,27 @@ private class RecordingStoreNativeBridge :
         return batchCommit
     }
 
+    var lastEmptyTrashOperationId: String? = null
+    var emptyTrashCancellation: com.lomo.nativebridge.EmptyTrashCancellation? = null
+    var emptyTrashResult: com.lomo.nativebridge.SessionEmptyTrashResult =
+        com.lomo.nativebridge.SessionEmptyTrashResult(
+            removed = 0uL,
+            batches = emptyList(),
+            idempotentReplay = true,
+            cancelled = false,
+            failure = null,
+        )
+
+    override fun sessionEmptyTrash(
+        operationId: String,
+        cancellation: com.lomo.nativebridge.EmptyTrashCancellation,
+    ): com.lomo.nativebridge.SessionEmptyTrashResult {
+        lastEmptyTrashOperationId = operationId
+        emptyTrashCancellation = cancellation
+        failure?.let { throw it }
+        return emptyTrashResult
+    }
+
     var lastSessionReminderNowUtcMs: Long? = null
 
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan {
@@ -760,6 +781,80 @@ class BoltFfiStorePortTest :
             commit.eventSequence shouldBe 11L
             commit.scopes shouldBe listOf(StoreInvalidationScope.Full)
             commit.idempotentReplay shouldBe false
+        }
+
+        test("emptyTrash forwards cancellation maps batches and converts partial failure without losing batches") {
+            val bridge = RecordingStoreNativeBridge()
+            bridge.emptyTrashResult =
+                com.lomo.nativebridge.SessionEmptyTrashResult(
+                    removed = 64uL,
+                    batches =
+                    listOf(
+                        com.lomo.nativebridge.StoreMemoBatchCommit(
+                            operationId = "op-et.b0",
+                            deleted =
+                            listOf(
+                                com.lomo.nativebridge.StoreMemoDeletedMemo("m-1", listOf("r-1")),
+                            ),
+                            coreRevision = 15uL,
+                            eventSequence = 21uL,
+                            scopes = listOf(com.lomo.nativebridge.StoreInvalidationScope.TRASH),
+                            idempotentReplay = false,
+                        ),
+                    ),
+                    idempotentReplay = false,
+                    cancelled = false,
+                    failure =
+                    com.lomo.nativebridge.EngineFailure(
+                        category = "storage",
+                        code = "trash_record_missing",
+                        retryDisposition = "after_user_action",
+                        operationId = "op-et",
+                        jobId = null,
+                        diagnostic = "chunk 2 trash file absent",
+                    ),
+                )
+            var cancelledFlag = false
+            val outcome =
+                storePort(bridge).emptyTrash(
+                    operationId = "op-et",
+                    isCancelled = { cancelledFlag },
+                )
+            bridge.lastEmptyTrashOperationId shouldBe "op-et"
+            bridge.emptyTrashCancellation.shouldNotBeNull().isCancelled() shouldBe false
+            cancelledFlag = true
+            bridge.emptyTrashCancellation.shouldNotBeNull().isCancelled() shouldBe true
+            outcome.removed shouldBe 64L
+            outcome.cancelled shouldBe false
+            outcome.idempotentReplay shouldBe false
+            outcome.batches.single().operationId shouldBe "op-et.b0"
+            outcome.batches.single().deleted shouldBe listOf(StoreMemoDeletedMemo("m-1", listOf("r-1")))
+            outcome.batches.single().coreRevision shouldBe 15L
+            outcome.failure?.code shouldBe "trash_record_missing"
+            outcome.failure?.category shouldBe EngineFailureCategory.STORAGE
+            outcome.failure?.retryDisposition shouldBe EngineRetryDisposition.AFTER_USER_ACTION
+        }
+
+        test("emptyTrash converts native pre-batch EngineError carrier into EngineCommandFailureException") {
+            val bridge =
+                RecordingStoreNativeBridge().apply {
+                    failure =
+                        com.lomo.nativebridge.EngineError.Failure(
+                            com.lomo.nativebridge.EngineFailure(
+                                category = "session",
+                                code = "workspace_session_unavailable",
+                                retryDisposition = "after_user_action",
+                                operationId = "op-et-err",
+                                jobId = null,
+                                diagnostic = "session not open",
+                            ),
+                        )
+                }
+            val error =
+                shouldThrow<EngineCommandFailureException> {
+                    storePort(bridge).emptyTrash("op-et-err")
+                }
+            error.failure.code shouldBe "workspace_session_unavailable"
         }
 
         test("startRebuild maps counters digests and batch size") {

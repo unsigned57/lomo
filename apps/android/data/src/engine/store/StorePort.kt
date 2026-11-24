@@ -176,6 +176,15 @@ data class StoreMemoBatchCommit(
     val idempotentReplay: Boolean,
 )
 
+/** Outcome of one bounded Rust `empty_trash` pass across one or more durable child batches. */
+data class StoreEmptyTrashResult(
+    val removed: Long,
+    val batches: List<StoreMemoBatchCommit>,
+    val idempotentReplay: Boolean,
+    val cancelled: Boolean,
+    val failure: com.lomo.domain.model.EngineCommandFailure? = null,
+)
+
 enum class StoreMemoCommandKind {
     Create,
     Update,
@@ -285,6 +294,9 @@ interface StoreWritePort {
 
     /** Permanently deletes a bounded trash batch and publishes one projection revision. */
     fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit
+
+    /** Enumerates and permanently deletes the trash lane in bounded Rust batches. */
+    fun emptyTrash(operationId: String, isCancelled: () -> Boolean = { false }): StoreEmptyTrashResult
 
     fun startRebuild(batchSize: Int): StoreRebuildResult
 

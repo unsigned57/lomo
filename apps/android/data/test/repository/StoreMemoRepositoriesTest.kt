@@ -564,6 +564,100 @@ private class RecordingStorePort : StorePort {
         )
     }
 
+    var emptyTrashCallCount = 0
+    val emptyTrashOperationIds = mutableListOf<String>()
+    var emptyTrashBatchSize = 64
+    var emptyTrashCancelAfterBatches: Int? = null
+    var emptyTrashFailureAfterBatches: Pair<Int, EngineCommandFailure>? = null
+    var throwOnEmptyTrashCancellationCheck: Boolean = false
+
+    override fun emptyTrash(
+        operationId: String,
+        isCancelled: () -> Boolean,
+    ): com.lomo.data.engine.store.StoreEmptyTrashResult {
+        emptyTrashCallCount += 1
+        emptyTrashOperationIds += operationId
+        if (!throwOnEmptyTrashCancellationCheck && isCancelled()) {
+            return com.lomo.data.engine.store.StoreEmptyTrashResult(
+                removed = 0L,
+                batches = emptyList(),
+                idempotentReplay = true,
+                cancelled = true,
+            )
+        }
+        val targets =
+            memos.values
+                .map { it.summary }
+                .filter { it.isTrashed }
+                .sortedBy { it.memoId }
+        if (targets.isEmpty()) {
+            return com.lomo.data.engine.store.StoreEmptyTrashResult(
+                removed = 0L,
+                batches = emptyList(),
+                idempotentReplay = true,
+                cancelled = false,
+            )
+        }
+        val committedBatches = mutableListOf<StoreMemoBatchCommit>()
+        var removedCount = 0L
+        targets.chunked(emptyTrashBatchSize).forEachIndexed { index, chunk ->
+            val cancelAfter = emptyTrashCancelAfterBatches
+            if (isCancelled() || (cancelAfter != null && index >= cancelAfter)) {
+                return com.lomo.data.engine.store.StoreEmptyTrashResult(
+                    removed = removedCount,
+                    batches = committedBatches,
+                    idempotentReplay = false,
+                    cancelled = true,
+                )
+            }
+            val failSpec = emptyTrashFailureAfterBatches
+            if (failSpec != null && index >= failSpec.first) {
+                if (committedBatches.isEmpty()) {
+                    throw EngineCommandFailureException(failSpec.second)
+                }
+                return com.lomo.data.engine.store.StoreEmptyTrashResult(
+                    removed = removedCount,
+                    batches = committedBatches,
+                    idempotentReplay = false,
+                    cancelled = false,
+                    failure = failSpec.second,
+                )
+            }
+            val deleted =
+                chunk.map { summary ->
+                    memos.remove(summary.memoId)
+                    StoreMemoDeletedMemo(
+                        memoId = summary.memoId,
+                        reminderIds = summary.reminders.map { it.reference.opaqueId },
+                    )
+                }
+            coreRevision += 1L
+            eventSequence += 1L
+            removedCount += deleted.size.toLong()
+            committedBatches +=
+                StoreMemoBatchCommit(
+                    operationId = "$operationId.b$index",
+                    deleted = deleted,
+                    coreRevision = coreRevision,
+                    eventSequence = eventSequence,
+                    scopes =
+                    listOf(
+                        StoreInvalidationScope.MemoList,
+                        StoreInvalidationScope.Trash,
+                        StoreInvalidationScope.Search,
+                        StoreInvalidationScope.Stats,
+                    ),
+                    idempotentReplay = false,
+                )
+        }
+        return com.lomo.data.engine.store.StoreEmptyTrashResult(
+            removed = removedCount,
+            batches = committedBatches,
+            idempotentReplay = false,
+            cancelled = false,
+        )
+    }
+
     override fun startRebuild(batchSize: Int): StoreRebuildResult {
         rebuildCount++
         if (rebuildRewrites) {
@@ -1626,8 +1720,10 @@ class StoreMemoRepositoriesTest :
                 port.getMemo("memo-2") shouldBe null
                 port.getMemo("memo-3") shouldBe null
                 port.commands.filter { it.kind == StoreMemoCommandKind.PermanentDelete } shouldHaveSize 0
-                port.batchDeleteCallCount shouldBe 1
-                port.lastBatchDeleteTargets.map { it.memoId } shouldContainExactly listOf("memo-1", "memo-2", "memo-3")
+                port.queryCount shouldBe 0
+                port.batchDeleteCallCount shouldBe 0
+                port.emptyTrashCallCount shouldBe 1
+                port.emptyTrashOperationIds shouldContainExactly listOf("clear-trash-1")
                 media.orphanSweepCallCount shouldBe 1
             }
         }
@@ -1817,8 +1913,245 @@ class StoreMemoRepositoriesTest :
                 trash.clearTrash(MemoOperationId("clear-sweep-fail"))
 
                 port.getMemo("clear-sweep-fail") shouldBe null
-                port.batchDeleteCallCount shouldBe 1
+                port.emptyTrashCallCount shouldBe 1
+                port.queryCount shouldBe 0
                 media.orphanSweepCallCount shouldBe 1
+            }
+        }
+
+        test("clearTrash on empty trash is a no-op without reminder cancellation or orphan sweep") {
+            runTest {
+                val port = RecordingStorePort()
+                val invalidation = StoreInvalidationBus()
+                val reminders = FakeReminderCoordinator()
+                val media = RecordingMediaRepository()
+                val trash =
+                    StoreMemoTrashRepository(
+                        port = observingPort(port, invalidation),
+                        writeLease = alwaysWritableWorkspaceMutationLease(),
+                        invalidation = invalidation,
+                        readiness = FakeEngineReadinessRepository(),
+                        reminderScheduler = reminders,
+                        mediaRepository = media,
+                    )
+
+                trash.clearTrash(MemoOperationId("clear-empty"))
+
+                port.emptyTrashCallCount shouldBe 1
+                port.queryCount shouldBe 0
+                reminders.cancelForMemoCalls shouldBe emptyList()
+                media.orphanSweepCallCount shouldBe 0
+                invalidation.publications.value.coreRevision shouldBe 0L
+            }
+        }
+
+        test("clearTrash publishes multiple batches, cancels all deleted reminders, and skips queryMemos walks") {
+            runTest {
+                val port =
+                    RecordingStorePort().apply {
+                        emptyTrashBatchSize = 2
+                        seed(
+                            seededSnapshot(
+                                id = "mb-1",
+                                body = "one",
+                                isTrashed = true,
+                                reminders = listOf(sampleReminderMarker("rem-1", "mb-1")),
+                            ),
+                        )
+                        seed(
+                            seededSnapshot(
+                                id = "mb-2",
+                                body = "two",
+                                isTrashed = true,
+                                reminders = listOf(sampleReminderMarker("rem-2", "mb-2")),
+                            ),
+                        )
+                        seed(
+                            seededSnapshot(
+                                id = "mb-3",
+                                body = "three",
+                                isTrashed = true,
+                                reminders = listOf(sampleReminderMarker("rem-3", "mb-3")),
+                            ),
+                        )
+                    }
+                val invalidation = StoreInvalidationBus()
+                val reminders = FakeReminderCoordinator()
+                val media = RecordingMediaRepository()
+                val trash =
+                    StoreMemoTrashRepository(
+                        port = observingPort(port, invalidation),
+                        writeLease = alwaysWritableWorkspaceMutationLease(),
+                        invalidation = invalidation,
+                        readiness = FakeEngineReadinessRepository(),
+                        reminderScheduler = reminders,
+                        mediaRepository = media,
+                    )
+
+                trash.clearTrash(MemoOperationId("clear-multi"))
+
+                port.emptyTrashCallCount shouldBe 1
+                port.queryCount shouldBe 0
+                port.getMemo("mb-1") shouldBe null
+                port.getMemo("mb-2") shouldBe null
+                port.getMemo("mb-3") shouldBe null
+                invalidation.publications.value.coreRevision shouldBe 2L
+                reminders.cancelForMemoCalls shouldContainExactly
+                    listOf(
+                        "mb-1" to setOf("rem-1"),
+                        "mb-2" to setOf("rem-2"),
+                        "mb-3" to setOf("rem-3"),
+                    )
+                media.orphanSweepCallCount shouldBe 1
+            }
+        }
+
+        test("clearTrash publishes batches and cancels reminders under NonCancellable on cancel before retry") {
+            runTest {
+                val port =
+                    RecordingStorePort().apply {
+                        emptyTrashBatchSize = 2
+                        emptyTrashCancelAfterBatches = 1
+                        seed(
+                            seededSnapshot(
+                                id = "cx-1",
+                                body = "one",
+                                isTrashed = true,
+                                reminders = listOf(sampleReminderMarker("rem-cx-1", "cx-1")),
+                            ),
+                        )
+                        seed(
+                            seededSnapshot(
+                                id = "cx-2",
+                                body = "two",
+                                isTrashed = true,
+                                reminders = listOf(sampleReminderMarker("rem-cx-2", "cx-2")),
+                            ),
+                        )
+                        seed(
+                            seededSnapshot(
+                                id = "cx-3",
+                                body = "three",
+                                isTrashed = true,
+                                reminders = listOf(sampleReminderMarker("rem-cx-3", "cx-3")),
+                            ),
+                        )
+                    }
+                val invalidation = StoreInvalidationBus()
+                val reminders = FakeReminderCoordinator()
+                val media = RecordingMediaRepository()
+                val trash =
+                    StoreMemoTrashRepository(
+                        port = observingPort(port, invalidation),
+                        writeLease = alwaysWritableWorkspaceMutationLease(),
+                        invalidation = invalidation,
+                        readiness = FakeEngineReadinessRepository(),
+                        reminderScheduler = reminders,
+                        mediaRepository = media,
+                    )
+
+                shouldThrow<kotlinx.coroutines.CancellationException> {
+                    trash.clearTrash(MemoOperationId("clear-cancel-1"))
+                }
+
+                invalidation.publications.value.coreRevision shouldBe 1L
+                port.getMemo("cx-1") shouldBe null
+                port.getMemo("cx-2") shouldBe null
+                port.getMemo("cx-3").shouldNotBeNull()
+                reminders.cancelForMemoCalls shouldContainExactly
+                    listOf(
+                        "cx-1" to setOf("rem-cx-1"),
+                        "cx-2" to setOf("rem-cx-2"),
+                    )
+                media.orphanSweepCallCount shouldBe 1
+
+                port.emptyTrashCancelAfterBatches = null
+                trash.clearTrash(MemoOperationId("clear-cancel-2"))
+
+                port.emptyTrashOperationIds shouldContainExactly listOf("clear-cancel-1", "clear-cancel-2")
+                port.getMemo("cx-3") shouldBe null
+                reminders.cancelForMemoCalls.last() shouldBe ("cx-3" to setOf("rem-cx-3"))
+                media.orphanSweepCallCount shouldBe 2
+            }
+        }
+
+        test("clearTrash publishes batches, cancels reminders, and surfaces partial failure before fresh retry") {
+            runTest {
+                val batchFailure =
+                    EngineCommandFailure(
+                        category = EngineFailureCategory.STORAGE,
+                        code = "trash_record_missing",
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                        operationId = "clear-partial-1",
+                        jobId = null,
+                        diagnostic = "batch 1 trash record missing",
+                    )
+                val port =
+                    RecordingStorePort().apply {
+                        emptyTrashBatchSize = 2
+                        emptyTrashFailureAfterBatches = 1 to batchFailure
+                        seed(
+                            seededSnapshot(
+                                id = "pf-1",
+                                body = "one",
+                                isTrashed = true,
+                                reminders = listOf(sampleReminderMarker("rem-pf-1", "pf-1")),
+                            ),
+                        )
+                        seed(
+                            seededSnapshot(
+                                id = "pf-2",
+                                body = "two",
+                                isTrashed = true,
+                                reminders = listOf(sampleReminderMarker("rem-pf-2", "pf-2")),
+                            ),
+                        )
+                        seed(
+                            seededSnapshot(
+                                id = "pf-3",
+                                body = "three",
+                                isTrashed = true,
+                                reminders = listOf(sampleReminderMarker("rem-pf-3", "pf-3")),
+                            ),
+                        )
+                    }
+                val invalidation = StoreInvalidationBus()
+                val reminders = FakeReminderCoordinator()
+                val media = RecordingMediaRepository()
+                val trash =
+                    StoreMemoTrashRepository(
+                        port = observingPort(port, invalidation),
+                        writeLease = alwaysWritableWorkspaceMutationLease(),
+                        invalidation = invalidation,
+                        readiness = FakeEngineReadinessRepository(),
+                        reminderScheduler = reminders,
+                        mediaRepository = media,
+                    )
+
+                val thrown =
+                    shouldThrow<EngineCommandFailureException> {
+                        trash.clearTrash(MemoOperationId("clear-partial-1"))
+                    }
+                thrown.failure.code shouldBe "trash_record_missing"
+                thrown.failure.category shouldBe EngineFailureCategory.STORAGE
+                invalidation.publications.value.coreRevision shouldBe 1L
+                port.getMemo("pf-1") shouldBe null
+                port.getMemo("pf-2") shouldBe null
+                port.getMemo("pf-3").shouldNotBeNull()
+                reminders.cancelForMemoCalls shouldContainExactly
+                    listOf(
+                        "pf-1" to setOf("rem-pf-1"),
+                        "pf-2" to setOf("rem-pf-2"),
+                    )
+                media.orphanSweepCallCount shouldBe 1
+
+                port.emptyTrashFailureAfterBatches = null
+                trash.clearTrash(MemoOperationId("clear-partial-2"))
+
+                port.emptyTrashOperationIds shouldContainExactly listOf("clear-partial-1", "clear-partial-2")
+                port.getMemo("pf-3") shouldBe null
+                reminders.cancelForMemoCalls.last() shouldBe ("pf-3" to setOf("rem-pf-3"))
+                media.orphanSweepCallCount shouldBe 2
             }
         }
 

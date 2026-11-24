@@ -512,6 +512,11 @@ private class InboxRecordingStorePort : StorePort {
     override fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit =
         error("unexpected")
 
+    override fun emptyTrash(
+        operationId: String,
+        isCancelled: () -> Boolean,
+    ): com.lomo.data.engine.store.StoreEmptyTrashResult = error("unexpected")
+
     override fun startRebuild(batchSize: Int): StoreRebuildResult = error("unexpected")
 
     override fun snoozeReminder(opaqueId: String, interval: com.lomo.domain.model.ReminderInterval) =

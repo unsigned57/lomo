@@ -8,9 +8,10 @@ use std::sync::Arc;
 
 use boltffi::{data, export};
 use lomo_application::{
-    CreateMemoRequest, DeleteMemoRequest, PermanentDeleteRequest, PinMemoRequest, PinPolicy,
-    RestoreMemoRequest, RestoreRevisionRequest, SearchMode, SearchOutcome, SearchRequest,
-    ToggleTaskRequest, UpdateMemoRequest, WorkspaceSession, WorkspaceSessionConfig,
+    CreateMemoRequest, DeleteMemoRequest, EmptyTrashRequest, PermanentDeleteRequest,
+    PinMemoRequest, PinPolicy, RestoreMemoRequest, RestoreRevisionRequest, SearchMode,
+    SearchOutcome, SearchRequest, ToggleTaskRequest, UpdateMemoRequest, WorkspaceSession,
+    WorkspaceSessionConfig,
     calendar::{CivilDate, DateFormat, TimestampFormat},
     statistics::StatisticsSnapshot,
 };
@@ -22,15 +23,15 @@ use lomo_store::SafProjectionCommitResult;
 use lomo_workspace::{MemoId, SessionLayout, WorkspaceRootId};
 
 use crate::{
-    ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineError, ExpectedFingerprint,
-    LomoEngine, MemoCreateObserver, MetadataPage, PlatformAction, PlatformActionBatch,
-    PlatformActionOutput, PlatformBatchHost, PlatformBatchResult, StoreMemoBatchCommit,
-    StoreMemoBatchDelete, StoreMemoCommand, StoreMemoCommit, StoreMemoDeletedMemo,
-    StoreMemoHistoryPage, StoreMemoHistoryRevision, StoreMemoPage, StoreMemoQuery,
-    StoreMemoSnapshot, StorePageCursor, StorePlannedAlarm, StoreRebuildResult, StoreReminderPlan,
-    StoreSafMemoProjection, StoreSidebarDateCount, StoreSidebarProjection, StoreSidebarTagCount,
-    VerifiedAbsence, artifact_from_ffi, artifact_to_ffi, batch_to_ffi, evidence_from_ffi,
-    evidence_to_ffi, failure_from_core, failure_to_core,
+    ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EmptyTrashCancellation,
+    EngineError, ExpectedFingerprint, LomoEngine, MemoCreateObserver, MetadataPage, PlatformAction,
+    PlatformActionBatch, PlatformActionOutput, PlatformBatchHost, PlatformBatchResult,
+    StoreMemoBatchCommit, StoreMemoBatchDelete, StoreMemoCommand, StoreMemoCommit,
+    StoreMemoDeletedMemo, StoreMemoHistoryPage, StoreMemoHistoryRevision, StoreMemoPage,
+    StoreMemoQuery, StoreMemoSnapshot, StorePageCursor, StorePlannedAlarm, StoreRebuildResult,
+    StoreReminderPlan, StoreSafMemoProjection, StoreSidebarDateCount, StoreSidebarProjection,
+    StoreSidebarTagCount, VerifiedAbsence, artifact_from_ffi, artifact_to_ffi, batch_to_ffi,
+    evidence_from_ffi, evidence_to_ffi, failure_from_core, failure_to_core,
     media_ffi::{ArchiveExportResultDto, MediaPromotePlanDto, pending_promotes_from_ffi},
     result_from_ffi,
     store_ffi::{
@@ -141,6 +142,16 @@ pub struct SessionMemoView {
     pub is_trashed: bool,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct SessionEmptyTrashResult {
+    pub removed: u64,
+    pub batches: Vec<StoreMemoBatchCommit>,
+    pub idempotent_replay: bool,
+    pub cancelled: bool,
+    pub failure: Option<crate::EngineFailure>,
 }
 
 #[data]
@@ -947,6 +958,64 @@ impl LomoEngine {
                 idempotent_replay: result.idempotent_replay,
             }
         })
+    }
+
+    /// Permanently empties the trash lane in bounded replay-safe child batches while polling
+    /// caller cancellation between page and batch boundaries.
+    ///
+    /// # Errors
+    ///
+    /// Session, invalid `operation_id`, or pre-batch failures return [`EngineError`]. When a
+    /// mid-pass batch fails after earlier batches already committed, those durable batch receipts
+    /// and the terminal [`crate::EngineFailure`] travel back inside `SessionEmptyTrashResult`.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String and boxed trait object"
+    )]
+    pub fn session_empty_trash(
+        &self,
+        operation_id: String,
+        cancellation: Box<dyn EmptyTrashCancellation>,
+    ) -> Result<SessionEmptyTrashResult, EngineError> {
+        let inner = EmptyTrashRequest {
+            operation_id: OperationId::parse(&operation_id).map_err(EngineError::from)?,
+        };
+        let session = session_arc(self)?;
+        let mut is_cancelled = || cancellation.is_cancelled();
+        match session.empty_trash(&inner, &mut is_cancelled) {
+            Ok(result) => Ok(SessionEmptyTrashResult {
+                removed: result.removed,
+                batches: result.batches.iter().map(saf_batch_commit_to_ffi).collect(),
+                idempotent_replay: result.idempotent_replay,
+                cancelled: result.cancelled,
+                failure: None,
+            }),
+            Err(err) if err.batches.is_empty() => Err(EngineError::from(err.error)),
+            Err(err) => {
+                let EngineError::Failure { failure } = EngineError::from(err.error);
+                let batches = err
+                    .batches
+                    .iter()
+                    .map(saf_batch_commit_to_ffi)
+                    .collect::<Vec<_>>();
+                let idempotent_replay = batches.iter().all(|batch| batch.idempotent_replay);
+                let removed = batches.iter().try_fold(0_u64, |acc, batch| {
+                    let count = u64::try_from(batch.deleted.len()).map_err(|_| {
+                        session_err("empty_trash_count_overflow", "deleted count exceeds u64")
+                    })?;
+                    acc.checked_add(count).ok_or_else(|| {
+                        session_err("empty_trash_count_overflow", "deleted count overflow")
+                    })
+                })?;
+                Ok(SessionEmptyTrashResult {
+                    removed,
+                    batches,
+                    idempotent_replay,
+                    cancelled: false,
+                    failure: Some(failure),
+                })
+            }
+        }
     }
 
     /// Plans a reminder body edit without performing durable writes.
@@ -1798,4 +1867,22 @@ fn poisoned(diagnostic: &str) -> EngineError {
             Ok(error) | Err(error) => error,
         },
     )
+}
+
+fn saf_batch_commit_to_ffi(batch: &SafProjectionCommitResult) -> StoreMemoBatchCommit {
+    StoreMemoBatchCommit {
+        operation_id: batch.operation_id.clone(),
+        deleted: batch
+            .deleted_memos
+            .iter()
+            .map(|deleted| StoreMemoDeletedMemo {
+                memo_id: deleted.memo_id.clone(),
+                reminder_ids: deleted.reminder_ids.clone(),
+            })
+            .collect(),
+        core_revision: batch.core_revision,
+        event_sequence: batch.event_sequence,
+        scopes: scopes_to_ffi(batch.scopes.clone()),
+        idempotent_replay: batch.idempotent_replay,
+    }
 }

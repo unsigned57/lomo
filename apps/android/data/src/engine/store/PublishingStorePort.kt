@@ -32,6 +32,12 @@ internal class PublishingStorePort(private val delegate: StorePort, private val 
         return commit
     }
 
+    override fun emptyTrash(operationId: String, isCancelled: () -> Boolean): StoreEmptyTrashResult {
+        val result = delegate.emptyTrash(operationId, isCancelled)
+        result.batches.forEach(observer::observeBatch)
+        return result
+    }
+
     override fun startRebuild(batchSize: Int): StoreRebuildResult {
         val result = delegate.startRebuild(batchSize)
         observer.observeRebuild(result)

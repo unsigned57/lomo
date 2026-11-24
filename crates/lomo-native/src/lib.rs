@@ -43,14 +43,14 @@ pub use media_ffi::{
 };
 pub use session_ffi::{
     SessionCivilDate, SessionCivilTime, SessionCreateMemoRequest, SessionDateCount,
-    SessionDeleteMemoRequest, SessionDraftGuardDto, SessionHourCount, SessionMediaFailureDto,
-    SessionMediaProtectionDto, SessionMediaSweepReportDto, SessionMemoPreviewOutcome,
-    SessionMemoPreviewRequest, SessionMemoView, SessionPinMemoRequest, SessionReminderRewritePlan,
-    SessionReminderRewriteRequest, SessionRestoreRequest, SessionRestoreRevisionRequest,
-    SessionSearchHit, SessionSearchMode, SessionSearchOutcome, SessionSearchPage,
-    SessionSearchRequest, SessionStatistics, SessionStatisticsSnapshot, SessionTagCount,
-    SessionTaskItem, SessionToggleTaskRequest, SessionUpdateMemoRequest, SessionWeeklyHourCount,
-    batch_from_ffi, result_to_ffi,
+    SessionDeleteMemoRequest, SessionDraftGuardDto, SessionEmptyTrashResult, SessionHourCount,
+    SessionMediaFailureDto, SessionMediaProtectionDto, SessionMediaSweepReportDto,
+    SessionMemoPreviewOutcome, SessionMemoPreviewRequest, SessionMemoView, SessionPinMemoRequest,
+    SessionReminderRewritePlan, SessionReminderRewriteRequest, SessionRestoreRequest,
+    SessionRestoreRevisionRequest, SessionSearchHit, SessionSearchMode, SessionSearchOutcome,
+    SessionSearchPage, SessionSearchRequest, SessionStatistics, SessionStatisticsSnapshot,
+    SessionTagCount, SessionTaskItem, SessionToggleTaskRequest, SessionUpdateMemoRequest,
+    SessionWeeklyHourCount, batch_from_ffi, result_to_ffi,
 };
 pub use store_ffi::{
     StoreGalleryItem, StoreGalleryPage, StoreInvalidationScope, StoreMemoBatchCommit,
@@ -801,6 +801,12 @@ pub trait MemoCreateObserver: Send + Sync {
 
     /// The admitted create failed and its pending row was removed at this clock.
     fn withdrawn(&self, publication: StoreMemoCommit);
+}
+
+/// Cooperatively polls caller cancellation at page and batch boundaries during `session_empty_trash`.
+#[export]
+pub trait EmptyTrashCancellation: Send + Sync {
+    fn is_cancelled(&self) -> bool;
 }
 
 #[error]

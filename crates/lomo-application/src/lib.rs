@@ -43,9 +43,9 @@ pub use write_behind::WriteConvergence;
 pub use config::WorkspaceSessionConfig;
 pub use draft::GuardedDraftBody;
 pub use lifecycle::{
-    EmptyTrashRequest, EmptyTrashResult, PermanentDeleteManyRequest, PermanentDeleteManyResult,
-    PermanentDeleteManyTarget, PermanentDeleteRequest, RestoreMemoRequest, RestoreMemoResult,
-    RestoreRevisionRequest,
+    EmptyTrashError, EmptyTrashRequest, EmptyTrashResult, PermanentDeleteManyRequest,
+    PermanentDeleteManyResult, PermanentDeleteManyTarget, PermanentDeleteRequest,
+    RestoreMemoRequest, RestoreMemoResult, RestoreRevisionRequest,
 };
 pub use lomo_store::{
     GalleryPage, GalleryRow, MemoFilters, MemoPage, MemoQuery, MemoQueryStart, MemoSnapshot,

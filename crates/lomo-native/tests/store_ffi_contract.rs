@@ -945,4 +945,173 @@ mod tests {
             .test_err("stale gallery cursor after mutation");
         assert_eq!(stale.code(), "stale_cursor");
     }
+
+    struct FlaggedEmptyTrashCancellation {
+        polls: std::sync::atomic::AtomicUsize,
+        cancel_at_or_after_poll: usize,
+    }
+
+    impl lomo_native::EmptyTrashCancellation for FlaggedEmptyTrashCancellation {
+        fn is_cancelled(&self) -> bool {
+            let current = self.polls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            current >= self.cancel_at_or_after_poll
+        }
+    }
+
+    #[test]
+    fn session_empty_trash_ffi_handles_empty_multibatch_and_mid_pass_cancel_retry() {
+        let (_unattached_tmp, _unattached_ws, unattached) = open_engine_without_session();
+        let unattached_err = unattached
+            .session_empty_trash(
+                "op-unattached-empty".to_owned(),
+                Box::new(FlaggedEmptyTrashCancellation {
+                    polls: std::sync::atomic::AtomicUsize::new(0),
+                    cancel_at_or_after_poll: usize::MAX,
+                }),
+            )
+            .test_err("unattached session_empty_trash");
+        assert_eq!(unattached_err.code(), "workspace_session_unavailable");
+
+        let (_tmp, workspace, engine) = open_engine();
+        let noop = engine
+            .session_empty_trash(
+                "op-ffi-empty-noop".to_owned(),
+                Box::new(FlaggedEmptyTrashCancellation {
+                    polls: std::sync::atomic::AtomicUsize::new(0),
+                    cancel_at_or_after_poll: usize::MAX,
+                }),
+            )
+            .test_ok("empty trash noop");
+        assert_eq!(noop.removed, 0);
+        assert!(noop.batches.is_empty());
+        assert!(!noop.cancelled);
+        assert!(noop.failure.is_none());
+
+        // Seed 66 trashed memos across daily files (> MAX_TRANSACTION_FILES / 2 = 64 -> 2 chunks).
+        let seed_body = |tag: &str| -> String {
+            (0..22)
+                .map(|i| format!("- 10:{i:02}:00 {tag} #{i}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        for day in 1..=3 {
+            seed_markdown(
+                &workspace,
+                &format!("2026_09_{day:02}"),
+                &seed_body(&format!("wave1-{day}")),
+            );
+        }
+        index_workspace(&engine);
+        let all_wave1 = engine
+            .query_memos(StoreMemoQuery::default(), None, 100, None, false)
+            .test_ok("list wave1")
+            .items;
+        assert_eq!(all_wave1.len(), 66);
+        for (idx, summary) in all_wave1.iter().enumerate() {
+            engine
+                .session_delete_memo(SessionDeleteMemoRequest {
+                    operation_id: format!("op-trash-w1-{idx}"),
+                    memo_id: summary.memo_id.clone(),
+                    expected_document_fingerprint: summary.file_fingerprint.clone(),
+                })
+                .test_ok("trash wave1 item");
+        }
+
+        // Poll 0: page 1 read; Poll 1: chunk 0 (64 items); Poll 2: cancelled before chunk 1 (2 items).
+        let partial = engine
+            .session_empty_trash(
+                "op-ffi-empty-cancel".to_owned(),
+                Box::new(FlaggedEmptyTrashCancellation {
+                    polls: std::sync::atomic::AtomicUsize::new(0),
+                    cancel_at_or_after_poll: 2,
+                }),
+            )
+            .test_ok("cancelled after first chunk");
+        assert!(partial.cancelled);
+        assert!(partial.failure.is_none());
+        assert_eq!(partial.removed, 64);
+        assert_eq!(partial.batches.len(), 1);
+        assert_eq!(partial.batches[0].deleted.len(), 64);
+
+        let trash_query = StoreMemoQuery {
+            filters: StoreMemoFilters {
+                include_trash: true,
+                trash_only: true,
+                ..StoreMemoFilters::default()
+            },
+            ..StoreMemoQuery::default()
+        };
+        let remaining_trash = engine
+            .query_memos(trash_query.clone(), None, 100, None, false)
+            .test_ok("remaining trash after cancel");
+        assert_eq!(remaining_trash.items.len(), 2);
+
+        let retry = engine
+            .session_empty_trash(
+                "op-ffi-empty-retry".to_owned(),
+                Box::new(FlaggedEmptyTrashCancellation {
+                    polls: std::sync::atomic::AtomicUsize::new(0),
+                    cancel_at_or_after_poll: usize::MAX,
+                }),
+            )
+            .test_ok("retry clears remaining chunk");
+        assert!(!retry.cancelled);
+        assert!(retry.failure.is_none());
+        assert_eq!(retry.removed, 2);
+        assert_eq!(retry.batches.len(), 1);
+        assert_eq!(
+            engine
+                .query_memos(trash_query.clone(), None, 100, None, false)
+                .test_ok("trash empty after retry")
+                .items
+                .len(),
+            0
+        );
+
+        // Full multi-batch completion in one call without cancellation.
+        for day in 4..=6 {
+            seed_markdown(
+                &workspace,
+                &format!("2026_09_{day:02}"),
+                &seed_body(&format!("wave2-{day}")),
+            );
+        }
+        index_workspace(&engine);
+        let all_wave2 = engine
+            .query_memos(StoreMemoQuery::default(), None, 100, None, false)
+            .test_ok("list wave2")
+            .items;
+        assert_eq!(all_wave2.len(), 66);
+        for (idx, summary) in all_wave2.iter().enumerate() {
+            engine
+                .session_delete_memo(SessionDeleteMemoRequest {
+                    operation_id: format!("op-trash-w2-{idx}"),
+                    memo_id: summary.memo_id.clone(),
+                    expected_document_fingerprint: summary.file_fingerprint.clone(),
+                })
+                .test_ok("trash wave2 item");
+        }
+        let multi = engine
+            .session_empty_trash(
+                "op-ffi-empty-multi".to_owned(),
+                Box::new(FlaggedEmptyTrashCancellation {
+                    polls: std::sync::atomic::AtomicUsize::new(0),
+                    cancel_at_or_after_poll: usize::MAX,
+                }),
+            )
+            .test_ok("multi-batch full empty trash");
+        assert!(!multi.cancelled);
+        assert!(multi.failure.is_none());
+        assert_eq!(multi.removed, 66);
+        assert_eq!(multi.batches.len(), 2);
+        assert_eq!(multi.batches[0].deleted.len(), 64);
+        assert_eq!(multi.batches[1].deleted.len(), 2);
+        assert!(
+            engine
+                .query_memos(trash_query, None, 100, None, false)
+                .test_ok("trash empty after wave2")
+                .items
+                .is_empty()
+        );
+    }
 }

@@ -65,6 +65,8 @@ private class FakeGalleryStorePort : StorePort {
     override fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit =
         error("not used")
 
+    override fun emptyTrash(operationId: String, isCancelled: () -> Boolean): StoreEmptyTrashResult = error("not used")
+
     override fun snoozeReminder(opaqueId: String, interval: com.lomo.domain.model.ReminderInterval) = error("not used")
 
     override fun recoverReminderSnooze() = error("not used")

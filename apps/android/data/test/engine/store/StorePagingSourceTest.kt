@@ -123,6 +123,8 @@ private class FakeStorePort : StorePort {
     override fun permanentDeleteMany(operationId: String, targets: List<StoreMemoDeleteTarget>): StoreMemoBatchCommit =
         error("not used")
 
+    override fun emptyTrash(operationId: String, isCancelled: () -> Boolean): StoreEmptyTrashResult = error("not used")
+
     override fun snoozeReminder(opaqueId: String, interval: com.lomo.domain.model.ReminderInterval) =
         error("reminder snooze is not expected")
 

@@ -1,5 +1,6 @@
 package com.lomo.data.engine.store
 
+import com.lomo.data.engine.toEngineCommandFailure
 import com.lomo.data.engine.withEngineFailureConversion
 import com.lomo.data.reminder.toNativeSnoozeInterval
 import com.lomo.domain.model.ReminderInterval
@@ -391,16 +392,24 @@ internal class BoltFfiStorePort(
                     ),
                 )
             }
-        return StoreMemoBatchCommit(
-            operationId = result.operationId,
-            deleted =
-            result.deleted.map { deleted ->
-                StoreMemoDeletedMemo(deleted.memoId, deleted.reminderIds)
-            },
-            coreRevision = result.coreRevision.toStoreLong("core_revision"),
-            eventSequence = result.eventSequence.toStoreLong("event_sequence"),
-            scopes = result.scopes.map { scope -> scope.toStoreInvalidationScope() },
+        return result.toStoreBatchCommit()
+    }
+
+    override fun emptyTrash(operationId: String, isCancelled: () -> Boolean): StoreEmptyTrashResult {
+        require(operationId.isNotBlank()) { "empty trash operationId must be non-blank" }
+        val result =
+            withEngineFailureConversion {
+                session.sessionEmptyTrash(
+                    operationId = operationId,
+                    cancellation = com.lomo.nativebridge.EmptyTrashCancellation { isCancelled() },
+                )
+            }
+        return StoreEmptyTrashResult(
+            removed = result.removed.toStoreLong("removed"),
+            batches = result.batches.map { batch -> batch.toStoreBatchCommit() },
             idempotentReplay = result.idempotentReplay,
+            cancelled = result.cancelled,
+            failure = result.failure?.toEngineCommandFailure(),
         )
     }
 
@@ -418,6 +427,19 @@ internal class BoltFfiStorePort(
         )
     }
 }
+
+private fun com.lomo.nativebridge.StoreMemoBatchCommit.toStoreBatchCommit(): StoreMemoBatchCommit =
+    StoreMemoBatchCommit(
+        operationId = operationId,
+        deleted =
+        deleted.map { deleted ->
+            StoreMemoDeletedMemo(deleted.memoId, deleted.reminderIds)
+        },
+        coreRevision = coreRevision.toStoreLong("core_revision"),
+        eventSequence = eventSequence.toStoreLong("event_sequence"),
+        scopes = scopes.map { scope -> scope.toStoreInvalidationScope() },
+        idempotentReplay = idempotentReplay,
+    )
 
 internal fun com.lomo.nativebridge.StoreMemoCommit.toStoreCommit(): StoreMemoCommit = StoreMemoCommit(
     operationId = operationId,

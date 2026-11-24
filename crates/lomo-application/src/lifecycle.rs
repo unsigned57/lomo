@@ -103,6 +103,13 @@ pub struct EmptyTrashResult {
     pub cancelled: bool,
 }
 
+/// Failure during a chunked `empty_trash` pass that preserves every already-committed batch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmptyTrashError {
+    pub batches: Vec<SafProjectionCommitResult>,
+    pub error: LomoError,
+}
+
 /// Committed state of one chunked permanent-delete pass.
 struct DeleteTargetsOutcome {
     /// Targets whose child batch committed or replayed a committed receipt, in canonical order.
@@ -225,8 +232,9 @@ impl WorkspaceSession {
         }
         require_batch_parent_room(&request.operation_id)?;
         self.recover_pending(&held)?;
-        let outcome =
-            self.commit_delete_targets(&held, &request.operation_id, &targets, &mut || false)?;
+        let outcome = self
+            .commit_delete_targets(&held, &request.operation_id, &targets, &mut || false)
+            .map_err(|err| err.error)?;
         drop(held);
         let idempotent_replay = outcome.batches.iter().all(|batch| batch.idempotent_replay);
         let commit_result = outcome.batches.last().cloned().ok_or_else(|| {
@@ -256,16 +264,20 @@ impl WorkspaceSession {
     /// # Errors
     ///
     /// Trash-enumeration, target-parse, stale-snapshot, and file/projection commit failures
-    /// propagate; a partially committed pass never hides what already committed — retry with a
-    /// fresh operation re-enumerates the remaining lane.
+    /// return [`EmptyTrashError`], preserving every already-committed batch receipt so callers
+    /// can publish projection stamps and clear reminders before surfacing the failure.
     pub fn empty_trash(
         &self,
         request: &EmptyTrashRequest,
         is_cancelled: &mut dyn FnMut() -> bool,
-    ) -> Result<EmptyTrashResult, LomoError> {
-        let held = self.write_behind.exclusive()?;
-        require_batch_parent_room(&request.operation_id)?;
-        self.recover_pending(&held)?;
+    ) -> Result<EmptyTrashResult, EmptyTrashError> {
+        let map_pre_batch_error = |error| EmptyTrashError {
+            batches: Vec::new(),
+            error,
+        };
+        let held = self.write_behind.exclusive().map_err(map_pre_batch_error)?;
+        require_batch_parent_room(&request.operation_id).map_err(map_pre_batch_error)?;
+        self.recover_pending(&held).map_err(map_pre_batch_error)?;
         let mut targets = Vec::new();
         let mut cursor: Option<PageCursor> = None;
         loop {
@@ -278,15 +290,13 @@ impl WorkspaceSession {
                     cancelled: true,
                 });
             }
-            let page = self.query_memos_page(
-                &trash_lane_query(),
-                None,
-                cursor.as_ref(),
-                PageSize::new(256)?,
-            )?;
+            let page_size = PageSize::new(256).map_err(map_pre_batch_error)?;
+            let page = self
+                .query_memos_page(&trash_lane_query(), None, cursor.as_ref(), page_size)
+                .map_err(map_pre_batch_error)?;
             for summary in page.items {
                 targets.push(PermanentDeleteManyTarget {
-                    memo_id: MemoId::parse(&summary.memo_id)?,
+                    memo_id: MemoId::parse(&summary.memo_id).map_err(map_pre_batch_error)?,
                     source_path: summary.source_path,
                     expected_revision: summary.content_revision,
                     expected_fingerprint: summary.file_fingerprint,
@@ -303,9 +313,12 @@ impl WorkspaceSession {
             self.commit_delete_targets(&held, &request.operation_id, &targets, is_cancelled)?;
         drop(held);
         let idempotent_replay = outcome.batches.iter().all(|batch| batch.idempotent_replay);
+        let removed = u64::try_from(outcome.deleted.len()).map_err(|error| EmptyTrashError {
+            batches: outcome.batches.clone(),
+            error: resource_limit("empty_trash_count_overflow", error.to_string()),
+        })?;
         Ok(EmptyTrashResult {
-            removed: u64::try_from(outcome.deleted.len())
-                .map_err(|error| resource_limit("empty_trash_count_overflow", error.to_string()))?,
+            removed,
             commit_result: outcome.batches.last().cloned(),
             batches: outcome.batches,
             idempotent_replay,
@@ -326,7 +339,7 @@ impl WorkspaceSession {
         parent_operation: &OperationId,
         targets: &[PermanentDeleteManyTarget],
         is_cancelled: &mut dyn FnMut() -> bool,
-    ) -> Result<DeleteTargetsOutcome, LomoError> {
+    ) -> Result<DeleteTargetsOutcome, EmptyTrashError> {
         let mut batches = Vec::new();
         let mut deleted = Vec::with_capacity(targets.len());
         for chunk in targets.chunks(MAX_TRANSACTION_FILES / 2) {
@@ -337,15 +350,32 @@ impl WorkspaceSession {
                     cancelled: true,
                 });
             }
-            let token = batch_token(chunk)?;
-            let child_id = OperationId::parse(&format!("{}.{token}", parent_operation.as_str()))?;
-            let digest = payload_digest(&(parent_operation, chunk))?;
-            if let Some(receipt) = self.replay(held, &child_id, &digest)? {
-                deleted.extend(chunk.iter().map(|target| target.memo_id.clone()));
-                batches.push(receipt);
-                continue;
+            let token = match batch_token(chunk) {
+                Ok(token) => token,
+                Err(error) => return Err(EmptyTrashError { batches, error }),
+            };
+            let child_id =
+                match OperationId::parse(&format!("{}.{token}", parent_operation.as_str())) {
+                    Ok(child_id) => child_id,
+                    Err(error) => return Err(EmptyTrashError { batches, error }),
+                };
+            let digest = match payload_digest(&(parent_operation, chunk)) {
+                Ok(digest) => digest,
+                Err(error) => return Err(EmptyTrashError { batches, error }),
+            };
+            match self.replay(held, &child_id, &digest) {
+                Ok(Some(receipt)) => {
+                    deleted.extend(chunk.iter().map(|target| target.memo_id.clone()));
+                    batches.push(receipt);
+                    continue;
+                }
+                Ok(None) => {}
+                Err(error) => return Err(EmptyTrashError { batches, error }),
             }
-            let receipt = self.commit_delete_chunk(held, &child_id, chunk, digest)?;
+            let receipt = match self.commit_delete_chunk(held, &child_id, chunk, digest) {
+                Ok(receipt) => receipt,
+                Err(error) => return Err(EmptyTrashError { batches, error }),
+            };
             deleted.extend(chunk.iter().map(|target| target.memo_id.clone()));
             batches.push(receipt);
         }

@@ -603,4 +603,152 @@ mod tests {
         );
         assert!(!result.cancelled);
     }
+
+    #[test]
+    fn empty_trash_commits_multiple_batches_and_preserves_committed_batches_on_mid_pass_failure() {
+        let ctx = open_session();
+        let total = 66_usize;
+        let mut seeded = Vec::with_capacity(total);
+        for index in 0..total {
+            seeded.push(trash_memo(
+                &ctx,
+                &format!("mb-{index:02}"),
+                &format!("2026_09_{:02}.md", (index % 28) + 1),
+                &format!("multi batch body {index}"),
+            ));
+        }
+
+        let multi = ctx
+            .session
+            .empty_trash(
+                &EmptyTrashRequest {
+                    operation_id: OperationId::parse("mb-purge-all").expect("op"),
+                },
+                &mut || false,
+            )
+            .expect("multi-batch empty trash");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("committed writes converge");
+        assert!(!multi.cancelled);
+        assert_eq!(multi.removed, total as u64);
+        assert_eq!(multi.batches.len(), 2);
+        assert_eq!(multi.commit_result, multi.batches.last().cloned());
+        let empty_after = ctx
+            .session
+            .list_memos(&lomo_store::MemoQuery {
+                search_text: None,
+                filters: lomo_store::MemoFilters {
+                    include_trash: true,
+                    trash_only: true,
+                    ..lomo_store::MemoFilters::default()
+                },
+                sort: lomo_store::MemoSort::default(),
+            })
+            .expect("list empty trash");
+        assert!(empty_after.items.is_empty());
+
+        // Seed a second multi-batch wave and break chunk 2 before starting empty_trash.
+        let mut wave2 = Vec::with_capacity(total);
+        for index in 0..total {
+            wave2.push(trash_memo(
+                &ctx,
+                &format!("mpf-{index:02}"),
+                &format!("2026_10_{:02}.md", (index % 28) + 1),
+                &format!("mid pass failure body {index}"),
+            ));
+        }
+        wave2.sort_by(|left, right| left.memo_id.as_str().cmp(right.memo_id.as_str()));
+        let victim = &wave2[64];
+        let victim_rel =
+            trash_record_relative_path(victim.memo_id.as_str(), &victim.source_path).expect("rel");
+        let victim_abs = ctx.workspace_path.join(victim_rel.as_str());
+        let victim_bytes = fs::read(&victim_abs).expect("read victim trash record");
+        fs::remove_file(&victim_abs).expect("remove victim trash record to fail chunk 2");
+
+        let err = ctx
+            .session
+            .empty_trash(
+                &EmptyTrashRequest {
+                    operation_id: OperationId::parse("mpf-purge-1").expect("op"),
+                },
+                &mut || false,
+            )
+            .expect_err("missing chunk-2 trash record must fail after chunk-1 commits");
+        assert_eq!(
+            err.batches.len(),
+            1,
+            "committed first chunk receipt must be preserved"
+        );
+        assert_eq!(err.batches[0].deleted_memos.len(), 64);
+
+        let remaining_trash = ctx
+            .session
+            .list_memos(&lomo_store::MemoQuery {
+                search_text: None,
+                filters: lomo_store::MemoFilters {
+                    include_trash: true,
+                    trash_only: true,
+                    ..lomo_store::MemoFilters::default()
+                },
+                sort: lomo_store::MemoSort::default(),
+            })
+            .expect("list remaining trash after mid-pass failure");
+        let remaining_ids = remaining_trash
+            .items
+            .iter()
+            .map(|summary| summary.memo_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            remaining_ids,
+            wave2[64..]
+                .iter()
+                .map(|target| target.memo_id.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        if let Some(parent) = victim_abs.parent() {
+            fs::create_dir_all(parent).expect("parent dir");
+        }
+        fs::write(&victim_abs, victim_bytes).expect("restore victim trash record");
+        ctx.session
+            .settle_workspace()
+            .expect("chunk-1 writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("chunk-1 writes converge");
+        for item in &wave2[..64] {
+            let rel =
+                trash_record_relative_path(item.memo_id.as_str(), &item.source_path).expect("rel");
+            assert!(!ctx.workspace_path.join(rel.as_str()).exists());
+        }
+        for item in &wave2[64..] {
+            let rel =
+                trash_record_relative_path(item.memo_id.as_str(), &item.source_path).expect("rel");
+            assert!(ctx.workspace_path.join(rel.as_str()).is_file());
+        }
+        let retried = ctx
+            .session
+            .empty_trash(
+                &EmptyTrashRequest {
+                    operation_id: OperationId::parse("mpf-purge-2").expect("fresh op"),
+                },
+                &mut || false,
+            )
+            .expect("retry with fresh operation_id must sweep remaining chunk");
+        ctx.session
+            .settle_workspace()
+            .expect("retry writes converge");
+        ctx.session
+            .settle_workspace()
+            .expect("retry writes converge");
+        assert!(!retried.cancelled);
+        assert_eq!(retried.removed, 2);
+        assert_eq!(retried.batches.len(), 1);
+        for item in &wave2 {
+            assert!(ctx.session.get_memo(&item.memo_id).expect("get").is_none());
+        }
+    }
 }

@@ -1,19 +1,22 @@
 package com.lomo.data.engine
 
 import android.content.Intent
+import com.lomo.nativebridge.EmptyTrashCancellation
 import com.lomo.nativebridge.SessionCreateMemoRequest
 import com.lomo.nativebridge.SessionDeleteMemoRequest
 import com.lomo.nativebridge.SessionRestoreRequest
-import com.lomo.nativebridge.StoreMemoBatchDelete
-import com.lomo.nativebridge.StoreMemoDeleteTarget
+import com.lomo.nativebridge.StoreMemoQuery
+import com.lomo.nativebridge.StoreMemoSort
+import com.lomo.nativebridge.StoreMemoSortField
+import com.lomo.nativebridge.StoreSortDirection
 import org.json.JSONArray
 import org.json.JSONObject
 
 /*
- * Behavior Contract: time trash/restore/batch-empty through the production session.
+ * Behavior Contract: time trash/restore/empty-trash through the production session.
  * Given a ready corpus, when a sample runs, then two newly created probe identities alone are
- * trashed and batch-deleted, and one is restored/retrashed first. Every target carries its latest
- * owner-issued source/version/fingerprint. Existing trash is never selected for destruction.
+ * trashed and cleared via session_empty_trash, and one is restored/retrashed first. Existing trash
+ * is never present when empty_trash runs; any unexpected resident fails closed before deleting.
  * TDD: installed debug probe rejected trash_cycle; real-device RED/GREEN evidence is archived.
  * Excludes: sweeping unrelated media and emptying user-owned trash.
  */
@@ -23,21 +26,45 @@ internal suspend fun EnginePerfProbe.trashCycle(intent: Intent, run: String): JS
     val invocation = ProbeWriteInvocation.newInvocation(run)
     val times = ProbeTrashTimes()
     val emptyTimes = JSONArray()
+    var totalBatches = 0
+    val trashQuery = StoreMemoQuery(
+        searchText = null,
+        filters = EMPTY_FILTERS.copy(includeTrash = true, trashOnly = true),
+        sort =
+        StoreMemoSort(
+            seed = 0L,
+            timeZone = "UTC",
+            field = StoreMemoSortField.CREATED_AT,
+            direction = StoreSortDirection.DESCENDING,
+        ),
+        boundary = null,
+    )
     repeat(samples) { sample ->
         val base = sample * TRASH_OPERATION_STRIDE
-        val targets = listOf(
+        val targetIds = listOf(
             seedTrashTarget(invocation, base, true, times),
             seedTrashTarget(invocation, base + TRASH_SECOND_MEMO_OFFSET, false, times),
-        ).sortedBy(StoreMemoDeleteTarget::memoId)
+        ).sorted()
+        val trashPage = session.queryMemos(trashQuery, null, (targetIds.size + 1).toUInt(), null, false)
+        check(trashPage.nextCursor == null && trashPage.items.map { it.memoId }.sorted() == targetIds) {
+            "Trash probe requires trash lane to contain only owned targets"
+        }
         val start = System.nanoTime()
-        val commit = session.sessionPermanentlyDeleteMany(
-            StoreMemoBatchDelete(invocation.operationId(base + TRASH_BATCH_OFFSET), targets),
+        val result = session.sessionEmptyTrash(
+            invocation.operationId(base + TRASH_BATCH_OFFSET),
+            EmptyTrashCancellation { false },
         )
         emptyTimes.put(elapsedMs(start))
-        check(commit.deleted.map { it.memoId }.sorted() == targets.map { it.memoId }) {
+        check(!result.cancelled) { "Trash probe empty_trash must not report cancelled" }
+        check(result.failure == null) { "Trash probe empty_trash failed: ${result.failure?.code}" }
+        check(result.removed.toInt() == targetIds.size) {
+            "Trash probe empty_trash removed ${result.removed} != ${targetIds.size}"
+        }
+        check(result.batches.flatMap { it.deleted }.map { it.memoId }.sorted() == targetIds) {
             "Trash probe batch did not delete exactly its owned targets"
         }
-        check(targets.all { session.getMemo(it.memoId) == null }) { "Deleted probe memo remains queryable" }
+        check(targetIds.all { session.getMemo(it) == null }) { "Deleted probe memo remains queryable" }
+        totalBatches += result.batches.size
     }
     return okPayload(run, "trash_cycle").put(
         "metrics",
@@ -46,7 +73,11 @@ internal suspend fun EnginePerfProbe.trashCycle(intent: Intent, run: String): JS
     ).put(
         "facts",
         JSONObject().put("samples", samples).put("batchSize", TRASH_BATCH_SIZE)
-            .put("deletedOwnedMemos", samples * TRASH_BATCH_SIZE).put("restoredOwnedMemos", samples),
+            .put("ffiCallsPerSample", 1)
+            .put("batches", totalBatches)
+            .put("removed", samples * TRASH_BATCH_SIZE)
+            .put("deletedOwnedMemos", samples * TRASH_BATCH_SIZE)
+            .put("restoredOwnedMemos", samples),
     )
 }
 
@@ -60,7 +91,7 @@ private fun EnginePerfProbe.seedTrashTarget(
     base: Int,
     restore: Boolean,
     times: ProbeTrashTimes,
-): StoreMemoDeleteTarget {
+): String {
     val created = session.sessionCreateMemo(
         SessionCreateMemoRequest(
             operationId = invocation.operationId(base),
@@ -99,10 +130,10 @@ private fun EnginePerfProbe.seedTrashTarget(
         times.trash.put(elapsedMs(start))
     }
     val summary = requireNotNull(session.getMemo(created.memoId)) {
-        "Probe trash memo vanished before batch deletion"
+        "Probe trash memo vanished before empty_trash"
     }.summary
     check(summary.isTrashed) { "Probe memo was not admitted to trash" }
-    return StoreMemoDeleteTarget(summary.memoId, summary.sourcePath, summary.contentRevision, summary.fileFingerprint)
+    return summary.memoId
 }
 
 private const val TRASH_BATCH_SIZE = 2
