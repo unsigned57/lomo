@@ -7,6 +7,8 @@ import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 
@@ -28,7 +30,7 @@ import kotlinx.coroutines.test.runTest
 class ImageChromeTapInteractionsTest : AppFunSpec() {
     init {
         test("given a tap then release toggles immediately and a nearby second tap belongs to zoom") {
-            runTest {
+            runTest(StandardTestDispatcher(TestCoroutineScheduler())) {
                 val source = MutableInteractionSource()
                 var taps = 0
                 backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
@@ -56,7 +58,7 @@ class ImageChromeTapInteractionsTest : AppFunSpec() {
             }
         }
         test("given a cancelled gesture or long press then no chrome toggle occurs") {
-            runTest {
+            runTest(StandardTestDispatcher(TestCoroutineScheduler())) {
                 val source = MutableInteractionSource()
                 var taps = 0
                 backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
