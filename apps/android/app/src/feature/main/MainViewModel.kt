@@ -267,6 +267,10 @@ class MainViewModel(dependencies: MainViewModelDependencies) : ViewModel() {
 
     val galleryPagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.galleryPagedUiMemos
 
+    suspend fun prefetchVisiblePreviews(memos: List<com.lomo.domain.model.Memo>) {
+        memoUiMapper.prefetchPreviews(memos)
+    }
+
     init {
         viewModelScope.launch {
             var lastRecordedRecovery: EngineReadiness.ReadOnlyRecovery? = null

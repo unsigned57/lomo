@@ -1006,6 +1006,66 @@ impl WorkspaceSession {
         self.with_reader(|store| store.get_projected_memo(memo_id))
     }
 
+    /// Renders bounded memo body previews from persisted projection rows in request order.
+    ///
+    /// # Errors
+    /// Propagates schema validation, batch-limit, memo-id validation, projection storage, or
+    /// Markdown presentation budget errors.
+    pub fn render_memo_previews(
+        &self,
+        items: &[MemoPreviewRenderRequest],
+        schema_version: u32,
+    ) -> Result<Vec<MemoPreviewRenderOutcome>, LomoError> {
+        lomo_workspace::RenderDocumentV1::reject_unknown_schema(schema_version)?;
+        if items.len() > MAX_PREVIEW_RENDER_BATCH_SIZE {
+            return Err(crate::error::resource_limit(
+                "preview_render_batch_too_large",
+                format!("preview render batch exceeds {MAX_PREVIEW_RENDER_BATCH_SIZE} item limit"),
+            ));
+        }
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut unique_ids = Vec::with_capacity(items.len());
+        for item in items {
+            if item.memo_id.trim().is_empty() {
+                return Err(validation("invalid_memo_id", "memo_id must not be blank"));
+            }
+            if !unique_ids.iter().any(|seen| seen == &item.memo_id) {
+                unique_ids.push(item.memo_id.clone());
+            }
+        }
+        let sources = self.with_reader(|store| store.get_memo_preview_sources(&unique_ids))?;
+        let mut outcomes = Vec::with_capacity(items.len());
+        for item in items {
+            let Some(source) = sources.get(&item.memo_id) else {
+                outcomes.push(MemoPreviewRenderOutcome::NotFound {
+                    memo_id: item.memo_id.clone(),
+                });
+                continue;
+            };
+            if source.content_revision != item.expected_content_revision {
+                outcomes.push(MemoPreviewRenderOutcome::RevisionMismatch {
+                    memo_id: item.memo_id.clone(),
+                    actual_content_revision: source.content_revision,
+                });
+                continue;
+            }
+            let bytes = lomo_workspace::SourceBytes::try_from_str(&source.body_preview)?;
+            let document = lomo_workspace::render_markdown(&bytes)?;
+            let source_byte_length = u64::try_from(source.body_preview.len()).map_err(|error| {
+                crate::error::resource_limit("preview_render_size_overflow", error.to_string())
+            })?;
+            outcomes.push(MemoPreviewRenderOutcome::Rendered {
+                memo_id: source.memo_id.clone(),
+                content_revision: source.content_revision,
+                source_byte_length,
+                document,
+            });
+        }
+        Ok(outcomes)
+    }
+
     /// Live projection word/character rows for every active memo.
     ///
     /// # Errors
@@ -1295,6 +1355,34 @@ impl WorkspaceSession {
         drop(guard);
         result
     }
+}
+
+/// Maximum preview render items processed per batched session call.
+pub const MAX_PREVIEW_RENDER_BATCH_SIZE: usize = 8;
+
+/// Request to render one memo's stored `body_preview` only if `expected_content_revision` still matches.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MemoPreviewRenderRequest {
+    pub memo_id: String,
+    pub expected_content_revision: u64,
+}
+
+/// Outcome of rendering one requested preview item, preserving caller request order.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MemoPreviewRenderOutcome {
+    Rendered {
+        memo_id: String,
+        content_revision: u64,
+        source_byte_length: u64,
+        document: lomo_workspace::RenderDocumentV1,
+    },
+    RevisionMismatch {
+        memo_id: String,
+        actual_content_revision: u64,
+    },
+    NotFound {
+        memo_id: String,
+    },
 }
 
 /// A create the engine admitted: identity minted and pending row published, no workspace I/O

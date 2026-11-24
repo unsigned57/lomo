@@ -1,5 +1,6 @@
 package com.lomo.domain.repository
 
+import com.lomo.domain.model.MemoPreviewRenderRequest
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 
 /**
@@ -11,6 +12,8 @@ import com.lomo.domain.model.markdown.MarkdownRenderDocument
  */
 interface MarkdownWorkspaceRepository {
     fun renderMarkdown(content: String): MarkdownRenderDocument
+
+    suspend fun loadMemoPreviews(requests: List<MemoPreviewRenderRequest>): Map<String, MarkdownRenderDocument>
 
     /**
      * Toggles the exact task marker addressed by a Rust-issued render span.

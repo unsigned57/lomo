@@ -49,11 +49,13 @@ val memoRepositoryModule =
         }
 
         single {
+            val previewCache = get<com.lomo.data.engine.DataMemoPreviewCache>()
             StoreMemoQueryRepository(
                 port = get(),
                 invalidation = get(),
                 readiness = get(),
                 dispatcherProvider = get(),
+                previewPrefetcher = { memos -> previewCache.prefetchLeadingWindow(memos) },
             )
         } binds
             arrayOf(
@@ -85,6 +87,7 @@ val memoRepositoryModule =
                 session = get<ManagedEngineSession>(),
                 invalidation = get(),
                 dispatcherProvider = get(),
+                previewCache = get(),
             )
         } bind MemoSearchRepository::class
         single {
@@ -98,6 +101,7 @@ val memoRepositoryModule =
             )
         } bind MemoStatisticsRepository::class
         single {
+            val previewCache = get<com.lomo.data.engine.DataMemoPreviewCache>()
             StoreMemoTrashRepository(
                 port = get(),
                 writeLease = get(),
@@ -106,6 +110,7 @@ val memoRepositoryModule =
                 reminderScheduler = get(),
                 mediaRepository = get(),
                 dispatcherProvider = get(),
+                previewPrefetcher = { memos -> previewCache.prefetchLeadingWindow(memos) },
             )
         } bind MemoTrashRepository::class
         single {

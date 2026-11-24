@@ -94,6 +94,7 @@ class StoreMemoQueryRepository(
     private val invalidation: StoreInvalidationBus,
     private val readiness: EngineReadinessRepository,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    private val previewPrefetcher: (suspend (List<Memo>) -> List<Memo>)? = null,
 ) : MemoQueryRepository {
     private val pendingMainListFocusIdentity = AtomicReference<String?>(null)
     private val liveMainListSource = AtomicReference<PagingSource<String, Memo>?>(null)
@@ -169,6 +170,7 @@ class StoreMemoQueryRepository(
         query = spec.toStoreQuery(),
         consumeRefreshIdentity = { pendingMainListFocusIdentity.getAndSet(null) },
         dispatcherProvider = dispatcherProvider,
+        previewPrefetcher = previewPrefetcher,
         registerInvalidation = { source ->
             invalidation.register(source)
             liveMainListSource.set(source)
@@ -478,6 +480,7 @@ internal class StoreMemoSearchRepository(
     private val session: SessionNativeBridge,
     private val invalidation: StoreInvalidationBus,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    private val previewCache: com.lomo.data.engine.DataMemoPreviewCache? = null,
 ) : MemoSearchRepository {
     private val searchEpoch = AtomicLong(0)
 
@@ -490,6 +493,8 @@ internal class StoreMemoSearchRepository(
                 tagSubtree = selection.mode == TagSelectionMode.Subtree,
             ),
         ),
+        dispatcherProvider = dispatcherProvider,
+        previewPrefetcher = previewCache?.let { cache -> { memos -> cache.prefetchLeadingWindow(memos) } },
         registerInvalidation = { source ->
             invalidation.register(source)
         },
@@ -505,22 +510,31 @@ internal class StoreMemoSearchRepository(
                 port = port,
                 query = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery(),
                 dispatcherProvider = dispatcherProvider,
+                previewPrefetcher = previewCache?.let { cache -> { memos -> cache.prefetchLeadingWindow(memos) } },
                 registerInvalidation = { source ->
                     invalidation.register(source)
                 },
             )
 
-        MemoSearchMode.Fuzzy ->
+        MemoSearchMode.Fuzzy -> {
+            val epoch = searchEpoch.incrementAndGet().toULong()
+            val epochStillCurrent = { searchEpoch.get().toULong() == epoch }
             SessionSearchPagingSource(
                 session = session,
                 filters = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery().filters,
-                queryEpoch = searchEpoch.incrementAndGet().toULong(),
+                queryEpoch = epoch,
                 text = query,
                 dispatcherProvider = dispatcherProvider,
+                previewPrefetcher =
+                previewCache?.let { cache ->
+                    { memos -> cache.prefetchLeadingWindow(memos = memos, isStillValid = epochStillCurrent) }
+                },
+                isEpochCurrent = epochStillCurrent,
                 registerInvalidation = { source ->
                     invalidation.register(source)
                 },
             )
+        }
     }
 }
 
@@ -621,11 +635,13 @@ class StoreMemoTrashRepository(
     private val reminderScheduler: MemoMutationReminderScheduler,
     private val mediaRepository: MediaRepository,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    private val previewPrefetcher: (suspend (List<Memo>) -> List<Memo>)? = null,
 ) : MemoTrashRepository {
     override fun getDeletedMemosPagingSource(): PagingSource<String, Memo> = StorePagingSource(
         port = port,
         query = StoreMemoQuery(filters = StoreMemoFilters(trashOnly = true, includeTrash = true)),
         dispatcherProvider = dispatcherProvider,
+        previewPrefetcher = previewPrefetcher,
         registerInvalidation = { source ->
             invalidation.register(source)
         },

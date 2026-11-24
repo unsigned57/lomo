@@ -125,6 +125,10 @@ private class FakeMarkdownWorkspaceRepository(
 
     override fun renderMarkdown(content: String): MarkdownRenderDocument = error("render not expected")
 
+    override suspend fun loadMemoPreviews(
+        requests: List<com.lomo.domain.model.MemoPreviewRenderRequest>,
+    ): Map<String, MarkdownRenderDocument> = error("preview batch not expected")
+
     override suspend fun toggleTask(
         operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,

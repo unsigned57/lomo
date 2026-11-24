@@ -27,6 +27,7 @@ class StorePagingSource(
     },
     private val consumeRefreshIdentity: () -> String? = { null },
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    private val previewPrefetcher: (suspend (List<Memo>) -> List<Memo>)? = null,
     registerInvalidation: ((PagingSource<String, Memo>) -> Unit)? = null,
 ) : PagingSource<String, Memo>() {
     init {
@@ -39,8 +40,10 @@ class StorePagingSource(
                 val page = loadStorePage(params)
                 val itemsBefore = page.itemsBefore.toPagingPlaceholderCount("items_before")
                 val itemsAfter = page.itemsAfter.toPagingPlaceholderCount("items_after")
+                val rawMemos = page.items.map(mapItem)
+                val memos = previewPrefetcher?.invoke(rawMemos) ?: rawMemos
                 LoadResult.Page(
-                    data = page.items.map(mapItem),
+                    data = memos,
                     prevKey = page.prevCursor?.encoded,
                     nextKey = page.nextCursor?.encoded,
                     itemsBefore =

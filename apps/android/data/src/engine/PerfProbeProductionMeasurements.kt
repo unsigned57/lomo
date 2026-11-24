@@ -164,40 +164,45 @@ internal suspend fun EnginePerfProbe.searchProduction(intent: Intent, run: Strin
     }
 }
 
-/** Every card preview of one production page rendered the way a cold page does: one call per row. */
+/**
+ * Every card preview of one production page rendered through batched `sessionRenderMemoPreviews`.
+ *
+ * Also measures smaller batch sizes (2 and 4) for diagnostic comparison in `facts` while keeping
+ * `preview_render_20_ms` tied to the configured production batch size (8).
+ */
 internal suspend fun EnginePerfProbe.previewRender(intent: Intent, run: String): JSONObject {
     requireReadySession()
     val samples = intent.probeCount("samples", DEFAULT_PROD_SAMPLES)
     val count = intent.probeCount("count", PREVIEW_RENDER_BATCH_SIZE, LIST_PAGE_SIZE)
     val page = session.queryMemos(defaultFeedQuery(), null, count.toUInt(), null, false)
     check(page.items.isNotEmpty()) { "preview_render requires populated memos" }
-    val previews = page.items.map { it.bodyPreview }
+    val requests =
+        page.items.map { summary ->
+            com.lomo.nativebridge.SessionMemoPreviewRequest(
+                memoId = summary.memoId,
+                expectedContentRevision = summary.contentRevision,
+            )
+        }
+    val expectedLengths = page.items.map { summary -> summary.memoId to summary.bodyPreview.utf8Size().toULong() }
     val times = JSONArray()
     var expected: PreviewRenderFacts? = null
     val allocatedBefore = allocatedBytes()
     repeat(samples) {
-        var nodes = 0
-        var attachments = 0
-        var plainTextLength = 0L
         val t0 = System.nanoTime()
-        for (preview in previews) {
-            val rendered = session.renderMarkdown(preview)
-            nodes += rendered.nodeCount
-            attachments += rendered.attachments.size
-            plainTextLength += rendered.plainText.length
-        }
+        val facts = runPreviewRenderBatch(requests, expectedLengths, PREVIEW_RENDER_FFI_BATCH_SIZE)
         times.put(elapsedMs(t0))
-        val facts = PreviewRenderFacts(nodes, attachments, plainTextLength)
         check(expected == null || expected == facts) { "preview_render output drifted across samples" }
         expected = facts
     }
     val allocated = allocatedBytes() - allocatedBefore
     val facts = checkNotNull(expected) { "preview_render produced no samples" }
-    // The same number of calls over a one-node body: what a render call costs before its payload.
+    val batch8Calls = requests.chunked(PREVIEW_RENDER_FFI_BATCH_SIZE).size
+    val batch2P50Ms = measureBatchP50(requests, expectedLengths, batchSize = 2, samples = samples)
+    val batch4P50Ms = measureBatchP50(requests, expectedLengths, batchSize = 4, samples = samples)
     val floorTimes = JSONArray()
     repeat(samples) {
         val t0 = System.nanoTime()
-        repeat(previews.size) { session.renderMarkdown(RENDER_FLOOR_BODY) }
+        repeat(batch8Calls) { session.renderMarkdown(RENDER_FLOOR_BODY) }
         floorTimes.put(elapsedMs(t0))
     }
     return okPayload(run, "preview_render").apply {
@@ -211,9 +216,15 @@ internal suspend fun EnginePerfProbe.previewRender(intent: Intent, run: String):
             "facts",
             JSONObject()
                 .put("samples", samples)
-                .put("memoCount", previews.size)
-                .put("ffiCallsPerSample", previews.size)
-                .put("requestUtf8Bytes", previews.sumOf { it.utf8Size() })
+                .put("memoCount", requests.size)
+                .put("ffiCallsPerSample", batch8Calls)
+                .put("ffiBatchSize", PREVIEW_RENDER_FFI_BATCH_SIZE)
+                .put("requestUtf8Bytes", 0L)
+                .put("sourceBytesSent", 0L)
+                .put("batch2Calls", requests.chunked(2).size)
+                .put("batch4Calls", requests.chunked(4).size)
+                .put("batch2P50Ms", batch2P50Ms)
+                .put("batch4P50Ms", batch4P50Ms)
                 .put("nodeCount", facts.nodes)
                 .put("attachments", facts.attachments)
                 .put("plainTextLength", facts.plainTextLength)
@@ -222,7 +233,52 @@ internal suspend fun EnginePerfProbe.previewRender(intent: Intent, run: String):
     }
 }
 
+private fun EnginePerfProbe.runPreviewRenderBatch(
+    requests: List<com.lomo.nativebridge.SessionMemoPreviewRequest>,
+    expectedLengths: List<Pair<String, ULong>>,
+    chunkSize: Int,
+): PreviewRenderFacts {
+    var nodes = 0
+    var attachments = 0
+    var plainTextLength = 0L
+    var offset = 0
+    for (chunk in requests.chunked(chunkSize)) {
+        val outcomes = session.sessionRenderMemoPreviews(chunk, PREVIEW_RENDER_SCHEMA_V1)
+        check(outcomes.size == chunk.size) { "preview_render batch size mismatch" }
+        outcomes.forEach { outcome ->
+            val rendered = outcome as? com.lomo.nativebridge.SessionMemoPreviewOutcome.Rendered
+                ?: error("preview_render expected Rendered outcome, got $outcome")
+            val (expectedId, expectedBytes) = expectedLengths[offset++]
+            check(rendered.memoId == expectedId && rendered.sourceByteLength == expectedBytes) {
+                "preview_render outcome mismatch for $expectedId"
+            }
+            nodes += rendered.document.nodeCount.toInt()
+            attachments += rendered.document.attachments.size
+            plainTextLength += rendered.document.plainText.length
+        }
+    }
+    return PreviewRenderFacts(nodes, attachments, plainTextLength)
+}
+
+private fun EnginePerfProbe.measureBatchP50(
+    requests: List<com.lomo.nativebridge.SessionMemoPreviewRequest>,
+    expectedLengths: List<Pair<String, ULong>>,
+    batchSize: Int,
+    samples: Int,
+): Double {
+    val timings = ArrayList<Double>(samples)
+    repeat(samples) {
+        val t0 = System.nanoTime()
+        runPreviewRenderBatch(requests, expectedLengths, batchSize)
+        timings += (System.nanoTime() - t0) / 1_000_000.0
+    }
+    timings.sort()
+    return timings[timings.size / 2]
+}
+
 private const val RENDER_FLOOR_BODY = "x"
+private const val PREVIEW_RENDER_FFI_BATCH_SIZE = 8
+private const val PREVIEW_RENDER_SCHEMA_V1 = 1u
 
 private data class PreviewRenderFacts(val nodes: Int, val attachments: Int, val plainTextLength: Long)
 

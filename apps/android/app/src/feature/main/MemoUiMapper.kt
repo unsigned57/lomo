@@ -4,6 +4,9 @@ import android.net.Uri
 import androidx.collection.LruCache
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoContentKind
+import com.lomo.domain.model.MemoPreviewRenderRequest
+import com.lomo.domain.model.MemoPreviewRenderState
+import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
@@ -22,14 +25,26 @@ import java.util.concurrent.atomic.AtomicLong
 class MemoUiMapper(
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     private val markdownWorkspaceRepository: MarkdownWorkspaceRepository,
+    private val workspaceAuthorityProvider: () -> WorkspaceAuthority? = { null },
 ) {
     private val backgroundDispatcher = dispatcherProvider.default
 
     private val imageContentResolver = MemoUiImageContentResolver()
     private val cacheMutex = Mutex()
+    private val rawCacheLock = Any()
     private val cacheHits = AtomicLong()
     private val cacheMisses = AtomicLong()
     private val cacheEvictions = AtomicLong()
+    private val rawRenderHits = AtomicLong()
+    private val rawRenderMisses = AtomicLong()
+    private val preRenderedHits = AtomicLong()
+    private val imageDependencyRemaps = AtomicLong()
+
+    /**
+     * Layer 1 cache: raw owner Markdown IR keyed independently of image-map / path resolution so
+     * media inventory refreshes only re-run image presentation without re-rendering Markdown.
+     */
+    private val rawRenderCache = LruCache<RawRenderCacheKey, CachedRawRenderDocument>(DEFAULT_CACHE_SIZE)
 
     /**
      * Capacity alone decides which rows leave the cache: mapping one screen's collection must
@@ -61,7 +76,56 @@ class MemoUiMapper(
         misses = cacheMisses.get(),
         evictions = cacheEvictions.get(),
         size = cachedModels.size(),
+        rawRenderHits = rawRenderHits.get(),
+        rawRenderMisses = rawRenderMisses.get(),
+        preRenderedHits = preRenderedHits.get(),
+        imageDependencyRemaps = imageDependencyRemaps.get(),
+        rawCacheSize = synchronized(rawCacheLock) { rawRenderCache.size() },
     )
+
+    suspend fun prefetchPreviews(memos: List<Memo>) {
+        if (memos.isEmpty()) return
+        val authority = workspaceAuthorityProvider()
+        val pendingMemos = ArrayList<Memo>()
+        synchronized(rawCacheLock) {
+            for (memo in memos) {
+                if (memo.contentKind != MemoContentKind.Preview ||
+                    memo.previewRenderState !is MemoPreviewRenderState.OnDemand ||
+                    memo.contentRevision == null
+                ) {
+                    continue
+                }
+                val rawKey = buildRawRenderKey(memo, authority)
+                val cached = rawRenderCache[rawKey]
+                if (cached == null || cached.exactContent != memo.content) {
+                    pendingMemos += memo
+                }
+            }
+        }
+        if (pendingMemos.isEmpty()) return
+        val distinctRequests =
+            pendingMemos
+                .distinctBy { memo -> buildRawRenderKey(memo, authority) }
+                .map { memo ->
+                    MemoPreviewRenderRequest(
+                        memoId = memo.id,
+                        contentRevision = checkNotNull(memo.contentRevision),
+                        expectedBodyPreview = memo.content,
+                        contentKind = memo.contentKind,
+                    )
+                }
+        val rendered = markdownWorkspaceRepository.loadMemoPreviews(distinctRequests)
+        if (rendered.isEmpty() || workspaceAuthorityProvider() != authority) return
+        synchronized(rawCacheLock) {
+            for (memo in pendingMemos) {
+                val doc = rendered[memo.id] ?: continue
+                rawRenderCache.put(
+                    buildRawRenderKey(memo, authority),
+                    CachedRawRenderDocument(exactContent = memo.content, document = doc),
+                )
+            }
+        }
+    }
 
     suspend fun mapToUiModels(
         memos: List<Memo>,
@@ -72,6 +136,7 @@ class MemoUiMapper(
         if (memos.isEmpty()) {
             return@withContext emptyList()
         }
+        prefetchPreviews(memos)
 
         coroutineScope {
             val startupParallelDispatcher = backgroundDispatcher.limitedParallelism(2)
@@ -117,11 +182,29 @@ class MemoUiMapper(
         imageMap: Map<String, Uri>,
         reminders: List<com.lomo.domain.model.ReminderMarker> = memo.reminders,
     ): MemoUiModel {
-        val displayContent = memo.content
-        val processedContent = displayContent
+        val rawDocument = resolveRawRenderDocument(memo, workspaceAuthorityProvider())
+        return assembleUiModel(
+            memo = memo,
+            rawDocument = rawDocument,
+            rootPath = rootPath,
+            imagePath = imagePath,
+            imageMap = imageMap,
+            reminders = reminders,
+        )
+    }
+
+    private fun assembleUiModel(
+        memo: Memo,
+        rawDocument: MarkdownRenderDocument,
+        rootPath: String?,
+        imagePath: String?,
+        imageMap: Map<String, Uri>,
+        reminders: List<com.lomo.domain.model.ReminderMarker>,
+    ): MemoUiModel {
+        val processedContent = memo.content
         val resolvedImages =
             imageContentResolver.resolveMemoImages(
-                document = renderDocumentFor(displayContent),
+                document = rawDocument,
                 imageUrls = memo.imageUrls,
                 rootPath = rootPath,
                 imagePath = imagePath,
@@ -168,7 +251,8 @@ class MemoUiMapper(
         imageMap: Map<String, Uri>,
         reminders: List<com.lomo.domain.model.ReminderMarker>,
     ): MemoUiModel? {
-        val cacheKey = buildCacheKey(memo, rootPath, imagePath, imageMap, reminders)
+        val authority = workspaceAuthorityProvider()
+        val cacheKey = buildCacheKey(memo, rootPath, imagePath, imageMap, reminders, authority)
         // LruCache point reads are internally synchronized; key equality is the
         // consistency guard, so a torn read can only degrade to a miss.
         val cached = cachedModels[memo.id]
@@ -225,7 +309,8 @@ class MemoUiMapper(
         imageMap: Map<String, Uri>,
         reminders: List<com.lomo.domain.model.ReminderMarker>,
     ): MemoUiModel {
-        val cacheKey = buildCacheKey(memo, rootPath, imagePath, imageMap, reminders)
+        val authority = workspaceAuthorityProvider()
+        val cacheKey = buildCacheKey(memo, rootPath, imagePath, imageMap, reminders, authority)
         val cached = cacheMutex.withLock { cachedModels[memo.id] }
         val reused = cached?.reuseFor(cacheKey)
         if (reused != null) {
@@ -233,14 +318,20 @@ class MemoUiMapper(
             cacheMutex.withLock { cachedModels.put(memo.id, CachedMemoUiModel(cacheKey, reused)) }
             return reused
         }
+        if (cached != null && cached.key.renderInputs.hasOnlyImageDependencyChange(cacheKey.renderInputs)) {
+            imageDependencyRemaps.incrementAndGet()
+        }
         cacheMisses.incrementAndGet()
-        val uiModel = mapToUiModel(
-            memo = memo,
-            rootPath = rootPath,
-            imagePath = imagePath,
-            imageMap = imageMap,
-            reminders = reminders,
-        )
+        val rawDocument = resolveRawRenderDocument(memo, authority)
+        val uiModel =
+            assembleUiModel(
+                memo = memo,
+                rawDocument = rawDocument,
+                rootPath = rootPath,
+                imagePath = imagePath,
+                imageMap = imageMap,
+                reminders = reminders,
+            )
         cacheMutex.withLock {
             cachedModels.put(
                 memo.id,
@@ -253,18 +344,65 @@ class MemoUiMapper(
         return uiModel
     }
 
+    private fun resolveRawRenderDocument(memo: Memo, authority: WorkspaceAuthority?): MarkdownRenderDocument {
+        val rawKey = buildRawRenderKey(memo, authority)
+        val preRendered = memo.previewRenderState as? MemoPreviewRenderState.Ready
+        if (preRendered != null) {
+            preRenderedHits.incrementAndGet()
+            rawRenderHits.incrementAndGet()
+            synchronized(rawCacheLock) {
+                rawRenderCache.put(
+                    rawKey,
+                    CachedRawRenderDocument(exactContent = memo.content, document = preRendered.document),
+                )
+            }
+            return preRendered.document
+        }
+        synchronized(rawCacheLock) {
+            rawRenderCache[rawKey]
+                ?.takeIf { entry -> entry.exactContent == memo.content }
+                ?.let { hit ->
+                    rawRenderHits.incrementAndGet()
+                    return hit.document
+                }
+        }
+        rawRenderMisses.incrementAndGet()
+        val rendered = markdownWorkspaceRepository.renderMarkdown(memo.content)
+        synchronized(rawCacheLock) {
+            rawRenderCache.put(
+                rawKey,
+                CachedRawRenderDocument(exactContent = memo.content, document = rendered),
+            )
+        }
+        return rendered
+    }
+
+    private fun buildRawRenderKey(memo: Memo, authority: WorkspaceAuthority?): RawRenderCacheKey = RawRenderCacheKey(
+        workspaceId = authority?.workspaceId,
+        generation = authority?.generation,
+        memoId = memo.id,
+        contentRevision = memo.contentRevision,
+        contentKind = memo.contentKind,
+        schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION,
+    )
+
     private fun buildCacheKey(
         memo: Memo,
         rootPath: String?,
         imagePath: String?,
         imageMap: Map<String, Uri>,
         reminders: List<com.lomo.domain.model.ReminderMarker>,
+        authority: WorkspaceAuthority?,
     ): MemoUiCacheKey = MemoUiCacheKey(
         memo = memo,
         reminders = reminders.toList(),
         renderInputs = MemoUiRenderInputs(
+            workspaceId = authority?.workspaceId,
+            generation = authority?.generation,
             content = memo.content,
             contentKind = memo.contentKind,
+            contentRevision = memo.contentRevision,
+            schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION,
             imageUrls = memo.imageUrls.toList(),
             rootPath = rootPath,
             imagePath = imagePath,
@@ -275,15 +413,6 @@ class MemoUiMapper(
             ),
         ),
     )
-
-    /**
-     * Both content kinds cross the same render boundary. A preview is lomo-store's bounded,
-     * block-boundary prefix of the memo body (`body_preview`), cut so the app can render it as
-     * a standalone Markdown document; because it is a byte prefix, its source spans address the
-     * same bytes as the full body.
-     */
-    private fun renderDocumentFor(displayContent: String): MarkdownRenderDocument =
-        markdownWorkspaceRepository.renderMarkdown(displayContent)
 
     private companion object {
         private const val INITIAL_PARALLEL_PRECOMPUTE_COUNT = 6
@@ -298,8 +427,29 @@ class MemoUiMapper(
 private fun Memo.isTruncatedPreview(): Boolean = contentKind == MemoContentKind.Preview &&
     projectedCharCount?.let { total -> total > content.length } == true
 
-/** Cache observability surface: hits, misses, LRU evictions and current occupancy. */
-data class MemoUiMapperCacheStats(val hits: Long, val misses: Long, val evictions: Long, val size: Int)
+/** Cache observability surface: hits, misses, LRU evictions and split raw-IR metrics. */
+data class MemoUiMapperCacheStats(
+    val hits: Long,
+    val misses: Long,
+    val evictions: Long,
+    val size: Int,
+    val rawRenderHits: Long = 0,
+    val rawRenderMisses: Long = 0,
+    val preRenderedHits: Long = 0,
+    val imageDependencyRemaps: Long = 0,
+    val rawCacheSize: Int = 0,
+)
+
+private data class RawRenderCacheKey(
+    val workspaceId: String?,
+    val generation: Long?,
+    val memoId: String,
+    val contentRevision: Long?,
+    val contentKind: MemoContentKind,
+    val schemaVersion: UInt,
+)
+
+private data class CachedRawRenderDocument(val exactContent: String, val document: MarkdownRenderDocument)
 
 private data class MemoUiCacheKey(
     val memo: Memo,
@@ -309,14 +459,27 @@ private data class MemoUiCacheKey(
 
 /** Only inputs consumed by Markdown/media rendering; metadata never invalidates this layer. */
 private data class MemoUiRenderInputs(
+    val workspaceId: String?,
+    val generation: Long?,
     val content: String,
     val contentKind: MemoContentKind,
+    val contentRevision: Long?,
+    val schemaVersion: UInt,
     val imageUrls: List<String>,
     val rootPath: String?,
     val imagePath: String?,
     val projectedCharCount: Long?,
     val imageDependencySignature: String,
-)
+) {
+    fun hasOnlyImageDependencyChange(other: MemoUiRenderInputs): Boolean = workspaceId == other.workspaceId &&
+        generation == other.generation &&
+        content == other.content &&
+        contentKind == other.contentKind &&
+        contentRevision == other.contentRevision &&
+        schemaVersion == other.schemaVersion &&
+        projectedCharCount == other.projectedCharCount &&
+        this != other
+}
 
 private data class CachedMemoUiModel(val key: MemoUiCacheKey, val model: MemoUiModel)
 

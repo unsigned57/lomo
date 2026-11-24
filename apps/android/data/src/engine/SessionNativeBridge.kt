@@ -92,6 +92,11 @@ internal interface SessionNativeBridge {
         error("session reminder snooze recovery is not expected")
     }
 
+    fun sessionRenderMemoPreviews(
+        items: List<com.lomo.nativebridge.SessionMemoPreviewRequest>,
+        schemaVersion: UInt,
+    ): List<com.lomo.nativebridge.SessionMemoPreviewOutcome> = error("session render memo previews is not expected")
+
     fun syncPrivateStateRoot(workspaceRoot: String): String = error("session sync state root is not expected")
 
     fun syncRunCycle(

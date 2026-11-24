@@ -63,16 +63,16 @@ pub use purge::{
     list_purged_memo_ids, purge_record_relative_path, read_purge_record, write_purge_record_atomic,
 };
 pub use query::{
-    MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoReminderProjection,
-    MemoSnapshot, MemoSort, MemoSortField, MemoStatisticsRow, MemoSummary, MemoWindowSides,
-    ProjectedAttachmentRef, SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount, SidebarProjection,
-    SidebarTagCount, SortDirection, StoreStats, TagSelectionMode, active_memo_ids_for_source_path,
-    get_memo, get_memo_projection, get_projected_memo, get_projected_memos, history_record_owner,
-    list_projected_attachment_refs, memo_ids_for_source_path, memo_source_path,
-    memos_matching_window, pinned_memo_timestamps, purged_memo_ids, query_count,
-    query_memo_statistics_rows, query_memos, query_memos_starting_at, query_memos_with_boundary,
-    query_reminder_projections, query_sidebar_projection, query_stats, source_document_fingerprint,
-    trashed_memo_ids, workspace_listing_snapshot,
+    MemoFilters, MemoPage, MemoPreviewSource, MemoQuery, MemoQueryBoundary, MemoQueryStart,
+    MemoReminderProjection, MemoSnapshot, MemoSort, MemoSortField, MemoStatisticsRow, MemoSummary,
+    MemoWindowSides, ProjectedAttachmentRef, SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount,
+    SidebarProjection, SidebarTagCount, SortDirection, StoreStats, TagSelectionMode,
+    active_memo_ids_for_source_path, get_memo, get_memo_preview_sources, get_memo_projection,
+    get_projected_memo, get_projected_memos, history_record_owner, list_projected_attachment_refs,
+    memo_ids_for_source_path, memo_source_path, memos_matching_window, pinned_memo_timestamps,
+    purged_memo_ids, query_count, query_memo_statistics_rows, query_memos, query_memos_starting_at,
+    query_memos_with_boundary, query_reminder_projections, query_sidebar_projection, query_stats,
+    source_document_fingerprint, trashed_memo_ids, workspace_listing_snapshot,
 };
 pub use reader::StoreReader;
 use std::collections::{BTreeMap, BTreeSet};
@@ -581,6 +581,18 @@ impl Store {
     /// See [`get_projected_memos`].
     pub fn get_projected_memos(&self, memo_ids: &[String]) -> Result<Vec<MemoSnapshot>, LomoError> {
         get_projected_memos(&self.opened.connection, memo_ids)
+    }
+
+    /// Minimal preview-render inputs for a candidate set in bounded batched statements.
+    ///
+    /// # Errors
+    ///
+    /// See [`get_memo_preview_sources`].
+    pub fn get_memo_preview_sources(
+        &self,
+        memo_ids: &[String],
+    ) -> Result<BTreeMap<String, MemoPreviewSource>, LomoError> {
+        get_memo_preview_sources(&self.opened.connection, memo_ids)
     }
 
     /// Counts rows matching this query without transferring them (O(1) materialized count).

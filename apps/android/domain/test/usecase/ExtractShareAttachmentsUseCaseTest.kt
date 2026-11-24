@@ -124,4 +124,8 @@ private class FakeAttachmentMarkdownRepository(private val attachments: List<Mar
         memoIdentity: String,
         actionSpan: MarkdownSourceSpan,
     ): String = error("toggle not expected")
+
+    override suspend fun loadMemoPreviews(
+        requests: List<com.lomo.domain.model.MemoPreviewRenderRequest>,
+    ): Map<String, MarkdownRenderDocument> = error("preview batch not expected")
 }

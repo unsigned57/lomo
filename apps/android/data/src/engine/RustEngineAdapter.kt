@@ -295,6 +295,11 @@ internal class RustEngineAdapter private constructor(
 
     override fun sessionRecoverReminderSnooze() = native.sessionRecoverReminderSnooze()
 
+    override fun sessionRenderMemoPreviews(
+        items: List<com.lomo.nativebridge.SessionMemoPreviewRequest>,
+        schemaVersion: UInt,
+    ): List<com.lomo.nativebridge.SessionMemoPreviewOutcome> = native.sessionRenderMemoPreviews(items, schemaVersion)
+
     override fun syncPrivateStateRoot(workspaceRoot: String): String = native.syncPrivateStateRoot(workspaceRoot)
 
     override fun syncRunCycle(

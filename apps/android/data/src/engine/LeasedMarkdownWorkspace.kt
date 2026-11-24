@@ -17,9 +17,14 @@ import com.lomo.domain.repository.WorkspaceMutationLease
 internal class LeasedMarkdownWorkspace(
     private val delegate: ManagedEngineSession,
     private val lease: WorkspaceMutationLease,
+    private val previewCache: DataMemoPreviewCache = delegate.previewCache,
 ) : MarkdownWorkspaceRepository,
     MarkdownReminderRepository {
     override fun renderMarkdown(content: String): MarkdownRenderDocument = delegate.renderMarkdown(content)
+
+    override suspend fun loadMemoPreviews(
+        requests: List<com.lomo.domain.model.MemoPreviewRenderRequest>,
+    ): Map<String, MarkdownRenderDocument> = previewCache.loadPreviews(requests)
 
     override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> = delegate.remindersForMemo(memoIdentity)
 

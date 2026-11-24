@@ -1105,4 +1105,117 @@ mod tests {
                     == Some("md")
             })
     }
+
+    #[test]
+    fn session_render_memo_previews_maps_ordered_batch_outcomes_and_rejects_oversized() {
+        let session = open_direct_engine();
+        attach_posix_session(&session);
+        fs::create_dir_all(session.workspace.join("images")).test_ok("images dir");
+        fs::write(session.workspace.join("images/a.png"), b"png-bytes").test_ok("image");
+        let c1 = session
+            .engine
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-ffi-prev-1".to_owned(),
+                    relative_path: None,
+                    time_token: Some("09:00:00".to_owned()),
+                    content: "#work preview one ![](images/a.png)".to_owned(),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
+            .test_ok("create memo 1");
+        let c2 = session
+            .engine
+            .session_create_memo(
+                SessionCreateMemoRequest {
+                    operation_id: "op-ffi-prev-2".to_owned(),
+                    relative_path: None,
+                    time_token: Some("09:01:00".to_owned()),
+                    content: "- [ ] check preview".to_owned(),
+                    expected_document_fingerprint: Some(c1.file_fingerprint.clone()),
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                    date_format: None,
+                    timestamp_format: None,
+                },
+                crate::create_observer::returned_commit_only(),
+            )
+            .test_ok("create memo 2");
+
+        let outcomes = session
+            .engine
+            .session_render_memo_previews(
+                vec![
+                    lomo_native::SessionMemoPreviewRequest {
+                        memo_id: c1.memo_id.clone(),
+                        expected_content_revision: c1.content_revision,
+                    },
+                    lomo_native::SessionMemoPreviewRequest {
+                        memo_id: "nonexistent".to_owned(),
+                        expected_content_revision: 1,
+                    },
+                    lomo_native::SessionMemoPreviewRequest {
+                        memo_id: c2.memo_id.clone(),
+                        expected_content_revision: c2.content_revision + 10,
+                    },
+                    lomo_native::SessionMemoPreviewRequest {
+                        memo_id: c2.memo_id.clone(),
+                        expected_content_revision: c2.content_revision,
+                    },
+                ],
+                1,
+            )
+            .test_ok("render memo previews");
+        assert_eq!(outcomes.len(), 4);
+        match &outcomes[0] {
+            lomo_native::SessionMemoPreviewOutcome::Rendered {
+                memo_id,
+                content_revision,
+                source_byte_length,
+                document,
+            } => {
+                assert_eq!(memo_id, &c1.memo_id);
+                assert_eq!(*content_revision, c1.content_revision);
+                assert!(*source_byte_length > 0);
+                assert_eq!(document.tag_names, vec!["work".to_owned()]);
+                assert_eq!(document.attachments.len(), 1);
+            }
+            other => panic!("expected Rendered at 0, got {other:?}"),
+        }
+        assert!(matches!(
+            &outcomes[1],
+            lomo_native::SessionMemoPreviewOutcome::NotFound { memo_id } if memo_id == "nonexistent"
+        ));
+        assert!(matches!(
+            &outcomes[2],
+            lomo_native::SessionMemoPreviewOutcome::RevisionMismatch {
+                memo_id,
+                actual_content_revision,
+            } if memo_id == &c2.memo_id && *actual_content_revision == c2.content_revision
+        ));
+        assert!(matches!(
+            &outcomes[3],
+            lomo_native::SessionMemoPreviewOutcome::Rendered { memo_id, .. } if memo_id == &c2.memo_id
+        ));
+
+        let oversized = vec![
+            lomo_native::SessionMemoPreviewRequest {
+                memo_id: c1.memo_id,
+                expected_content_revision: c1.content_revision,
+            };
+            9
+        ];
+        let limit_err = session
+            .engine
+            .session_render_memo_previews(oversized, 1)
+            .test_err("oversized FFI batch must fail closed");
+        assert_eq!(limit_err.code(), "preview_render_batch_too_large");
+    }
 }

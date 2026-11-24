@@ -4,6 +4,7 @@
 //! schema lifecycle and publication clocks; a reader only opens an already-admitted projection,
 //! starts a short SQLite snapshot, and refreshes the high-water revision inside that snapshot.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
@@ -11,14 +12,14 @@ use rusqlite::{Connection, OpenFlags};
 use crate::error::{from_sqlite, storage, validation};
 use crate::open::{IntegrityWitness, database_path, quick_integrity};
 use crate::{
-    HistoryAttachmentRef, HistoryRevisionBody, MemoHistoryPage, MemoPage, MemoQuery,
-    MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoStatisticsRow, MemoSummary,
+    HistoryAttachmentRef, HistoryRevisionBody, MemoHistoryPage, MemoPage, MemoPreviewSource,
+    MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoStatisticsRow, MemoSummary,
     MemoWindowSides, PageCursor, ProjectedAttachmentRef, SidebarProjection, StoreStats,
-    active_memo_ids_for_source_path, get_memo, get_memo_projection, get_projected_memo,
-    get_projected_memos, list_history_attachment_refs, list_history_revision_bodies,
-    list_memo_history, list_projected_attachment_refs, query_count, query_memo_statistics_rows,
-    query_memos_starting_at, query_memos_with_boundary, query_sidebar_projection, query_stats,
-    source_document_fingerprint,
+    active_memo_ids_for_source_path, get_memo, get_memo_preview_sources, get_memo_projection,
+    get_projected_memo, get_projected_memos, list_history_attachment_refs,
+    list_history_revision_bodies, list_memo_history, list_projected_attachment_refs, query_count,
+    query_memo_statistics_rows, query_memos_starting_at, query_memos_with_boundary,
+    query_sidebar_projection, query_stats, source_document_fingerprint,
 };
 use crate::{
     history_record_owner, memo_source_path, purged_memo_ids, trashed_memo_ids,
@@ -239,6 +240,18 @@ impl StoreReader {
         self.snapshot(|connection, _revision| get_projected_memos(connection, memo_ids))
     }
 
+    /// Loads minimal preview-render inputs for candidate memos inside one consistent snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns projection storage or corruption errors when a revision is negative.
+    pub fn get_memo_preview_sources(
+        &self,
+        memo_ids: &[String],
+    ) -> Result<BTreeMap<String, MemoPreviewSource>, LomoError> {
+        self.snapshot(|connection, _revision| get_memo_preview_sources(connection, memo_ids))
+    }
+
     /// Counts rows matching a query without transferring summaries.
     ///
     /// # Errors
@@ -377,9 +390,7 @@ impl StoreReader {
     /// # Errors
     ///
     /// Returns projection storage errors.
-    pub fn workspace_listing_snapshot(
-        &self,
-    ) -> Result<std::collections::BTreeMap<String, String>, LomoError> {
+    pub fn workspace_listing_snapshot(&self) -> Result<BTreeMap<String, String>, LomoError> {
         self.snapshot(|connection, _revision| workspace_listing_snapshot(connection))
     }
 

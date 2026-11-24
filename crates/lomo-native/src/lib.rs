@@ -44,12 +44,13 @@ pub use media_ffi::{
 pub use session_ffi::{
     SessionCivilDate, SessionCivilTime, SessionCreateMemoRequest, SessionDateCount,
     SessionDeleteMemoRequest, SessionDraftGuardDto, SessionHourCount, SessionMediaFailureDto,
-    SessionMediaProtectionDto, SessionMediaSweepReportDto, SessionMemoView, SessionPinMemoRequest,
-    SessionReminderRewritePlan, SessionReminderRewriteRequest, SessionRestoreRequest,
-    SessionRestoreRevisionRequest, SessionSearchHit, SessionSearchMode, SessionSearchOutcome,
-    SessionSearchPage, SessionSearchRequest, SessionStatistics, SessionStatisticsSnapshot,
-    SessionTagCount, SessionTaskItem, SessionToggleTaskRequest, SessionUpdateMemoRequest,
-    SessionWeeklyHourCount, batch_from_ffi, result_to_ffi,
+    SessionMediaProtectionDto, SessionMediaSweepReportDto, SessionMemoPreviewOutcome,
+    SessionMemoPreviewRequest, SessionMemoView, SessionPinMemoRequest, SessionReminderRewritePlan,
+    SessionReminderRewriteRequest, SessionRestoreRequest, SessionRestoreRevisionRequest,
+    SessionSearchHit, SessionSearchMode, SessionSearchOutcome, SessionSearchPage,
+    SessionSearchRequest, SessionStatistics, SessionStatisticsSnapshot, SessionTagCount,
+    SessionTaskItem, SessionToggleTaskRequest, SessionUpdateMemoRequest, SessionWeeklyHourCount,
+    batch_from_ffi, result_to_ffi,
 };
 pub use store_ffi::{
     StoreInvalidationScope, StoreMemoBatchCommit, StoreMemoBatchDelete, StoreMemoCommand,
@@ -2988,7 +2989,7 @@ pub const fn retry_name(value: core::RetryDisposition) -> &'static str {
     }
 }
 
-fn render_document_to_ffi(
+pub(crate) fn render_document_to_ffi(
     document: &workspace::RenderDocumentV1,
 ) -> Result<RenderDocument, EngineError> {
     let mut nodes = Vec::with_capacity(document.node_count() as usize);

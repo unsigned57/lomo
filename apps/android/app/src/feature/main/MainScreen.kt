@@ -97,6 +97,16 @@ internal fun MainScreen(
     )
     val resolvedPagedUiMemos: LazyPagingItems<MemoUiModel> =
         pagedUiMemos ?: viewModel.pagedUiMemos.collectAsLazyPagingItems()
+    val loadedSnapshotItems = resolvedPagedUiMemos.itemSnapshotList.items
+    LaunchedEffect(loadedSnapshotItems) {
+        val tailMemos =
+            loadedSnapshotItems
+                .drop(DEFAULT_MAIN_LIST_PAGE_SIZE)
+                .map(MemoUiModel::memo)
+        if (tailMemos.isNotEmpty()) {
+            viewModel.prefetchVisiblePreviews(tailMemos)
+        }
+    }
     val unknownErrorMessage = stringResource(R.string.error_unknown)
     val memoNotFoundMessage = stringResource(R.string.main_list_focus_memo_missing)
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()

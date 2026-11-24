@@ -253,6 +253,135 @@ class MemoUiMapperTest : AppFunSpec() {
                 uiModel.shouldShowExpand shouldBe false
             }
         }
+
+        test("imageMap or imagePath change remaps presentation without re-rendering raw Markdown") {
+            runTest {
+                var renderCalls = 0
+                var generation = 1L
+                val workspace =
+                    FakeMarkdownWorkspaceRepository(
+                        onRender = { renderCalls++ },
+                    )
+                val mapper =
+                    MemoUiMapper(
+                        markdownWorkspaceRepository = workspace,
+                        workspaceAuthorityProvider = {
+                            com.lomo.domain.model.WorkspaceAuthority("ws-1", generation, 10uL)
+                        },
+                    )
+                val targetMemo =
+                    memo(
+                        id = "img-memo",
+                        content = "photo ![](images/pic.png)",
+                        contentRevision = 4L,
+                        contentKind = MemoContentKind.Preview,
+                    ).copy(imageUrls = listOf("images/pic.png"))
+
+                val first =
+                    mapper.peekOrMapToCachedUiModel(
+                        memo = targetMemo,
+                        rootPath = "/vault",
+                        imagePath = "/vault/images",
+                        imageMap = emptyMap(),
+                        reminders = emptyList(),
+                    )
+                renderCalls shouldBe 1
+
+                val second =
+                    mapper.peekOrMapToCachedUiModel(
+                        memo = targetMemo,
+                        rootPath = "/vault",
+                        imagePath = "/vault/other-images",
+                        imageMap = emptyMap(),
+                        reminders = emptyList(),
+                    )
+
+                renderCalls shouldBe 1
+                second.memo.id shouldBe first.memo.id
+                val stats = mapper.cacheStats()
+                stats.rawRenderMisses shouldBe 1
+                stats.rawRenderHits shouldBe 1
+                stats.imageDependencyRemaps shouldBe 1
+
+                // Changing workspace generation misses the raw render cache cleanly.
+                generation = 2L
+                mapper.peekOrMapToCachedUiModel(
+                    memo = targetMemo,
+                    rootPath = "/vault",
+                    imagePath = "/vault/other-images",
+                    imageMap = emptyMap(),
+                    reminders = emptyList(),
+                )
+                renderCalls shouldBe 2
+            }
+        }
+
+        test("preRendered Preview state and prefetchPreviews bypass per-item renderMarkdown") {
+            runTest {
+                var renderCalls = 0
+                var batchCalls = 0
+                val backing = FakeMarkdownWorkspaceRepository(onRender = { renderCalls++ })
+                val countingWorkspace =
+                    object : com.lomo.domain.repository.MarkdownWorkspaceRepository by backing {
+                        override suspend fun loadMemoPreviews(
+                            requests: List<com.lomo.domain.model.MemoPreviewRenderRequest>,
+                        ): Map<String, com.lomo.domain.model.markdown.MarkdownRenderDocument> {
+                            batchCalls++
+                            return requests.associate { req ->
+                                req.memoId to backing.renderMarkdown(req.expectedBodyPreview)
+                            }
+                        }
+                    }
+                val mapper =
+                    MemoUiMapper(
+                        markdownWorkspaceRepository = countingWorkspace,
+                        workspaceAuthorityProvider = {
+                            com.lomo.domain.model.WorkspaceAuthority("ws-1", 1L, 1uL)
+                        },
+                    )
+
+                val preRenderedDoc = backing.renderMarkdown("ready preview")
+                renderCalls = 0
+
+                val readyMemo =
+                    memo(
+                        id = "pre-1",
+                        content = "ready preview",
+                        contentRevision = 2L,
+                        contentKind = MemoContentKind.Preview,
+                    ).copy(previewRenderState = com.lomo.domain.model.MemoPreviewRenderState.Ready(preRenderedDoc))
+                val readyUi = mapper.mapToUiModel(readyMemo, null, null, emptyMap())
+                readyUi.renderDocument.plainText shouldBe "ready preview"
+                renderCalls shouldBe 0
+                mapper.cacheStats().preRenderedHits shouldBe 1
+
+                val onDemandPreview =
+                    memo(
+                        id = "batch-1",
+                        content = "batched preview",
+                        contentRevision = 3L,
+                        contentKind = MemoContentKind.Preview,
+                    )
+                mapper.prefetchPreviews(listOf(onDemandPreview))
+                batchCalls shouldBe 1
+                renderCalls shouldBe 1 // only inside backing inside loadMemoPreviews
+
+                val mappedAfterPrefetch = mapper.mapToUiModel(onDemandPreview, null, null, emptyMap())
+                mappedAfterPrefetch.renderDocument.plainText shouldBe "batched preview"
+                renderCalls shouldBe 1 // zero per-item renderMarkdown calls on mapToUiModel
+
+                // Same memo id with Full body must NOT reuse Preview raw IR.
+                val fullMemo =
+                    memo(
+                        id = "batch-1",
+                        content = "batched preview",
+                        contentRevision = 3L,
+                        contentKind = MemoContentKind.Full,
+                    )
+                mapper.mapToUiModel(fullMemo, null, null, emptyMap())
+                renderCalls shouldBe 2
+            }
+        }
     }
 }
 

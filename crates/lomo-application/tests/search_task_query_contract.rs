@@ -1088,4 +1088,139 @@ mod tests {
             .map(|((fingerprint, _), _)| fingerprint.clone())
             .collect()
     }
+
+    #[test]
+    fn render_memo_previews_preserves_order_and_isolates_mismatch_and_not_found() {
+        let ctx = open_session();
+        std::fs::create_dir_all(ctx.workspace_path.join("images")).expect("images dir");
+        std::fs::write(ctx.workspace_path.join("images/a.png"), b"png-bytes").expect("image");
+        create(
+            &ctx,
+            "op-prev-1",
+            "2026_10_12.md",
+            "10:00:00",
+            "#notes 中文 ![p](images/a.png)",
+            None,
+        );
+        let first_doc = fs_read_doc(&ctx.workspace_path, "2026_10_12.md");
+        create(
+            &ctx,
+            "op-prev-2",
+            "2026_10_12.md",
+            "10:01:00",
+            "- [ ] buy milk",
+            Some(first_doc),
+        );
+        let page = ctx
+            .session
+            .list_memos(&lomo_application::MemoQuery {
+                search_text: None,
+                filters: lomo_application::MemoFilters::default(),
+                sort: lomo_application::MemoSort::default(),
+            })
+            .expect("list memos");
+        assert_eq!(page.items.len(), 2);
+        let m1 = page
+            .items
+            .iter()
+            .find(|item| item.body_preview.contains("中文"))
+            .expect("first memo");
+        let m2 = page
+            .items
+            .iter()
+            .find(|item| item.body_preview.contains("buy milk"))
+            .expect("second memo");
+
+        assert!(
+            ctx.session
+                .render_memo_previews(&[], lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1)
+                .expect("empty batch")
+                .is_empty()
+        );
+        let schema_err = ctx
+            .session
+            .render_memo_previews(&[], 2)
+            .expect_err("unknown schema must fail closed");
+        assert_eq!(schema_err.code(), "unknown_render_schema");
+
+        let oversized: Vec<_> = (0..=lomo_application::MAX_PREVIEW_RENDER_BATCH_SIZE)
+            .map(|_| lomo_application::MemoPreviewRenderRequest {
+                memo_id: m1.memo_id.clone(),
+                expected_content_revision: m1.content_revision,
+            })
+            .collect();
+        let limit_err = ctx
+            .session
+            .render_memo_previews(&oversized, lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1)
+            .expect_err("oversized batch must fail closed");
+        assert_eq!(limit_err.code(), "preview_render_batch_too_large");
+
+        let blank_err = ctx
+            .session
+            .render_memo_previews(
+                &[lomo_application::MemoPreviewRenderRequest {
+                    memo_id: "   ".to_owned(),
+                    expected_content_revision: 1,
+                }],
+                lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1,
+            )
+            .expect_err("blank memo_id must fail closed");
+        assert_eq!(blank_err.code(), "invalid_memo_id");
+
+        let outcomes = ctx
+            .session
+            .render_memo_previews(
+                &[
+                    lomo_application::MemoPreviewRenderRequest {
+                        memo_id: m1.memo_id.clone(),
+                        expected_content_revision: m1.content_revision,
+                    },
+                    lomo_application::MemoPreviewRenderRequest {
+                        memo_id: "missing-preview".to_owned(),
+                        expected_content_revision: 1,
+                    },
+                    lomo_application::MemoPreviewRenderRequest {
+                        memo_id: m2.memo_id.clone(),
+                        expected_content_revision: m2.content_revision + 1,
+                    },
+                ],
+                lomo_workspace::RENDER_DOCUMENT_SCHEMA_V1,
+            )
+            .expect("mixed batch");
+        assert_eq!(outcomes.len(), 3);
+        match &outcomes[0] {
+            lomo_application::MemoPreviewRenderOutcome::Rendered {
+                memo_id,
+                content_revision,
+                source_byte_length,
+                document,
+            } => {
+                assert_eq!(memo_id, &m1.memo_id);
+                assert_eq!(*content_revision, m1.content_revision);
+                assert_eq!(*source_byte_length, m1.body_preview.len() as u64);
+                assert_eq!(document.tag_names(), &["notes".to_owned()]);
+            }
+            other => panic!("expected Rendered at index 0, got {other:?}"),
+        }
+        assert_eq!(
+            outcomes[1],
+            lomo_application::MemoPreviewRenderOutcome::NotFound {
+                memo_id: "missing-preview".to_owned(),
+            }
+        );
+        assert_eq!(
+            outcomes[2],
+            lomo_application::MemoPreviewRenderOutcome::RevisionMismatch {
+                memo_id: m2.memo_id.clone(),
+                actual_content_revision: m2.content_revision,
+            }
+        );
+    }
+
+    fn fs_read_doc(root: &std::path::Path, rel: &str) -> String {
+        let bytes = std::fs::read(root.join(rel)).expect("read doc");
+        lomo_workspace::SourceFingerprint::of_bytes(&bytes)
+            .as_str()
+            .to_owned()
+    }
 }

@@ -97,6 +97,12 @@ internal class FakeMarkdownWorkspaceRepository(
         memoIdentity: String,
         actionSpan: MarkdownSourceSpan,
     ): String = error("toggleTask is not expected in this fake")
+
+    override suspend fun loadMemoPreviews(
+        requests: List<com.lomo.domain.model.MemoPreviewRenderRequest>,
+    ): Map<String, MarkdownRenderDocument> = requests.associate { request ->
+        request.memoId to renderMarkdown(request.expectedBodyPreview)
+    }
 }
 
 internal fun fakeMarkdownWorkspaceContentProjector(

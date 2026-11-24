@@ -6,6 +6,7 @@ import com.lomo.data.engine.BoltFfiNativeEngineFactory
 import com.lomo.data.engine.CandidateOpenContext
 import com.lomo.data.engine.CapabilityRegistry
 import com.lomo.data.engine.ContentResolverPlatformDocumentsGateway
+import com.lomo.data.engine.DataMemoPreviewCache
 import com.lomo.data.engine.ExchangeResolver
 import com.lomo.data.engine.LeasedMarkdownWorkspace
 import com.lomo.data.engine.MAX_PARALLEL_READS
@@ -131,6 +132,7 @@ val engineModule =
         }
         single<EngineReadinessRepository> { get<ManagedEngineSession>() }
         single<SessionNativeBridge> { get<ManagedEngineSession>() }
+        single<DataMemoPreviewCache> { get<ManagedEngineSession>().previewCache }
         // Task mutations acquire the shared lease in this adapter. Reminder plans are read-only;
         // the coordinator holds that same lease across planning and the canonical store update.
         single {

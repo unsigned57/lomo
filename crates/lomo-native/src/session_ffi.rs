@@ -1034,6 +1034,79 @@ impl LomoEngine {
     pub fn session_recover_reminder_snooze(&self) -> Result<(), EngineError> {
         with_session(self, WorkspaceSession::recover_reminder_snooze)
     }
+
+    /// Renders bounded memo body previews from persisted projection rows in request order.
+    ///
+    /// # Errors
+    ///
+    /// Session, schema, batch-limit, memo-id validation, or Markdown render budget failures.
+    pub fn session_render_memo_previews(
+        &self,
+        items: Vec<SessionMemoPreviewRequest>,
+        schema_version: u32,
+    ) -> Result<Vec<SessionMemoPreviewOutcome>, EngineError> {
+        let requests: Vec<lomo_application::MemoPreviewRenderRequest> = items
+            .into_iter()
+            .map(|item| lomo_application::MemoPreviewRenderRequest {
+                memo_id: item.memo_id,
+                expected_content_revision: item.expected_content_revision,
+            })
+            .collect();
+        let outcomes = with_session(self, |session| {
+            session.render_memo_previews(&requests, schema_version)
+        })?;
+        outcomes
+            .into_iter()
+            .map(|outcome| match outcome {
+                lomo_application::MemoPreviewRenderOutcome::Rendered {
+                    memo_id,
+                    content_revision,
+                    source_byte_length,
+                    document,
+                } => Ok(SessionMemoPreviewOutcome::Rendered {
+                    memo_id,
+                    content_revision,
+                    source_byte_length,
+                    document: crate::render_document_to_ffi(&document)?,
+                }),
+                lomo_application::MemoPreviewRenderOutcome::RevisionMismatch {
+                    memo_id,
+                    actual_content_revision,
+                } => Ok(SessionMemoPreviewOutcome::RevisionMismatch {
+                    memo_id,
+                    actual_content_revision,
+                }),
+                lomo_application::MemoPreviewRenderOutcome::NotFound { memo_id } => {
+                    Ok(SessionMemoPreviewOutcome::NotFound { memo_id })
+                }
+            })
+            .collect()
+    }
+}
+
+#[data]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionMemoPreviewRequest {
+    pub memo_id: String,
+    pub expected_content_revision: u64,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub enum SessionMemoPreviewOutcome {
+    Rendered {
+        memo_id: String,
+        content_revision: u64,
+        source_byte_length: u64,
+        document: crate::RenderDocument,
+    },
+    RevisionMismatch {
+        memo_id: String,
+        actual_content_revision: u64,
+    },
+    NotFound {
+        memo_id: String,
+    },
 }
 
 /// Converts a platform-action DTO into the core batch the POSIX/SAF host executes.

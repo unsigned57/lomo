@@ -312,6 +312,15 @@ internal class BoltFfiNativeEnginePort(engine: LomoEngine) :
 
     override fun sessionRecoverReminderSnooze() = withReadLease { engine -> engine.sessionRecoverReminderSnooze() }
 
+    override fun sessionRenderMemoPreviews(
+        items: List<com.lomo.nativebridge.SessionMemoPreviewRequest>,
+        schemaVersion: UInt,
+    ): List<com.lomo.nativebridge.SessionMemoPreviewOutcome> = withReadLease { engine ->
+        withRenderFailureConversion {
+            engine.sessionRenderMemoPreviews(items, schemaVersion)
+        }
+    }
+
     override fun syncPrivateStateRoot(workspaceRoot: String): String =
         withReadLease { engine -> engine.syncPrivateStateRoot(workspaceRoot) }
 

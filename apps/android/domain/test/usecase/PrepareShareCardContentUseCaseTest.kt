@@ -121,6 +121,12 @@ private class FakeShareMarkdownRepository : MarkdownWorkspaceRepository {
         )
     }
 
+    override suspend fun loadMemoPreviews(
+        requests: List<com.lomo.domain.model.MemoPreviewRenderRequest>,
+    ): Map<String, MarkdownRenderDocument> = requests.associate { request ->
+        request.memoId to renderMarkdown(request.expectedBodyPreview)
+    }
+
     override suspend fun toggleTask(
         operationId: com.lomo.domain.model.MemoOperationId,
         memoIdentity: String,

@@ -28,6 +28,8 @@ internal class SessionSearchPagingSource(
     private val queryEpoch: ULong,
     private val text: String,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    private val previewPrefetcher: (suspend (List<Memo>) -> List<Memo>)? = null,
+    private val isEpochCurrent: () -> Boolean = { true },
     registerInvalidation: ((PagingSource<*, *>) -> Unit)? = null,
 ) : PagingSource<String, Memo>() {
     init {
@@ -68,16 +70,21 @@ internal class SessionSearchPagingSource(
                     is SessionSearchOutcome.Discarded -> LoadResult.Invalid()
 
                     is SessionSearchOutcome.Ready -> {
-                        val memos =
+                        val rawMemos =
                             outcome.page.items.map { hit ->
                                 val summary = hit.summary.toStoreSummary()
                                 summary.toDomainMemo(summary.bodyPreview, com.lomo.domain.model.MemoContentKind.Preview)
                             }
-                        LoadResult.Page(
-                            data = memos,
-                            prevKey = null,
-                            nextKey = outcome.page.nextCursor?.encoded,
-                        )
+                        val memos = previewPrefetcher?.invoke(rawMemos) ?: rawMemos
+                        if (!isEpochCurrent()) {
+                            LoadResult.Invalid()
+                        } else {
+                            LoadResult.Page(
+                                data = memos,
+                                prevKey = null,
+                                nextKey = outcome.page.nextCursor?.encoded,
+                            )
+                        }
                     }
                 }
             } catch (error: Exception) {

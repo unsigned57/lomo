@@ -22,7 +22,10 @@ internal fun com.lomo.nativebridge.MediaClass.toDomainMediaClass(): MediaClass =
     com.lomo.nativebridge.MediaClass.FILE -> MediaClass.FILE
 }
 
-internal fun RenderDocument.toDomainDocument(sourceContent: String): MarkdownRenderDocument {
+internal fun RenderDocument.toDomainDocument(sourceContent: String): MarkdownRenderDocument =
+    toDomainDocument(sourceByteLength = sourceContent.encodeToByteArray().size.toULong())
+
+internal fun RenderDocument.toDomainDocument(sourceByteLength: ULong): MarkdownRenderDocument {
     requireRenderBoundary(schemaVersion == MarkdownRenderDocument.SCHEMA_VERSION, "unknown_render_schema") {
         "render schema must be v1"
     }
@@ -35,7 +38,6 @@ internal fun RenderDocument.toDomainDocument(sourceContent: String): MarkdownRen
     requireRenderBoundary(nodeCount == nodes.size.toUInt(), "render_node_count_mismatch") {
         "declared node count does not match typed node payload"
     }
-    val sourceLength = sourceContent.encodeToByteArray().size.toULong()
     validateRenderString(plainText)
     tagNames.forEach(::validateRenderString)
     attachments.forEach { attachment -> validateRenderString(attachment.destination) }
@@ -46,10 +48,10 @@ internal fun RenderDocument.toDomainDocument(sourceContent: String): MarkdownRen
                 mediaClass = attachment.mediaClass.toDomainMediaClass(),
             )
         }
-    val blocks = nodes.toRenderTrees(sourceLength).map(RenderTree::toBlock)
+    val blocks = nodes.toRenderTrees(sourceByteLength).map(RenderTree::toBlock)
     val document =
         MarkdownRenderDocument(
-            sourceByteLength = sourceLength,
+            sourceByteLength = sourceByteLength,
             plainText = plainText,
             tagNames = tagNames,
             attachments = domainAttachments,

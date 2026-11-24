@@ -58,6 +58,14 @@ internal abstract class ManagedEngineCapabilities :
     override fun renderMarkdown(content: String) =
         renderMarkdown(content = content, schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION)
 
+    override suspend fun loadMemoPreviews(
+        requests: List<com.lomo.domain.model.MemoPreviewRenderRequest>,
+    ): Map<String, MarkdownRenderDocument> = fetchUncachedMemoPreviews(
+        session = this,
+        ioDispatcher = engineDispatcher,
+        requests = requests,
+    )
+
     override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> = withProjectionAdapter { adapter ->
         adapter
             .requireMemoSnapshot(memoIdentity)
@@ -321,6 +329,13 @@ internal abstract class ManagedEngineCapabilities :
 
     override fun sessionRecoverReminderSnooze() =
         withActiveWorkspaceAdapter { adapter -> adapter.sessionRecoverReminderSnooze() }
+
+    override fun sessionRenderMemoPreviews(
+        items: List<com.lomo.nativebridge.SessionMemoPreviewRequest>,
+        schemaVersion: UInt,
+    ): List<com.lomo.nativebridge.SessionMemoPreviewOutcome> = withProjectionAdapter { adapter ->
+        adapter.sessionRenderMemoPreviews(items, schemaVersion)
+    }
 
     override fun syncPrivateStateRoot(workspaceRoot: String): String =
         withActiveWorkspaceAdapter { adapter -> adapter.syncPrivateStateRoot(workspaceRoot) }

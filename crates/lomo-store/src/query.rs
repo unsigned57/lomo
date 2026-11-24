@@ -1361,6 +1361,75 @@ pub fn get_projected_memos(
     Ok(snapshots)
 }
 
+/// Minimal preview-render source row for batched preview rendering (no full body, no tags/images).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoPreviewSource {
+    pub memo_id: String,
+    pub content_revision: u64,
+    pub body_preview: String,
+}
+
+/// Reads `(memo_id, content_revision, body_preview)` for the requested memo ids in bounded statements.
+///
+/// # Errors
+///
+/// Returns `SQLite` storage failures or `invalid_content_revision` corruption if a stored revision
+/// is negative.
+pub fn get_memo_preview_sources(
+    connection: &Connection,
+    memo_ids: &[String],
+) -> Result<BTreeMap<String, MemoPreviewSource>, lomo_core::LomoError> {
+    let unique_ids: Vec<String> = memo_ids
+        .iter()
+        .filter(|id| !id.trim().is_empty())
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    if unique_ids.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let mut sources = BTreeMap::new();
+    for chunk in unique_ids.chunks(MAX_BOUND_MEMO_IDS) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let bindings = chunk
+            .iter()
+            .map(|id| Value::Text(id.clone()))
+            .collect::<Vec<_>>();
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT memo_id, content_revision, body_preview \
+                 FROM memo WHERE memo_id IN ({placeholders})"
+            ))
+            .map_err(|err| from_sqlite(&err))?;
+        let mut rows = statement
+            .query(params_from_iter(bindings.iter()))
+            .map_err(|err| from_sqlite(&err))?;
+        while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
+            let memo_id: String = row.get(0).map_err(|err| from_sqlite(&err))?;
+            let raw_revision: i64 = row.get(1).map_err(|err| from_sqlite(&err))?;
+            let content_revision = u64::try_from(raw_revision).map_err(|_overflow| {
+                corruption(
+                    "invalid_content_revision",
+                    "content_revision must be non-negative",
+                )
+            })?;
+            let body_preview: String = row.get(2).map_err(|err| from_sqlite(&err))?;
+            sources.insert(
+                memo_id.clone(),
+                MemoPreviewSource {
+                    memo_id,
+                    content_revision,
+                    body_preview,
+                },
+            );
+        }
+    }
+    Ok(sources)
+}
+
 /// Reads the one canonical fingerprint shared by every memo projected from a source document.
 ///
 /// # Errors

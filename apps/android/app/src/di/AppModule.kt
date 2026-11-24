@@ -112,9 +112,11 @@ val appModule = module {
     single { MainVersionHistoryCoordinator(get(), get()) }
     single { MainWorkspaceCoordinator(get(), get(), get()) }
     single {
+        val readiness = get<com.lomo.domain.repository.EngineReadinessRepository>()
         MemoUiMapper(
             dispatcherProvider = get(),
             markdownWorkspaceRepository = get(),
+            workspaceAuthorityProvider = { readiness.workspaceAuthority.value },
         )
     }
     factory {

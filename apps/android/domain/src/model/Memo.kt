@@ -14,6 +14,23 @@ enum class MemoContentKind {
     Preview,
 }
 
+/** Whether a memo row already carries owner-rendered Markdown IR or still needs on-demand render. */
+sealed interface MemoPreviewRenderState {
+    data object OnDemand : MemoPreviewRenderState
+
+    data class Ready(val document: com.lomo.domain.model.markdown.MarkdownRenderDocument) :
+        MemoPreviewRenderState
+}
+
+/** Request item for batched memo-preview IR loading. */
+data class MemoPreviewRenderRequest(
+    val memoId: String,
+    val contentRevision: Long,
+    val expectedBodyPreview: String,
+    val contentKind: MemoContentKind = MemoContentKind.Preview,
+    val schemaVersion: UInt = com.lomo.domain.model.markdown.MarkdownRenderDocument.SCHEMA_VERSION,
+)
+
 data class Memo(
     val id: String, // Unique ID (e.g. timestamp hash or UUID)
     val timestamp: Long,
@@ -44,6 +61,8 @@ data class Memo(
      * projection (tests and non-store surfaces).
      */
     val projectedCharCount: Long? = null,
+    /** Preloaded owner-rendered IR for bounded previews, or [MemoPreviewRenderState.OnDemand]. */
+    val previewRenderState: MemoPreviewRenderState = MemoPreviewRenderState.OnDemand,
 ) {
     /**
      * Domain-facing alias for raw source text persisted for this memo.

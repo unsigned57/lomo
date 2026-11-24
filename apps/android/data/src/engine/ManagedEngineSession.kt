@@ -93,6 +93,7 @@ internal class ManagedEngineSession(
     private val adapterLease = ReentrantReadWriteLock()
     private val _mount = MutableStateFlow(WorkspaceMount.Opening)
     private val activationGeneration = AtomicLong(0)
+    internal val previewCache: DataMemoPreviewCache = DataMemoPreviewCache(session = this, readiness = this)
     private val candidatePreparer =
         WorkspaceCandidatePreparer(
             filesDir = candidateOpen.filesDir,
@@ -157,6 +158,10 @@ internal class ManagedEngineSession(
         ProjectedStateFlow(_mount, WorkspaceMount::authority)
     override val projectionFreshness: StateFlow<ProjectionFreshness> =
         ProjectedStateFlow(_mount, WorkspaceMount::freshness)
+
+    override suspend fun loadMemoPreviews(
+        requests: List<com.lomo.domain.model.MemoPreviewRenderRequest>,
+    ): Map<String, com.lomo.domain.model.markdown.MarkdownRenderDocument> = previewCache.loadPreviews(requests)
 
     private fun publishMount(mount: WorkspaceMount) {
         _mount.value = mount
