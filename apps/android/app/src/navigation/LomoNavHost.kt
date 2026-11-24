@@ -16,7 +16,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.toRoute
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
-import com.lomo.app.PendingWidgetNavigationRequest
+import com.lomo.app.LaunchNavigationTarget
+import com.lomo.app.PendingLaunchNavigationRequest
 import com.lomo.app.WidgetDestination
 import com.lomo.app.feature.gallery.GalleryReelMode
 import com.lomo.app.feature.gallery.GalleryReelRequest
@@ -44,6 +45,39 @@ import java.nio.charset.StandardCharsets
 
 private const val MAIN_ROUTE_NAME = NavRouteSerialNames.MAIN
 
+internal sealed interface LaunchNavigationStep {
+    data object WaitForGraph : LaunchNavigationStep
+
+    data object AlreadyOnTarget : LaunchNavigationStep
+
+    data object ReturnToMain : LaunchNavigationStep
+
+    data class Navigate(val route: NavRoute) : LaunchNavigationStep
+}
+
+internal fun resolveLaunchNavigationStep(target: LaunchNavigationTarget, currentRoute: String?): LaunchNavigationStep {
+    if (currentRoute == null) {
+        return LaunchNavigationStep.WaitForGraph
+    }
+    return when (target) {
+        LaunchNavigationTarget.Main ->
+            if (currentRoute == NavRouteSerialNames.MAIN) {
+                LaunchNavigationStep.AlreadyOnTarget
+            } else {
+                LaunchNavigationStep.ReturnToMain
+            }
+
+        is LaunchNavigationTarget.Widget ->
+            LaunchNavigationStep.Navigate(
+                when (target.destination) {
+                    WidgetDestination.SEARCH -> NavRoute.Search
+                    WidgetDestination.DAILY_REVIEW -> NavRoute.DailyReview
+                    WidgetDestination.STATISTICS -> NavRoute.Statistics
+                },
+            )
+    }
+}
+
 /**
  * Main navigation host for the Memos app.
  * Extracted from MainActivity to improve maintainability.
@@ -53,12 +87,14 @@ internal fun LomoNavHost(
     navController: NavHostController,
     foregroundEntryId: Long = 0L,
     suppressForegroundAutoInput: Boolean = false,
-    pendingWidgetNavigation: PendingWidgetNavigationRequest? = null,
-    onConsumeWidgetNavigation: (Long) -> Unit = {},
+    pendingLaunchNavigation: PendingLaunchNavigationRequest? = null,
+    onConsumeLaunchNavigation: (Long) -> Unit = {},
 ) {
     val lanShareAvailabilityViewModel: LanShareAvailabilityViewModel = activityKoinViewModel()
     val lanShareEnabled by lanShareAvailabilityViewModel.lanShareEnabled.collectAsStateWithLifecycle()
     var mainForegroundEntryId by remember { mutableLongStateOf(0L) }
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.run { destination.route }
     val popBackStackSafely = rememberBackNavigationAction(navController = navController)
     val navigateToShare =
         rememberShareNavigationAction(
@@ -68,24 +104,34 @@ internal fun LomoNavHost(
     val navigateToImage = rememberImageNavigationAction(navController = navController)
 
     ForegroundMainEntryObserver(
-        navController = navController,
+        currentRoute = currentRoute,
         foregroundEntryId = foregroundEntryId,
         suppressForegroundAutoInput = suppressForegroundAutoInput,
         onResolvedMainForegroundEntryId = { resolved -> mainForegroundEntryId = resolved },
     )
 
-    LaunchedEffect(pendingWidgetNavigation) {
-        val request = pendingWidgetNavigation ?: return@LaunchedEffect
-        val route =
-            when (request.destination) {
-                WidgetDestination.SEARCH -> NavRoute.Search
-                WidgetDestination.DAILY_REVIEW -> NavRoute.DailyReview
-                WidgetDestination.STATISTICS -> NavRoute.Statistics
+    LaunchedEffect(pendingLaunchNavigation, currentRoute) {
+        val request = pendingLaunchNavigation ?: return@LaunchedEffect
+        when (val step = resolveLaunchNavigationStep(target = request.target, currentRoute = currentRoute)) {
+            LaunchNavigationStep.WaitForGraph -> return@LaunchedEffect
+
+            LaunchNavigationStep.AlreadyOnTarget -> Unit
+
+            LaunchNavigationStep.ReturnToMain -> {
+                if (!navController.popBackStack(NavRoute.Main, inclusive = false)) {
+                    navController.navigate(NavRoute.Main) {
+                        launchSingleTop = true
+                    }
+                }
             }
-        navController.navigate(route) {
-            launchSingleTop = true
+
+            is LaunchNavigationStep.Navigate -> {
+                navController.navigate(step.route) {
+                    launchSingleTop = true
+                }
+            }
         }
-        onConsumeWidgetNavigation(request.id)
+        onConsumeLaunchNavigation(request.id)
     }
 
     LomoNavigationGraph(
@@ -100,13 +146,11 @@ internal fun LomoNavHost(
 
 @Composable
 private fun ForegroundMainEntryObserver(
-    navController: NavHostController,
+    currentRoute: String?,
     foregroundEntryId: Long,
     suppressForegroundAutoInput: Boolean,
     onResolvedMainForegroundEntryId: (Long) -> Unit,
 ) {
-    val currentBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = currentBackStackEntry?.run { destination.route }
     var evaluatedForegroundEntryId by remember { mutableLongStateOf(0L) }
     var mainForegroundEntryId by remember { mutableLongStateOf(0L) }
 

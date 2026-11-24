@@ -20,7 +20,13 @@ enum class WidgetDestination {
     STATISTICS,
 }
 
-internal data class PendingWidgetNavigationRequest(val id: Long, val destination: WidgetDestination)
+internal sealed interface LaunchNavigationTarget {
+    data object Main : LaunchNavigationTarget
+
+    data class Widget(val destination: WidgetDestination) : LaunchNavigationTarget
+}
+
+internal data class PendingLaunchNavigationRequest(val id: Long, val target: LaunchNavigationTarget)
 
 internal sealed interface PendingLaunchAction {
     data class SharedText(val text: String) : PendingLaunchAction

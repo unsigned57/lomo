@@ -25,13 +25,15 @@ internal fun shouldProcessInitialLaunchIntent(activityInstanceState: ActivityIns
     activityInstanceState == ActivityInstanceState.Fresh
 
 internal fun extractPendingLaunchActions(intent: Intent?): List<PendingLaunchAction> {
-    if (intent == null) {
+    if (intent == null || (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) {
         return emptyList()
     }
     return when (intent.action) {
         Intent.ACTION_SEND,
         Intent.ACTION_SEND_MULTIPLE,
         -> extractShareLaunchActions(intent)
+
+        Intent.ACTION_PROCESS_TEXT -> extractProcessTextLaunchActions(intent)
 
         MainActivity.ACTION_OPEN_MEMO ->
             intent.getStringExtra(RecordingDeepLink.EXTRA_MEMO_ID)
@@ -58,6 +60,21 @@ internal fun extractPendingLaunchActions(intent: Intent?): List<PendingLaunchAct
                 .orEmpty()
 
         else -> emptyList()
+    }
+}
+
+private fun extractProcessTextLaunchActions(intent: Intent): List<PendingLaunchAction> {
+    val type = intent.type
+    if (type != null && !type.startsWith("text/")) {
+        return emptyList()
+    }
+    val text =
+        intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+            ?: return emptyList()
+    return if (text.isNotBlank()) {
+        listOf(PendingLaunchAction.SharedText(text))
+    } else {
+        emptyList()
     }
 }
 

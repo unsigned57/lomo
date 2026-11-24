@@ -36,8 +36,8 @@ import com.lomo.app.feature.memo.MemoMenuLanShareRequest
 import com.lomo.app.feature.memo.MemoMenuPresentationState
 import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.app.feature.memo.appendImageMarkdown
-import com.lomo.app.feature.memo.appendMarkdownBlock
 import com.lomo.app.feature.memo.captureMarkdownInsertion
+import com.lomo.app.feature.memo.receiveExternalText
 import com.lomo.app.feature.memo.rememberFullMemoEditorOpener
 import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
 import com.lomo.app.util.activityKoinViewModel
@@ -552,6 +552,16 @@ private fun MainScreenEventEffectsSurface(
             }
         }
 
+    val onReceiveSharedText: (String) -> Unit =
+        remember(editorController, editorBindings) {
+            { text ->
+                editorController.receiveExternalText(
+                    text = text,
+                    createDraftText = editorBindings.flows.draftText.value,
+                )
+            }
+        }
+
     MainScreenEventEffectsHost(
         sharedContentEvents = remember(sharedContentEvents) { sharedContentEvents.toImmutableList() },
         appActionEvents = remember(appActionEvents) { appActionEvents.toImmutableList() },
@@ -563,7 +573,7 @@ private fun MainScreenEventEffectsSurface(
         snackbarHostState = snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
         memoNotFoundMessage = memoNotFoundMessage,
-        onAppendMarkdown = editorController::appendMarkdownBlock,
+        onReceiveSharedText = onReceiveSharedText,
         onAppendImageMarkdown = editorController::appendImageMarkdown,
         onEnsureEditorVisible = editorController::ensureVisible,
         onOpenEditMemo = openFullMemoEditor,

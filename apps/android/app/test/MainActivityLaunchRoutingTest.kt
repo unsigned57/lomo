@@ -548,15 +548,97 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 ),
             ) shouldBe EntryFlowState.Ready(command = command)
         }
+
+        test("extractPendingLaunchActions parses process text intent with plain string extra") {
+            val intent =
+                TestIntent(
+                    actionValue = Intent.ACTION_PROCESS_TEXT,
+                    typeValue = "text/plain",
+                    stringExtras = mapOf(Intent.EXTRA_PROCESS_TEXT to "selected phrase"),
+                )
+
+            extractPendingLaunchActions(intent) shouldBe
+                listOf(PendingLaunchAction.SharedText("selected phrase"))
+        }
+
+        test("extractPendingLaunchActions parses process text intent with styled CharSequence extra") {
+            val intent =
+                TestIntent(
+                    actionValue = Intent.ACTION_PROCESS_TEXT,
+                    typeValue = "text/plain",
+                    charSequenceExtras = mapOf(Intent.EXTRA_PROCESS_TEXT to StringBuilder("selected quote")),
+                )
+
+            extractPendingLaunchActions(intent) shouldBe
+                listOf(PendingLaunchAction.SharedText("selected quote"))
+        }
+
+        test("extractPendingLaunchActions ignores process text intent with missing or blank extra") {
+            listOf(
+                TestIntent(actionValue = Intent.ACTION_PROCESS_TEXT, typeValue = "text/plain"),
+                TestIntent(
+                    actionValue = Intent.ACTION_PROCESS_TEXT,
+                    typeValue = "text/plain",
+                    charSequenceExtras = mapOf(Intent.EXTRA_PROCESS_TEXT to ""),
+                ),
+                TestIntent(
+                    actionValue = Intent.ACTION_PROCESS_TEXT,
+                    typeValue = "text/plain",
+                    charSequenceExtras = mapOf(Intent.EXTRA_PROCESS_TEXT to "   \n\t  "),
+                ),
+            ).forEach { intent ->
+                extractPendingLaunchActions(intent) shouldBe emptyList()
+            }
+        }
+
+        test("extractPendingLaunchActions ignores process text intent with non-text MIME type") {
+            val intent =
+                TestIntent(
+                    actionValue = Intent.ACTION_PROCESS_TEXT,
+                    typeValue = "image/png",
+                    charSequenceExtras = mapOf(Intent.EXTRA_PROCESS_TEXT to "ignored"),
+                )
+
+            extractPendingLaunchActions(intent) shouldBe emptyList()
+        }
+
+        test("extractPendingLaunchActions and fresh initial extraction ignore history-replayed intents") {
+            val processTextHistoryIntent =
+                TestIntent(
+                    actionValue = Intent.ACTION_PROCESS_TEXT,
+                    typeValue = "text/plain",
+                    charSequenceExtras = mapOf(Intent.EXTRA_PROCESS_TEXT to "stale selection"),
+                ).addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)
+            val sendHistoryIntent =
+                TestIntent(
+                    actionValue = Intent.ACTION_SEND,
+                    typeValue = "text/plain",
+                    stringExtras = mapOf(Intent.EXTRA_TEXT to "stale share"),
+                ).addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)
+
+            listOf(processTextHistoryIntent, sendHistoryIntent).forEach { historyIntent ->
+                extractPendingLaunchActions(historyIntent) shouldBe emptyList()
+                extractInitialPendingLaunchActions(
+                    activityInstanceState = ActivityInstanceState.Fresh,
+                    intent = historyIntent,
+                ) shouldBe emptyList()
+            }
+        }
     }
 }
 
-private class TestIntent(private val actionValue: String, private val stringExtras: Map<String, String> = emptyMap()) :
-    Intent() {
+private class TestIntent(
+    private val actionValue: String,
+    private val stringExtras: Map<String, String> = emptyMap(),
+    private val typeValue: String? = null,
+    private val charSequenceExtras: Map<String, CharSequence> = emptyMap(),
+) : Intent() {
     private val mutableStringExtras = stringExtras.toMutableMap()
     private var mutableFlags: Int = 0
 
     override fun getAction(): String = actionValue
+
+    override fun getType(): String? = typeValue
 
     override fun getFlags(): Int = mutableFlags
 
@@ -566,6 +648,9 @@ private class TestIntent(private val actionValue: String, private val stringExtr
     }
 
     override fun getStringExtra(name: String): String? = mutableStringExtras[name]
+
+    override fun getCharSequenceExtra(name: String): CharSequence? =
+        charSequenceExtras[name] ?: mutableStringExtras[name]
 
     override fun putExtra(name: String, value: String?): Intent {
         if (value == null) {

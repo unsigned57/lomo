@@ -55,5 +55,38 @@ class AndroidPlatformManifestTest : AppFunSpec() {
             recording.android("foregroundServiceType") shouldBe "microphone"
             recording.android("exported") shouldBe "false"
         }
+
+        test("given the packaging manifest when parsed then MainActivity registers process text toolbar support") {
+            val root = generateSequence(File(checkNotNull(System.getProperty("user.dir")))) { it.parentFile }
+                .first { it.resolve("apps/android/app/src/AndroidManifest.xml").isFile }
+            val document = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(root.resolve("apps/android/app/src/AndroidManifest.xml"))
+            fun Element.android(attribute: String) =
+                getAttributeNS("http://schemas.android.com/apk/res/android", attribute)
+            fun Element.childElements(tag: String): List<Element> = (0 until childNodes.length)
+                .mapNotNull { index -> childNodes.item(index) as? Element }
+                .filter { it.tagName == tag }
+
+            val activities = document.getElementsByTagName("activity")
+            val mainActivity =
+                (0 until activities.length)
+                    .map { activities.item(it) as Element }
+                    .single { it.android("name") == ".MainActivity" }
+
+            val processTextFilters =
+                mainActivity.childElements("intent-filter").filter { filter ->
+                    filter.childElements("action").any { it.android("name") == "android.intent.action.PROCESS_TEXT" }
+                }
+
+            processTextFilters.size shouldBe 1
+            val filter = processTextFilters.single()
+            filter.android("label") shouldBe "@string/app_name"
+            filter.childElements("category").map { it.android("name") }.shouldContainAll(
+                "android.intent.category.DEFAULT",
+            )
+            filter.childElements("data").map { it.android("mimeType") }.shouldContainAll(
+                "text/plain",
+            )
+        }
     }
 }

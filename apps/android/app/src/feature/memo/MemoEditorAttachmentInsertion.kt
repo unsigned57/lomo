@@ -2,9 +2,34 @@ package com.lomo.app.feature.memo
 
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import com.lomo.ui.component.input.InputEditorDisplayMode
 
 fun MemoEditorController.appendMarkdownBlock(markdown: String) {
     updateInputValue(buildMarkdownBlockInsertionValue(inputValue, markdown))
+}
+
+/**
+ * Places incoming external text (from Android share or text-selection process-text) into the
+ * memo editor and makes the editor visible for editing.
+ *
+ * When closed, opens a create session seeded with [createDraftText] before inserting so an
+ * existing unsaved draft is preserved instead of overwritten by autosave. When already open,
+ * keeps the active create/edit session and inserts at the current cursor.
+ */
+internal fun MemoEditorController.receiveExternalText(text: String, createDraftText: String) {
+    if (!isVisible) {
+        openForCreate(createDraftText)
+        appendMarkdownBlock(text)
+        return
+    }
+    val wasPreview = displayMode == InputEditorDisplayMode.Preview
+    if (wasPreview) {
+        updateDisplayMode(InputEditorDisplayMode.Edit)
+    }
+    appendMarkdownBlock(text)
+    if (!wasPreview) {
+        ensureVisible()
+    }
 }
 
 /** Capture before stopping the recorder: restoring the editor can move its IME selection. */

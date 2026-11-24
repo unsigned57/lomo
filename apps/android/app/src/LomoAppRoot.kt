@@ -39,8 +39,8 @@ internal fun LomoAppRoot(
     modifier: Modifier = Modifier,
     foregroundEntryId: Long = 0L,
     suppressForegroundAutoInput: Boolean = false,
-    pendingWidgetNavigation: PendingWidgetNavigationRequest? = null,
-    onConsumeWidgetNavigation: (Long) -> Unit = {},
+    pendingLaunchNavigation: PendingLaunchNavigationRequest? = null,
+    onConsumeLaunchNavigation: (Long) -> Unit = {},
     appUpdateViewModel: AppUpdateViewModel = injectedKoinViewModel(),
 ) {
     val updateDialogState by appUpdateViewModel.dialogState.collectAsStateWithLifecycle()
@@ -83,8 +83,8 @@ internal fun LomoAppRoot(
                 navController = rememberNavController(),
                 foregroundEntryId = foregroundEntryId,
                 suppressForegroundAutoInput = suppressForegroundAutoInput,
-                pendingWidgetNavigation = pendingWidgetNavigation,
-                onConsumeWidgetNavigation = onConsumeWidgetNavigation,
+                pendingLaunchNavigation = pendingLaunchNavigation,
+                onConsumeLaunchNavigation = onConsumeLaunchNavigation,
             )
             pendingPairing?.let { pairing ->
                 LanPairingConfirmationDialog(

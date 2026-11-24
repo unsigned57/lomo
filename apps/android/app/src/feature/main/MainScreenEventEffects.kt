@@ -20,7 +20,7 @@ internal fun MainScreenEventEffectsHost(
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
     memoNotFoundMessage: String,
-    onAppendMarkdown: (String) -> Unit,
+    onReceiveSharedText: (String) -> Unit,
     onAppendImageMarkdown: (String) -> Unit,
     onEnsureEditorVisible: () -> Unit,
     /** Opens the verified full-snapshot editor for this identity — never a row's carried body. */
@@ -40,10 +40,7 @@ internal fun MainScreenEventEffectsHost(
 ) {
     HandleSharedContentEvents(
         events = sharedContentEvents,
-        onAppendText = { markdown ->
-            onAppendMarkdown(markdown)
-            onEnsureEditorVisible()
-        },
+        onAppendText = onReceiveSharedText,
         onConsume = onConsumeSharedContentEvent,
     )
 

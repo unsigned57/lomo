@@ -220,11 +220,11 @@ private fun MainActivityScreen(
             onRefreshSession = onRefreshSession,
         )
     val foregroundEntryId = rememberActivityForegroundEntryId()
-    var nextWidgetNavigationId by androidx.compose.runtime.remember {
+    var nextLaunchNavigationId by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableLongStateOf(0L)
     }
-    var pendingWidgetNavigation by androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf<PendingWidgetNavigationRequest?>(null)
+    var pendingLaunchNavigation by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<PendingLaunchNavigationRequest?>(null)
     }
     ApplyRecentsObscure(obscure = session.obscuresRecents())
 
@@ -235,14 +235,14 @@ private fun MainActivityScreen(
         foregroundEntryId = foregroundEntryId,
         pendingLaunchCommands = pendingLaunchCommands,
         onPendingLaunchCommandConsumed = onPendingLaunchCommandConsumed,
-        pendingWidgetNavigation = pendingWidgetNavigation,
-        onOpenWidgetDestination = { destination ->
-            nextWidgetNavigationId += 1L
-            pendingWidgetNavigation = PendingWidgetNavigationRequest(nextWidgetNavigationId, destination)
+        pendingLaunchNavigation = pendingLaunchNavigation,
+        onRequestLaunchNavigation = { target ->
+            nextLaunchNavigationId += 1L
+            pendingLaunchNavigation = PendingLaunchNavigationRequest(nextLaunchNavigationId, target)
         },
-        onConsumeWidgetNavigation = { requestId ->
-            if (pendingWidgetNavigation?.id == requestId) {
-                pendingWidgetNavigation = null
+        onConsumeLaunchNavigation = { requestId ->
+            if (pendingLaunchNavigation?.id == requestId) {
+                pendingLaunchNavigation = null
             }
         },
         audioPlayerController = audioPlayerController,
@@ -282,9 +282,9 @@ private fun MainActivityRoot(
     foregroundEntryId: Long,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandConsumed: (Long) -> Unit,
-    pendingWidgetNavigation: PendingWidgetNavigationRequest?,
-    onOpenWidgetDestination: (WidgetDestination) -> Unit,
-    onConsumeWidgetNavigation: (Long) -> Unit,
+    pendingLaunchNavigation: PendingLaunchNavigationRequest?,
+    onRequestLaunchNavigation: (LaunchNavigationTarget) -> Unit,
+    onConsumeLaunchNavigation: (Long) -> Unit,
     audioPlayerController: AudioPlayerController,
     shareServiceManager: LanShareService,
     currentUiMode: Int,
@@ -317,7 +317,7 @@ private fun MainActivityRoot(
                 session = session,
                 pendingLaunchCommands = pendingLaunchCommands,
                 onPendingLaunchCommandConsumed = onPendingLaunchCommandConsumed,
-                onOpenWidgetDestination = onOpenWidgetDestination,
+                onRequestLaunchNavigation = onRequestLaunchNavigation,
             )
             val motionScheme = com.lomo.ui.theme.LocalLomoMotion.current.layout
             AnimatedContent(
@@ -343,8 +343,8 @@ private fun MainActivityRoot(
                     UnlockedAppRoot(
                         foregroundEntryId = foregroundEntryId,
                         pendingLaunchCommands = pendingLaunchCommands,
-                        pendingWidgetNavigation = pendingWidgetNavigation,
-                        onConsumeWidgetNavigation = onConsumeWidgetNavigation,
+                        pendingLaunchNavigation = pendingLaunchNavigation,
+                        onConsumeLaunchNavigation = onConsumeLaunchNavigation,
                         audioPlayerController = audioPlayerController,
                         shareServiceManager = shareServiceManager,
                     )
@@ -358,8 +358,8 @@ private fun MainActivityRoot(
 private fun UnlockedAppRoot(
     foregroundEntryId: Long,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
-    pendingWidgetNavigation: PendingWidgetNavigationRequest?,
-    onConsumeWidgetNavigation: (Long) -> Unit,
+    pendingLaunchNavigation: PendingLaunchNavigationRequest?,
+    onConsumeLaunchNavigation: (Long) -> Unit,
     audioPlayerController: AudioPlayerController,
     shareServiceManager: LanShareService,
 ) {
@@ -373,9 +373,9 @@ private fun UnlockedAppRoot(
             shareServiceManager = shareServiceManager,
             foregroundEntryId = foregroundEntryId,
             suppressForegroundAutoInput =
-            pendingLaunchCommands.isNotEmpty() || pendingWidgetNavigation != null,
-            pendingWidgetNavigation = pendingWidgetNavigation,
-            onConsumeWidgetNavigation = onConsumeWidgetNavigation,
+            pendingLaunchCommands.isNotEmpty() || pendingLaunchNavigation != null,
+            pendingLaunchNavigation = pendingLaunchNavigation,
+            onConsumeLaunchNavigation = onConsumeLaunchNavigation,
         )
     }
 }
@@ -385,7 +385,7 @@ private fun DispatchPendingLaunchCommands(
     session: SecuritySessionState,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandConsumed: (Long) -> Unit,
-    onOpenWidgetDestination: (WidgetDestination) -> Unit,
+    onRequestLaunchNavigation: (LaunchNavigationTarget) -> Unit,
     viewModel: MainViewModel = activityKoinViewModel(),
 ) {
     if (pendingLaunchCommands.isEmpty()) {
@@ -412,10 +412,23 @@ private fun DispatchPendingLaunchCommands(
                     readiness = readiness,
                 ) { action ->
                     when (action) {
-                        is PendingLaunchAction.SharedText -> viewModel.handleSharedText(action.text)
-                        is PendingLaunchAction.SharedImage -> viewModel.handleSharedImage(action.uri)
-                        is PendingLaunchAction.OpenMemo -> viewModel.requestOpenMemo(action.memoId)
-                        is PendingLaunchAction.OpenDestination -> onOpenWidgetDestination(action.destination)
+                        is PendingLaunchAction.SharedText -> {
+                            viewModel.handleSharedText(action.text)
+                            onRequestLaunchNavigation(LaunchNavigationTarget.Main)
+                        }
+
+                        is PendingLaunchAction.SharedImage -> {
+                            viewModel.handleSharedImage(action.uri)
+                            onRequestLaunchNavigation(LaunchNavigationTarget.Main)
+                        }
+
+                        is PendingLaunchAction.OpenMemo -> {
+                            viewModel.requestOpenMemo(action.memoId)
+                            onRequestLaunchNavigation(LaunchNavigationTarget.Main)
+                        }
+
+                        is PendingLaunchAction.OpenDestination ->
+                            onRequestLaunchNavigation(LaunchNavigationTarget.Widget(action.destination))
                     }
                 }
             if (dispatched) {

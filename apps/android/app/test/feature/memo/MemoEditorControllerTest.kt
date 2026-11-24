@@ -40,6 +40,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.verifiedEditSession
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.input.InputEditorDisplayMode
 import io.kotest.matchers.shouldBe
 class MemoEditorControllerTest : AppFunSpec() {
     init {
@@ -288,6 +289,95 @@ class MemoEditorControllerTest : AppFunSpec() {
             controller.isVisible shouldBe false
             controller.inputValue.text shouldBe ""
             controller.submission.status shouldBe MemoEditorSubmissionStatus.Idle
+        }
+
+        test(
+            "given closed editor and empty draft when receiving external text then opens with text and requests focus",
+        ) {
+            val controller = MemoEditorController()
+            val initialFocusToken = controller.focusRequestToken
+
+            controller.receiveExternalText(text = "selected snippet", createDraftText = "")
+
+            controller.isVisible shouldBe true
+            controller.editingMemo shouldBe null
+            controller.inputValue.text shouldBe "selected snippet"
+            controller.inputValue.selection shouldBe TextRange("selected snippet".length)
+            controller.focusRequestToken shouldBe initialFocusToken + 1L
+        }
+
+        test(
+            "given closed editor and unsaved draft when receiving external text then preserves draft and appends text",
+        ) {
+            val controller = MemoEditorController()
+            val initialFocusToken = controller.focusRequestToken
+
+            controller.receiveExternalText(text = "selected snippet", createDraftText = "unsaved draft")
+
+            controller.isVisible shouldBe true
+            controller.editingMemo shouldBe null
+            controller.inputValue.text shouldBe "unsaved draft\nselected snippet"
+            controller.inputValue.selection shouldBe TextRange("unsaved draft\nselected snippet".length)
+            controller.focusRequestToken shouldBe initialFocusToken + 1L
+        }
+
+        test("given open create editor with cursor in middle when receiving external text then inserts at cursor") {
+            val controller = MemoEditorController()
+            controller.openForCreate("Hello World")
+            controller.updateInputValue(TextFieldValue("Hello World", TextRange(5)))
+            val tokenBeforeReceive = controller.focusRequestToken
+
+            controller.receiveExternalText(text = "inserted", createDraftText = "stale")
+
+            controller.isVisible shouldBe true
+            controller.inputValue.text shouldBe "Hello\ninserted\n World"
+            controller.focusRequestToken shouldBe tokenBeforeReceive + 1L
+        }
+
+        test("given open edit session when receiving external text then keeps editing memo and inserts text") {
+            val controller = MemoEditorController()
+            val memo =
+                Memo(
+                    id = "memo-edit-1",
+                    timestamp = 10L,
+                    content = "existing memo",
+                    rawContent = "- 10:00 existing memo",
+                    dateKey = "2026_03_26",
+                )
+            controller.openForEdit(memo.verifiedEditSession())
+            val tokenBeforeReceive = controller.focusRequestToken
+
+            controller.receiveExternalText(text = "quote", createDraftText = "")
+
+            controller.isVisible shouldBe true
+            controller.editingMemo?.id shouldBe memo.id
+            controller.inputValue.text shouldBe "existing memo\nquote"
+            controller.focusRequestToken shouldBe tokenBeforeReceive + 1L
+        }
+
+        test("given open editor in preview mode when receiving external text then switches to edit and appends text") {
+            val controller = MemoEditorController()
+            controller.openForCreate("initial")
+            controller.setExpanded(true)
+            controller.updateDisplayMode(InputEditorDisplayMode.Preview)
+            val tokenBeforeReceive = controller.focusRequestToken
+
+            controller.receiveExternalText(text = "from preview", createDraftText = "")
+
+            controller.isVisible shouldBe true
+            controller.displayMode shouldBe InputEditorDisplayMode.Edit
+            controller.inputValue.text shouldBe "initial\nfrom preview"
+            controller.focusRequestToken shouldBe tokenBeforeReceive + 1L
+        }
+
+        test("given closed editor and unsaved draft when receiving two external texts then appends both in order") {
+            val controller = MemoEditorController()
+
+            controller.receiveExternalText(text = "first", createDraftText = "draft")
+            controller.receiveExternalText(text = "second", createDraftText = "draft")
+
+            controller.isVisible shouldBe true
+            controller.inputValue.text shouldBe "draft\nfirst\nsecond"
         }
     }
 }
