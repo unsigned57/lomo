@@ -150,7 +150,8 @@ val coreDataRepositoryModule = module {
     // P4-10A/B: path-only media/archive ports over ManagedEngineSession; settings stay Kotlin.
     single<WorkspaceFilesystemRoot> {
         WorkspaceFilesystemRoot {
-            val raw = get<ManagedEngineSession>().activeWorkspaceLocation.value?.raw
+            val mount = get<ManagedEngineSession>().mount.value
+            val raw = mount.location?.raw?.takeIf { mount.admitsProjectionReads }
             if (raw.isNullOrBlank() || raw.startsWith("content:", ignoreCase = true)) {
                 null
             } else {

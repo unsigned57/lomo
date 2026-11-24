@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.ObserveDirectWorkspaceRootUseCase
 import com.lomo.domain.usecase.RemoteSyncConflictDialogUseCase
 import com.lomo.domain.usecase.SyncProviderRegistry
@@ -17,18 +18,20 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.withContext
 
 /**
  * Hosts review-state observation for Sync Inbox and remote conflict polling from Rust.
  *
  * Remote providers no longer emit ConflictDetected via deleted engines; open remote conflicts
- * are loaded from [RemoteSyncConflictDialogUseCase] when the Direct workspace root is known.
+ * are loaded from [RemoteSyncConflictDialogUseCase] when the Direct workspace root is mounted.
  */
 // behavior-contract: session-facade-ok: wraps remote-conflict/inbox broadcast polling; not a screen state machine
 class SyncConflictStateViewModel(
     syncProviderRegistry: SyncProviderRegistry,
     private val remoteSyncConflictDialogUseCase: RemoteSyncConflictDialogUseCase,
     observeDirectWorkspaceRootUseCase: ObserveDirectWorkspaceRootUseCase,
+    private val dispatcherProvider: DispatcherProvider,
 ) : ViewModel() {
     val syncStates: StateFlow<ImmutableMap<SyncBackendType, UnifiedSyncState>> =
         combine(
@@ -55,7 +58,9 @@ class SyncConflictStateViewModel(
             )
 
     suspend fun loadRemoteOpenSession(workspaceRoot: String): RemoteSyncConflictDialogUseCase.OpenSession? =
-        remoteSyncConflictDialogUseCase.loadOpenSession(workspaceRoot)
+        withContext(dispatcherProvider.io) {
+            remoteSyncConflictDialogUseCase.loadOpenSession(workspaceRoot)
+        }
 
     internal val hostBindings: SyncConflictStateHostBindings =
         SyncConflictStateHostBindings(

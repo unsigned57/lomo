@@ -3402,6 +3402,78 @@ class ManagedEngineSessionTest : DataFunSpec() {
                 }
             }
         }
+
+        test(
+            "given syncPrivateStateRoot when recovery holds or projection admits reads then availability matches mount",
+        ) {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-sync-root").toFile()
+                val workspace = StorageLocation(filesDir.path)
+                val settings = FakeDirectorySettingsRepository()
+                settings.setLocation(StorageArea.ROOT, workspace)
+                val revalidationEntered = java.util.concurrent.CountDownLatch(1)
+                val allowRevalidationFinish = java.util.concurrent.CountDownLatch(1)
+                val port =
+                    SessionFakeNativeEnginePort(
+                        NativeEngineSnapshot.Ready(coreRevision = 2uL, eventSequence = 3uL),
+                    ).apply {
+                        projectionVerified = false
+                        projectionHighWaterRevision = 7uL
+                        onRebuild = {
+                            revalidationEntered.countDown()
+                            allowRevalidationFinish.await()
+                        }
+                    }
+                val ioPool = java.util.concurrent.Executors.newSingleThreadExecutor()
+                val session =
+                    ManagedEngineSession(
+                        candidateOpen =
+                        CandidateOpenContext(
+                            filesDir = filesDir,
+                            openAdapter = { request ->
+                                testRustEngineAdapter(
+                                    if (request.workspace == null) {
+                                        SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection)
+                                    } else {
+                                        port
+                                    },
+                                    request,
+                                )
+                            },
+                            isContentUri = { false },
+                            sessionDateFormat = SessionDateFormatSource { StorageFilenameFormats.DEFAULT_PATTERN },
+                        ),
+                        invalidation = com.lomo.data.repository.StoreInvalidationBus(),
+                        capabilityRegistry = CapabilityRegistry(),
+                        directorySettingsRepository = settings,
+                        appScope = backgroundScope,
+                        engineDispatcher = ioPool.asCoroutineDispatcher(),
+                    )
+                try {
+                    session.requestEngineStart()
+                    revalidationEntered.await()
+                    session.mount.value.freshness shouldBe ProjectionFreshness.Revalidating(7uL)
+
+                    session.syncPrivateStateRoot(filesDir.path) shouldBe "${filesDir.path}/.lomo/sync/v1"
+                    port.syncPrivateStateRootCalls shouldBe 1
+
+                    allowRevalidationFinish.countDown()
+                    session.mount.first { it.freshness is ProjectionFreshness.Verified }
+                    session.syncPrivateStateRoot(filesDir.path) shouldBe "${filesDir.path}/.lomo/sync/v1"
+                    port.syncPrivateStateRootCalls shouldBe 2
+
+                    session.clearWorkspace()
+                    val error = shouldThrow<IllegalStateException> { session.syncPrivateStateRoot(filesDir.path) }
+                    error.message shouldBe "Workspace projection does not permit this operation"
+                    port.syncPrivateStateRootCalls shouldBe 2
+                } finally {
+                    allowRevalidationFinish.countDown()
+                    session.close()
+                    ioPool.shutdownNow()
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
     }
 }
 
@@ -3887,6 +3959,13 @@ private class SessionFakeNativeEnginePort(initialSnapshot: NativeEngineSnapshot)
             scopes = listOf(com.lomo.nativebridge.StoreInvalidationScope.MEMO_LIST),
             idempotentReplay = false,
         )
+
+    var syncPrivateStateRootCalls: Int = 0
+
+    override fun syncPrivateStateRoot(workspaceRoot: String): String {
+        syncPrivateStateRootCalls += 1
+        return "$workspaceRoot/.lomo/sync/v1"
+    }
 
     override fun close() {
         closeCheckpoint?.invoke()

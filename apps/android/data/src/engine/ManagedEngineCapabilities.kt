@@ -353,7 +353,7 @@ internal abstract class ManagedEngineCapabilities :
     }
 
     override fun syncPrivateStateRoot(workspaceRoot: String): String =
-        withActiveWorkspaceAdapter { adapter -> adapter.syncPrivateStateRoot(workspaceRoot) }
+        withProjectionAdapter { adapter -> adapter.syncPrivateStateRoot(workspaceRoot) }
 
     override fun syncRunCycle(
         workspaceRoot: String,

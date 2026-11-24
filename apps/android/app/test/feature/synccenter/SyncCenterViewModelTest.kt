@@ -41,7 +41,10 @@ package com.lomo.app.feature.synccenter
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
-import com.lomo.app.testing.fakes.FakeDirectorySettingsRepository
+import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.RemoteSyncBackendLabel
 import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
 import com.lomo.domain.model.RemoteSyncCenterFailure
@@ -55,6 +58,7 @@ import com.lomo.domain.model.RemoteSyncConflictSessionState
 import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
 import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.RemoteSyncCenterRepository
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.ObserveDirectWorkspaceRootUseCase
@@ -69,6 +73,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncCenterViewModelTest : AppFunSpec() {
@@ -85,7 +90,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -109,7 +114,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -132,7 +137,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -171,7 +176,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -199,7 +204,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -234,7 +239,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -271,7 +276,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -319,7 +324,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -372,7 +377,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws-stale", false)
@@ -401,7 +406,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -431,7 +436,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -466,7 +471,7 @@ class SyncCenterViewModelTest : AppFunSpec() {
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
                         observeDirectWorkspaceRoot =
-                        ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                        ObserveDirectWorkspaceRootUseCase(FakeEngineReadinessRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -475,6 +480,40 @@ class SyncCenterViewModelTest : AppFunSpec() {
                 val load = viewModel.uiState.value.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
                 load.conflictPage.session shouldBe RemoteSyncConflictSessionState.Absent
                 load.items shouldBe emptyList()
+            }
+        }
+
+        test("does not open until mounted Direct workspace admits writes") {
+            runTest(dispatcher) {
+                val readiness = FakeEngineReadinessRepository(initial = EngineReadiness.Opening)
+                readiness.activateWorkspace(StorageLocation("/tmp/sync-center-ws"), mediaChange = null)
+                readiness.publish(
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineFailureCategory.CONFLICT,
+                        code = "memo_identity_unresolved",
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                        diagnostic = "conflict",
+                    ),
+                )
+                val repo = FakeRemoteSyncCenterRepository()
+                val viewModel =
+                    SyncCenterViewModel(
+                        remoteSyncCenter = RemoteSyncCenterUseCase(repo),
+                        dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot = ObserveDirectWorkspaceRootUseCase(readiness),
+                    )
+
+                advanceUntilIdle()
+
+                repo.configSummaryCalls shouldBe 0
+                viewModel.uiState.value.workspaceRoot shouldBe ""
+
+                readiness.activateWorkspace(StorageLocation("/tmp/sync-center-ws"), mediaChange = null)
+                advanceUntilIdle()
+
+                repo.configSummaryCalls shouldBe 1
+                viewModel.uiState.value.workspaceRoot shouldBe File("/tmp/sync-center-ws").absolutePath
+                viewModel.uiState.value.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
             }
         }
     }
@@ -491,6 +530,7 @@ private class FakeRemoteSyncCenterRepository(
     private val binaryDetailFailure: RemoteSyncCenterFailure? = null,
     private val pagesByWorkspace: Map<String, RemoteSyncConflictPage> = emptyMap(),
 ) : RemoteSyncCenterRepository {
+    var configSummaryCalls: Int = 0
     var lastListCursor: Int? = null
     var lastListLimit: Int? = null
     var lastExpectedRevision: Long? = null
@@ -511,12 +551,15 @@ private class FakeRemoteSyncCenterRepository(
             canCancel = true,
         )
 
-    override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary = RemoteSyncConfigSummary(
-        backend = RemoteSyncBackendLabel.Git,
-        attentionCount = 2,
-        lastVerifiedAtEpochMillis = 1_700_000_000_000L,
-        schedulePolicyLabel = "interval_1h",
-    )
+    override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary {
+        configSummaryCalls += 1
+        return RemoteSyncConfigSummary(
+            backend = RemoteSyncBackendLabel.Git,
+            attentionCount = 2,
+            lastVerifiedAtEpochMillis = 1_700_000_000_000L,
+            schedulePolicyLabel = "interval_1h",
+        )
+    }
 
     override suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress = sessionProgressResult
 
