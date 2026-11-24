@@ -44,6 +44,7 @@ import com.lomo.data.worker.RustSyncWorker
 import com.lomo.data.worker.SyncWorker
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.AuthorizedWorkResume
+import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.GitSyncConfigurationMutationRepository
 import com.lomo.domain.repository.GitSyncConfigurationRepository
 import com.lomo.domain.repository.GitSyncRepository
@@ -112,6 +113,7 @@ val syncDataModule = module {
         RustSyncCycleStatusStore(
             remoteSync = get(),
             workspaceRoot = get(),
+            workspaceMounts = get<EngineReadinessRepository>().mount,
         )
     }
     single<RemoteSyncCenterRepository> {
