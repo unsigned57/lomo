@@ -1612,12 +1612,20 @@ fn validate_saf_memo_begin(begin: &SafMemoCreateBegin) -> Result<(), lomo_core::
     Ok(())
 }
 
+fn project_image_urls_json(body: &str) -> Result<String, lomo_core::LomoError> {
+    let image_urls = project_content_facts(body)?.image_urls;
+    serde_json::to_string(&image_urls)
+        .map_err(|error| validation("invalid_image_urls_projection", &error.to_string()))
+}
+
 fn insert_pending_memo_row(
     transaction: &Transaction<'_>,
     begin: &SafMemoCreateBegin,
     memo_id: &str,
 ) -> Result<(), lomo_core::LomoError> {
     let facts = project_content_facts(&begin.body)?;
+    let image_urls_json = serde_json::to_string(&facts.image_urls)
+        .map_err(|error| validation("invalid_image_urls_projection", &error.to_string()))?;
     let search_content = index_tokens(&begin.body);
     let preview = body_preview(&begin.body);
     let word_count = count_words(&begin.body);
@@ -1628,8 +1636,8 @@ fn insert_pending_memo_row(
             "INSERT INTO memo( \
              memo_id,source_path,time_part,file_fingerprint,has_todo,has_url,has_attachment, \
              created_at_ms,updated_at_ms,body_preview,body,search_content,word_count,char_count, \
-             reminders_json,content_revision,pending_operation_id \
-             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,'[]',1,?14)",
+             reminders_json,image_urls_json,content_revision,pending_operation_id \
+             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,'[]',?14,1,?15)",
             params![
                 memo_id,
                 &begin.source_path,
@@ -1644,6 +1652,7 @@ fn insert_pending_memo_row(
                 &search_content,
                 word_count,
                 char_count,
+                &image_urls_json,
                 &begin.operation_id,
             ],
         )
@@ -1827,6 +1836,7 @@ fn upsert_saf_projection(
         .map_err(|_error| validation("revision_overflow", "content revision overflow"))?;
     let reminders_json = serde_json::to_string(&projection.reminders)
         .map_err(|error| validation("invalid_reminder_projection", &error.to_string()))?;
+    let image_urls_json = project_image_urls_json(&projection.body)?;
     if let Some(rowid) = existing {
         let old_search: String = connection
             .query_row(
@@ -1843,7 +1853,7 @@ fn upsert_saf_projection(
             .map_err(|error| from_sqlite(&error))?;
         connection
             .execute(
-                "UPDATE memo SET source_path=?1,time_part=?2,file_fingerprint=?3,has_todo=?4,has_url=?5,has_attachment=?6,updated_at_ms=?7,body_preview=?8,body=?9,search_content=?10,word_count=?11,char_count=?12,content_revision=?13,reminders_json=?14,is_trashed=0 WHERE memo_id=?15",
+                "UPDATE memo SET source_path=?1,time_part=?2,file_fingerprint=?3,has_todo=?4,has_url=?5,has_attachment=?6,updated_at_ms=?7,body_preview=?8,body=?9,search_content=?10,word_count=?11,char_count=?12,content_revision=?13,reminders_json=?14,image_urls_json=?15,is_trashed=0 WHERE memo_id=?16",
                 params![
                     &projection.source_path,
                     &projection.time_part,
@@ -1859,6 +1869,7 @@ fn upsert_saf_projection(
                     char_count,
                     revision_i64,
                     reminders_json,
+                    image_urls_json,
                     &projection.memo_id,
                 ],
             )
@@ -1872,7 +1883,7 @@ fn upsert_saf_projection(
     } else {
         connection
             .execute(
-                "INSERT INTO memo(memo_id,source_path,time_part,file_fingerprint,has_todo,has_url,has_attachment,created_at_ms,updated_at_ms,body_preview,body,search_content,word_count,char_count,content_revision,reminders_json,is_pinned,is_trashed) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,?14,?15,0,0)",
+                "INSERT INTO memo(memo_id,source_path,time_part,file_fingerprint,has_todo,has_url,has_attachment,created_at_ms,updated_at_ms,body_preview,body,search_content,word_count,char_count,content_revision,reminders_json,image_urls_json,is_pinned,is_trashed) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,?14,?15,?16,0,0)",
                 params![
                     &projection.memo_id,
                     &projection.source_path,
@@ -1889,6 +1900,7 @@ fn upsert_saf_projection(
                     char_count,
                     revision_i64,
                     reminders_json,
+                    image_urls_json,
                 ],
             )
             .map_err(|error| from_sqlite(&error))?;
@@ -4363,6 +4375,7 @@ fn index_scanned_memo_with_lifecycle(
     let is_trashed = i64::from(is_trashed);
     let reminders_json = serde_json::to_string(&memo.reminders)
         .map_err(|error| validation("invalid_reminder_projection", &error.to_string()))?;
+    let image_urls_json = project_image_urls_json(&memo.body)?;
 
     // Skip if already indexed (resume).
     let exists: i64 = conn
@@ -4378,8 +4391,8 @@ fn index_scanned_memo_with_lifecycle(
 
     conn.execute(
         "INSERT INTO memo(memo_id, source_path, time_part, file_fingerprint, has_todo, has_url, has_attachment, \
-         created_at_ms, updated_at_ms, body_preview, body, search_content, word_count, char_count, content_revision, reminders_json, is_pinned, is_trashed) \
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,1,?14,0,?15)",
+         created_at_ms, updated_at_ms, body_preview, body, search_content, word_count, char_count, content_revision, reminders_json, image_urls_json, is_pinned, is_trashed) \
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,1,?14,?15,0,?16)",
         params![
             &memo.memo_id,
             &memo.source_path,
@@ -4395,6 +4408,7 @@ fn index_scanned_memo_with_lifecycle(
             word_count,
             char_count,
             reminders_json,
+            image_urls_json,
             is_trashed,
         ],
     )

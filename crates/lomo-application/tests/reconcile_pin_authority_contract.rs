@@ -2943,8 +2943,8 @@ mod tests {
             let db = cache_dir.join(".lomo-sqlite").join("store.db");
             let conn = rusqlite::Connection::open(&db).expect("store db");
             conn.execute_batch("DROP TRIGGER memo_stats_insert; DROP TRIGGER memo_stats_delete;
-                DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; ALTER TABLE memo DROP COLUMN time_part;")
-                .expect("historical schema omits later aggregate triggers, partial indexes, and v18 columns");
+                DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; DROP INDEX idx_memo_gallery; ALTER TABLE memo DROP COLUMN image_urls_json; ALTER TABLE memo DROP COLUMN time_part;")
+                .expect("historical schema omits later aggregate triggers, partial indexes, and later columns");
             conn.pragma_update(None, "user_version", version)
                 .expect("user_version rewind");
         }

@@ -1,7 +1,7 @@
 //! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 18;
+pub const STORE_SCHEMA_VERSION: u32 = 19;
 
 /// Tokenizer version embedded in FTS projections and `PageCursor`.
 pub const TOKENIZER_VERSION: u32 = 1;
@@ -59,6 +59,7 @@ CREATE TABLE {memo} (
     word_count INTEGER NOT NULL DEFAULT 0,
     char_count INTEGER NOT NULL DEFAULT 0,
     reminders_json TEXT NOT NULL DEFAULT '[]',
+    image_urls_json TEXT NOT NULL DEFAULT '[]',
     content_revision INTEGER NOT NULL DEFAULT 0,
     pending_operation_id TEXT
 );
@@ -190,6 +191,9 @@ CREATE INDEX idx_memo_active_pinned_updated
 CREATE INDEX idx_memo_source_path ON {memo}(source_path, memo_id);
 CREATE INDEX idx_memo_created ON {memo}(created_at_ms, memo_id);
 CREATE INDEX idx_memo_updated ON {memo}(updated_at_ms, memo_id);
+CREATE INDEX idx_memo_gallery
+    ON {memo}(is_pinned DESC, created_at_ms DESC, memo_id DESC)
+    WHERE is_trashed = 0 AND has_attachment = 1 AND image_urls_json <> '[]';
 CREATE INDEX idx_revision_record ON {revision_index}(history_record_id);
 
 INSERT INTO {stats}(key, value_i64) VALUES
@@ -451,4 +455,15 @@ ALTER TABLE memo ADD COLUMN time_part TEXT NOT NULL DEFAULT '';
 UPDATE store_meta SET value = '0' WHERE key = 'high_water_revision';
 DELETE FROM store_meta WHERE key = 'workspace_listing_digest';
 PRAGMA user_version = 18;
+";
+
+/// Additive v18 -> v19 migration: materialize ordered `image_urls_json` per memo and create
+/// the partial gallery index. Row values are backfilled from persisted bodies in the same
+/// upgrade transaction without forcing a workspace rescan.
+pub const MIGRATE_V18_TO_V19_DDL: &str = r"
+ALTER TABLE memo ADD COLUMN image_urls_json TEXT NOT NULL DEFAULT '[]';
+CREATE INDEX IF NOT EXISTS idx_memo_gallery
+    ON memo(is_pinned DESC, created_at_ms DESC, memo_id DESC)
+    WHERE is_trashed = 0 AND has_attachment = 1 AND image_urls_json <> '[]';
+PRAGMA user_version = 19;
 ";

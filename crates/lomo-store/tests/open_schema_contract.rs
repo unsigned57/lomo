@@ -47,7 +47,7 @@ mod tests {
 
     fn remove_v16_triggers(connection: &Connection) {
         connection.execute_batch("DROP TRIGGER memo_stats_insert; DROP TRIGGER memo_stats_delete;
-            DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; ALTER TABLE memo DROP COLUMN time_part;")
+            DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; DROP INDEX idx_memo_gallery; ALTER TABLE memo DROP COLUMN image_urls_json; ALTER TABLE memo DROP COLUMN time_part;")
             .expect("historical schemas have no v16 triggers or v18 columns");
     }
 
@@ -348,7 +348,9 @@ mod tests {
         let connection = Connection::open(&database).expect("construct v17 cache");
         connection
             .execute_batch(
-                "ALTER TABLE memo DROP COLUMN time_part;\
+                "DROP INDEX idx_memo_gallery;\
+                 ALTER TABLE memo DROP COLUMN image_urls_json;\
+                 ALTER TABLE memo DROP COLUMN time_part;\
                  INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
                  has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
                  search_content, word_count, char_count, content_revision, reminders_json, \
@@ -387,5 +389,134 @@ mod tests {
             )
             .expect("listing digest count");
         assert_eq!(digest_rows, 0);
+    }
+
+    #[test]
+    fn v18_upgrade_backfills_ordered_image_urls_without_forcing_rescan() {
+        let dir = tempdir().expect("tempdir");
+        let store = Store::open(dir.path()).expect("open v19 store");
+        let db_path = store.open_info().database_path.clone();
+        drop(store);
+
+        let connection = Connection::open(&db_path).expect("raw sqlite");
+        connection
+            .execute_batch(
+                "DROP INDEX idx_memo_gallery;\
+                 ALTER TABLE memo DROP COLUMN image_urls_json;\
+                 INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
+                 has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
+                 search_content, word_count, char_count, content_revision, reminders_json, \
+                 is_pinned, is_trashed) VALUES\
+                 ('v18-active','2026_10_12.md','fp1',0,1,1,300,300,'p',\
+                  '![second](images/z.jpg)\n![ext](https://example.com/pic.png)\n![first](images/a.webp)\n![voice](voice/clip.m4a)',\
+                  's',1,1,1,'[]',0,0),\
+                 ('v18-trashed','2026_10_13.md','fp2',0,0,1,200,200,'p',\
+                  '![trashed](images/trashed.png)','s',1,1,1,'[]',0,1),\
+                 ('v18-plain','2026_10_14.md','fp3',0,0,0,100,100,'p','no attachments','s',1,1,1,'[]',0,0);\
+                 UPDATE store_meta SET value='7' WHERE key='high_water_revision';\
+                 INSERT OR REPLACE INTO store_meta(key, value) VALUES('workspace_listing_digest', 'keep-v18-digest');\
+                 PRAGMA user_version=18;",
+            )
+            .expect("seed v18 schema");
+        drop(connection);
+
+        let opened = open_store(dir.path()).expect("upgrade v18 to v19");
+        assert_eq!(opened.user_version, STORE_SCHEMA_VERSION);
+        drop(opened);
+
+        let inspect = Connection::open(&db_path).expect("inspect upgraded db");
+        let revision: String = inspect
+            .query_row(
+                "SELECT value FROM store_meta WHERE key='high_water_revision'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("revision");
+        assert_eq!(revision, "7");
+        let digest: String = inspect
+            .query_row(
+                "SELECT value FROM store_meta WHERE key='workspace_listing_digest'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("listing digest");
+        assert_eq!(digest, "keep-v18-digest");
+        let gallery_index_count: i64 = inspect
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_memo_gallery'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("gallery index count");
+        assert_eq!(gallery_index_count, 1);
+        drop(inspect);
+
+        let upgraded = Store::open(dir.path()).expect("open upgraded store");
+        let page = upgraded
+            .query_memos(
+                &lomo_store::MemoQuery {
+                    search_text: None,
+                    filters: lomo_store::MemoFilters {
+                        include_trash: true,
+                        ..lomo_store::MemoFilters::default()
+                    },
+                    sort: lomo_store::MemoSort::default(),
+                },
+                None,
+                lomo_core::PageSize::new(10).expect("page size"),
+            )
+            .expect("query upgraded memos");
+        assert_eq!(page.items.len(), 3);
+        assert_eq!(page.items[0].memo_id, "v18-active");
+        assert_eq!(
+            page.items[0].image_urls,
+            vec![
+                "images/z.jpg".to_owned(),
+                "https://example.com/pic.png".to_owned(),
+                "images/a.webp".to_owned(),
+            ]
+        );
+        assert_eq!(page.items[1].memo_id, "v18-trashed");
+        assert_eq!(
+            page.items[1].image_urls,
+            vec!["images/trashed.png".to_owned()]
+        );
+        assert_eq!(page.items[2].memo_id, "v18-plain");
+        assert!(page.items[2].image_urls.is_empty());
+    }
+
+    #[test]
+    fn corrupt_image_urls_json_fails_closed() {
+        let dir = tempdir().expect("tempdir");
+        let store = Store::open(dir.path()).expect("open store");
+        let db_path = store.open_info().database_path.clone();
+        drop(store);
+
+        let connection = Connection::open(&db_path).expect("raw sqlite");
+        connection
+            .execute_batch(
+                "INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
+                 has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
+                 search_content, word_count, char_count, content_revision, reminders_json, \
+                 is_pinned, is_trashed, image_urls_json) \
+                 VALUES('corrupt-img','2026_10_12.md','fp1',0,0,1,100,100,'p','body','s',1,1,1,'[]',0,0,'{not-json');",
+            )
+            .expect("insert corrupt row");
+        drop(connection);
+
+        let reopened = Store::open(dir.path()).expect("reopen store");
+        let err = reopened
+            .query_memos(
+                &lomo_store::MemoQuery {
+                    search_text: None,
+                    filters: lomo_store::MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
+                },
+                None,
+                lomo_core::PageSize::new(10).expect("page size"),
+            )
+            .expect_err("corrupt image_urls_json must fail closed");
+        assert_eq!(err.category(), ErrorCategory::Corruption);
+        assert_eq!(err.code(), "invalid_image_urls_projection");
     }
 }

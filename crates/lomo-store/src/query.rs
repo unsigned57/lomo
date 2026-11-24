@@ -506,7 +506,7 @@ pub fn query_memos_starting_at(
         items.reverse();
     }
 
-    attach_tags_and_images(connection, &mut items)?;
+    attach_tags(connection, &mut items)?;
     let total = count_rows(connection, query, &plan, boundary, None)?;
     let (items_before, items_after) = page_ranks(
         connection,
@@ -698,7 +698,7 @@ fn start_summary(
          m.has_todo, m.has_url, m.has_attachment, \
          m.is_pinned, m.is_trashed, \
          m.body_preview, m.content_revision, {rank_select}, m.reminders_json, \
-         m.pending_operation_id IS NOT NULL, m.char_count, m.time_part \
+         m.pending_operation_id IS NOT NULL, m.char_count, m.time_part, m.image_urls_json \
          FROM {} \
          WHERE {where_sql} AND m.memo_id = ?{memo_idx} \
          LIMIT 1",
@@ -878,7 +878,10 @@ fn memo_summary_from_row(row: &Row<'_>) -> Result<MemoSummary, lomo_core::LomoEr
             .get::<_, Option<f64>>(12)
             .map_err(|err| from_sqlite(&err))?,
         tags: Vec::new(),
-        image_urls: Vec::new(),
+        image_urls: serde_json::from_str(
+            &row.get::<_, String>(17).map_err(|err| from_sqlite(&err))?,
+        )
+        .map_err(|error| corruption("invalid_image_urls_projection", &error.to_string()))?,
         reminders: serde_json::from_str(
             &row.get::<_, String>(13).map_err(|err| from_sqlite(&err))?,
         )
@@ -926,7 +929,7 @@ fn build_sql(
          m.has_todo, m.has_url, m.has_attachment, \
          m.is_pinned, m.is_trashed, \
          m.body_preview, m.content_revision, {rank_select}, m.reminders_json, \
-         m.pending_operation_id IS NOT NULL, m.char_count, m.time_part \
+         m.pending_operation_id IS NOT NULL, m.char_count, m.time_part, m.image_urls_json \
          FROM {from_sql} \
          WHERE {where_sql} \
          ORDER BY {order_sql} \
@@ -1253,7 +1256,7 @@ pub fn get_memo_projection(
                     m.has_todo, m.has_url, m.has_attachment, \
                     m.is_pinned, m.is_trashed, \
                     m.body_preview, m.content_revision, NULL AS rank, m.reminders_json, \
-                    m.pending_operation_id IS NOT NULL, m.char_count, m.time_part \
+                    m.pending_operation_id IS NOT NULL, m.char_count, m.time_part, m.image_urls_json \
              FROM memo m \
              WHERE m.memo_id = ?1",
         )
@@ -1265,7 +1268,7 @@ pub fn get_memo_projection(
         return Ok(None);
     };
     let mut summaries = [memo_summary_from_row(row)?];
-    attach_tags_and_images(connection, &mut summaries)?;
+    attach_tags(connection, &mut summaries)?;
     let summary = summaries
         .into_iter()
         .next()
@@ -1325,7 +1328,8 @@ pub fn get_projected_memos(
                  m.created_at_ms, m.has_todo, m.has_url, m.has_attachment, \
                  m.is_pinned, m.is_trashed, \
                  m.body_preview, m.content_revision, NULL AS rank, m.reminders_json, \
-                 m.pending_operation_id IS NOT NULL, m.char_count, m.time_part, m.body \
+                 m.pending_operation_id IS NOT NULL, m.char_count, m.time_part, \
+                 m.image_urls_json, m.body \
                  FROM memo m WHERE m.memo_id IN ({placeholders})"
             ))
             .map_err(|err| from_sqlite(&err))?;
@@ -1338,12 +1342,12 @@ pub fn get_projected_memos(
             while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
                 summaries.push(memo_summary_from_row(row)?);
                 bodies.push(
-                    row.get::<_, Option<String>>(17)
+                    row.get::<_, Option<String>>(18)
                         .map_err(|err| from_sqlite(&err))?,
                 );
             }
         }
-        attach_tags_and_images(connection, &mut summaries)?;
+        attach_tags(connection, &mut summaries)?;
         for (summary, body) in summaries.into_iter().zip(bodies) {
             let body = body.ok_or_else(|| {
                 validation(
@@ -1479,8 +1483,8 @@ pub fn memo_ids_for_source_path(
     Ok(ids)
 }
 
-/// Loads tag names and non-audio attachment paths for one bounded page in two statements.
-fn attach_tags_and_images(
+/// Loads tag names for one bounded page in a single statement.
+fn attach_tags(
     connection: &Connection,
     items: &mut [MemoSummary],
 ) -> Result<(), lomo_core::LomoError> {
@@ -1522,34 +1526,11 @@ fn attach_tags_and_images(
         tags.push(tag);
     }
 
-    // Attachment references are a sweep-protection set: they omit external URLs and have no
-    // presentation order. Derive viewer destinations from the authoritative body in one batch.
-    let mut images_by_memo = BTreeMap::new();
-    let mut stmt = connection
-        .prepare(&format!(
-            "SELECT memo_id, body FROM memo WHERE memo_id IN ({placeholders})"
-        ))
-        .map_err(|err| from_sqlite(&err))?;
-    let rows = stmt
-        .query_map(params_from_iter(memo_ids.iter()), |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|err| from_sqlite(&err))?;
-    for row in rows {
-        let (memo_id, body) = row.map_err(|err| from_sqlite(&err))?;
-        images_by_memo.insert(memo_id, crate::project_content_facts(&body)?.image_urls);
-    }
     for item in items {
         item.tags = tags_by_memo.remove(&item.memo_id).ok_or_else(|| {
             validation(
                 "memo_tag_owner_missing",
                 "requested page item was missing from the bulk tag projection",
-            )
-        })?;
-        item.image_urls = images_by_memo.remove(&item.memo_id).ok_or_else(|| {
-            validation(
-                "memo_attachment_owner_missing",
-                "requested page item was missing from the bulk attachment projection",
             )
         })?;
     }

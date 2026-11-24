@@ -11,7 +11,8 @@ use crate::schema::{
     MIGRATE_V3_TO_V4_DDL, MIGRATE_V4_TO_V5_DDL, MIGRATE_V5_TO_V6_DDL, MIGRATE_V6_TO_V7_DDL,
     MIGRATE_V7_TO_V8_DDL, MIGRATE_V8_TO_V9_DDL, MIGRATE_V9_TO_V10_DDL, MIGRATE_V10_TO_V11_DDL,
     MIGRATE_V11_TO_V12_DDL, MIGRATE_V12_TO_V13_DDL, MIGRATE_V13_TO_V14_DDL, MIGRATE_V14_TO_V15_DDL,
-    MIGRATE_V16_TO_V17_DDL, MIGRATE_V17_TO_V18_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
+    MIGRATE_V16_TO_V17_DDL, MIGRATE_V17_TO_V18_DDL, MIGRATE_V18_TO_V19_DDL, STORE_SCHEMA_VERSION,
+    schema_v1_ddl,
 };
 
 /// Ordered additive migrations; `user_version` N upgrades by applying `MIGRATIONS[N - 1..]` in
@@ -34,6 +35,7 @@ const MIGRATIONS: &[&str] = &[
     INCREMENTAL_STATS_DDL,
     MIGRATE_V16_TO_V17_DDL,
     MIGRATE_V17_TO_V18_DDL,
+    MIGRATE_V18_TO_V19_DDL,
 ];
 
 /// Relative directory for rebuildable `SQLite` files (must never live under `.lomo/`).
@@ -209,6 +211,9 @@ fn admit_schema(
         if user_version < 15 {
             migrate_render_projections(&transaction)?;
         }
+        if user_version < 19 {
+            migrate_image_urls(&transaction)?;
+        }
         transaction.commit().map_err(|err| from_sqlite(&err))?;
     } else if user_version != STORE_SCHEMA_VERSION {
         // `open_store` refuses anything newer first; the admission boundary still
@@ -237,6 +242,28 @@ fn migrate_render_projections(connection: &Connection) -> Result<(), lomo_core::
             .execute(
                 "UPDATE memo SET body_preview=?1, has_url=?2 WHERE rowid=?3",
                 params![preview, has_url, row_id],
+            )
+            .map_err(|err| from_sqlite(&err))?;
+    }
+    Ok(())
+}
+
+/// Stream one persisted body at a time to materialize ordered `image_urls_json` during v19 upgrade.
+fn migrate_image_urls(connection: &Connection) -> Result<(), lomo_core::LomoError> {
+    let mut statement = connection
+        .prepare("SELECT rowid, body FROM memo WHERE body IS NOT NULL ORDER BY rowid")
+        .map_err(|err| from_sqlite(&err))?;
+    let mut rows = statement.query([]).map_err(|err| from_sqlite(&err))?;
+    while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
+        let row_id: i64 = row.get(0).map_err(|err| from_sqlite(&err))?;
+        let body: String = row.get(1).map_err(|err| from_sqlite(&err))?;
+        let image_urls = crate::project_content_facts(&body)?.image_urls;
+        let image_urls_json = serde_json::to_string(&image_urls)
+            .map_err(|error| validation("invalid_image_urls_projection", &error.to_string()))?;
+        connection
+            .execute(
+                "UPDATE memo SET image_urls_json=?1 WHERE rowid=?2",
+                params![image_urls_json, row_id],
             )
             .map_err(|err| from_sqlite(&err))?;
     }
