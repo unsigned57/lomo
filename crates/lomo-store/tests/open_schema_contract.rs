@@ -395,7 +395,7 @@ mod tests {
     fn v18_upgrade_backfills_ordered_image_urls_without_forcing_rescan() {
         let dir = tempdir().expect("tempdir");
         let store = Store::open(dir.path()).expect("open v19 store");
-        let db_path = store.open_info().database_path.clone();
+        let db_path = store.open_info().database_path;
         drop(store);
 
         let connection = Connection::open(&db_path).expect("raw sqlite");
@@ -466,30 +466,29 @@ mod tests {
                 lomo_core::PageSize::new(10).expect("page size"),
             )
             .expect("query upgraded memos");
-        assert_eq!(page.items.len(), 3);
-        assert_eq!(page.items[0].memo_id, "v18-active");
+        let [active, trashed, plain] = page.items.as_slice() else {
+            panic!("expected three upgraded rows, got {}", page.items.len());
+        };
+        assert_eq!(active.memo_id, "v18-active");
         assert_eq!(
-            page.items[0].image_urls,
+            active.image_urls,
             vec![
                 "images/z.jpg".to_owned(),
                 "https://example.com/pic.png".to_owned(),
                 "images/a.webp".to_owned(),
             ]
         );
-        assert_eq!(page.items[1].memo_id, "v18-trashed");
-        assert_eq!(
-            page.items[1].image_urls,
-            vec!["images/trashed.png".to_owned()]
-        );
-        assert_eq!(page.items[2].memo_id, "v18-plain");
-        assert!(page.items[2].image_urls.is_empty());
+        assert_eq!(trashed.memo_id, "v18-trashed");
+        assert_eq!(trashed.image_urls, vec!["images/trashed.png".to_owned()]);
+        assert_eq!(plain.memo_id, "v18-plain");
+        assert_eq!(plain.image_urls, Vec::<String>::new());
     }
 
     #[test]
     fn corrupt_image_urls_json_fails_closed() {
         let dir = tempdir().expect("tempdir");
         let store = Store::open(dir.path()).expect("open store");
-        let db_path = store.open_info().database_path.clone();
+        let db_path = store.open_info().database_path;
         drop(store);
 
         let connection = Connection::open(&db_path).expect("raw sqlite");

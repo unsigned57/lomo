@@ -656,7 +656,7 @@ mod tests {
         publish_pin(&mut store, "g2", "op-gallery-pin-g2");
         super::support::publish_trash(&mut store, "trashed-img", "op-gallery-trash");
 
-        let db_path = store.open_info().database_path.clone();
+        let db_path = store.open_info().database_path;
         let explain_conn = rusqlite::Connection::open(&db_path).expect("open explain conn");
         for sql in [
             "SELECT m.memo_id FROM memo m INDEXED BY idx_memo_gallery \
@@ -697,8 +697,11 @@ mod tests {
         let all = store
             .query_gallery_page(MemoQueryStart::Head, PageSize::new(10).expect("page"))
             .expect("full gallery");
-        assert_eq!(all.items.len(), 4, "must exclude plain, audio, and trashed");
-        assert!(all.items[0].is_pinned && all.items[0].memo_id == "g2");
+        let [first, second, third, fourth] = all.items.as_slice() else {
+            panic!("expected four image rows, got {}", all.items.len());
+        };
+        assert!(first.is_pinned);
+        assert_eq!(first.memo_id, "g2");
         assert!(all.items.iter().all(|row| row.memo_id != "plain"));
         assert!(all.items.iter().all(|row| row.memo_id != "audio"));
         assert!(all.items.iter().all(|row| row.memo_id != "trashed-img"));
@@ -716,7 +719,6 @@ mod tests {
             ]
         );
 
-        let ordered_ids: Vec<String> = all.items.iter().map(|row| row.memo_id.clone()).collect();
         let page1 = store
             .query_gallery_page(MemoQueryStart::Head, PageSize::new(2).expect("p1"))
             .expect("page 1");
@@ -728,7 +730,7 @@ mod tests {
                 .iter()
                 .map(|row| row.memo_id.as_str())
                 .collect::<Vec<_>>(),
-            vec![ordered_ids[0].as_str(), ordered_ids[1].as_str()]
+            vec![first.memo_id.as_str(), second.memo_id.as_str()]
         );
 
         let page2 = store
@@ -745,7 +747,7 @@ mod tests {
                 .iter()
                 .map(|row| row.memo_id.as_str())
                 .collect::<Vec<_>>(),
-            vec![ordered_ids[2].as_str(), ordered_ids[3].as_str()]
+            vec![third.memo_id.as_str(), fourth.memo_id.as_str()]
         );
 
         let back = store
@@ -761,12 +763,12 @@ mod tests {
                 .iter()
                 .map(|row| row.memo_id.as_str())
                 .collect::<Vec<_>>(),
-            vec![ordered_ids[0].as_str(), ordered_ids[1].as_str()]
+            vec![first.memo_id.as_str(), second.memo_id.as_str()]
         );
 
         let anchored = store
             .query_gallery_page(
-                MemoQueryStart::AtMemo(&ordered_ids[1]),
+                MemoQueryStart::AtMemo(&second.memo_id),
                 PageSize::new(2).expect("anchor"),
             )
             .expect("anchored");
@@ -778,7 +780,7 @@ mod tests {
                 .iter()
                 .map(|row| row.memo_id.as_str())
                 .collect::<Vec<_>>(),
-            vec![ordered_ids[1].as_str(), ordered_ids[2].as_str()]
+            vec![second.memo_id.as_str(), third.memo_id.as_str()]
         );
 
         let fallback = store
@@ -794,7 +796,7 @@ mod tests {
                 .iter()
                 .map(|row| row.memo_id.as_str())
                 .collect::<Vec<_>>(),
-            vec![ordered_ids[0].as_str(), ordered_ids[1].as_str()]
+            vec![first.memo_id.as_str(), second.memo_id.as_str()]
         );
 
         let pool = lomo_store::StoreReaderPool::new(
@@ -813,7 +815,7 @@ mod tests {
                 .iter()
                 .map(|row| row.memo_id.as_str())
                 .collect::<Vec<_>>(),
-            ordered_ids.iter().map(String::as_str).collect::<Vec<_>>()
+            [first, second, third, fourth].map(|row| row.memo_id.as_str())
         );
         drop(reader_lease);
 

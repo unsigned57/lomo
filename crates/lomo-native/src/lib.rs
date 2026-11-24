@@ -2002,6 +2002,11 @@ impl LomoEngine {
         session_ffi::session_query_memos(self, query, cursor, page_size, start_memo_id, backward)
     }
 
+    /// Reads one cursor page of image-bearing memos for the active workspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed engine error for invalid paging inputs, stale cursors, or store failures.
     pub fn query_gallery_page(
         &self,
         cursor: Option<StorePageCursor>,

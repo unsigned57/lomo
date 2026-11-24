@@ -1521,6 +1521,45 @@ fn gallery_side_exists(
     Ok(exists != 0)
 }
 
+fn scan_gallery_rows(
+    connection: &Connection,
+    bound: Option<(i64, i64, String)>,
+    cmp: &str,
+    invert: bool,
+    fetch_limit: i64,
+    capacity: usize,
+) -> Result<Vec<GalleryRow>, lomo_core::LomoError> {
+    let order_sql = if invert {
+        "ORDER BY m.is_pinned ASC, m.created_at_ms ASC, m.memo_id ASC"
+    } else {
+        "ORDER BY m.is_pinned DESC, m.created_at_ms DESC, m.memo_id DESC"
+    };
+    let bound_sql = if bound.is_some() {
+        format!("AND (m.is_pinned, m.created_at_ms, m.memo_id) {cmp} (?2, ?3, ?4)")
+    } else {
+        String::new()
+    };
+    let sql = format!(
+        "SELECT m.memo_id, m.source_path, m.time_part, m.created_at_ms, m.updated_at_ms, \
+         m.is_pinned, m.content_revision, m.file_fingerprint, m.image_urls_json \
+         FROM memo m INDEXED BY idx_memo_gallery WHERE {GALLERY_FILTER_PREDICATE} \
+         {bound_sql} {order_sql} LIMIT ?1"
+    );
+    let mut statement = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
+    let mut rows = match bound {
+        Some((pin, created_at_ms, memo_id)) => {
+            statement.query(params![fetch_limit, pin, created_at_ms, memo_id])
+        }
+        None => statement.query(params![fetch_limit]),
+    }
+    .map_err(|err| from_sqlite(&err))?;
+    let mut items = Vec::with_capacity(capacity);
+    while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
+        items.push(gallery_row_from_sql(row)?);
+    }
+    Ok(items)
+}
+
 /// Queries one lightweight gallery cursor page using `idx_memo_gallery` (`LIMIT page_size + 1`,
 /// opposite-side `EXISTS`, zero `COUNT(*)` and zero body/tags/reminders transfers).
 ///
@@ -1543,31 +1582,18 @@ pub fn query_gallery_page(
     let (bound_tuple, cmp, invert, is_head_start): (Option<(i64, i64, String)>, &str, bool, bool) =
         match start {
             MemoQueryStart::Head => (None, "<", false, true),
-            MemoQueryStart::After(cursor) => {
+            MemoQueryStart::After(cursor) | MemoQueryStart::Before(cursor) => {
                 cursor.validate_against(&query_fingerprint, high_water_revision)?;
-                let _ = cursor.validated_sort_rank(false)?;
+                cursor.validated_sort_rank(false)?;
+                let invert = matches!(start, MemoQueryStart::Before(_));
                 (
                     Some((
                         i64::from(cursor.sort_pinned),
                         cursor.sort_primary_ms,
                         cursor.sort_memo_id.clone(),
                     )),
-                    "<",
-                    false,
-                    false,
-                )
-            }
-            MemoQueryStart::Before(cursor) => {
-                cursor.validate_against(&query_fingerprint, high_water_revision)?;
-                let _ = cursor.validated_sort_rank(false)?;
-                (
-                    Some((
-                        i64::from(cursor.sort_pinned),
-                        cursor.sort_primary_ms,
-                        cursor.sort_memo_id.clone(),
-                    )),
-                    ">",
-                    true,
+                    if invert { ">" } else { "<" },
+                    invert,
                     false,
                 )
             }
@@ -1583,53 +1609,20 @@ pub fn query_gallery_page(
                     )
                     .optional()
                     .map_err(|err| from_sqlite(&err))?;
-                match anchor {
-                    Some(tuple) => (Some(tuple), "<=", false, false),
-                    None => (None, "<", false, true),
-                }
+                anchor.map_or((None, "<", false, true), |tuple| {
+                    (Some(tuple), "<=", false, false)
+                })
             }
         };
 
-    let order_sql = if invert {
-        "ORDER BY m.is_pinned ASC, m.created_at_ms ASC, m.memo_id ASC"
-    } else {
-        "ORDER BY m.is_pinned DESC, m.created_at_ms DESC, m.memo_id DESC"
-    };
-    let mut items = if let Some((pin, created_at_ms, memo_id)) = bound_tuple {
-        let sql = format!(
-            "SELECT m.memo_id, m.source_path, m.time_part, m.created_at_ms, m.updated_at_ms, \
-             m.is_pinned, m.content_revision, m.file_fingerprint, m.image_urls_json \
-             FROM memo m INDEXED BY idx_memo_gallery WHERE {GALLERY_FILTER_PREDICATE} \
-             AND (m.is_pinned, m.created_at_ms, m.memo_id) {cmp} (?1, ?2, ?3) \
-             {order_sql} LIMIT ?4"
-        );
-        let mut statement = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
-        let mut rows = statement
-            .query(params![pin, created_at_ms, memo_id, fetch_limit])
-            .map_err(|err| from_sqlite(&err))?;
-        let mut collected = Vec::with_capacity(limit_usize.saturating_add(1));
-        while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
-            collected.push(gallery_row_from_sql(row)?);
-        }
-        collected
-    } else {
-        let sql = format!(
-            "SELECT m.memo_id, m.source_path, m.time_part, m.created_at_ms, m.updated_at_ms, \
-             m.is_pinned, m.content_revision, m.file_fingerprint, m.image_urls_json \
-             FROM memo m INDEXED BY idx_memo_gallery WHERE {GALLERY_FILTER_PREDICATE} \
-             {order_sql} LIMIT ?1"
-        );
-        let mut statement = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
-        let mut rows = statement
-            .query(params![fetch_limit])
-            .map_err(|err| from_sqlite(&err))?;
-        let mut collected = Vec::with_capacity(limit_usize.saturating_add(1));
-        while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
-            collected.push(gallery_row_from_sql(row)?);
-        }
-        collected
-    };
-
+    let mut items = scan_gallery_rows(
+        connection,
+        bound_tuple,
+        cmp,
+        invert,
+        fetch_limit,
+        limit_usize.saturating_add(1),
+    )?;
     let has_more_in_scan_dir = items.len() > limit_usize;
     if has_more_in_scan_dir {
         items.truncate(limit_usize);
