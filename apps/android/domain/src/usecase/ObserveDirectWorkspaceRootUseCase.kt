@@ -21,7 +21,7 @@ class ObserveDirectWorkspaceRootUseCase(private val engineReadinessRepository: E
         .distinctUntilChanged()
 
     private fun directWorkspaceRootOf(mount: WorkspaceMount): String? {
-        val raw = mount.location?.raw?.takeIf { mount.admitsProjectionWrites }
+        val raw = mount.location?.takeIf { mount.admitsProjectionWrites }?.raw
         return when {
             raw.isNullOrBlank() -> null
             raw.startsWith("content:", ignoreCase = true) -> null

@@ -57,6 +57,7 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldStartWith
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -194,9 +195,14 @@ class SyncConflictStateViewModelTest : AppFunSpec() {
                             when (failureMode) {
                                 FailureMode.NONE -> Unit
 
-                                FailureMode.CONCURRENT_SAF_SWITCH -> {
+                                FailureMode.CONCURRENT_SAF_SWITCH,
+                                FailureMode.CANCELLED_DURING_SWITCH,
+                                -> {
                                     val saf = "content://com.android.externalstorage.documents/tree/primary%3ALomo"
                                     readiness.activateWorkspace(StorageLocation(saf), mediaChange = null)
+                                    if (failureMode == FailureMode.CANCELLED_DURING_SWITCH) {
+                                        throw CancellationException("conflict poll cancelled during switch")
+                                    }
                                     throw RemoteSyncCenterFailure(
                                         category = "validation",
                                         code = "sync_local_pull_requires_direct_workspace",
@@ -239,6 +245,12 @@ class SyncConflictStateViewModelTest : AppFunSpec() {
                     shouldThrow<RemoteSyncCenterFailure> {
                         viewModel.loadRemoteOpenSession(directRoot)
                     }.code shouldBe "sync_local_pull_requires_direct_workspace"
+
+                    readiness.activateWorkspace(StorageLocation("/tmp/conflict-ws"), mediaChange = null)
+                    failureMode = FailureMode.CANCELLED_DURING_SWITCH
+                    shouldThrow<CancellationException> {
+                        viewModel.loadRemoteOpenSession(directRoot)
+                    }.message shouldBe "conflict poll cancelled during switch"
                 } finally {
                     ioDispatcher.close()
                 }
@@ -250,6 +262,7 @@ class SyncConflictStateViewModelTest : AppFunSpec() {
         NONE,
         CONCURRENT_SAF_SWITCH,
         UNCHANGED_MOUNT_FAILURE,
+        CANCELLED_DURING_SWITCH,
     }
 
     private fun createViewModel(
