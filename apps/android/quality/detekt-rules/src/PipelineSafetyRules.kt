@@ -53,10 +53,15 @@ internal class NoSwallowedCancellationInPagingSourceRule(config: Config) :
     }
 }
 
-private data class FailureBoundary(val parameter: String, val body: KtBlockExpression) {
-    fun rethrowsBefore(conversion: KtExpression): Boolean = body.statements.firstOrNull()?.let { first ->
-        first.textRange.startOffset < conversion.textRange.startOffset && first.rethrowsCancellation(parameter)
-    } == true
+private data class FailureBoundary(
+    val parameter: String,
+    val body: KtBlockExpression,
+    val handledByEarlierCatch: Boolean = false,
+) {
+    fun rethrowsBefore(conversion: KtExpression): Boolean = handledByEarlierCatch ||
+        body.statements.firstOrNull()?.let { first ->
+            first.textRange.startOffset < conversion.textRange.startOffset && first.rethrowsCancellation(parameter)
+        } == true
 }
 
 internal fun KtExpression.rethrowsCancellation(parameter: String): Boolean {
@@ -108,7 +113,7 @@ private fun KtCatchClause.cancellationBoundary(): FailureBoundary? {
     val type = parameter.typeReference?.text?.substringAfterLast('.') ?: return null
     if (type !in setOf("Throwable", "Exception", "RuntimeException", "CancellationException")) return null
     val body = catchBody as? KtBlockExpression ?: return null
-    return FailureBoundary(parameter.name ?: return null, body)
+    return FailureBoundary(parameter.name ?: return null, body, isPrecededByCancellationRethrow())
 }
 
 private fun KtLambdaExpression.failureBoundary(): FailureBoundary? {

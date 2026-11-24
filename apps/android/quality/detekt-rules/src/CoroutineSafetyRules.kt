@@ -93,7 +93,7 @@ internal class NoSwallowedCancellationInSuspendRule(config: Config) :
     }
 }
 
-private fun KtCatchClause.isPrecededByCancellationRethrow(): Boolean {
+internal fun KtCatchClause.isPrecededByCancellationRethrow(): Boolean {
     val clauses = (parent as? KtTryExpression)?.catchClauses ?: return false
     val index = clauses.indexOf(this)
     if (index <= 0) return false

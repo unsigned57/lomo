@@ -108,6 +108,20 @@ class PipelineSafetyRulesTest :
             findings.shouldHaveSize(0)
         }
 
+        test("allows a dedicated cancellation catch that rethrows before the broad catch") {
+            pagingFindings(
+                """
+            return try {
+                delegate.load(params)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                LoadResult.Error(failure)
+            }
+            """,
+            ).shouldHaveSize(0)
+        }
+
         test("allows a delegating PagingSource to observe errors and clean up in finally") {
             pagingFindings(
                 """
