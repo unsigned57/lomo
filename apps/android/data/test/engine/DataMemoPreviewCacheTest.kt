@@ -18,6 +18,7 @@ import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -220,16 +221,17 @@ class DataMemoPreviewCacheTest :
 
                 val firstJob = async(Dispatchers.IO) { cache.loadPreviews(listOf(req)) }
                 entered.await()
-                val secondJob = async(Dispatchers.IO) { cache.loadPreviews(listOf(req)) }
-                // Yield briefly on IO before releasing the gate so the second coroutine joins inFlight.
-                var waits = 0
-                while (cache.stats().coalescedHits < 1L && waits++ < 200) {
-                    Thread.sleep(5)
-                }
+                val secondJob = async(start = CoroutineStart.UNDISPATCHED) { cache.loadPreviews(listOf(req)) }
+                val differentText = req.copy(expectedBodyPreview = "shared-body".reversed())
+                val mismatchedJob =
+                    async(start = CoroutineStart.UNDISPATCHED) { cache.loadPreviews(listOf(differentText)) }
+                val mismatchCompletedBeforeRender = mismatchedJob.isCompleted
                 gate.complete(Unit)
 
                 firstJob.await()["m-shared"]?.plainText shouldBe "shared-body"
                 secondJob.await()["m-shared"]?.plainText shouldBe "shared-body"
+                mismatchedJob.await() shouldBe emptyMap()
+                mismatchCompletedBeforeRender shouldBe true
                 bridge.calls shouldHaveSize 1
                 cache.stats().coalescedHits shouldBe 1L
             }

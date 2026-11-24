@@ -50,11 +50,6 @@ private data class PendingPreviewEntry(
     val deferred: CompletableDeferred<MarkdownRenderDocument?>,
 )
 
-private data class CoalescedPreviewWaiter(
-    val request: MemoPreviewRenderRequest,
-    val deferred: CompletableDeferred<MarkdownRenderDocument?>,
-)
-
 /**
  * Data-layer bounded LRU + single-flight cache for batched memo-preview Markdown IR.
  *
@@ -89,7 +84,7 @@ internal class DataMemoPreviewCache(
             }
         }
 
-    private val inFlight = HashMap<RawPreviewCacheKey, CompletableDeferred<MarkdownRenderDocument?>>()
+    private val inFlight = HashMap<RawPreviewCacheKey, PendingPreviewEntry>()
 
     fun stats(): DataMemoPreviewCacheStats {
         val currentSize = synchronized(cacheLock) { rawCache.size }
@@ -176,7 +171,7 @@ internal class DataMemoPreviewCache(
         val authority = readiness.mount.value.admittedAuthority ?: return emptyMap()
         val distinctRequests = requests.distinctBy { it.cacheKey(authority) }
         val results = LinkedHashMap<String, MarkdownRenderDocument>(distinctRequests.size)
-        val coalesced = ArrayList<CoalescedPreviewWaiter>()
+        val coalesced = ArrayList<PendingPreviewEntry>()
         val owned = ArrayList<PendingPreviewEntry>()
 
         synchronized(cacheLock) {
@@ -191,18 +186,20 @@ internal class DataMemoPreviewCache(
                 misses.incrementAndGet()
                 val existing = inFlight[key]
                 if (existing != null) {
-                    coalescedHits.incrementAndGet()
-                    coalesced += CoalescedPreviewWaiter(request = request, deferred = existing)
+                    if (existing.request.expectedBodyPreview == request.expectedBodyPreview) {
+                        coalescedHits.incrementAndGet()
+                        coalesced += existing
+                    }
                 } else {
-                    val deferred = CompletableDeferred<MarkdownRenderDocument?>()
-                    inFlight[key] = deferred
-                    owned +=
+                    val entry =
                         PendingPreviewEntry(
                             key = key,
                             request = request,
                             expectedByteLength = request.expectedBodyPreview.encodeToByteArray().size.toULong(),
-                            deferred = deferred,
+                            deferred = CompletableDeferred(),
                         )
+                    inFlight[key] = entry
+                    owned += entry
                 }
             }
         }
@@ -218,17 +215,12 @@ internal class DataMemoPreviewCache(
 
         for (waiter in coalesced) {
             val document = waiter.deferred.await()
-            if (document != null && isStillValid() && readiness.mount.value.admittedAuthority == authority) {
-                val key = waiter.request.cacheKey(authority)
-                val matchesExpected =
-                    synchronized(cacheLock) {
-                        val cached = rawCache[key]
-                        cached == null || cached.bodyPreview == waiter.request.expectedBodyPreview
-                    }
-                if (matchesExpected) {
-                    results[waiter.request.memoId] = document
-                }
+            if (document != null) {
+                results[waiter.request.memoId] = document
             }
+        }
+        if (!isStillValid() || readiness.mount.value.admittedAuthority != authority) {
+            return emptyMap()
         }
         return results
     }
@@ -311,9 +303,7 @@ internal class DataMemoPreviewCache(
     private fun settleOwnedEntries(owned: List<PendingPreviewEntry>, failure: Throwable?) {
         synchronized(cacheLock) {
             for (entry in owned) {
-                if (inFlight[entry.key] === entry.deferred) {
-                    inFlight.remove(entry.key)
-                }
+                inFlight.remove(entry.key, entry)
             }
         }
         val nonCancellationFailure = failure?.takeUnless { it is CancellationException }
