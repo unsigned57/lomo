@@ -1,6 +1,7 @@
 <resources>
     <string name="image_directory_scan_failed">Images could not be loaded from the selected directories. Refresh to retry or reselect the directory in Settings.</string>
     <string name="app_name">Lomo</string>
+    <string name="process_text_save_to_lomo">Save to Lomo</string>
     <string name="cd_more_options">More options</string>
     <string name="settings_title">Settings</string>
     

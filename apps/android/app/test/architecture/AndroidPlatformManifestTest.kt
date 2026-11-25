@@ -80,13 +80,33 @@ class AndroidPlatformManifestTest : AppFunSpec() {
 
             processTextFilters.size shouldBe 1
             val filter = processTextFilters.single()
-            filter.android("label") shouldBe "@string/app_name"
+            filter.android("label") shouldBe "@string/process_text_save_to_lomo"
             filter.childElements("category").map { it.android("name") }.shouldContainAll(
                 "android.intent.category.DEFAULT",
             )
             filter.childElements("data").map { it.android("mimeType") }.shouldContainAll(
                 "text/plain",
             )
+
+            fun readStringResource(relativePath: String, key: String): String? {
+                val stringsDoc = DocumentBuilderFactory.newInstance()
+                    .newDocumentBuilder()
+                    .parse(root.resolve(relativePath))
+                val nodes = stringsDoc.getElementsByTagName("string")
+                return (0 until nodes.length)
+                    .map { nodes.item(it) as Element }
+                    .firstOrNull { it.getAttribute("name") == key }
+                    ?.textContent
+            }
+
+            readStringResource(
+                "apps/android/app/res/values/strings.xml",
+                "process_text_save_to_lomo",
+            ) shouldBe "Save to Lomo"
+            readStringResource(
+                "apps/android/app/res/values-zh-rCN/strings.xml",
+                "process_text_save_to_lomo",
+            ) shouldBe "保存到 Lomo"
         }
     }
 }

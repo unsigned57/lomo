@@ -2,6 +2,7 @@
 <resources>
     <string name="image_directory_scan_failed">无法读取所选目录中的图片。请刷新重试，或在设置中重新选择目录。</string>
     <string name="app_name">Lomo</string>
+    <string name="process_text_save_to_lomo">保存到 Lomo</string>
     <string name="cd_more_options">更多选项</string>
     <string name="settings_title">设置</string>
     
