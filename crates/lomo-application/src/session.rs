@@ -27,7 +27,8 @@ use crate::{
     lock::TransactionLock,
     private_io::{read_optional, write_atomic},
     record_plan::{
-        StateChange, history_files, history_files_after_tip, state_files, trash_snapshot,
+        StateChange, history_files, history_files_after_tip, history_projection, state_files,
+        trash_snapshot,
     },
     transaction::{PlannedFile, TransactionInput, payload_digest},
     types::{
@@ -62,9 +63,7 @@ pub struct WorkspaceSession {
     /// rescanning and rescoring every candidate, and a prefix-extending
     /// keystroke derives its candidate set from the cached ancestor's hits.
     pub(crate) fuzzy_results: Mutex<lru::LruCache<(String, u64), crate::search::FuzzyResult>>,
-    /// Hydrated fuzzy candidate corpus plus scan counters — one build per
-    /// `(filters, revision)` publication, shared by every keystroke there.
-    pub(crate) fuzzy_scan: Mutex<crate::search::FuzzyScan>,
+    pub(crate) fuzzy_scan: Mutex<crate::search::FuzzyScanStats>,
     /// Revision-keyed query projection shared by search, tasks, review and
     /// reminder planning — collected walks and the derived views cut from
     /// them are functions of one committed revision and invalidate by key.
@@ -157,7 +156,7 @@ impl WorkspaceSession {
             mount: Mutex::new(None),
             search_epoch: AtomicU64::new(0),
             fuzzy_results: Mutex::new(lru::LruCache::new(crate::search::FUZZY_CACHE_ENTRIES)),
-            fuzzy_scan: Mutex::new(crate::search::FuzzyScan::new()),
+            fuzzy_scan: Mutex::new(crate::search::FuzzyScanStats::default()),
             query_projection: Mutex::new(crate::paging::QueryProjection::new()),
         };
         let pending = session.recover_files_for_mount()?;
@@ -279,7 +278,7 @@ impl WorkspaceSession {
     pub fn fuzzy_scan_stats(&self) -> Result<crate::search::FuzzyScanStats, LomoError> {
         self.fuzzy_scan
             .lock()
-            .map(|scan| scan.stats)
+            .map(|scan| *scan)
             .map_err(|error| storage("fuzzy_scan_poisoned", error.to_string()))
     }
 
@@ -510,7 +509,7 @@ impl WorkspaceSession {
         )?;
         files.extend(history.files);
         let mut mutations = vec![DocumentPublication {
-            history: Some(history.projection),
+            history: Some(history_projection(history.revision)),
             mutation: SafProjectionMutation {
                 operation_id: request.operation_id.as_str().to_owned(),
                 kind: SafProjectionMutationKind::Create,
@@ -653,7 +652,7 @@ impl WorkspaceSession {
                 files,
                 mutations: vec![DocumentPublication {
                     mutation,
-                    history: Some(history.projection),
+                    history: Some(history_projection(history.revision)),
                 }],
                 staging: request.pending_promotes,
             },

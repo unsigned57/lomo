@@ -34,14 +34,30 @@ package com.lomo.app.feature.image
  * Why this is not fitting the test to the implementation: Syntax translation
  */
 
+import android.app.ActivityManager
+import android.content.Context
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import java.nio.file.Files
 
 class LomoImageLoaderConfigTest : AppFunSpec() {
     init {
+        test("image memory cache respects small heaps and caps larger heaps at 32 MiB") {
+            val context = mockk<Context>()
+            val activityManager = mockk<ActivityManager>()
+            every { context.getSystemService(ActivityManager::class.java) } returns activityManager
+
+            every { activityManager.memoryClass } returns 64
+            lomoImageMemoryCache(context).maxSize shouldBe 16L * 1024 * 1024
+
+            every { activityManager.memoryClass } returns 512
+            lomoImageMemoryCache(context).maxSize shouldBe 32L * 1024 * 1024
+        }
+
         test("lomoImageDiskCache configures the documented byte budget") {
             val cacheDir = Files.createTempDirectory("lomo-disk-cache").toFile()
 

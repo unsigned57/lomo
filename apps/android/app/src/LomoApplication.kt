@@ -7,15 +7,14 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Configuration
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
-import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.serviceLoaderEnabled
 import com.lomo.app.di.processStartupPlan
-import com.lomo.app.feature.image.LOMO_IMAGE_LOADER_MEMORY_CACHE_PERCENT
 import com.lomo.app.feature.image.lomoImageDecoderCoroutineContext
 import com.lomo.app.feature.image.lomoImageDiskCache
 import com.lomo.app.feature.image.lomoImageFetcherCoroutineContext
+import com.lomo.app.feature.image.lomoImageMemoryCache
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.app.startup.AppStartupCoordinator
 import com.lomo.app.startup.currentProcessName
@@ -103,12 +102,8 @@ class LomoApplication :
 
     override fun newImageLoader(context: android.content.Context): ImageLoader = ImageLoader
         .Builder(context)
-        .memoryCache(
-            MemoryCache
-                .Builder()
-                .maxSizePercent(context, LOMO_IMAGE_LOADER_MEMORY_CACHE_PERCENT)
-                .build(),
-        ).diskCache(lomoImageDiskCache(context.cacheDir))
+        .memoryCache { lomoImageMemoryCache(context) }
+        .diskCache { lomoImageDiskCache(context.cacheDir) }
         .diskCachePolicy(CachePolicy.ENABLED)
         .fetcherCoroutineContext(lomoImageFetcherCoroutineContext(Dispatchers.IO))
         .decoderCoroutineContext(lomoImageDecoderCoroutineContext(Dispatchers.IO))

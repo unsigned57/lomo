@@ -5,6 +5,9 @@ import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.shouldBe
+import java.awt.Font
+import java.awt.font.FontRenderContext
+import java.awt.font.TextAttribute
 import java.io.File
 
 /*
@@ -41,12 +44,11 @@ class LomoIconsTest : UiComponentsFunSpec() {
     private val moduleRoot = resolveModuleRoot("ui-components")
 
     init {
-        test("every icon resolves to a valid variable-font spec and the variable font resource exists") {
+        test("every icon has a unique spec and shapes to one glyph in the bundled font") {
             val fontFile = moduleRoot.resolve("composeResources/font/material_symbols_rounded.ttf")
-            withClue("Bundled variable font resource must exist at ${fontFile.path}") {
-                fontFile.exists() shouldBe true
-                (fontFile.length() > 1_000_000L) shouldBe true
-            }
+            val font = Font.createFont(Font.TRUETYPE_FONT, fontFile)
+                .deriveFont(mapOf(TextAttribute.LIGATURES to TextAttribute.LIGATURES_ON))
+            val renderContext = FontRenderContext(null, true, true)
 
             val iconGetters =
                 LomoIcons::class.java.methods
@@ -66,6 +68,12 @@ class LomoIconsTest : UiComponentsFunSpec() {
                 }
                 withClue("Spec ${getter.name} has invalid glyphName '${spec.glyphName}'") {
                     GLYPH_NAME_PATTERN.matches(spec.glyphName) shouldBe true
+                }
+                withClue("Missing ligature ${spec.glyphName} in the bundled icon font") {
+                    val name = spec.glyphName.toCharArray()
+                    val glyphs = font.layoutGlyphVector(renderContext, name, 0, name.size, Font.LAYOUT_LEFT_TO_RIGHT)
+                    glyphs.numGlyphs shouldBe 1
+                    (glyphs.getGlyphCode(0) != font.missingGlyphCode) shouldBe true
                 }
                 withClue("Duplicate icon spec name ${spec.name}") {
                     seenNames.add(spec.name) shouldBe true

@@ -32,6 +32,8 @@
 //! upgrade; fixtures that fake an older schema must drop those objects first, and old
 //! projection rows must survive the atomic upgrade.
 
+mod support;
+
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
@@ -40,12 +42,15 @@
 mod tests {
     use std::path::Path;
 
+    use super::support::use_external_content_fts;
+
     use lomo_core::ErrorCategory;
     use lomo_store::{STORE_SCHEMA_VERSION, Store, open_store};
     use rusqlite::Connection;
     use tempfile::tempdir;
 
     fn remove_v16_triggers(connection: &Connection) {
+        use_external_content_fts(connection);
         connection.execute_batch("DROP TRIGGER memo_stats_insert; DROP TRIGGER memo_stats_delete;
             DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; DROP INDEX idx_memo_gallery; DROP INDEX idx_memo_empty_time_part; ALTER TABLE memo DROP COLUMN image_urls_json; ALTER TABLE memo DROP COLUMN time_part;")
             .expect("historical schemas have no v16 triggers or v18 columns");
@@ -73,6 +78,87 @@ mod tests {
         // admitted untouched — the migration suffix for v11 would otherwise be empty.
         let reopened = Store::open(dir.path()).expect("reopen");
         assert_eq!(reopened.open_info().user_version, STORE_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn checkpointed_wal_releases_excess_disk_space_when_reused() {
+        use std::fs;
+
+        let dir = tempdir().expect("tempdir");
+        let opened = open_store(dir.path()).expect("open store");
+        let connection = &opened.connection;
+        let wal = opened.database_path.with_file_name("store.db-wal");
+        let max_retained_bytes = 1024 * 1024;
+        connection
+            .execute_batch(
+                "CREATE TABLE wal_probe (payload BLOB);
+                 INSERT INTO wal_probe VALUES (zeroblob(3145728));
+                 PRAGMA wal_checkpoint(PASSIVE);",
+            )
+            .expect("write and checkpoint large WAL");
+        assert!(fs::metadata(&wal).expect("large WAL").len() > max_retained_bytes);
+
+        connection
+            .execute("INSERT INTO wal_probe VALUES (X'00')", [])
+            .expect("reuse checkpointed WAL");
+
+        assert!(fs::metadata(&wal).expect("reused WAL").len() <= max_retained_bytes);
+    }
+
+    #[test]
+    fn v20_upgrade_removes_duplicate_search_text_and_preserves_rank_and_deletion() {
+        let root = tempdir().expect("projection root");
+        let database = lomo_store::database_path(root.path());
+        std::fs::create_dir_all(database.parent().expect("database directory"))
+            .expect("create legacy directory");
+        let legacy = Connection::open(database).expect("open legacy database");
+        legacy
+            .execute_batch(
+                "CREATE TABLE memo(
+                    rowid INTEGER PRIMARY KEY, memo_id TEXT NOT NULL, body TEXT,
+                    search_content TEXT NOT NULL DEFAULT '', pending_operation_id TEXT
+                 );
+                 CREATE VIRTUAL TABLE memo_fts USING fts5(
+                    search_content, content='memo', content_rowid='rowid', tokenize='unicode61'
+                 );
+                 INSERT INTO memo VALUES
+                    (1,'both','你好 needle needle','你 好 你好 needle needle',NULL),
+                    (2,'other','one needle','one needle',NULL),
+                    (3,'unindexed','needle','needle',NULL);
+                 INSERT INTO memo_fts(rowid, search_content)
+                    SELECT rowid, search_content FROM memo WHERE rowid < 3;
+                 PRAGMA user_version = 20;",
+            )
+            .expect("seed v20 projection and FTS");
+        let ranks = |connection: &Connection| {
+            connection
+                .prepare("SELECT rowid, bm25(memo_fts) FROM memo_fts WHERE memo_fts MATCH 'needle' ORDER BY 2,1")
+                .expect("ranked query")
+                .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?.to_bits())))
+                .expect("fetch ranked matches")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("decode ranks")
+        };
+        let before = ranks(&legacy);
+        drop(legacy);
+
+        let upgraded = open_store(root.path()).expect("upgrade projection");
+        assert_eq!(ranks(&upgraded.connection), before);
+        let duplicated_columns: i64 = upgraded
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('memo') WHERE name='search_content'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("inspect migrated memo table");
+        assert_eq!(duplicated_columns, 0);
+        upgraded
+            .connection
+            .execute("DELETE FROM memo WHERE memo_id='both'", [])
+            .expect("delete ranked memo");
+        let remaining = ranks(&upgraded.connection);
+        assert_eq!(remaining.iter().map(|(id, _)| *id).collect::<Vec<_>>(), [2]);
     }
 
     #[test]
@@ -346,6 +432,7 @@ mod tests {
         let database = opened.database_path.clone();
         drop(opened);
         let connection = Connection::open(&database).expect("construct v17 cache");
+        use_external_content_fts(&connection);
         connection
             .execute_batch(
                 "DROP INDEX idx_memo_empty_time_part;\
@@ -400,6 +487,7 @@ mod tests {
         drop(store);
 
         let connection = Connection::open(&db_path).expect("raw sqlite");
+        use_external_content_fts(&connection);
         connection
             .execute_batch(
                 "DROP INDEX idx_memo_empty_time_part;\
@@ -498,9 +586,9 @@ mod tests {
             .execute_batch(
                 "INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
                  has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
-                 search_content, word_count, char_count, content_revision, reminders_json, \
+                 word_count, char_count, content_revision, reminders_json, \
                  is_pinned, is_trashed, image_urls_json) \
-                 VALUES('corrupt-img','2026_10_12.md','fp1',0,0,1,100,100,'p','body','s',1,1,1,'[]',0,0,'{not-json');",
+                 VALUES('corrupt-img','2026_10_12.md','fp1',0,0,1,100,100,'p','body',1,1,1,'[]',0,0,'{not-json');",
             )
             .expect("insert corrupt row");
         drop(connection);
@@ -529,6 +617,7 @@ mod tests {
         drop(opened);
 
         let connection = Connection::open(&db_path).expect("raw sqlite");
+        use_external_content_fts(&connection);
         connection
             .execute_batch(
                 "DROP INDEX idx_memo_empty_time_part;\
@@ -564,6 +653,7 @@ mod tests {
         drop(opened);
 
         let connection = Connection::open(&db_path).expect("raw sqlite");
+        use_external_content_fts(&connection);
         connection
             .execute_batch(
                 "DROP INDEX idx_memo_empty_time_part;\

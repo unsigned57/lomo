@@ -1,7 +1,20 @@
 //! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 20;
+pub const STORE_SCHEMA_VERSION: u32 = 21;
+
+pub const EXTERNAL_CONTENT_SCHEMA_VERSION: u32 = 20;
+
+pub const CONTENTLESS_FTS_DDL: &str = r"
+CREATE VIRTUAL TABLE memo_fts USING fts5(
+    search_content,
+    content='',
+    contentless_delete=1,
+    tokenize='unicode61'
+);
+CREATE TRIGGER memo_fts_delete AFTER DELETE ON memo BEGIN
+    DELETE FROM memo_fts WHERE rowid=OLD.rowid;
+END;";
 
 /// Tokenizer version embedded in FTS projections and `PageCursor`.
 pub const TOKENIZER_VERSION: u32 = 1;
@@ -17,7 +30,6 @@ pub mod tables {
     pub const ATTACHMENT_REF: &str = "attachment_ref";
     pub const MEMO_PIN: &str = "memo_pin";
     pub const MEMO_TRASH: &str = "memo_trash";
-    pub const MEMO_FTS: &str = "memo_fts";
     pub const REVISION_INDEX: &str = "revision_index";
     pub const STATS: &str = "stats";
     pub const REBUILD_CHECKPOINT: &str = "rebuild_checkpoint";
@@ -55,7 +67,6 @@ CREATE TABLE {memo} (
     updated_at_ms INTEGER NOT NULL,
     body_preview TEXT NOT NULL DEFAULT '',
     body TEXT,
-    search_content TEXT NOT NULL DEFAULT '',
     word_count INTEGER NOT NULL DEFAULT 0,
     char_count INTEGER NOT NULL DEFAULT 0,
     reminders_json TEXT NOT NULL DEFAULT '[]',
@@ -97,12 +108,7 @@ CREATE TABLE {memo_trash} (
     record_digest TEXT NOT NULL DEFAULT ''
 );
 
-CREATE VIRTUAL TABLE {memo_fts} USING fts5(
-    search_content,
-    content='{memo}',
-    content_rowid='rowid',
-    tokenize='unicode61'
-);
+{fts_ddl}
 
 CREATE TABLE {revision_index} (
     memo_id TEXT NOT NULL,
@@ -216,7 +222,7 @@ INSERT INTO {store_meta}(key, value) VALUES
         attachment_ref = tables::ATTACHMENT_REF,
         memo_pin = tables::MEMO_PIN,
         memo_trash = tables::MEMO_TRASH,
-        memo_fts = tables::MEMO_FTS,
+        fts_ddl = CONTENTLESS_FTS_DDL,
         revision_index = tables::REVISION_INDEX,
         stats = tables::STATS,
         rebuild_checkpoint = tables::REBUILD_CHECKPOINT,

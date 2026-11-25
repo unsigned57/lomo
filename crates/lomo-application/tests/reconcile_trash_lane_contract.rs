@@ -263,7 +263,7 @@ mod tests {
                     "memo",
                     "SELECT memo_id, source_path, time_part, source_start, source_end, file_fingerprint, \
                      has_todo, has_url, has_attachment, is_pinned, is_trashed, created_at_ms, \
-                     updated_at_ms, body_preview, COALESCE(body,''), search_content, word_count, \
+                     updated_at_ms, body_preview, COALESCE(body,''), word_count, \
                      char_count, reminders_json, content_revision, COALESCE(pending_operation_id,'') \
                      FROM memo ORDER BY memo_id",
                 ),
@@ -1124,7 +1124,7 @@ mod tests {
                     "memo",
                     "SELECT memo_id, source_path, time_part, source_start, source_end, file_fingerprint, \
                      has_todo, has_url, has_attachment, is_pinned, is_trashed, created_at_ms, \
-                     updated_at_ms, body_preview, COALESCE(body,''), search_content, word_count, \
+                     updated_at_ms, body_preview, COALESCE(body,''), word_count, \
                      char_count, reminders_json, content_revision, COALESCE(pending_operation_id,'') \
                      FROM memo ORDER BY memo_id",
                 ),
@@ -1782,7 +1782,7 @@ mod tests {
                     "memo",
                     "SELECT memo_id, source_path, time_part, source_start, source_end, file_fingerprint, \
                      has_todo, has_url, has_attachment, is_pinned, is_trashed, created_at_ms, \
-                     updated_at_ms, body_preview, COALESCE(body,''), search_content, word_count, \
+                     updated_at_ms, body_preview, COALESCE(body,''), word_count, \
                      char_count, reminders_json, content_revision, COALESCE(pending_operation_id,'') \
                      FROM memo ORDER BY memo_id",
                 ),

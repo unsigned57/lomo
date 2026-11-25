@@ -492,7 +492,6 @@ pub(crate) fn scan_projection_inventory_from_listing(
         &markdown_files,
         &listing_tokens,
         &mut history_files,
-        &mut Vec::new(),
         &mut written_paths,
     )?;
     history_files.sort_by(|left, right| left.as_str().cmp(right.as_str()));
@@ -502,7 +501,10 @@ pub(crate) fn scan_projection_inventory_from_listing(
     let history_revisions = crate::rebuild_records::history(
         &WorkspaceIo::physical(config, executor),
         &history_files,
-        documents.history_tips,
+        documents
+            .history_tips
+            .into_iter()
+            .chain(documents.initial_history),
     )?;
     let active_memos = documents.memos;
     // Pin facts attach only to identities this scan projects a row for — document
@@ -579,13 +581,14 @@ pub(crate) struct ScannedDocuments {
     pub memos: Vec<ScannedMemoProjection>,
     /// Canonical tip objects already admitted while ensuring each memo has history.
     pub history_tips: Vec<lomo_workspace::HistoryRevisionV2>,
+    pub initial_history: Vec<lomo_workspace::HistoryRevisionV2>,
 }
 
 /// Parses one batch of documents and reconciles their identity records.
 ///
 /// `history_files` accumulates history record paths the scan must still index (initial-history
-/// writes made here are pushed on by value). `initial_history` collects the complete projection
-/// row for every memo that received a fresh initial history chain — a head-absent memo's chain
+/// writes made here are pushed on by value). `initial_history` collects the committed revision
+/// for every memo that received a fresh initial history chain — a head-absent memo's chain
 /// is exactly that one revision — so a path-scoped caller can project it without re-reading the
 /// files it just wrote. `written_paths` collects every file the scan itself wrote — identity
 /// maps and initial history — so the caller can refresh their listing tokens after the listing
@@ -596,13 +599,13 @@ pub(crate) fn scan_markdown_files(
     markdown_files: &[RelativeWorkspacePath],
     listed_files: &BTreeMap<String, String>,
     history_files: &mut Vec<RelativeWorkspacePath>,
-    initial_history: &mut Vec<ScannedHistoryProjection>,
     written_paths: &mut Vec<RelativeWorkspacePath>,
 ) -> Result<ScannedDocuments, LomoError> {
     let io = WorkspaceIo::physical(config, executor);
     let mut documents = ScannedDocuments {
         memos: Vec::new(),
         history_tips: Vec::new(),
+        initial_history: Vec::new(),
     };
     if !markdown_files.is_empty() {
         prepare_scan_directories(&io)?;
@@ -619,7 +622,7 @@ pub(crate) fn scan_markdown_files(
             documents.memos.extend(scanned.memos);
             documents.history_tips.extend(scanned.history_tips);
             history_files.extend(scanned.history_files);
-            initial_history.extend(scanned.initial_history);
+            documents.initial_history.extend(scanned.initial_history);
             written_paths.extend(scanned.written_paths);
         }
     }
@@ -682,7 +685,7 @@ struct ScannedDocument {
     memos: Vec<ScannedMemoProjection>,
     history_tips: Vec<lomo_workspace::HistoryRevisionV2>,
     history_files: Vec<RelativeWorkspacePath>,
-    initial_history: Vec<ScannedHistoryProjection>,
+    initial_history: Vec<lomo_workspace::HistoryRevisionV2>,
     written_paths: Vec<RelativeWorkspacePath>,
 }
 
@@ -744,19 +747,17 @@ fn scan_document(
                     )
                 })?;
             if !existing_ids.contains(&binding.memo_id()) {
-                let history_before = memo_scan.history_files.len();
-                let projection = create_initial_history(
+                let initial = create_initial_history(
                     io,
                     binding.memo_id(),
                     memo,
                     chronology,
                     &mut memo_scan.history_files,
-                    &mut memo_scan.history_tips,
                 )?;
-                memo_scan.initial_history.push(projection);
+                memo_scan.initial_history.push(initial);
                 memo_scan
                     .written_paths
-                    .extend(memo_scan.history_files.iter().skip(history_before).cloned());
+                    .extend(memo_scan.history_files.iter().cloned());
             }
             memo_scan.memos.push(ScannedMemoProjection {
                 memo_id: binding.memo_id().as_str().to_owned(),
@@ -790,7 +791,7 @@ fn scan_document(
 
 /// Writes initial durable history for one memo when no head exists yet.
 ///
-/// Returns the projection row for the revision just written — the memo's complete durable chain,
+/// Returns the revision just written — the memo's complete durable chain,
 /// since a missing head means no earlier history exists — so a path-scoped caller can use it
 /// directly as the memo's `history_replaces` fact without re-walking what it just wrote.
 fn create_initial_history(
@@ -799,8 +800,7 @@ fn create_initial_history(
     memo: &lomo_workspace::WorkspaceMemo,
     chronology: i64,
     inventory: &mut Vec<RelativeWorkspacePath>,
-    tips: &mut Vec<lomo_workspace::HistoryRevisionV2>,
-) -> Result<ScannedHistoryProjection, LomoError> {
+) -> Result<lomo_workspace::HistoryRevisionV2, LomoError> {
     let prepared = crate::record_plan::history_files_after_tip(
         &lomo_workspace::HistorySnapshotV1 {
             memo_id: id.as_str().to_owned(),
@@ -815,14 +815,12 @@ fn create_initial_history(
         },
         None,
     )?;
-    let projection = prepared.projection;
     for file in prepared.files {
         let current = file.observe(io)?;
         file.apply(io, &current)?;
         inventory.push(file.path().clone());
     }
-    tips.push(prepared.revision);
-    Ok(projection)
+    Ok(prepared.revision)
 }
 
 fn reconcile_identity(

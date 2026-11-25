@@ -113,6 +113,7 @@ val syncDataModule = module {
         RustSyncCycleStatusStore(
             remoteSync = get(),
             workspaceRoot = get(),
+            scope = get(named("ApplicationScope")),
             workspaceMounts = get<EngineReadinessRepository>().mount,
         )
     }

@@ -1,15 +1,30 @@
 package com.lomo.app.feature.image
 
+import android.app.ActivityManager
+import android.content.Context
 import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import kotlinx.coroutines.CoroutineDispatcher
 import okio.Path.Companion.toOkioPath
 import java.io.File
 import kotlin.coroutines.CoroutineContext
 
-internal const val LOMO_IMAGE_LOADER_MEMORY_CACHE_PERCENT: Double = 0.25
+private const val MIB = 1024L * 1024L
+private const val MEMORY_CACHE_HEAP_DIVISOR = 4
+private const val LOMO_IMAGE_MEMORY_CACHE_BYTES = 32L * MIB
 internal const val LOMO_IMAGE_LOADER_IO_PARALLELISM: Int = 4
-internal const val LOMO_IMAGE_DISK_CACHE_BYTES: Long = 64L * 1024L * 1024L
+internal const val LOMO_IMAGE_DISK_CACHE_BYTES: Long = 32L * MIB
 internal const val LOMO_IMAGE_DISK_CACHE_DIRECTORY_NAME: String = "image_cache"
+
+internal fun lomoImageMemoryCache(context: Context): MemoryCache {
+    val activityManager = checkNotNull(context.getSystemService(ActivityManager::class.java))
+    return MemoryCache
+        .Builder()
+        .maxSizeBytes(
+            minOf(activityManager.memoryClass * MIB / MEMORY_CACHE_HEAP_DIVISOR, LOMO_IMAGE_MEMORY_CACHE_BYTES),
+        )
+        .build()
+}
 
 /**
  * Coroutine context that bounds Coil's bitmap decoder parallelism. The
@@ -33,12 +48,7 @@ internal fun lomoImageFetcherCoroutineContext(ioDispatcher: CoroutineDispatcher)
     ioDispatcher.limitedParallelism(LOMO_IMAGE_LOADER_IO_PARALLELISM)
 
 /**
- * Builds the on-disk image cache used by Coil. Re-enabling the disk cache
- * (Coil previously had [CachePolicy.DISABLED]) means a cold-start re-entry
- * into the list can hit the already-downsampled bytes Coil wrote on the
- * previous run, avoiding a wave of full bitmap decodes against the source
- * file. Sized at [LOMO_IMAGE_DISK_CACHE_BYTES] (64 MB) so the cache itself
- * stays bounded and predictable.
+ * Retains fetched image data across launches within the app's disk budget.
  */
 internal fun lomoImageDiskCache(cacheDir: File): DiskCache = DiskCache
     .Builder()

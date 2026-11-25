@@ -466,45 +466,14 @@ pub fn query_memos_starting_at(
         &query_fingerprint,
         high_water_revision,
     )?;
-    let use_fts = plan.match_expr.is_some();
-    let cursor_rank = if let Some(cursor) = resolved.cursor.as_ref() {
-        cursor.validated_sort_rank(use_fts)?
-    } else {
-        None
-    };
-
-    let limit = i64::from(page_size.get());
-    let (sql, bind_search) = build_sql(
+    let mut items = query_summary_items(
+        connection,
         query,
         &plan,
         boundary,
-        resolved
-            .cursor
-            .as_ref()
-            .map(|cursor| (cursor, resolved.bound)),
-        resolved.invert,
+        &resolved,
+        i64::from(page_size.get()),
     )?;
-    let mut stmt = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
-    let bindings = bind_query(
-        query,
-        bind_search,
-        boundary,
-        resolved.cursor.as_ref(),
-        use_fts,
-        cursor_rank,
-        Some(limit),
-    )?;
-    let mut rows = stmt
-        .query(params_from_iter(bindings.iter()))
-        .map_err(|err| from_sqlite(&err))?;
-
-    let mut items = Vec::new();
-    while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
-        items.push(memo_summary_from_row(row)?);
-    }
-    if resolved.invert {
-        items.reverse();
-    }
 
     attach_tags(connection, &mut items)?;
     let total = count_rows(connection, query, &plan, boundary, None)?;
@@ -551,6 +520,94 @@ pub fn query_memos_starting_at(
         high_water_revision,
         query_fingerprint,
     })
+}
+
+pub fn query_memo_walk_page(
+    connection: &Connection,
+    query: &MemoQuery,
+    cursor: Option<&PageCursor>,
+    page_size: PageSize,
+    revision: u64,
+) -> Result<(Vec<MemoSummary>, Option<PageCursor>), lomo_core::LomoError> {
+    register_review_functions(connection, &query.sort)?;
+    let plan = query_plan_for(query)?;
+    let fingerprint = fingerprint_for(query, &plan, None);
+    let start = cursor.map_or(MemoQueryStart::Head, MemoQueryStart::After);
+    let resolved = resolve_start(
+        connection,
+        query,
+        &plan,
+        None,
+        start,
+        &fingerprint,
+        revision,
+    )?;
+    let limit = i64::from(page_size.get());
+    let mut items = query_summary_items(connection, query, &plan, None, &resolved, limit + 1)?;
+    let next_cursor = if items.len()
+        > usize::try_from(limit)
+            .map_err(|error| validation("invalid_page_size", &error.to_string()))?
+    {
+        let _lookahead = items.pop();
+        let last = items
+            .last()
+            .ok_or_else(|| corruption("invalid_memo_walk", "lookahead without a page"))?;
+        Some(page_cursor_for(last, &query.sort, fingerprint, revision)?)
+    } else {
+        None
+    };
+    attach_tags(connection, &mut items)?;
+    Ok((items, next_cursor))
+}
+
+fn query_summary_items(
+    connection: &Connection,
+    query: &MemoQuery,
+    plan: &QueryPlan,
+    boundary: Option<&MemoQueryBoundary>,
+    resolved: &ResolvedStart,
+    limit: i64,
+) -> Result<Vec<MemoSummary>, lomo_core::LomoError> {
+    let use_fts = plan.match_expr.is_some();
+    let cursor_rank = if let Some(cursor) = resolved.cursor.as_ref() {
+        cursor.validated_sort_rank(use_fts)?
+    } else {
+        None
+    };
+
+    let (sql, bind_search) = build_sql(
+        query,
+        plan,
+        boundary,
+        resolved
+            .cursor
+            .as_ref()
+            .map(|cursor| (cursor, resolved.bound)),
+        resolved.invert,
+    )?;
+    let mut stmt = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
+    let bindings = bind_query(
+        query,
+        bind_search,
+        boundary,
+        resolved.cursor.as_ref(),
+        use_fts,
+        cursor_rank,
+        Some(limit),
+    )?;
+    let mut rows = stmt
+        .query(params_from_iter(bindings.iter()))
+        .map_err(|err| from_sqlite(&err))?;
+
+    let mut items = Vec::new();
+    while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
+        items.push(memo_summary_from_row(row)?);
+    }
+    if resolved.invert {
+        items.reverse();
+    }
+
+    Ok(items)
 }
 
 #[derive(Clone, Copy)]
@@ -1296,6 +1353,52 @@ pub fn get_projected_memo(
 
 /// One SQLite variable-binding page for `IN (...)` memo-id sets.
 const MAX_BOUND_MEMO_IDS: usize = 256;
+
+pub fn visit_projected_bodies(
+    connection: &Connection,
+    memo_ids: &[&str],
+    mut visit: impl FnMut(&str, &str) -> Result<(), lomo_core::LomoError>,
+) -> Result<(), lomo_core::LomoError> {
+    if !(1..=MAX_BOUND_MEMO_IDS).contains(&memo_ids.len()) {
+        return Err(validation(
+            "invalid_projected_body_batch",
+            "body reads require one nonempty binding page",
+        ));
+    }
+    let placeholders = std::iter::repeat_n("?", memo_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT memo_id, body FROM memo WHERE memo_id IN ({placeholders})"
+        ))
+        .map_err(|error| from_sqlite(&error))?;
+    let mut rows = statement
+        .query(params_from_iter(memo_ids))
+        .map_err(|error| from_sqlite(&error))?;
+    let mut found = 0;
+    while let Some(row) = rows.next().map_err(|error| from_sqlite(&error))? {
+        let id = row
+            .get_ref(0)
+            .map_err(|error| from_sqlite(&error))?
+            .as_str()
+            .map_err(|error| corruption("invalid_projection_memo_id", &error.to_string()))?;
+        let body = row.get_ref(1).map_err(|error| from_sqlite(&error))?.as_str_or_null()
+            .map_err(|error| corruption("invalid_projection_memo_body", &error.to_string()))?
+            .ok_or_else(|| {
+                validation(
+                    "projection_rebuild_required",
+                    "memo body is absent from the durable projection; a verified rebuild is required",
+                )
+            })?;
+        visit(id, body)?;
+        found += 1;
+    }
+    if found != memo_ids.len() {
+        return Err(validation("memo_not_found", "search candidate disappeared"));
+    }
+    Ok(())
+}
 
 /// Loads complete memo snapshots for a candidate set in bounded batched statements.
 ///

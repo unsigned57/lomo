@@ -7,16 +7,15 @@ use rusqlite::{Connection, OpenFlags, params};
 
 use crate::error::{corruption, from_sqlite, storage, validation};
 use crate::schema::{
-    BUSY_TIMEOUT_MS, INCREMENTAL_STATS_DDL, MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL,
-    MIGRATE_V3_TO_V4_DDL, MIGRATE_V4_TO_V5_DDL, MIGRATE_V5_TO_V6_DDL, MIGRATE_V6_TO_V7_DDL,
-    MIGRATE_V7_TO_V8_DDL, MIGRATE_V8_TO_V9_DDL, MIGRATE_V9_TO_V10_DDL, MIGRATE_V10_TO_V11_DDL,
-    MIGRATE_V11_TO_V12_DDL, MIGRATE_V12_TO_V13_DDL, MIGRATE_V13_TO_V14_DDL, MIGRATE_V14_TO_V15_DDL,
-    MIGRATE_V16_TO_V17_DDL, MIGRATE_V17_TO_V18_DDL, MIGRATE_V18_TO_V19_DDL, MIGRATE_V19_TO_V20_DDL,
-    STORE_SCHEMA_VERSION, schema_v1_ddl,
+    BUSY_TIMEOUT_MS, CONTENTLESS_FTS_DDL, EXTERNAL_CONTENT_SCHEMA_VERSION, INCREMENTAL_STATS_DDL,
+    MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL, MIGRATE_V3_TO_V4_DDL, MIGRATE_V4_TO_V5_DDL,
+    MIGRATE_V5_TO_V6_DDL, MIGRATE_V6_TO_V7_DDL, MIGRATE_V7_TO_V8_DDL, MIGRATE_V8_TO_V9_DDL,
+    MIGRATE_V9_TO_V10_DDL, MIGRATE_V10_TO_V11_DDL, MIGRATE_V11_TO_V12_DDL, MIGRATE_V12_TO_V13_DDL,
+    MIGRATE_V13_TO_V14_DDL, MIGRATE_V14_TO_V15_DDL, MIGRATE_V16_TO_V17_DDL, MIGRATE_V17_TO_V18_DDL,
+    MIGRATE_V18_TO_V19_DDL, MIGRATE_V19_TO_V20_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
 };
 
-/// Ordered additive migrations; `user_version` N upgrades by applying `MIGRATIONS[N - 1..]` in
-/// one transaction, exactly the per-version chains previously spelled out.
+/// Ordered migrations through the last schema using external FTS content.
 const MIGRATIONS: &[&str] = &[
     MIGRATE_V1_TO_V2_DDL,
     MIGRATE_V2_TO_V3_DDL,
@@ -38,6 +37,10 @@ const MIGRATIONS: &[&str] = &[
     MIGRATE_V18_TO_V19_DDL,
     MIGRATE_V19_TO_V20_DDL,
 ];
+
+/// Retained WAL space after SQLite resets a checkpointed log. Active transactions and
+/// readers may temporarily need more space.
+const RETAINED_WAL_BYTES: u32 = 1024 * 1024;
 
 /// Relative directory for rebuildable `SQLite` files (must never live under `.lomo/`).
 pub const SQLITE_DIR_NAME: &str = lomo_workspace::LOMO_SQLITE_ROOT_NAME;
@@ -140,7 +143,9 @@ pub fn open_store(workspace_root: &Path) -> Result<OpenedStore, lomo_core::LomoE
             ),
         ));
     }
-    if !created && user_version > 0 && user_version < STORE_SCHEMA_VERSION {
+    // The v20 upgrade replaces derived search data atomically. Keep the backup
+    // contract for the older migrations that also modify projected domain rows.
+    if !created && user_version > 0 && user_version < EXTERNAL_CONTENT_SCHEMA_VERSION {
         backup_before_upgrade(&connection, &db_path, user_version)?;
     }
     admit_schema(&connection, created, user_version)?;
@@ -172,7 +177,7 @@ pub fn open_store(workspace_root: &Path) -> Result<OpenedStore, lomo_core::LomoE
     })
 }
 
-fn admit_schema(
+pub fn admit_schema(
     connection: &Connection,
     created: bool,
     user_version: u32,
@@ -185,10 +190,7 @@ fn admit_schema(
             .pragma_update(None, "user_version", STORE_SCHEMA_VERSION)
             .map_err(|err| from_sqlite(&err))?;
     } else if user_version < STORE_SCHEMA_VERSION {
-        // Existing supported schemas walk the additive migration chain from their
-        // version: `user_version` N applies `MIGRATIONS[N - 1..]`, and N < current
-        // always lands inside the table. Anything at the current version falls
-        // through untouched — it is already admitted.
+        // v20 has an empty legacy migration suffix and only replaces the search index.
         let start = usize::try_from(user_version - 1).map_err(|_overflow| {
             validation(
                 "unknown_schema_version",
@@ -215,6 +217,7 @@ fn admit_schema(
         if user_version < 19 {
             migrate_image_urls(&transaction)?;
         }
+        migrate_to_contentless_fts(&transaction)?;
         transaction.commit().map_err(|err| from_sqlite(&err))?;
     } else if user_version != STORE_SCHEMA_VERSION {
         // `open_store` refuses anything newer first; the admission boundary still
@@ -226,6 +229,25 @@ fn admit_schema(
     }
 
     Ok(())
+}
+
+/// The v20 FTS docsize rows identify indexed documents, including empty token
+/// streams. Preserve that exact membership so bm25 ranks and existing cursors agree.
+fn migrate_to_contentless_fts(connection: &Connection) -> Result<(), lomo_core::LomoError> {
+    connection
+        .execute_batch("ALTER TABLE memo_fts RENAME TO memo_fts_external;")
+        .and_then(|()| connection.execute_batch(CONTENTLESS_FTS_DDL))
+        .and_then(|()| {
+            connection.execute_batch(
+                "INSERT INTO memo_fts(rowid, search_content)
+                 SELECT memo.rowid, memo.search_content FROM memo
+                 JOIN memo_fts_external_docsize ON memo_fts_external_docsize.id = memo.rowid;
+                 DROP TABLE memo_fts_external;
+                 ALTER TABLE memo DROP COLUMN search_content;",
+            )
+        })
+        .and_then(|()| connection.pragma_update(None, "user_version", STORE_SCHEMA_VERSION))
+        .map_err(|error| from_sqlite(&error))
 }
 
 /// Stream one persisted body at a time; the migration never accumulates a workspace in memory.
@@ -350,6 +372,9 @@ fn configure_connection(connection: &Connection) -> Result<(), lomo_core::LomoEr
     let _mode: String = connection
         .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))
         .map_err(|err| from_sqlite(&err))?;
+    connection
+        .pragma_update(None, "journal_size_limit", RETAINED_WAL_BYTES)
+        .map_err(|err| from_sqlite(&err))?;
     Ok(())
 }
 
@@ -390,34 +415,11 @@ pub fn quick_integrity(connection: &Connection) -> Result<bool, lomo_core::LomoE
 /// the send, so sweeping at open can never lose a durable memo. Publication is the mount reanchor
 /// that follows session open — this function does not emit a second invalidation.
 fn sweep_stale_pending_creates(connection: &Connection) -> Result<(), lomo_core::LomoError> {
-    let stale: Vec<(i64, String)> = {
-        let mut statement = connection
-            .prepare(
-                "SELECT rowid, search_content FROM memo WHERE pending_operation_id IS NOT NULL",
-            )
-            .map_err(|error| from_sqlite(&error))?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|error| from_sqlite(&error))?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| from_sqlite(&error))?
-    };
-    for (rowid, search_content) in stale {
-        connection
-            .execute(
-                "INSERT INTO memo_fts(memo_fts, rowid, search_content) VALUES('delete', ?1, ?2)",
-                params![rowid, search_content],
-            )
-            .map_err(|error| from_sqlite(&error))?;
-    }
     connection
         .execute(
             "DELETE FROM memo WHERE pending_operation_id IS NOT NULL",
             [],
         )
         .map_err(|error| from_sqlite(&error))?;
-
     Ok(())
 }

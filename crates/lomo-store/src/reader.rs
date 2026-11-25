@@ -143,6 +143,38 @@ impl StoreReader {
         Ok(result)
     }
 
+    fn snapshot_at<R>(
+        &self,
+        expected_revision: u64,
+        read: impl FnOnce(&Connection) -> Result<R, LomoError>,
+    ) -> Result<R, LomoError> {
+        self.snapshot(|connection, revision| {
+            if revision != expected_revision {
+                return Err(validation(
+                    "stale_projection",
+                    "projection changed while reading; repeat the query",
+                ));
+            }
+            read(connection)
+        })
+    }
+
+    /// Walks a projection using the same ordering and cursors as the list without counting ranks.
+    ///
+    /// # Errors
+    /// Returns cursor, snapshot, and projection read errors.
+    pub fn query_memo_walk_page(
+        &self,
+        query: &MemoQuery,
+        cursor: Option<&PageCursor>,
+        page_size: PageSize,
+        revision: u64,
+    ) -> Result<(Vec<MemoSummary>, Option<PageCursor>), LomoError> {
+        self.snapshot_at(revision, |connection| {
+            crate::query::query_memo_walk_page(connection, query, cursor, page_size, revision)
+        })
+    }
+
     /// Reads only active reminder facts and their revision in one snapshot.
     ///
     /// # Errors
@@ -254,6 +286,21 @@ impl StoreReader {
     /// Returns projection storage or incomplete-projection validation errors.
     pub fn get_projected_memos(&self, memo_ids: &[String]) -> Result<Vec<MemoSnapshot>, LomoError> {
         self.snapshot(|connection, _revision| get_projected_memos(connection, memo_ids))
+    }
+
+    /// Visits one binding page of borrowed memo bodies at a known projection revision.
+    ///
+    /// # Errors
+    /// Rejects stale revisions, absent or incomplete rows, invalid batch sizes and visitor errors.
+    pub fn visit_projected_bodies(
+        &self,
+        expected_revision: u64,
+        memo_ids: &[&str],
+        visit: impl FnMut(&str, &str) -> Result<(), LomoError>,
+    ) -> Result<(), LomoError> {
+        self.snapshot_at(expected_revision, |connection| {
+            crate::query::visit_projected_bodies(connection, memo_ids, visit)
+        })
     }
 
     /// Loads minimal preview-render inputs for candidate memos inside one consistent snapshot.

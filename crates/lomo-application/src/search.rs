@@ -1,13 +1,17 @@
 //! Dual-mode retrieval: FTS fulltext plus pinyin/fuzzy ranking with epoch cancellation.
 
-use std::sync::Mutex;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 
 use lomo_core::{LomoError, PageSize};
 use lomo_store::{MemoFilters, MemoQuery, MemoQueryStart, MemoSummary, PageCursor};
 use serde::{Deserialize, Serialize};
 
-use crate::{error::validation, paging::collect_summaries, session::WorkspaceSession};
+use crate::{
+    error::validation, paging::collect_summaries, search_excerpt::FuzzyMatcher,
+    session::WorkspaceSession,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -253,16 +257,17 @@ pub struct FuzzyResult {
     revision: u64,
     needle: String,
     filter_fingerprint: String,
-    hits: std::sync::Arc<[SearchHit]>,
-    positions: std::sync::Arc<std::collections::HashMap<String, usize>>,
+    summaries: Arc<[MemoSummary]>,
+    hits: Arc<[(usize, i64)]>,
+    positions: Arc<HashMap<String, usize>>,
 }
 
 impl FuzzyResult {
-    /// The scored hit set — read-only evidence for probes and tests.
+    /// Number of ranked hits in the snapshot.
     #[doc(hidden)]
     #[must_use]
-    pub fn hits(&self) -> &[SearchHit] {
-        &self.hits
+    pub fn hit_count(&self) -> usize {
+        self.hits.len()
     }
 }
 
@@ -293,197 +298,92 @@ pub struct FuzzyScanStats {
     pub superseded_scans: u64,
     /// Per-candidate `fuzzy_excerpt` evaluations performed.
     pub candidates_scored: u64,
-    /// Corpus builds (paged collect plus body hydration) performed.
-    pub corpus_builds: u64,
-    /// Microseconds spent building corpora.
-    pub corpus_build_micros: u64,
-}
-
-/// The hydrated candidate corpus plus its scan counters — the keystroke-level
-/// memoize: one build per `(filters, revision)` publication, shared by every
-/// fuzzy keystroke at that revision so a new query string never re-walks SQL
-/// or re-reads bodies.
-pub(crate) struct FuzzyScan {
-    pub corpus: Option<std::sync::Arc<FuzzyCorpus>>,
-    pub stats: FuzzyScanStats,
-}
-
-impl FuzzyScan {
-    pub(crate) fn new() -> Self {
-        Self {
-            corpus: None,
-            stats: FuzzyScanStats::default(),
-        }
-    }
 }
 
 fn scan_lock(
     session: &WorkspaceSession,
-) -> Result<std::sync::MutexGuard<'_, FuzzyScan>, LomoError> {
+) -> Result<std::sync::MutexGuard<'_, FuzzyScanStats>, LomoError> {
     session
         .fuzzy_scan
         .lock()
         .map_err(|error| crate::error::storage("fuzzy_scan_poisoned", error.to_string()))
 }
 
-/// Hydrated candidates for one `(filters, revision)` — built once per
-/// publication. `summaries` is the shared collect entry; `bodies` aligns 1:1.
-pub(crate) struct FuzzyCorpus {
-    filters_fingerprint: String,
-    revision: u64,
-    summaries: std::sync::Arc<[MemoSummary]>,
-    bodies: Box<[std::sync::Arc<str>]>,
-    by_id: std::collections::HashMap<String, usize>,
+fn fuzzy_scan_superseded() -> LomoError {
+    crate::error::cancelled(
+        "fuzzy_scan_superseded",
+        "a newer search epoch superseded this scan; partial work was dropped",
+    )
 }
 
-impl FuzzyCorpus {
-    fn matches(&self, filters_fingerprint: &str, revision: u64) -> bool {
-        self.filters_fingerprint == filters_fingerprint && self.revision == revision
-    }
-
-    fn candidates(&self) -> impl Iterator<Item = (&MemoSummary, &str)> {
-        self.summaries
-            .iter()
-            .zip(self.bodies.iter())
-            .map(|(summary, body)| (summary, body.as_ref()))
-    }
-
-    fn candidate(&self, memo_id: &str) -> Option<(&MemoSummary, &str)> {
-        let index = *self.by_id.get(memo_id)?;
-        // `by_id` is built alongside the aligned slices — an index without a
-        // pair would be a torn build, not a miss.
-        let summary = self.summaries.get(index)?;
-        let body = self.bodies.get(index)?;
-        Some((summary, body.as_ref()))
-    }
-}
-
-/// Ensures the session corpus matches `(filters_fingerprint, revision)` and
-/// returns it — the caller scores the returned handle, never the slot, so a
-/// concurrent different-filter query cannot swap the universe mid-scan.
-fn fuzzy_corpus(
+/// Body views are borrowed from one SQLite row. Each binding batch acquires its own checked
+/// snapshot, so a rebuild can retire the reader between batches and cancellation drops the batch.
+fn visit_fuzzy_bodies<'a, T>(
     session: &WorkspaceSession,
-    filters: &MemoFilters,
-    filters_fingerprint: &str,
     revision: u64,
-    cancel: &dyn Fn() -> bool,
-) -> Result<std::sync::Arc<FuzzyCorpus>, LomoError> {
-    let existing = scan_lock(session)?
-        .corpus
-        .as_ref()
-        .filter(|corpus| corpus.matches(filters_fingerprint, revision))
-        .cloned();
-    if let Some(corpus) = existing {
-        return Ok(corpus);
-    }
-
-    let start = std::time::Instant::now();
-    let query = MemoQuery {
-        search_text: None,
-        filters: filters.clone(),
-        sort: lomo_store::MemoSort::default(),
-    };
-    let walk = collect_summaries(session, &query, cancel)?;
-    let memo_ids = walk
-        .items
-        .iter()
-        .map(|summary| summary.memo_id.clone())
-        .collect::<Vec<_>>();
-    let mut snapshots = session
-        .with_reader(|store| store.get_projected_memos(&memo_ids))?
-        .into_iter()
-        .map(|snapshot| (snapshot.summary.memo_id.clone(), snapshot))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let mut bodies = Vec::with_capacity(walk.items.len());
-    let mut by_id = std::collections::HashMap::with_capacity(walk.items.len());
-    for (index, summary) in walk.items.iter().enumerate() {
-        if cancel() {
-            return Err(crate::error::cancelled(
-                "fuzzy_scan_superseded",
-                "a newer search epoch superseded this scan; partial work was dropped",
-            ));
+    mut candidates: impl Iterator<Item = Result<(&'a MemoSummary, T), LomoError>>,
+    mut visit: impl FnMut(T, &MemoSummary, &str) -> Result<(), LomoError>,
+) -> Result<(), LomoError> {
+    loop {
+        let mut batch: HashMap<_, _> = candidates
+            .by_ref()
+            .take(256)
+            .map(|candidate| {
+                candidate.map(|(summary, key)| (summary.memo_id.as_str(), (summary, key)))
+            })
+            .collect::<Result<_, _>>()?;
+        if batch.is_empty() {
+            return Ok(());
         }
-        let snapshot = snapshots
-            .remove(&summary.memo_id)
-            .ok_or_else(|| validation("memo_not_found", "search candidate disappeared"))?;
-        // The walk proved `summary` is `walk.revision`-consistent; the body
-        // must be too — a content rewrite between collect and hydrate fails
-        // closed instead of building a cross-revision corpus.
-        crate::paging::verify_summary_version(summary, &snapshot.summary)?;
-        by_id.insert(summary.memo_id.clone(), index);
-        bodies.push(std::sync::Arc::<str>::from(snapshot.body.as_str()));
+        let ids: Vec<_> = batch.keys().copied().collect();
+        session.with_reader(|store| {
+            store.visit_projected_bodies(revision, &ids, |id, body| {
+                let (summary, key) = batch.remove(id).ok_or_else(inconsistent_fuzzy_hit)?;
+                visit(key, summary, body)
+            })
+        })?;
     }
-    let corpus = std::sync::Arc::new(FuzzyCorpus {
-        filters_fingerprint: filters_fingerprint.to_owned(),
-        revision: walk.revision,
-        summaries: walk.items,
-        bodies: bodies.into_boxed_slice(),
-        by_id,
-    });
-    let mut scan = scan_lock(session)?;
-    scan.stats.corpus_builds += 1;
-    scan.stats.corpus_build_micros +=
-        u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
-    scan.corpus = Some(std::sync::Arc::clone(&corpus));
-    drop(scan);
-    Ok(corpus)
 }
 
-/// Scores every candidate the seed resolved to — or the whole corpus when no
-/// prefix ancestor exists. `cancel` is polled before each evaluation: a true
-/// value abandons the run fail-closed, dropping every partial hit. Candidate
-/// work is accounted however the run ended.
+fn inconsistent_fuzzy_hit() -> LomoError {
+    validation(
+        "fuzzy_snapshot_inconsistent",
+        "ranked fuzzy hit does not resolve within its projection snapshot",
+    )
+}
+
 fn score_fuzzy(
     session: &WorkspaceSession,
-    corpus: &FuzzyCorpus,
-    seed: Option<&FuzzyResult>,
-    needle: &str,
+    revision: u64,
+    summaries: &[MemoSummary],
+    indices: impl Iterator<Item = usize>,
+    matcher: &FuzzyMatcher,
     cancel: &dyn Fn() -> bool,
-) -> Result<Vec<SearchHit>, LomoError> {
+) -> Result<Vec<(usize, i64)>, LomoError> {
+    let candidates = indices.map(|index| {
+        summaries
+            .get(index)
+            .map(|summary| (summary, index))
+            .ok_or_else(inconsistent_fuzzy_hit)
+    });
     let mut hits = Vec::new();
     let mut evaluated = 0_u64;
-    let outcome = (|| {
-        let candidates: Box<dyn Iterator<Item = (&MemoSummary, &str)> + '_> = match seed {
-            Some(base) => {
-                // The seed's hits and the corpus share `revision`, so every
-                // seeded hit must still resolve — a miss means the two
-                // snapshots disagree and deriving from them would be a lie.
-                let mut resolved = Vec::with_capacity(base.hits.len());
-                for hit in base.hits.iter() {
-                    resolved.push(corpus.candidate(&hit.memo_id).ok_or_else(|| {
-                        validation(
-                            "fuzzy_seed_inconsistent",
-                            "a seeded hit left the candidate corpus",
-                        )
-                    })?);
-                }
-                Box::new(resolved.into_iter())
-            }
-            None => Box::new(corpus.candidates()),
-        };
-        for (summary, body) in candidates {
-            if cancel() {
-                return Err(crate::error::cancelled(
-                    "fuzzy_scan_superseded",
-                    "a newer search epoch superseded this scan; partial work was dropped",
-                ));
-            }
-            if let Some((score, excerpt)) =
-                crate::search_excerpt::fuzzy_excerpt(&summary.source_path, body, needle)?
-            {
-                hits.push(SearchHit {
-                    memo_id: summary.memo_id.clone(),
-                    score,
-                    summary: summary.clone(),
-                    excerpt,
-                });
-            }
-            evaluated += 1;
+    let outcome = visit_fuzzy_bodies(session, revision, candidates, |index, summary, body| {
+        if cancel() {
+            return Err(fuzzy_scan_superseded());
         }
-        Ok(hits)
-    })();
-    scan_lock(session)?.stats.candidates_scored += evaluated;
-    outcome
+        if let Some(score) = matcher.score(&summary.source_path, body) {
+            hits.push((index, score));
+        }
+        evaluated += 1;
+        Ok(())
+    });
+    scan_lock(session)?.candidates_scored += evaluated;
+    outcome?;
+    if cancel() {
+        return Err(fuzzy_scan_superseded());
+    }
+    Ok(hits)
 }
 
 fn fuzzy(session: &WorkspaceSession, request: &SearchRequest) -> Result<SearchPage, LomoError> {
@@ -493,7 +393,7 @@ fn fuzzy(session: &WorkspaceSession, request: &SearchRequest) -> Result<SearchPa
     // same `is_cancelled` check, polled inside every expensive loop.
     let cancel = || session.search_epoch.load(Ordering::Acquire) > epoch;
     let result = fuzzy_snapshot(session, &request.text, &request.filters, &cancel)?;
-    paginate_fuzzy(request, &result)
+    paginate_fuzzy(session, request, &result, &cancel)
 }
 
 /// The scored, sorted hit set for `text`/`filters` at one projection revision —
@@ -511,58 +411,90 @@ pub fn fuzzy_snapshot(
     let needle = text.trim();
     let fingerprint = format!("fuzzy|{needle}|{filter_fingerprint}");
     if let Some(result) = cached_fuzzy(&session.fuzzy_results, &fingerprint, revision)? {
-        scan_lock(session)?.stats.snapshot_hits += 1;
+        scan_lock(session)?.snapshot_hits += 1;
         return Ok(result);
     }
     // The longest cached needle that prefixes this one is the narrowest valid
     // seed: ordered-subsequence matching can only shrink a hit set as the
     // needle grows, so rescanning the ancestor's hits is equivalent to a full
     // scan — and bounded by the ancestor's hit count, not the corpus size.
-    let outcome = (|| -> Result<(Vec<SearchHit>, bool), LomoError> {
-        let corpus = fuzzy_corpus(session, filters, &filter_fingerprint, revision, cancel)?;
+    let outcome = (|| {
         let seed = fuzzy_prefix_base(
             &session.fuzzy_results,
             needle,
             &filter_fingerprint,
             revision,
         )?;
-        let hits = score_fuzzy(session, &corpus, seed.as_ref(), needle, cancel)?;
-        Ok((hits, seed.is_some()))
+        let summaries = if let Some(base) = &seed {
+            Arc::clone(&base.summaries)
+        } else {
+            let query = MemoQuery {
+                search_text: None,
+                filters: filters.clone(),
+                sort: lomo_store::MemoSort::default(),
+            };
+            let walk = collect_summaries(session, &query, cancel)?;
+            ensure_search_revision(revision, walk.revision)?;
+            walk.items
+        };
+        let matcher = FuzzyMatcher::new(needle);
+        let hits = if let Some(base) = &seed {
+            score_fuzzy(
+                session,
+                revision,
+                &summaries,
+                base.hits.iter().map(|&(index, _)| index),
+                &matcher,
+                cancel,
+            )?
+        } else {
+            score_fuzzy(
+                session,
+                revision,
+                &summaries,
+                0..summaries.len(),
+                &matcher,
+                cancel,
+            )?
+        };
+        Ok::<_, LomoError>((summaries, hits, seed.is_some()))
     })();
     {
-        let mut scan = scan_lock(session)?;
+        let mut stats = scan_lock(session)?;
         match &outcome {
-            Ok((_, true)) => scan.stats.seeded_scans += 1,
-            Ok((_, false)) => scan.stats.full_scans += 1,
+            Ok((_, _, true)) => stats.seeded_scans += 1,
+            Ok((_, _, false)) => stats.full_scans += 1,
             Err(error) if error.category() == lomo_core::ErrorCategory::Cancelled => {
-                scan.stats.superseded_scans += 1;
+                stats.superseded_scans += 1;
             }
             Err(_) => {}
         }
-        drop(scan);
+        drop(stats);
     }
-    let (mut hits, _) = outcome?;
-    if revision != session.with_store(|store| Ok(store.high_water_revision()))? {
-        return Err(validation(
-            "stale_search_result",
-            "projection changed while searching; repeat the query",
-        ));
-    }
-    hits.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
-            .then(right.summary.created_at_ms.cmp(&left.summary.created_at_ms))
-            .then(left.memo_id.cmp(&right.memo_id))
-    });
+    let (summaries, hits, _) = outcome?;
+    ensure_search_revision(
+        revision,
+        session.with_store(|store| Ok(store.high_water_revision()))?,
+    )?;
     cache_fuzzy(
         &session.fuzzy_results,
         fingerprint,
         revision,
         needle.to_owned(),
         filter_fingerprint,
+        summaries,
         hits,
     )
+}
+
+fn ensure_search_revision(expected: u64, actual: u64) -> Result<(), LomoError> {
+    if expected != actual {
+        return Err(validation(
+            "stale_search_result",
+            "projection changed while searching; repeat the query",
+        ));
+    }
+    Ok(())
 }
 
 /// The narrowest already-scored set whose needle prefixes `needle` — the only
@@ -648,20 +580,40 @@ pub fn cache_fuzzy(
     revision: u64,
     needle: String,
     filter_fingerprint: String,
-    hits: Vec<SearchHit>,
+    summaries: Arc<[MemoSummary]>,
+    hits: Vec<(usize, i64)>,
 ) -> Result<FuzzyResult, LomoError> {
-    let positions = hits
+    let mut ranked = hits
+        .into_iter()
+        .map(|(index, score)| {
+            let summary = summaries.get(index).ok_or_else(inconsistent_fuzzy_hit)?;
+            Ok::<_, LomoError>((index, score, summary))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    ranked.sort_unstable_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then(right.2.created_at_ms.cmp(&left.2.created_at_ms))
+            .then(left.2.memo_id.cmp(&right.2.memo_id))
+    });
+    let positions = ranked
         .iter()
         .enumerate()
-        .map(|(index, hit)| (hit.memo_id.clone(), index))
+        .map(|(position, &(_, _, summary))| (summary.memo_id.clone(), position))
+        .collect();
+    let hits = ranked
+        .into_iter()
+        .map(|(index, score, _)| (index, score))
         .collect();
     let result = FuzzyResult {
         fingerprint: fingerprint.clone(),
         revision,
         needle,
         filter_fingerprint,
-        hits: std::sync::Arc::from(hits),
-        positions: std::sync::Arc::new(positions),
+        summaries,
+        hits,
+        positions: Arc::new(positions),
     };
     // `put` records the entry as most-recently-used and evicts the LRU tail
     // once capacity is exceeded — the bound lives in the cache, not here.
@@ -672,7 +624,12 @@ pub fn cache_fuzzy(
     Ok(result)
 }
 
-fn paginate_fuzzy(request: &SearchRequest, result: &FuzzyResult) -> Result<SearchPage, LomoError> {
+fn paginate_fuzzy(
+    session: &WorkspaceSession,
+    request: &SearchRequest,
+    result: &FuzzyResult,
+    cancel: &dyn Fn() -> bool,
+) -> Result<SearchPage, LomoError> {
     let hits = &result.hits;
     let start = match (&request.cursor, &request.anchor) {
         (Some(cursor), _) => {
@@ -695,9 +652,46 @@ fn paginate_fuzzy(request: &SearchRequest, result: &FuzzyResult) -> Result<Searc
     let limit = usize::try_from(request.page_size.get())
         .map_err(|error| validation("invalid_page_size", error.to_string()))?;
     let end = start.saturating_add(limit).min(hits.len());
-    // `positions` indexes `hits` and `end` is clamped, so the slice is in
-    // bounds by construction; a miss would mean the cached result tore.
-    let page_items: Vec<SearchHit> = hits.get(start..end).unwrap_or(&[]).to_vec();
+    let window = hits.get(start..end).ok_or_else(inconsistent_fuzzy_hit)?;
+    let candidates = window
+        .iter()
+        .enumerate()
+        .map(|(position, &(index, score))| {
+            let summary = result
+                .summaries
+                .get(index)
+                .ok_or_else(inconsistent_fuzzy_hit)?;
+            Ok::<_, LomoError>((summary, (position, score)))
+        });
+    let matcher = FuzzyMatcher::new(&result.needle);
+    let mut page = Vec::with_capacity(window.len());
+    visit_fuzzy_bodies(
+        session,
+        result.revision,
+        candidates,
+        |(position, score), summary, body| {
+            if cancel() {
+                return Err(fuzzy_scan_superseded());
+            }
+            let excerpt = matcher.excerpt(&summary.source_path, body, score)?;
+            page.push((
+                position,
+                SearchHit {
+                    memo_id: summary.memo_id.clone(),
+                    score,
+                    summary: summary.clone(),
+                    excerpt,
+                },
+            ));
+            Ok(())
+        },
+    )?;
+    ensure_search_revision(
+        result.revision,
+        session.with_store(|store| Ok(store.high_water_revision()))?,
+    )?;
+    page.sort_unstable_by_key(|(position, _)| *position);
+    let page_items: Vec<_> = page.into_iter().map(|(_, item)| item).collect();
     let next_cursor = (end < hits.len())
         .then(|| page_items.last())
         .flatten()

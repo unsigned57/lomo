@@ -286,7 +286,6 @@ fn immutable_file(
 
 pub struct PreparedHistory {
     pub files: Vec<PlannedFile>,
-    pub projection: lomo_store::ScannedHistoryProjection,
     pub revision: HistoryRevisionV2,
 }
 
@@ -343,18 +342,18 @@ pub fn history_files_after_tip(
             )?,
         ),
     ];
-    Ok(PreparedHistory {
-        files,
-        revision: revision.clone(),
-        projection: lomo_store::ScannedHistoryProjection {
-            memo_id: history.memo_id.clone(),
-            record_id: revision.revision_id.as_str().to_owned(),
-            revision: revision.generation,
-            created_at_ms: revision.created_at_ms,
-            content: revision.content,
-            file_fingerprint: revision.content_digest,
-        },
-    })
+    Ok(PreparedHistory { files, revision })
+}
+
+pub fn history_projection(revision: HistoryRevisionV2) -> lomo_store::ScannedHistoryProjection {
+    lomo_store::ScannedHistoryProjection {
+        memo_id: revision.memo_id,
+        record_id: revision.revision_id.as_str().to_owned(),
+        revision: revision.generation,
+        created_at_ms: revision.created_at_ms,
+        content: revision.content,
+        file_fingerprint: revision.content_digest,
+    }
 }
 
 #[derive(Clone, Copy)]

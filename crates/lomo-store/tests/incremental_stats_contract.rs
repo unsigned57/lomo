@@ -24,7 +24,7 @@ mod tests {
         let opened = open_store(root.path()).expect("open store");
         for (sql, index) in [
             (
-                "SELECT rowid,search_content FROM memo WHERE pending_operation_id IS NOT NULL",
+                "SELECT rowid FROM memo WHERE pending_operation_id IS NOT NULL",
                 "idx_memo_pending_operation",
             ),
             (

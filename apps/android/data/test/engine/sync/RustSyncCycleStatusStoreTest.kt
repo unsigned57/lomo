@@ -41,9 +41,13 @@ import com.lomo.domain.model.WorkspaceMount
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
@@ -62,6 +66,7 @@ class RustSyncCycleStatusStoreTest : DataFunSpec() {
                 RustSyncCycleStatusStore(
                     remoteSync = remote,
                     workspaceRoot = WorkspaceFilesystemRoot { currentRoot },
+                    scope = TestScope().backgroundScope,
                 )
 
             store.refresh() shouldBe null
@@ -88,6 +93,7 @@ class RustSyncCycleStatusStoreTest : DataFunSpec() {
                 RustSyncCycleStatusStore(
                     remoteSync = remote,
                     workspaceRoot = WorkspaceFilesystemRoot { currentRoot },
+                    scope = TestScope().backgroundScope,
                 )
 
             store.refresh() shouldBe expectedB
@@ -105,6 +111,7 @@ class RustSyncCycleStatusStoreTest : DataFunSpec() {
                 RustSyncCycleStatusStore(
                     remoteSync = remote,
                     workspaceRoot = WorkspaceFilesystemRoot { currentRoot },
+                    scope = TestScope().backgroundScope,
                 )
 
             store.refresh() shouldBe null
@@ -120,6 +127,7 @@ class RustSyncCycleStatusStoreTest : DataFunSpec() {
                 RustSyncCycleStatusStore(
                     remoteSync = remoteMismatch,
                     workspaceRoot = WorkspaceFilesystemRoot { "/ws/direct" },
+                    scope = TestScope().backgroundScope,
                 )
 
             shouldThrow<RemoteSyncBoundaryFailure> { storeMismatch.refresh() }
@@ -139,13 +147,14 @@ class RustSyncCycleStatusStoreTest : DataFunSpec() {
                         )
                     },
                     workspaceRoot = WorkspaceFilesystemRoot { root },
+                    scope = TestScope().backgroundScope,
                 )
 
             shouldThrow<RemoteSyncBoundaryFailure> { storeIo.refresh() }
                 .code shouldBe "io_error"
         }
 
-        test("observe stays idle without polling SAF and clears immediately on Direct to SAF switch") {
+        test("observers share one Direct poller that stops on SAF and after all subscribers leave") {
             val dispatcher = StandardTestDispatcher()
             runTest(dispatcher) {
                 val mounts = MutableStateFlow(WorkspaceMount.Opening)
@@ -164,12 +173,17 @@ class RustSyncCycleStatusStoreTest : DataFunSpec() {
                             val raw = mount.location?.raw?.takeIf { mount.admitsProjectionReads }
                             raw?.takeUnless { it.startsWith("content:", ignoreCase = true) }
                         },
+                        scope = backgroundScope,
                         dispatcher = dispatcher,
                         workspaceMounts = mounts,
                     )
                 val emissions = mutableListOf<RemoteSyncCycleStatus?>()
                 val job = backgroundScope.launch(dispatcher) {
-                    store.observe(pollIntervalMillis = 60_000L).collect(emissions::add)
+                    store.observe().collect(emissions::add)
+                }
+                val secondEmissions = mutableListOf<RemoteSyncCycleStatus?>()
+                val secondJob = backgroundScope.launch(dispatcher) {
+                    store.observe().collect(secondEmissions::add)
                 }
 
                 runCurrent()
@@ -185,8 +199,10 @@ class RustSyncCycleStatusStoreTest : DataFunSpec() {
                     )
                 runCurrent()
                 emissions shouldBe listOf(null, directStatus)
+                secondEmissions shouldBe emissions
                 remote.requestedRoots shouldBe listOf("/ws/direct")
 
+                val directMount = mounts.value
                 val safUri = "content://com.android.externalstorage.documents/tree/primary%3ALomo"
                 mounts.value =
                     WorkspaceMount(
@@ -197,9 +213,39 @@ class RustSyncCycleStatusStoreTest : DataFunSpec() {
                     )
                 runCurrent()
                 emissions shouldBe listOf(null, directStatus, null)
+                secondEmissions shouldBe emissions
                 remote.requestedRoots shouldBe listOf("/ws/direct")
 
-                job.cancel()
+                job.cancelAndJoin()
+                secondJob.cancelAndJoin()
+                runCurrent()
+                mounts.value = directMount
+                advanceTimeBy(4_001L)
+                remote.requestedRoots shouldBe listOf("/ws/direct")
+            }
+        }
+
+        test("observation surfaces a durable read failure and a new subscriber can retry") {
+            val dispatcher = StandardTestDispatcher()
+            runTest(dispatcher) {
+                val status = sampleCycleStatus(cycleId = "recovered", updatedAtMs = 42L)
+                val failure = boundaryFailure("invalid_cycle_record")
+                var readFailure: RemoteSyncBoundaryFailure? = failure
+                val store = RustSyncCycleStatusStore(
+                    remoteSync = RecordingStatusRemoteSyncRepository {
+                        readFailure?.let { throw it }
+                        status
+                    },
+                    workspaceRoot = WorkspaceFilesystemRoot { "/ws/direct" },
+                    scope = backgroundScope,
+                    dispatcher = dispatcher,
+                )
+
+                shouldThrow<RemoteSyncBoundaryFailure> { store.observe().first() } shouldBe failure
+                runCurrent()
+                readFailure = null
+
+                store.observe().first() shouldBe status
             }
         }
     }

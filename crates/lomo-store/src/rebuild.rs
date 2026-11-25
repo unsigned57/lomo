@@ -933,12 +933,6 @@ fn commit_projection_publication(
                 .map_err(|error| from_sqlite(&error))?;
             transaction
                 .execute(
-                    "INSERT INTO memo_fts(memo_fts,rowid,search_content) SELECT 'delete',rowid,search_content FROM memo WHERE memo_id=?1",
-                    params![&mutation.memo_id],
-                )
-                .map_err(|error| from_sqlite(&error))?;
-            transaction
-                .execute(
                     "DELETE FROM memo WHERE memo_id=?1",
                     params![&mutation.memo_id],
                 )
@@ -1468,12 +1462,6 @@ fn delete_saf_projection_rows(
                 params![&target.result_fingerprint, &target.source_path],
             )
             .map_err(|error| from_sqlite(&error))?;
-        transaction
-            .execute(
-                "INSERT INTO memo_fts(memo_fts,rowid,search_content) SELECT 'delete',rowid,search_content FROM memo WHERE memo_id=?1",
-                params![&target.memo_id],
-            )
-            .map_err(|error| from_sqlite(&error))?;
         for table in [
             "memo",
             "memo_trash",
@@ -1626,7 +1614,6 @@ fn insert_pending_memo_row(
     let facts = project_content_facts(&begin.body)?;
     let image_urls_json = serde_json::to_string(&facts.image_urls)
         .map_err(|error| validation("invalid_image_urls_projection", &error.to_string()))?;
-    let search_content = index_tokens(&begin.body);
     let preview = body_preview(&begin.body);
     let word_count = count_words(&begin.body);
     let char_count = count_characters(&begin.body);
@@ -1635,9 +1622,9 @@ fn insert_pending_memo_row(
         .execute(
             "INSERT INTO memo( \
              memo_id,source_path,time_part,file_fingerprint,has_todo,has_url,has_attachment, \
-             created_at_ms,updated_at_ms,body_preview,body,search_content,word_count,char_count, \
+             created_at_ms,updated_at_ms,body_preview,body,word_count,char_count, \
              reminders_json,image_urls_json,content_revision,pending_operation_id \
-             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,'[]',?14,1,?15)",
+             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,'[]',?13,1,?14)",
             params![
                 memo_id,
                 &begin.source_path,
@@ -1649,7 +1636,6 @@ fn insert_pending_memo_row(
                 begin.chronology_epoch_ms,
                 &preview,
                 &begin.body,
-                &search_content,
                 word_count,
                 char_count,
                 &image_urls_json,
@@ -1657,14 +1643,7 @@ fn insert_pending_memo_row(
             ],
         )
         .map_err(|error| from_sqlite(&error))?;
-    let rowid = transaction.last_insert_rowid();
-    transaction
-        .execute(
-            "INSERT INTO memo_fts(rowid, search_content) VALUES(?1, ?2)",
-            params![rowid, &search_content],
-        )
-        .map_err(|error| from_sqlite(&error))?;
-    Ok(())
+    put_search_index(transaction, transaction.last_insert_rowid(), &begin.body)
 }
 
 /// Removes a pending SAF create using an already-open projection connection.
@@ -1688,34 +1667,14 @@ pub fn rollback_saf_memo_create_on_connection(
     let transaction = connection
         .unchecked_transaction()
         .map_err(|error| from_sqlite(&error))?;
-    let pending = transaction
-        .query_row(
-            "SELECT rowid, search_content FROM memo WHERE memo_id = ?1 AND pending_operation_id = ?2",
-            params![memo_id, operation_id],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()
-        .map_err(|error| from_sqlite(&error))?;
-    let Some((rowid, search_content)) = pending else {
-        return Ok(None);
-    };
-    transaction
-        .execute(
-            "INSERT INTO memo_fts(memo_fts, rowid, search_content) VALUES('delete', ?1, ?2)",
-            params![rowid, &search_content],
-        )
-        .map_err(|error| from_sqlite(&error))?;
     let removed = transaction
         .execute(
             "DELETE FROM memo WHERE memo_id = ?1 AND pending_operation_id = ?2",
             params![memo_id, operation_id],
         )
         .map_err(|error| from_sqlite(&error))?;
-    if removed != 1 {
-        return Err(corruption(
-            "saf_pending_rollback_missing_row",
-            "pending create row disappeared between select and delete",
-        ));
+    if removed == 0 {
+        return Ok(None);
     }
 
     let (core_revision, event_sequence) = bump_counters(&transaction)?;
@@ -1805,10 +1764,6 @@ fn persisted_revision(value: u64) -> Result<i64, lomo_core::LomoError> {
         .map_err(|_error| validation("revision_overflow", "revision exceeds SQLite"))
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "projection upsert keeps memo, FTS, tags, and attachments in one transaction"
-)]
 fn upsert_saf_projection(
     connection: &Connection,
     projection: &ScannedMemoProjection,
@@ -1828,7 +1783,6 @@ fn upsert_saf_projection(
         )
         .optional()
         .map_err(|error| from_sqlite(&error))?;
-    let search_content = index_tokens(&projection.body);
     let preview = body_preview(&projection.body);
     let word_count = count_words(&projection.body);
     let char_count = count_characters(&projection.body);
@@ -1837,23 +1791,10 @@ fn upsert_saf_projection(
     let reminders_json = serde_json::to_string(&projection.reminders)
         .map_err(|error| validation("invalid_reminder_projection", &error.to_string()))?;
     let image_urls_json = project_image_urls_json(&projection.body)?;
-    if let Some(rowid) = existing {
-        let old_search: String = connection
-            .query_row(
-                "SELECT search_content FROM memo WHERE rowid = ?1",
-                params![rowid],
-                |row| row.get(0),
-            )
-            .map_err(|error| from_sqlite(&error))?;
+    let rowid = if let Some(rowid) = existing {
         connection
             .execute(
-                "INSERT INTO memo_fts(memo_fts, rowid, search_content) VALUES('delete', ?1, ?2)",
-                params![rowid, old_search],
-            )
-            .map_err(|error| from_sqlite(&error))?;
-        connection
-            .execute(
-                "UPDATE memo SET source_path=?1,time_part=?2,file_fingerprint=?3,has_todo=?4,has_url=?5,has_attachment=?6,updated_at_ms=?7,body_preview=?8,body=?9,search_content=?10,word_count=?11,char_count=?12,content_revision=?13,reminders_json=?14,image_urls_json=?15,is_trashed=0 WHERE memo_id=?16",
+                "UPDATE memo SET source_path=?1,time_part=?2,file_fingerprint=?3,has_todo=?4,has_url=?5,has_attachment=?6,updated_at_ms=?7,body_preview=?8,body=?9,word_count=?10,char_count=?11,content_revision=?12,reminders_json=?13,image_urls_json=?14,is_trashed=0 WHERE memo_id=?15",
                 params![
                     &projection.source_path,
                     &projection.time_part,
@@ -1864,7 +1805,6 @@ fn upsert_saf_projection(
                     projection.chronology_epoch_ms,
                     preview,
                     &projection.body,
-                    search_content,
                     word_count,
                     char_count,
                     revision_i64,
@@ -1874,16 +1814,11 @@ fn upsert_saf_projection(
                 ],
             )
             .map_err(|error| from_sqlite(&error))?;
-        connection
-            .execute(
-                "INSERT INTO memo_fts(rowid, search_content) VALUES(?1, ?2)",
-                params![rowid, search_content],
-            )
-            .map_err(|error| from_sqlite(&error))?;
+        rowid
     } else {
         connection
             .execute(
-                "INSERT INTO memo(memo_id,source_path,time_part,file_fingerprint,has_todo,has_url,has_attachment,created_at_ms,updated_at_ms,body_preview,body,search_content,word_count,char_count,content_revision,reminders_json,image_urls_json,is_pinned,is_trashed) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,?14,?15,?16,0,0)",
+                "INSERT INTO memo(memo_id,source_path,time_part,file_fingerprint,has_todo,has_url,has_attachment,created_at_ms,updated_at_ms,body_preview,body,word_count,char_count,content_revision,reminders_json,image_urls_json,is_pinned,is_trashed) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,?14,?15,0,0)",
                 params![
                     &projection.memo_id,
                     &projection.source_path,
@@ -1895,7 +1830,6 @@ fn upsert_saf_projection(
                     projection.chronology_epoch_ms,
                     preview,
                     &projection.body,
-                    search_content,
                     word_count,
                     char_count,
                     revision_i64,
@@ -1904,20 +1838,9 @@ fn upsert_saf_projection(
                 ],
             )
             .map_err(|error| from_sqlite(&error))?;
-        let rowid: i64 = connection
-            .query_row(
-                "SELECT rowid FROM memo WHERE memo_id = ?1",
-                params![&projection.memo_id],
-                |row| row.get(0),
-            )
-            .map_err(|error| from_sqlite(&error))?;
-        connection
-            .execute(
-                "INSERT INTO memo_fts(rowid, search_content) VALUES(?1, ?2)",
-                params![rowid, search_content],
-            )
-            .map_err(|error| from_sqlite(&error))?;
-    }
+        connection.last_insert_rowid()
+    };
+    put_search_index(connection, rowid, &projection.body)?;
     connection
         .execute(
             "DELETE FROM memo_tag WHERE memo_id = ?1",
@@ -2644,18 +2567,11 @@ fn index_scanned_history_revision(
 /// lifecycle membership, attachment refs).
 ///
 /// `memo_tag`, `attachment_ref`, `memo_pin` and `memo_trash` cascade through foreign keys;
-/// the `memo_fts` virtual table is cleaned explicitly. Durable history (`revision_index`,
+/// the database trigger removes the full-text index entry. Durable history (`revision_index`,
 /// `history_attachment_ref`) is file-owned, not row-owned: `.lomo/history` records outlive a
 /// memo's projection row, so scan-driven removal keeps them — a fresh rebuild re-indexes the
 /// same records — and `history_replaces` owns history edits explicitly.
 fn delete_memo_row(connection: &Connection, memo_id: &str) -> Result<(), lomo_core::LomoError> {
-    connection
-        .execute(
-            "INSERT INTO memo_fts(memo_fts,rowid,search_content) \
-             SELECT 'delete',rowid,search_content FROM memo WHERE memo_id=?1",
-            params![memo_id],
-        )
-        .map_err(|error| from_sqlite(&error))?;
     connection
         .execute("DELETE FROM memo WHERE memo_id=?1", params![memo_id])
         .map_err(|error| from_sqlite(&error))?;
@@ -2751,14 +2667,6 @@ fn apply_purged_id(
     transaction
         .execute(
             "INSERT OR REPLACE INTO purged_memo(memo_id) VALUES(?1)",
-            params![memo_id],
-        )
-        .map_err(|error| from_sqlite(&error))?;
-    transaction
-        .execute(
-            "INSERT INTO memo_fts(memo_fts,rowid,search_content) \
-             SELECT 'delete',rowid,search_content FROM memo WHERE memo_id=?1 \
-             AND EXISTS(SELECT 1 FROM memo_trash WHERE memo_trash.memo_id=?1)",
             params![memo_id],
         )
         .map_err(|error| from_sqlite(&error))?;
@@ -4124,6 +4032,10 @@ fn open_temp_existing(temp_db: &Path) -> Result<Connection, lomo_core::LomoError
     let conn = Connection::open(temp_db).map_err(|err| from_sqlite(&err))?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(|err| from_sqlite(&err))?;
+    let version = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| from_sqlite(&error))?;
+    crate::open::admit_schema(&conn, false, version)?;
     Ok(conn)
 }
 
@@ -4357,6 +4269,20 @@ fn index_memo_file(conn: &Connection, path: &Path) -> Result<(), lomo_core::Lomo
     )
 }
 
+fn put_search_index(
+    connection: &Connection,
+    rowid: i64,
+    body: &str,
+) -> Result<(), lomo_core::LomoError> {
+    connection
+        .execute(
+            "INSERT OR REPLACE INTO memo_fts(rowid, search_content) VALUES(?1, ?2)",
+            params![rowid, index_tokens(body)],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(())
+}
+
 fn index_scanned_memo(
     conn: &Connection,
     memo: &ScannedMemoProjection,
@@ -4370,7 +4296,6 @@ fn index_scanned_memo_with_lifecycle(
     is_trashed: bool,
 ) -> Result<(), lomo_core::LomoError> {
     validate_scanned_projection(memo)?;
-    let search_content = index_tokens(&memo.body);
     let preview = body_preview(&memo.body);
     let word_count = count_words(&memo.body);
     let char_count = count_characters(&memo.body);
@@ -4396,8 +4321,8 @@ fn index_scanned_memo_with_lifecycle(
 
     conn.execute(
         "INSERT INTO memo(memo_id, source_path, time_part, file_fingerprint, has_todo, has_url, has_attachment, \
-         created_at_ms, updated_at_ms, body_preview, body, search_content, word_count, char_count, content_revision, reminders_json, image_urls_json, is_pinned, is_trashed) \
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,1,?14,?15,0,?16)",
+         created_at_ms, updated_at_ms, body_preview, body, word_count, char_count, content_revision, reminders_json, image_urls_json, is_pinned, is_trashed) \
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,1,?13,?14,0,?15)",
         params![
             &memo.memo_id,
             &memo.source_path,
@@ -4409,7 +4334,6 @@ fn index_scanned_memo_with_lifecycle(
             memo.chronology_epoch_ms,
             preview,
             &memo.body,
-            search_content,
             word_count,
             char_count,
             reminders_json,
@@ -4418,18 +4342,7 @@ fn index_scanned_memo_with_lifecycle(
         ],
     )
     .map_err(|err| from_sqlite(&err))?;
-    let rowid: i64 = conn
-        .query_row(
-            "SELECT rowid FROM memo WHERE memo_id = ?1",
-            params![&memo.memo_id],
-            |row| row.get(0),
-        )
-        .map_err(|err| from_sqlite(&err))?;
-    conn.execute(
-        "INSERT INTO memo_fts(rowid, search_content) VALUES(?1, ?2)",
-        params![rowid, search_content],
-    )
-    .map_err(|err| from_sqlite(&err))?;
+    put_search_index(conn, conn.last_insert_rowid(), &memo.body)?;
     for tag in &memo.tags {
         rehydrate_tag(conn, &memo.memo_id, tag)?;
     }

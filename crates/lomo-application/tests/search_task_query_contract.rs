@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn imported_long_utf8_memo_indexes_without_truncating_the_body() {
         let ctx = open_session();
-        let body = "界".repeat(150_000);
+        let body = format!("{}月末目标", "界".repeat(150_000));
         let source = lomo_workspace::SourceBytes::try_from_str(&body).expect("body source");
         let presentation = lomo_workspace::render_markdown(&source)
             .expect_err("body exceeds the presentation string budget");
@@ -244,6 +244,24 @@ mod tests {
             .expect("projected memo")
             .expect("imported memo");
         assert_eq!(imported.body.as_bytes(), body.as_bytes());
+        let result = ctx
+            .session
+            .search(&SearchRequest {
+                mode: SearchMode::Fuzzy,
+                query_epoch: 1,
+                text: "月末目标".to_owned(),
+                cursor: None,
+                anchor: None,
+                page_size: PageSize::new(1).expect("page"),
+                filters: lomo_application::MemoFilters::default(),
+            })
+            .expect("search past the preview");
+        let SearchOutcome::Ready(page) = result else {
+            panic!("fresh search is ready")
+        };
+        let excerpt = &page.items.first().expect("long memo match").excerpt;
+        assert!(excerpt.text.ends_with("月末目标"));
+        assert_eq!(excerpt.body_start, Some((150_000 - 60) * '界'.len_utf8()));
         let tasks = ctx.session.list_tasks().expect("tasks");
         assert_eq!(tasks[0].text, "neighbouring memo");
     }
@@ -766,6 +784,7 @@ mod tests {
                 7,
                 query.to_owned(),
                 "filters".to_owned(),
+                Arc::from([]),
                 Vec::new(),
             )
             .expect("cache insert");
@@ -782,6 +801,7 @@ mod tests {
             7,
             "q6".to_owned(),
             "filters".to_owned(),
+            Arc::from([]),
             Vec::new(),
         )
         .expect("cache insert");
@@ -831,7 +851,6 @@ mod tests {
         assert_eq!(wide.total, 4, "z hits every z-bearing body");
         let stats = ctx.session.fuzzy_scan_stats().expect("stats");
         assert_eq!(stats.full_scans - baseline.full_scans, 1);
-        assert_eq!(stats.corpus_builds - baseline.corpus_builds, 1);
         assert_eq!(
             stats.candidates_scored - baseline.candidates_scored,
             5,
@@ -842,7 +861,6 @@ mod tests {
         assert_eq!(mid.total, 3);
         let stats = ctx.session.fuzzy_scan_stats().expect("stats");
         assert_eq!(stats.seeded_scans - baseline.seeded_scans, 1);
-        assert_eq!(stats.corpus_builds - baseline.corpus_builds, 1);
         assert_eq!(
             stats.candidates_scored - baseline.candidates_scored,
             9,
@@ -896,12 +914,11 @@ mod tests {
         }
         let filters = lomo_application::MemoFilters::default();
 
-        // Warm the corpus so the injected cancellation lands inside the
-        // scoring loop — deterministic, no threads or clocks.
+        // Seed a narrower query so the injected cancellation lands inside scoring.
         let built =
             lomo_application::search::fuzzy_snapshot(&ctx.session, "z", &filters, &|| false)
                 .expect("warm build");
-        assert_eq!(built.hits().len(), 6);
+        assert_eq!(built.hit_count(), 6);
 
         let checks = std::sync::atomic::AtomicUsize::new(0);
         let cancel = || checks.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2;
@@ -921,12 +938,11 @@ mod tests {
         let retried =
             lomo_application::search::fuzzy_snapshot(&ctx.session, "ze", &filters, &|| false)
                 .expect("retry");
-        assert_eq!(retried.hits().len(), 6);
+        assert_eq!(retried.hit_count(), 6);
         let stats = ctx.session.fuzzy_scan_stats().expect("stats");
         assert_eq!(stats.seeded_scans, 1);
 
-        // The same fail-safe guards the corpus build's paged walk: cancelling
-        // before the first page leaves no corpus behind.
+        // Cancellation before the first page also drops the unseeded scan.
         let cold = open_session();
         create(&cold, "cold", "2026_09_10.md", "10:00:00", "zesty", None);
         let error =
@@ -935,7 +951,6 @@ mod tests {
         assert_eq!(error.category(), lomo_core::ErrorCategory::Cancelled);
         let stats = cold.session.fuzzy_scan_stats().expect("stats");
         assert_eq!(stats.superseded_scans, 1);
-        assert_eq!(stats.corpus_builds, 0);
     }
 
     #[test]

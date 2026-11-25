@@ -1,8 +1,8 @@
 //! Behavior Contract (P3-02)
 //!
 //! Capability: pure-Rust Unicode tokenizer produces `searchContent` projection tokens and ordered
-//! multi-char CJK query plans (adjacent bigram/NEAR), never unbounded unigram-OR; FTS5 external
-//! content indexes the projection.
+//! multi-char CJK query plans (adjacent bigram/NEAR), never unbounded unigram-OR; contentless FTS5
+//! indexes the projection.
 //!
 //! Scenarios:
 //! - Given CJK/emoji/latin text, when index tokens are produced, then CJK emits unigram+bigram,
@@ -26,8 +26,8 @@ mod tests {
     use super::support::{indexed_store, seed_memo};
     use lomo_core::PageSize;
     use lomo_store::{
-        MemoFilters, MemoQuery, QueryPlan, QueryTerm, TOKENIZER_VERSION, Tokenizer,
-        UnicodeTokenizer, index_tokens, query_plan, tokenizer_version,
+        MemoFilters, MemoQuery, QueryTerm, TOKENIZER_VERSION, index_tokens, query_plan,
+        tokenizer_version,
     };
     use tempfile::tempdir;
 
@@ -89,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn fts_external_content_indexes_search_content_projection() {
+    fn fts_indexes_cjk_without_external_content() {
         let dir = tempdir().expect("tempdir");
         seed_memo(dir.path(), "m1", "笔记：你好世界 hello", &[]);
         let store = indexed_store(dir.path());
@@ -107,12 +107,6 @@ mod tests {
             .expect("query");
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items.first().map(|m| m.memo_id.as_str()), Some("m1"));
-
-        let tokenizer = UnicodeTokenizer;
-        let indexed: String = tokenizer.index_tokens("x");
-        assert!(!indexed.is_empty() || indexed.is_empty());
-        let planned: QueryPlan = tokenizer.query_plan("x").expect("plan");
-        assert!(planned.match_expr.is_some() || planned.match_expr.is_none());
     }
 
     #[test]

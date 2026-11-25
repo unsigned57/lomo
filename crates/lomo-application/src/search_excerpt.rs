@@ -1,5 +1,8 @@
 //! Search ranking and presentation share source-addressed evidence.
-use std::{collections::BTreeMap, ops::Range};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    ops::Range,
+};
 
 use lomo_core::LomoError;
 use lomo_store::{QueryTerm, Tokenizer, UnicodeTokenizer};
@@ -59,55 +62,83 @@ pub fn fulltext_excerpt(path: &str, body: &str, query: &str) -> Result<SearchExc
     ))
 }
 
-/// # Errors
-/// Invalid UTF-8 evidence boundaries (never silently converted to an empty excerpt).
-pub fn fuzzy_excerpt(
-    path: &str,
-    body: &str,
-    query: &str,
-) -> Result<Option<(i64, SearchExcerpt)>, LomoError> {
-    if query.trim().is_empty() {
-        return Ok(Some((0, make_excerpt(body, &[], MatchSource::Body)?)));
-    }
-    let needle: Vec<_> = query.trim().chars().flat_map(char::to_lowercase).collect();
-    let body_evidence = direct_evidence(body, &needle);
-    if let Some(evidence) = &body_evidence
-        && evidence.score == 1000
-    {
-        return Ok(Some((
-            evidence.score,
-            make_excerpt(body, &evidence.ranges, MatchSource::Body)?,
-        )));
-    }
-    let candidates = [
-        body_evidence.map(|evidence| (evidence, MatchSource::Body, body)),
-        direct_evidence(path, &needle).map(|evidence| (evidence, MatchSource::Path, path)),
-        pinyin_evidence(body, &needle).map(|evidence| (evidence, MatchSource::Pinyin, body)),
-    ];
-    let best = candidates
-        .into_iter()
-        .flatten()
-        .max_by_key(|(evidence, source, _)| (evidence.score, *source == MatchSource::Body));
-    best.map(|(evidence, source, text)| {
-        Ok((
-            evidence.score,
-            make_excerpt(text, &evidence.ranges, source)?,
-        ))
-    })
-    .transpose()
+pub(crate) struct FuzzyMatcher {
+    needle: Vec<char>,
 }
 
-fn mapped_chars(text: &str) -> Vec<(char, Range<usize>)> {
-    text.char_indices()
-        .flat_map(|(byte, ch)| {
-            ch.to_lowercase()
-                .map(move |lower| (lower, byte..byte + ch.len_utf8()))
-        })
-        .collect()
+impl FuzzyMatcher {
+    pub(crate) fn new(query: &str) -> Self {
+        Self {
+            needle: query.trim().chars().flat_map(char::to_lowercase).collect(),
+        }
+    }
+
+    pub(crate) fn score(&self, path: &str, body: &str) -> Option<i64> {
+        self.evidence(path, body)
+            .map(|(evidence, _, _)| evidence.score)
+    }
+
+    pub(crate) fn excerpt(
+        &self,
+        path: &str,
+        body: &str,
+        score: i64,
+    ) -> Result<SearchExcerpt, LomoError> {
+        let (evidence, source, text) = self
+            .evidence(path, body)
+            .filter(|(evidence, _, _)| evidence.score == score)
+            .ok_or_else(|| {
+                validation(
+                    "search_evidence_missing",
+                    "ranked fuzzy hit has no matching source evidence",
+                )
+            })?;
+        make_excerpt(text, &evidence.ranges, source)
+    }
+
+    fn evidence<'a>(
+        &self,
+        path: &'a str,
+        body: &'a str,
+    ) -> Option<(Evidence, MatchSource, &'a str)> {
+        if self.needle.is_empty() {
+            return Some((
+                Evidence {
+                    score: 0,
+                    ranges: Vec::new(),
+                },
+                MatchSource::Body,
+                body,
+            ));
+        }
+        let body_evidence = direct_evidence(body, &self.needle);
+        if body_evidence
+            .as_ref()
+            .is_some_and(|evidence| evidence.score == 1000)
+        {
+            return body_evidence.map(|evidence| (evidence, MatchSource::Body, body));
+        }
+        [
+            body_evidence.map(|evidence| (evidence, MatchSource::Body, body)),
+            direct_evidence(path, &self.needle).map(|evidence| (evidence, MatchSource::Path, path)),
+            pinyin_evidence(body, &self.needle)
+                .map(|evidence| (evidence, MatchSource::Pinyin, body)),
+        ]
+        .into_iter()
+        .flatten()
+        .max_by_key(|(evidence, source, _)| (evidence.score, *source == MatchSource::Body))
+    }
+}
+
+fn mapped_chars(text: &str) -> impl Iterator<Item = (char, Range<usize>)> + '_ {
+    text.char_indices().flat_map(|(byte, ch)| {
+        ch.to_lowercase()
+            .map(move |lower| (lower, byte..byte + ch.len_utf8()))
+    })
 }
 
 fn literal_ranges(text: &str, terms: &[String]) -> Vec<Range<usize>> {
-    let folded = mapped_chars(text);
+    let folded: Vec<_> = mapped_chars(text).collect();
     let mut ranges = Vec::new();
     for term in terms {
         let chars: Vec<_> = term.chars().flat_map(char::to_lowercase).collect();
@@ -128,24 +159,26 @@ fn literal_ranges(text: &str, terms: &[String]) -> Vec<Range<usize>> {
 }
 
 fn direct_evidence(text: &str, needle: &[char]) -> Option<Evidence> {
-    let folded = mapped_chars(text);
-    if let Some(window) = folded
-        .windows(needle.len())
-        .find(|window| window.iter().map(|(ch, _)| ch).eq(needle.iter()))
-    {
-        return Some(Evidence {
-            score: 1000,
-            ranges: window.iter().map(|(_, range)| range.clone()).collect(),
-        });
+    let mut window = VecDeque::with_capacity(needle.len());
+    let mut subsequence = Vec::new();
+    for (ch, range) in mapped_chars(text) {
+        if needle.get(subsequence.len()) == Some(&ch) {
+            subsequence.push(range.clone());
+        }
+        if window.len() == needle.len() {
+            let _retired = window.pop_front();
+        }
+        window.push_back((ch, range));
+        if window.iter().map(|(ch, _)| ch).eq(needle.iter()) {
+            return Some(Evidence {
+                score: 1000,
+                ranges: window.into_iter().map(|(_, range)| range).collect(),
+            });
+        }
     }
-    let mut rest = folded.iter();
-    let mut ranges = Vec::new();
-    for ch in needle {
-        ranges.push(rest.find(|(candidate, _)| candidate == ch)?.1.clone());
-    }
-    Some(Evidence {
-        score: proximity(&ranges),
-        ranges,
+    (subsequence.len() == needle.len()).then(|| Evidence {
+        score: proximity(&subsequence),
+        ranges: subsequence,
     })
 }
 
@@ -224,20 +257,21 @@ fn make_excerpt(
     source: MatchSource,
 ) -> Result<SearchExcerpt, LomoError> {
     let first = ranges.first().map_or(0, |range| range.start);
-    let positions: Vec<_> = text
+    let (before, after) = text.split_at_checked(first).ok_or_else(|| {
+        validation(
+            "invalid_search_evidence",
+            "excerpt center is not on a UTF-8 boundary",
+        )
+    })?;
+    let start = before
         .char_indices()
-        .map(|(byte, _)| byte)
-        .chain(std::iter::once(text.len()))
-        .collect();
-    let center = positions.partition_point(|byte| *byte < first);
-    let start = positions
-        .get(center.saturating_sub(60))
-        .copied()
-        .ok_or_else(|| validation("invalid_search_evidence", "missing excerpt start"))?;
-    let end = positions
-        .get(center.saturating_add(260))
-        .copied()
-        .unwrap_or(text.len());
+        .rev()
+        .nth(59)
+        .map_or(0, |(index, _)| index);
+    let end = after
+        .char_indices()
+        .nth(260)
+        .map_or(text.len(), |(index, _)| first + index);
     let excerpt = text.get(start..end).ok_or_else(|| {
         validation(
             "invalid_search_evidence",

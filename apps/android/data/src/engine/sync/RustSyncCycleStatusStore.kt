@@ -1,19 +1,24 @@
 package com.lomo.data.engine.sync
 
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.WorkspaceMount
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.isActive
 
 /**
@@ -24,14 +29,14 @@ import kotlinx.coroutines.isActive
  * workspace has no Direct filesystem root (SAF), so no durable sync authority exists; that is a
  * real state, not a default.
  *
- * [observe] tracks [workspaceMounts] (when supplied) so non-Direct or unmounted workspaces stay
- * idle without 2s polling, and polls Direct workspaces while active so running-cycle transitions
- * surface without dual write paths. Concurrent workspace transitions between [workspaceRootPath]
+ * [observe] shares one poller among subscribers while a Direct workspace is mounted. Concurrent
+ * workspace transitions between [workspaceRootPath]
  * and [RemoteSyncRepository.cycleStatus] are retried only when the active root actually changed.
  */
 class RustSyncCycleStatusStore(
     private val remoteSync: RemoteSyncRepository,
     private val workspaceRoot: WorkspaceFilesystemRoot,
+    private val scope: CoroutineScope,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val workspaceMounts: Flow<WorkspaceMount>? = null,
 ) {
@@ -58,42 +63,50 @@ class RustSyncCycleStatusStore(
         }
     }
 
-    /**
-     * Continuous durable observation at [pollIntervalMillis] cadence.
-     *
-     * Emits the real record on collection and re-reads while a Direct workspace is mounted so
-     * running-cycle transitions (cancel requests, terminal records) surface without fabricated state.
-     */
+    private data class Observation(val root: String?, val status: Result<RemoteSyncCycleStatus?>)
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun observe(pollIntervalMillis: Long = DEFAULT_POLL_INTERVAL_MS): Flow<RemoteSyncCycleStatus?> {
+    private val observations by lazy {
         val mounts = workspaceMounts
         val source =
             if (mounts == null) {
-                pollLoop(pollIntervalMillis)
+                pollLoop()
             } else {
                 mounts
                     .map { workspaceRootPath() }
                     .distinctUntilChanged()
                     .flatMapLatest { mountedRoot ->
                         if (mountedRoot == null) {
-                            flowOf(null)
+                            flowOf(Observation(null, Result.success(null)))
                         } else {
-                            pollLoop(pollIntervalMillis)
+                            pollLoop()
                         }
                     }
             }
-        return source.distinctUntilChanged().flowOn(dispatcher)
+        source
+            .distinctUntilChanged()
+            .flowOn(dispatcher)
+            .shareIn(
+                scope = scope,
+                started = SharingStarted.WhileSubscribed(replayExpirationMillis = 0),
+                replay = 1,
+            )
     }
 
-    private fun pollLoop(pollIntervalMillis: Long): Flow<RemoteSyncCycleStatus?> = flow {
+    /** A replayed observation must still belong to the current workspace. */
+    fun observe(): Flow<RemoteSyncCycleStatus?> = observations
+        .filter { it.root == workspaceRootPath() }
+        .map { it.status.getOrThrow() }
+
+    private fun pollLoop(): Flow<Observation> = flow {
         while (currentCoroutineContext().isActive) {
-            emit(refresh())
-            delay(pollIntervalMillis)
+            emit(Observation(workspaceRootPath(), runNonFatalCatching { refresh() }))
+            delay(POLL_INTERVAL_MS)
         }
     }
 
     companion object {
-        const val DEFAULT_POLL_INTERVAL_MS: Long = 2_000
+        private const val POLL_INTERVAL_MS: Long = 2_000
         private const val MAX_CONCURRENT_SWITCH_RETRIES: Int = 2
         private val CONCURRENT_SWITCH_CODES = setOf(
             "sync_local_pull_requires_direct_workspace",

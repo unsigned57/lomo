@@ -193,10 +193,11 @@ pub fn collect_summaries(
                 "the paged projection walk was superseded before it completed",
             ));
         }
-        let page =
-            session.with_reader(|store| store.query_memos(query, cursor.as_ref(), page_size))?;
-        items.extend(page.items);
-        match page.next_cursor {
+        let (page, next_cursor) = session.with_reader(|store| {
+            store.query_memo_walk_page(query, cursor.as_ref(), page_size, revision)
+        })?;
+        items.extend(page);
+        match next_cursor {
             Some(next) => cursor = Some(next),
             None => break,
         }

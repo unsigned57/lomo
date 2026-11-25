@@ -218,7 +218,7 @@ private class FacadeTestHarness(backend: String, workspaceRoot: String?) {
             identityMaterial = MemorySecretMaterialSource(),
         )
 
-    private val cycleStatus = RustSyncCycleStatusStore(remoteSync, root)
+    private val cycleStatus = RustSyncCycleStatusStore(remoteSync, root, storeScope)
 
     val s3Facade =
         S3RemoteSyncFacade(

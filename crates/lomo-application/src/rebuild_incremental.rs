@@ -618,17 +618,16 @@ impl Gather<'_> {
             .map(|path| RelativeWorkspacePath::parse(path))
             .collect::<Result<Vec<_>, _>>()?;
         let mut scan_history_files = Vec::new();
-        let mut written = Vec::new();
         let documents = scan_markdown_files(
             config,
             executor,
             &paths,
             self.current,
             &mut scan_history_files,
-            &mut written,
             &mut self.written_paths,
         )?;
-        for projection in written {
+        for revision in documents.initial_history {
+            let projection = crate::record_plan::history_projection(revision);
             self.initial_history
                 .insert(projection.memo_id.clone(), projection);
         }

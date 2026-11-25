@@ -5,6 +5,9 @@ package com.lomo.ui.icon
  *
  * Outlined descriptors use `FILL = 0` with sleek `wght = 350` by default; `*Filled` descriptors
  * enable `FILL = 1`.
+ *
+ * After adding a glyph name, regenerate the bundled font with
+ * `quality/scripts/subset_material_symbols.py`.
  */
 object LomoIcons {
     val AccountTree = symbol(glyphName = "account_tree", name = "AccountTree")

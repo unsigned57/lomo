@@ -3,7 +3,6 @@ package com.lomo.data.worker
 import android.content.Context
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.time.Duration
@@ -22,7 +21,7 @@ class CoreSyncScheduler(private val context: Context) {
                 .setConstraints(
                     Constraints
                         .Builder()
-                        .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+                        .setRequiresCharging(true)
                         .build(),
                 ).build()
 
@@ -30,7 +29,7 @@ class CoreSyncScheduler(private val context: Context) {
             .getInstance(context)
             .enqueueUniquePeriodicWork(
                 SyncWorker.WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 syncRequest,
             )
     }

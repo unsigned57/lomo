@@ -17,7 +17,7 @@ use lomo_workspace::layout::relative as lomo_rel;
 use crate::{
     error::corruption,
     record_plan::{
-        decode_canonical_history_head, history_tip, state_tip, state_tip_at,
+        decode_canonical_history_head, history_projection, history_tip, state_tip, state_tip_at,
         validate_history_revision,
     },
     workspace_io::{FileSnapshot, MAX_WORKSPACE_READ_BATCH, WorkspaceIo},
@@ -185,13 +185,13 @@ impl HistoryGraph {
         Ok(Vec::new())
     }
 
-    /// Walks the already-loaded object map beneath `head`.
-    fn project_loaded(
+    /// Validates the already-loaded object map beneath one head before moving any bodies.
+    fn reachable_revisions(
         &self,
         memo_id: &str,
         head: &RevisionId,
-    ) -> Result<Vec<ScannedHistoryProjection>, LomoError> {
-        let mut output = Vec::new();
+        output: &mut Vec<RevisionId>,
+    ) -> Result<(), LomoError> {
         let mut pending = vec![head.clone()];
         let mut visited = BTreeSet::new();
         while let Some(id) = pending.pop() {
@@ -221,19 +221,32 @@ impl HistoryGraph {
                 }
                 pending.push(parent_id.clone());
             }
-            output.push(ScannedHistoryProjection {
-                memo_id: memo_id.to_owned(),
-                record_id: id.as_str().to_owned(),
-                revision: revision.generation,
-                created_at_ms: revision.created_at_ms,
-                content: revision.content.clone(),
-                file_fingerprint: revision.content_digest.clone(),
-            });
+            output.push(id);
         }
-        Ok(output)
+        Ok(())
     }
 
-    fn project(&self, io: &WorkspaceIo<'_>) -> Result<Vec<ScannedHistoryProjection>, LomoError> {
+    fn into_projections(
+        mut self,
+        reachable: Vec<RevisionId>,
+    ) -> Result<Vec<ScannedHistoryProjection>, LomoError> {
+        reachable
+            .into_iter()
+            .map(|id| {
+                self.revisions
+                    .remove(&id)
+                    .map(history_projection)
+                    .ok_or_else(|| {
+                        corruption(
+                            "history_parent_missing",
+                            "validated history object is absent",
+                        )
+                    })
+            })
+            .collect()
+    }
+
+    fn project(self, io: &WorkspaceIo<'_>) -> Result<Vec<ScannedHistoryProjection>, LomoError> {
         let mut output = Vec::new();
         let heads: Vec<_> = self.heads.iter().collect();
         for chunk in heads.chunks(MAX_WORKSPACE_READ_BATCH) {
@@ -269,17 +282,17 @@ impl HistoryGraph {
                         "history head points outside its memo identity",
                     ));
                 }
-                output.extend(self.project_loaded(memo_id, head)?);
+                self.reachable_revisions(memo_id, head, &mut output)?;
             }
         }
-        Ok(output)
+        self.into_projections(output)
     }
 }
 
 pub fn history(
     io: &WorkspaceIo<'_>,
     paths: &[RelativeWorkspacePath],
-    tips: Vec<HistoryRevisionV2>,
+    tips: impl IntoIterator<Item = HistoryRevisionV2>,
 ) -> Result<Vec<ScannedHistoryProjection>, LomoError> {
     let mut graph = HistoryGraph::default();
     let mut admitted_paths = BTreeSet::new();
@@ -330,7 +343,7 @@ pub fn history(
 /// and the write path share — then the closure walk admits every reachable
 /// object and tombstone byte beneath it through the same [`HistoryGraph::insert`]
 /// audit the cold scan applies to every listed file. A tombstone is only a
-/// projection verdict (`project_loaded` prunes on `graph.pruned`); it never
+/// projection verdict (`reachable_revisions` prunes on `graph.pruned`); it never
 /// exempts the object's bytes from admission, so a corrupt tombstoned ancestor
 /// dies here exactly as [`history`] dies decoding it. A missing head projects
 /// no revisions, matching a cold scan that never saw the head file.
@@ -368,9 +381,9 @@ pub fn history_scoped(
     // makes a foreign body at a canonical slot die on its own stem instead of
     // keying a claim no path in the closure could ever name. Discovery follows
     // each admitted object's parent claims whether or not a tombstone marks the
-    // node, because pruning is `project_loaded`'s verdict (`graph.pruned`), never
+    // node, because pruning is `reachable_revisions`'s verdict (`graph.pruned`), never
     // a byte-level exemption: an absent file owes no audit on either arm, while
-    // a non-pruned reachable gap surfaces `project_loaded`'s
+    // a non-pruned reachable gap surfaces `reachable_revisions`'s
     // `history_parent_missing` identically to cold.
     let mut pending = vec![head.clone()];
     let mut visited = BTreeSet::new();
@@ -389,7 +402,9 @@ pub fn history_scoped(
             graph.insert(&tombstone_path, &decode_record(&snapshot.bytes)?)?;
         }
     }
-    graph.project_loaded(memo_id.as_str(), &head)
+    let mut reachable = Vec::new();
+    graph.reachable_revisions(memo_id.as_str(), &head, &mut reachable)?;
+    graph.into_projections(reachable)
 }
 
 /// The pin verdict one memo's canonical durable state head attests.

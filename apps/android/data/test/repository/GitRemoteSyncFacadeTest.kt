@@ -194,7 +194,7 @@ private class FacadeHarness(backend: String, workspaceRoot: String? = "/workspac
             rustSyncScheduler = scheduler,
             remoteSync = remoteSync,
             secretSupplier = FakeFacadeSecretSupplier(),
-            cycleStatus = RustSyncCycleStatusStore(remoteSync, root),
+            cycleStatus = RustSyncCycleStatusStore(remoteSync, root, storeScope),
         )
 
     init {

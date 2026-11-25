@@ -131,6 +131,9 @@ use lomo_platform_fs::FsPlatformActionExecutor;
 use lomo_store::MemoQuery;
 use lomo_workspace::WorkspaceRootId;
 #[cfg(test)]
+mod schema_support;
+
+#[cfg(test)]
 #[expect(
     clippy::expect_used,
     clippy::too_many_lines,
@@ -2530,6 +2533,7 @@ mod tests {
 
         {
             let conn = rusqlite::Connection::open(&db_path).expect("open store db");
+            schema_support::use_external_content_fts(&conn).expect("legacy FTS shape");
             conn.execute_batch(
                 "DROP INDEX IF EXISTS idx_memo_empty_time_part;\
                  DROP INDEX IF EXISTS idx_memo_gallery;\
@@ -2592,6 +2596,7 @@ mod tests {
 
         {
             let conn = rusqlite::Connection::open(&db_path).expect("open store db");
+            schema_support::use_external_content_fts(&conn).expect("legacy FTS shape");
             conn.execute_batch(
                 "DROP INDEX IF EXISTS idx_memo_empty_time_part;\
                  UPDATE memo SET time_part = '';\

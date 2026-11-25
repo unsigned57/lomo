@@ -187,8 +187,22 @@ mod tests {
         let mut store = Store::open_projection(root.path()).expect("open projection");
         let body = "durable body";
         let begin = store
-            .begin_saf_memo_create(&begin_facts("op-commit", body))
+            .begin_saf_memo_create(&begin_facts("op-commit", "placeholder body"))
             .expect("begin");
+        let search = |store: &Store, text: &str| {
+            store
+                .query_memos(
+                    &MemoQuery {
+                        search_text: Some(text.to_owned()),
+                        filters: MemoFilters::default(),
+                        sort: MemoSort::default(),
+                    },
+                    None,
+                    PageSize::new(10).expect("page"),
+                )
+                .expect("search projection")
+        };
+        assert_eq!(search(&store, "placeholder").items.len(), 1);
 
         let commit = store
             .commit_saf_projection_mutation(&commit_mutation("op-commit", &begin.memo_id, body))
@@ -210,6 +224,8 @@ mod tests {
         assert_eq!(snapshot.summary.file_fingerprint, fingerprint_of(body));
         assert_eq!(snapshot.summary.content_revision, 1);
         assert!(!snapshot.summary.is_pending);
+        assert_eq!(search(&store, "placeholder").items, []);
+        assert_eq!(search(&store, "durable").items.len(), 1);
     }
 
     #[test]

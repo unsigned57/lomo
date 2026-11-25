@@ -40,6 +40,7 @@ mod tests {
         opened.connection.execute_batch("DROP TRIGGER memo_stats_insert; DROP TRIGGER memo_stats_delete;
             DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; DROP INDEX idx_memo_gallery; DROP INDEX idx_memo_empty_time_part; ALTER TABLE memo DROP COLUMN image_urls_json; ALTER TABLE memo DROP COLUMN time_part;")
             .unwrap_or_else(|error| panic!("historical triggers: {error}"));
+        super::support::use_external_content_fts(&opened.connection);
         opened
             .connection
             .pragma_update(None, "user_version", 14)

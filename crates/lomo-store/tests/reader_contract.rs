@@ -140,6 +140,51 @@ mod tests {
     }
 
     #[test]
+    fn summary_walk_keeps_ranked_pages_and_rejects_a_new_publication() {
+        let root = tempdir().expect("workspace");
+        for (id, body) in [
+            ("a", "needle needle apple"),
+            ("b", "needle berry"),
+            ("c", "needle cherry"),
+            ("d", "needle date"),
+        ] {
+            seed_memo(root.path(), id, body, &["sample"]);
+        }
+        let mut writer = indexed_store(root.path());
+        let reader = StoreReader::open(root.path()).expect("reader");
+        let ranked = MemoQuery {
+            search_text: Some("needle".to_owned()),
+            ..query()
+        };
+        let expected = reader
+            .query_memos(
+                &ranked,
+                None,
+                PageSize::new(10).expect("reference page size"),
+            )
+            .expect("reference rank order");
+        let revision = expected.high_water_revision;
+        let size = PageSize::new(2).expect("two-page walk");
+
+        let (mut items, cursor) = reader
+            .query_memo_walk_page(&ranked, None, size, revision)
+            .expect("first walk page");
+        let cursor = cursor.expect("another page");
+        let (tail, end) = reader
+            .query_memo_walk_page(&ranked, Some(&cursor), size, revision)
+            .expect("second walk page");
+        items.extend(tail);
+        assert_eq!(items, expected.items);
+        assert_eq!(end, None, "an exactly full final page has no continuation");
+
+        pin(&mut writer, "a");
+        let error = reader
+            .query_memo_walk_page(&ranked, Some(&cursor), size, revision)
+            .expect_err("cannot combine pages from different publications");
+        assert_eq!(error.code(), "stale_projection");
+    }
+
+    #[test]
     fn independent_readers_share_the_same_published_snapshot() {
         let root = tempdir().expect("workspace");
         seed_memo(root.path(), "same-snapshot", "body same-snapshot", &[]);
