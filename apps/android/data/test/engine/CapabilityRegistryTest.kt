@@ -110,6 +110,29 @@ class CapabilityRegistryTest : DataFunSpec() {
             nestedEncoded.stableWorkspaceId shouldBe nestedDecoded.stableWorkspaceId
         }
 
+        test(
+            "given cross-user SAF tree uri when registered then stable identity succeeds and stays distinct from bare uri",
+        ) {
+            val registry = CapabilityRegistry()
+            val crossUserUri = "content://0@com.android.externalstorage.documents/tree/primary%3AObsidian"
+            val bareUri = "content://com.android.externalstorage.documents/tree/primary%3AObsidian"
+
+            val crossUser = registry.register(token = "saf-cross-user", treeUri = crossUserUri)
+            val bare = registry.register(token = "saf-bare-user", treeUri = bareUri)
+
+            crossUser.treeUri shouldBe crossUserUri
+            (crossUser.stableWorkspaceId == bare.stableWorkspaceId) shouldBe false
+            shouldThrow<IllegalArgumentException> {
+                registry.register(token = "saf-bad-user", treeUri = "content://evil@provider/tree/root")
+            }
+            shouldThrow<IllegalArgumentException> {
+                registry.register(token = "saf-empty-user", treeUri = "content://@provider/tree/root")
+            }
+            shouldThrow<IllegalArgumentException> {
+                registry.register(token = "saf-empty-host", treeUri = "content://0@/tree/root")
+            }
+        }
+
         test("given blank token or blank uri when registered then boundary rejects") {
             val registry = CapabilityRegistry()
             shouldThrow<IllegalArgumentException> {

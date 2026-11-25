@@ -152,5 +152,27 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
             uriTreesMatch(granted, decodedCandidate) shouldBe true
             uriTreesMatch(granted, otherCandidate) shouldBe false
         }
+
+        test(
+            "given cross-user 0@ candidate uri and bare persisted grant when uriTreesMatch runs then matches accurately",
+        ) {
+            val bareGranted = mockk<Uri>()
+            every { bareGranted.toString() } returns
+                "content://com.android.externalstorage.documents/tree/primary%3AObsidian"
+            val userZeroCandidate =
+                "content://0@com.android.externalstorage.documents/tree/primary%3AObsidian"
+            val userZeroDocumentCandidate =
+                "content://0@com.android.externalstorage.documents/tree/primary%3AObsidian/document/primary%3AObsidian"
+            val malformedPrefixCandidate =
+                "content://evil@com.android.externalstorage.documents/tree/primary%3AObsidian"
+            val userTenGranted = mockk<Uri>()
+            every { userTenGranted.toString() } returns
+                "content://10@com.android.externalstorage.documents/tree/primary%3AObsidian"
+
+            uriTreesMatch(bareGranted, userZeroCandidate) shouldBe true
+            uriTreesMatch(bareGranted, userZeroDocumentCandidate) shouldBe true
+            uriTreesMatch(bareGranted, malformedPrefixCandidate) shouldBe false
+            uriTreesMatch(userTenGranted, userZeroCandidate) shouldBe false
+        }
     }
 }

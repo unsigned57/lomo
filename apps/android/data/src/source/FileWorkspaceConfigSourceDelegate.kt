@@ -6,8 +6,10 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.engine.buildTreeDocumentUri
 import com.lomo.data.engine.uriTreesMatch
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.domain.model.canonicalCrossUserAuthorityOrNull
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.Flow
@@ -36,7 +38,7 @@ class FileWorkspaceConfigSourceDelegate(
 
             isContentStorageUri(uriOrPath) ->
                 withContext(dispatcherProvider.io) {
-                    displayNameForUri(uriOrPath.toUri())
+                    displayNameForUri(uriOrPath, uriOrPath.toUri())
                 }
 
             else -> uriOrPath
@@ -47,11 +49,19 @@ class FileWorkspaceConfigSourceDelegate(
         backendResolver.workspaceBackend()?.createDirectory(name)
             ?: throw IOException("No storage configured")
 
-    private fun displayNameForUri(uri: Uri): String = try {
-        val selected = if (DocumentsContract.isDocumentUri(context, uri)) {
-            DocumentFile.fromSingleUri(context, uri)
-        } else {
-            DocumentFile.fromTreeUri(context, uri)
+    private fun displayNameForUri(rawUri: String, uri: Uri): String = try {
+        val selected = when {
+            "/document/" in rawUri || DocumentsContract.isDocumentUri(context, uri) ->
+                DocumentFile.fromSingleUri(context, uri)
+
+            canonicalCrossUserAuthorityOrNull(rawUri) != null ->
+                DocumentFile.fromSingleUri(
+                    context,
+                    buildTreeDocumentUri(rawUri, uri, DocumentsContract.getTreeDocumentId(uri)),
+                )
+
+            else ->
+                DocumentFile.fromTreeUri(context, uri)
         }
         selected?.name ?: uri.lastPathSegment ?: uri.toString()
     } catch (_: Exception) {

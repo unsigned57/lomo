@@ -2,7 +2,6 @@ package com.lomo.data.engine
 
 import android.content.Context
 import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.source.isContentStorageUri
@@ -11,12 +10,12 @@ import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceFailureStage
+import com.lomo.domain.model.contentTreeUrisMatch
 import com.lomo.domain.repository.WorkspaceCandidateValidator
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.nativebridge.WorkspaceTarget
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Locale
 
 /**
  * Production candidate probe used before freeze + durable root persistence.
@@ -70,7 +69,7 @@ class WorkspaceCandidateProbe(
             }
         if (!granted) throw candidateFailure("saf_grant_revoked", EngineFailureCategory.PERMISSION)
         val documentId = selectedSafDocumentId(uriString, uri)
-        val documentUri = DocumentsContract.buildDocumentUriUsingTree(uri, documentId)
+        val documentUri = buildTreeDocumentUri(uriString, uri, documentId)
         val root = DocumentFile.fromSingleUri(context, documentUri)
         val failureCode = when {
             root == null -> "saf_root_unavailable"
@@ -107,42 +106,8 @@ private fun candidateFailure(code: String, category: EngineFailureCategory, caus
     )
 
 /**
- * Grant matching for tree URIs: exact string equality is too brittle across encoding/normalization,
- * so compare normalized tree document ids when both are tree URIs.
+ * Grant matching for tree URIs: exact string equality is too brittle across encoding, normalization,
+ * and cross-user prefixes (`0@authority` vs persisted bare `authority`).
  */
-internal fun uriTreesMatch(granted: Uri, candidate: String): Boolean {
-    val grantedRaw = granted.toString()
-    if (grantedRaw == candidate) return true
-    val grantedTree = grantedRaw.treeDocumentIdOrNull() ?: return false
-    val candidateTree = candidate.treeDocumentIdOrNull() ?: return false
-    val grantedAuthority = grantedRaw.uriAuthorityOrNull()
-    val candidateAuthority = candidate.uriAuthorityOrNull()
-    return grantedAuthority == candidateAuthority && grantedTree == candidateTree
-}
-
-private fun String.treeDocumentIdOrNull(): String? {
-    val withoutQuery = substringBefore('?').substringBefore('#')
-    val treeIndex = withoutQuery.indexOf("/tree/")
-    if (treeIndex < 0) return null
-    val afterTree = withoutQuery.substring(treeIndex + "/tree/".length)
-    if (afterTree.isEmpty()) return null
-    val rawId =
-        if (afterTree.contains("/document/")) {
-            afterTree.substringBefore("/document/")
-        } else {
-            afterTree
-        }
-    return runCatching {
-        java.net.URLDecoder.decode(rawId.replace("+", "%2B"), "UTF-8")
-    }.fold(
-        onSuccess = { decoded -> decoded.takeIf(String::isNotEmpty) },
-        onFailure = { null },
-    )
-}
-
-private fun String.uriAuthorityOrNull(): String? {
-    if (!startsWith("content://", ignoreCase = true)) return null
-    val withoutScheme = substring("content://".length)
-    val authority = withoutScheme.substringBefore('/')
-    return authority.takeIf { it.isNotEmpty() }?.lowercase(Locale.ROOT)
-}
+internal fun uriTreesMatch(granted: Uri, candidate: String): Boolean =
+    contentTreeUrisMatch(granted.toString(), candidate)

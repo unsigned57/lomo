@@ -175,6 +175,23 @@ class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
             }
         }
 
+        test(
+            "setRoot keeps bare persisted grant backing a cross-user 0@ workspace root while releasing orphan grants",
+        ) {
+            runTest {
+                val bareActiveUri = uriReturning("content://provider/tree/notes")
+                val orphanUri = uriReturning("content://provider/tree/orphan")
+                stubPersistedUriPermissions(listOf(permissionFor(bareActiveUri), permissionFor(orphanUri)))
+                val (delegate, dataStore) = setUpDelegate()
+
+                delegate.setRoot(StorageRootType.MAIN, "content://0@provider/tree/notes")
+
+                verify(exactly = 1) { contentResolver.releasePersistableUriPermission(orphanUri, any()) }
+                verify(exactly = 0) { contentResolver.releasePersistableUriPermission(bareActiveUri, any()) }
+                dataStore.rootUri.first() shouldBe "content://0@provider/tree/notes"
+            }
+        }
+
         test("getRootFlow classifies a content uri and getRootDisplayNameFlow returns a filesystem path") {
             runTest {
                 val (delegate, dataStore) = setUpDelegate()

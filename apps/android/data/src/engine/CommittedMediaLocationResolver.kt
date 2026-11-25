@@ -1,6 +1,5 @@
 package com.lomo.data.engine
 
-import android.provider.DocumentsContract
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceMount
 import com.lomo.nativebridge.DocumentKind
@@ -35,7 +34,7 @@ internal class CommittedMediaLocationResolver(
             ?: return null
         check(snapshot.kind == DocumentKind.FILE) { "Committed media must resolve to a file: $relativePath" }
         return StorageLocation(
-            DocumentsContract.buildDocumentUriUsingTree(root.toAndroidUri(), snapshot.documentId).toString(),
+            buildTreeDocumentUri(root, root.toAndroidUri(), snapshot.documentId).toString(),
         )
     }
 }

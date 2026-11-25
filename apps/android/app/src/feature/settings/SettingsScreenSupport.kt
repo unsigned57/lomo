@@ -3,7 +3,6 @@ package com.lomo.app.feature.settings
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.SnackbarHostState
@@ -24,6 +23,7 @@ import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.WorkspaceFailureStage
+import com.lomo.domain.model.contentTreeUrisMatch
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -206,12 +206,8 @@ private fun missingPersistedTreeGrant(cause: SecurityException? = null): EngineC
         cause,
     )
 
-private fun persistedTreeMatches(persistedUri: Uri, requestedUri: Uri): Boolean {
-    if (persistedUri == requestedUri || persistedUri.toString() == requestedUri.toString()) return true
-    if (!DocumentsContract.isTreeUri(persistedUri) || !DocumentsContract.isTreeUri(requestedUri)) return false
-    return persistedUri.authority == requestedUri.authority && DocumentsContract.getTreeDocumentId(persistedUri) ==
-        DocumentsContract.getTreeDocumentId(requestedUri)
-}
+private fun persistedTreeMatches(persistedUri: Uri, requestedUri: Uri): Boolean =
+    persistedUri == requestedUri || contentTreeUrisMatch(persistedUri.toString(), requestedUri.toString())
 
 @Composable
 internal fun HandleSettingsOperationError(

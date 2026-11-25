@@ -1,9 +1,9 @@
 package com.lomo.data.source
 
-import android.provider.DocumentsContract
 import com.lomo.data.engine.ContentResolverPlatformDocumentsGateway
 import com.lomo.data.engine.PlatformDocumentSnapshot
 import com.lomo.data.engine.SnapshotDigestMode
+import com.lomo.data.engine.buildTreeDocumentUri
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.WorkspaceTarget
 import kotlinx.coroutines.currentCoroutineContext
@@ -58,7 +58,7 @@ internal class SafMediaStorageBackendDelegate(
     }
 
     private fun location(snapshot: PlatformDocumentSnapshot): String =
-        DocumentsContract.buildDocumentUriUsingTree(documentAccess.treeUri, snapshot.documentId).toString()
+        buildTreeDocumentUri(documentAccess.treeUri.toString(), documentAccess.treeUri, snapshot.documentId).toString()
 
     private companion object {
         const val MEDIA_PAGE_SIZE = 256u

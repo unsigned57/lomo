@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
+import com.lomo.domain.model.parseContentUriAuthority
+import com.lomo.domain.model.stripContentUriUserId
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.WorkspaceTarget
 import com.lomo.nativebridge.WriteMode
@@ -17,6 +19,11 @@ import java.io.IOException
 import java.io.InputStream
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+
+/** Acquires a leased provider connection for a single SAF operation sequence. */
+internal interface SafProviderConnector {
+    fun <T> connect(resolver: ContentResolver, tree: Uri, operation: (ContentResolver) -> T): T
+}
 
 /**
  * Production [PlatformDocumentsGateway] over [ContentResolver] / DocumentsContract.
@@ -30,21 +37,27 @@ internal class ContentResolverPlatformDocumentsGateway(
     private val contentResolver: ContentResolver,
     private val transientRetryDelaysMillis: LongArray = DEFAULT_TRANSIENT_RETRY_DELAYS_MILLIS,
     private val sleepMillis: (Long) -> Unit = Thread::sleep,
+    private val providerConnector: SafProviderConnector? = null,
 ) : PlatformDocumentsGateway {
     private val state = SafDocumentState()
-    private val resolverOperations = SafDocumentOperations(contentResolver, state)
+    private val resolverOperations = SafDocumentOperations(contentResolver, state, boundToProvider = false)
 
     // API 26-28 execute the same operations through ContentResolver; API 29 introduced wrap.
     // Each modern operation owns one connection until all cursors/streams have closed. There
     // is no process-global provider lease to leak, evict under a reader, or reuse after death.
-    private fun <T> connected(treeUri: String, operation: (SafDocumentOperations) -> T): T =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            withDocumentProviderConnection(contentResolver, treeUri.toAndroidUri()) { resolver ->
-                operation(SafDocumentOperations(resolver, state))
+    private fun <T> connected(treeUri: String, operation: (SafDocumentOperations) -> T): T = when {
+        providerConnector != null ->
+            providerConnector.connect(contentResolver, treeUri.toAndroidUri()) { resolver ->
+                operation(SafDocumentOperations(resolver, state, boundToProvider = true))
             }
-        } else {
-            operation(resolverOperations)
-        }
+
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+            withDocumentProviderConnection(contentResolver, treeUri.toAndroidUri()) { resolver ->
+                operation(SafDocumentOperations(resolver, state, boundToProvider = true))
+            }
+
+        else -> operation(resolverOperations)
+    }
 
     /**
      * Retries only read-only provider operations across cold-start SAF provider warmup states
@@ -175,17 +188,21 @@ private class SafDocumentState {
 private class SafDocumentOperations(
     private val contentResolver: ContentResolver,
     private val state: SafDocumentState,
+    private val boundToProvider: Boolean,
 ) : PlatformDocumentsGateway {
     private val queries = DocumentSnapshotQueries(contentResolver)
     private val paths = DocumentPathResolver(contentResolver, queries, state.listings)
-    private val writer = DocumentWriter(contentResolver, paths, queries, state.twoPassTrees)
+    private val writer = DocumentWriter(contentResolver, paths, queries, state.twoPassTrees, boundToProvider)
+
+    private fun String.toProviderTreeUri(): Uri =
+        if (boundToProvider) stripContentUriUserId(this).toAndroidUri() else toAndroidUri()
 
     override fun stat(
         treeUri: String,
         target: WorkspaceTarget,
         digest: SnapshotDigestMode,
     ): PlatformDocumentSnapshot? {
-        val root = treeUri.toAndroidUri()
+        val root = treeUri.toProviderTreeUri()
         return when (target) {
             is WorkspaceTarget.Root -> {
                 val docId = selectedSafDocumentId(treeUri, root)
@@ -219,7 +236,7 @@ private class SafDocumentOperations(
         SafDirectoryPages.requirePageSize(pageSize)
         if (cursor != null) return state.pages.resume(treeUri, target, cursor, pageSize)
         val targetLabel = target.listingLabel()
-        val root = treeUri.toAndroidUri()
+        val root = treeUri.toProviderTreeUri()
         val parentDocId =
             when (target) {
                 is WorkspaceTarget.Root -> selectedSafDocumentId(treeUri, root)
@@ -258,7 +275,7 @@ private class SafDocumentOperations(
         writer.ensureDirectory(treeUri, path)
 
     override fun openRead(treeUri: String, path: String): PlatformReadHandle {
-        val root = treeUri.toAndroidUri()
+        val root = treeUri.toProviderTreeUri()
         val (resolved, snapshot) =
             paths.resolveObserved(root, treeUri, path) { document ->
                 queries.querySnapshot(
@@ -285,7 +302,7 @@ private class SafDocumentOperations(
     }
 
     override fun openReadByHandle(treeUri: String, path: String, documentHandle: String): PlatformReadHandle {
-        val root = treeUri.toAndroidUri()
+        val root = treeUri.toProviderTreeUri()
         val documentUri = DocumentsContract.buildDocumentUriUsingTree(root, documentHandle)
         val snapshot =
             queries.querySnapshot(
@@ -331,7 +348,7 @@ private class SafDocumentOperations(
     ): PlatformDocumentSnapshot = writer.move(treeUri, source, target, targetTreeUri)
 
     override fun delete(treeUri: String, path: String) {
-        val root = treeUri.toAndroidUri()
+        val root = treeUri.toProviderTreeUri()
         val chain = paths.resolveWriteChain(root, treeUri, path, mode = null)
         val leaf = chain.leaf ?: return
         if (DocumentsContract.deleteDocument(contentResolver, leaf.uri)) {
@@ -655,10 +672,13 @@ private class DocumentWriter(
     private val queries: DocumentSnapshotQueries,
     /** Per-tree verdict for providers without dual-mode (rwt) file descriptors. */
     private val twoPassTrees: MutableSet<String>,
+    private val boundToProvider: Boolean,
 ) {
+    private fun String.toProviderTreeUri(): Uri =
+        if (boundToProvider) stripContentUriUserId(this).toAndroidUri() else toAndroidUri()
 
     fun ensureDirectory(treeUri: String, path: String): PlatformDocumentSnapshot {
-        val root = treeUri.toAndroidUri()
+        val root = treeUri.toProviderTreeUri()
         val segments = path.split('/').filter(String::isNotEmpty)
         require(segments.isNotEmpty()) { "directory path must not be empty" }
         var parentDocId = selectedSafDocumentId(treeUri, root)
@@ -706,7 +726,7 @@ private class DocumentWriter(
         mimeType: String?,
         arbitrate: WriteArbitration,
     ): WriteOutcome {
-        val root = treeUri.toAndroidUri()
+        val root = treeUri.toProviderTreeUri()
         val chain = paths.resolveWriteChain(root, treeUri, path, mode)
         val existing =
             chain.leaf?.let { leaf ->
@@ -817,8 +837,14 @@ private class DocumentWriter(
     }
 
     fun move(treeUri: String, source: String, target: String, targetTreeUri: String): PlatformDocumentSnapshot {
-        val root = treeUri.toAndroidUri()
-        val targetRoot = targetTreeUri.toAndroidUri()
+        if (boundToProvider &&
+            treeUri != targetTreeUri &&
+            parseContentUriAuthority(treeUri) != parseContentUriAuthority(targetTreeUri)
+        ) {
+            errorIo("Cannot move documents across different document providers or user profiles")
+        }
+        val root = treeUri.toProviderTreeUri()
+        val targetRoot = targetTreeUri.toProviderTreeUri()
         val sourceResolved =
             paths.resolvePath(root, treeUri, source, bypassListings = true)
                 ?: errorNotFound("Missing source: $source")
@@ -897,7 +923,7 @@ private class DocumentWriter(
         currentName: String?,
         description: String,
     ): Uri {
-        val root = treeUri.toAndroidUri()
+        val root = treeUri.toProviderTreeUri()
         val initialName = currentName ?: queries.queryDisplayName(documentUri)
         if (initialName == null || initialName == requestedName) return documentUri
         val existing = paths.findChild(root, treeUri, parentDocId, requestedName, bypassListings = true)

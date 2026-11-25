@@ -2,8 +2,10 @@ package com.lomo.app.feature.settings
 
 import android.content.ContentResolver
 import android.content.Context
+import android.content.UriPermission
 import android.net.Uri
 import com.lomo.app.testing.AppFunSpec
+import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.string.shouldContain
 import io.mockk.every
@@ -49,6 +51,60 @@ class SettingsTreePermissionTest : AppFunSpec() {
 
             shouldThrow<IllegalStateException> {
                 persistTreePermission(context, uri)
+            }.message shouldContain "saf_grant_not_persisted"
+        }
+
+        test("cross-user 0@ tree uri accepts matching bare persisted read and write grant") {
+            val context = mockk<Context>()
+            val resolver = mockk<ContentResolver>(relaxed = true)
+            val requestedUri = mockk<Uri>()
+            val persistedUri = mockk<Uri>()
+            val grant = mockk<UriPermission>()
+            every {
+                requestedUri.toString()
+            } returns "content://0@com.android.externalstorage.documents/tree/primary%3AObsidian"
+            every {
+                persistedUri.toString()
+            } returns "content://com.android.externalstorage.documents/tree/primary%3AObsidian"
+            every { grant.uri } returns persistedUri
+            every { grant.isReadPermission } returns true
+            every { grant.isWritePermission } returns true
+            every { context.contentResolver } returns resolver
+            every { resolver.persistedUriPermissions } returns listOf(grant)
+
+            shouldNotThrowAny {
+                persistTreePermission(context, requestedUri)
+            }
+        }
+
+        test("cross-user 0@ tree uri fails closed when bare grant is read-only or belongs to another explicit user") {
+            val context = mockk<Context>()
+            val resolver = mockk<ContentResolver>(relaxed = true)
+            val requestedUri = mockk<Uri>()
+            val bareUri = mockk<Uri>()
+            val userTenUri = mockk<Uri>()
+            val readOnlyGrant = mockk<UriPermission>()
+            val otherUserGrant = mockk<UriPermission>()
+            every {
+                requestedUri.toString()
+            } returns "content://0@com.android.externalstorage.documents/tree/primary%3AObsidian"
+            every {
+                bareUri.toString()
+            } returns "content://com.android.externalstorage.documents/tree/primary%3AObsidian"
+            every {
+                userTenUri.toString()
+            } returns "content://10@com.android.externalstorage.documents/tree/primary%3AObsidian"
+            every { readOnlyGrant.uri } returns bareUri
+            every { readOnlyGrant.isReadPermission } returns true
+            every { readOnlyGrant.isWritePermission } returns false
+            every { otherUserGrant.uri } returns userTenUri
+            every { otherUserGrant.isReadPermission } returns true
+            every { otherUserGrant.isWritePermission } returns true
+            every { context.contentResolver } returns resolver
+            every { resolver.persistedUriPermissions } returns listOf(readOnlyGrant, otherUserGrant)
+
+            shouldThrow<IllegalStateException> {
+                persistTreePermission(context, requestedUri)
             }.message shouldContain "saf_grant_not_persisted"
         }
     }

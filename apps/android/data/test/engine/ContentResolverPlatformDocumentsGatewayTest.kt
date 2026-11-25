@@ -143,6 +143,7 @@
 
 package com.lomo.data.engine
 
+import android.content.ContentProviderClient
 import android.content.ContentResolver
 import android.database.Cursor
 import android.net.Uri
@@ -162,6 +163,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import io.mockk.verify
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
@@ -171,6 +173,7 @@ class ContentResolverPlatformDocumentsGatewayTest : DataFunSpec() {
         afterTest {
             unmockkStatic(Uri::class)
             unmockkStatic(DocumentsContract::class)
+            unmockkStatic(ContentResolver::class)
         }
 
         test("given a SAF file when children are listed then content is not opened") {
@@ -851,6 +854,119 @@ class ContentResolverPlatformDocumentsGatewayTest : DataFunSpec() {
 
             failure.code shouldBe "metadata_enumeration_loading"
             fixture.childrenQueryCount shouldBe 3
+        }
+
+        test(
+            "given bound cross-user 0@ provider connection when ensuring directory then client connects to 0@ and " +
+                "rpc strips prefix",
+        ) {
+            mockkStatic(Uri::class, DocumentsContract::class, ContentResolver::class)
+            val resolver = mockk<ContentResolver>()
+            val connectedResolver = mockk<ContentResolver>()
+            val client = mockk<ContentProviderClient>()
+            val crossUserUri = mockk<Uri>()
+            val bareUri = mockk<Uri>()
+            val bareRootDocUri = mockk<Uri>()
+            val bareChildrenUri = mockk<Uri>()
+            val bareDirUri = mockk<Uri>()
+            val crossUserRaw = "content://0@com.lomo.documents/tree/primary%3ALomo"
+            val bareRaw = "content://com.lomo.documents/tree/primary%3ALomo"
+            every { Uri.parse(crossUserRaw) } returns crossUserUri
+            every { Uri.parse(bareRaw) } returns bareUri
+            every { resolver.acquireContentProviderClient(crossUserUri) } returns client
+            every { ContentResolver.wrap(client) } returns connectedResolver
+            every { client.close() } returns Unit
+            every { DocumentsContract.getTreeDocumentId(bareUri) } returns ROOT_DOCUMENT_ID
+            every {
+                DocumentsContract.buildChildDocumentsUriUsingTree(bareUri, ROOT_DOCUMENT_ID)
+            } returns bareChildrenUri
+            every { DocumentsContract.buildDocumentUriUsingTree(bareUri, ROOT_DOCUMENT_ID) } returns bareRootDocUri
+            every { DocumentsContract.buildDocumentUriUsingTree(bareUri, DIR_DOCUMENT_ID) } returns bareDirUri
+            every { DocumentsContract.getDocumentId(bareDirUri) } returns DIR_DOCUMENT_ID
+            every {
+                connectedResolver.query(bareChildrenUri, any<Array<String>>(), null, null, null)
+            } returns FakeCursor(
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                emptyList(),
+            )
+            every {
+                DocumentsContract.createDocument(
+                    connectedResolver,
+                    bareRootDocUri,
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    DIR_NAME,
+                )
+            } returns bareDirUri
+            every {
+                connectedResolver.query(
+                    bareDirUri,
+                    ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION,
+                    null,
+                    null,
+                    null,
+                )
+            } returns FakeCursor(
+                ContentResolverPlatformDocumentsGateway.DOCUMENT_PROJECTION,
+                listOf(
+                    listOf(DIR_DOCUMENT_ID, DIR_NAME, DocumentsContract.Document.MIME_TYPE_DIR, 0L, 1_754_300_000_000L),
+                ),
+            )
+
+            val gateway = ContentResolverPlatformDocumentsGateway(
+                contentResolver = resolver,
+                providerConnector =
+                object : SafProviderConnector {
+                    override fun <T> connect(
+                        resolver: ContentResolver,
+                        tree: Uri,
+                        operation: (ContentResolver) -> T,
+                    ): T = withDocumentProviderConnection(resolver, tree, operation)
+                },
+            )
+            val snapshot = gateway.ensureDirectory(crossUserRaw, DIR_NAME)
+
+            snapshot.documentId shouldBe DIR_DOCUMENT_ID
+            snapshot.kind shouldBe DocumentKind.DIRECTORY
+            verify(exactly = 1) { resolver.acquireContentProviderClient(crossUserUri) }
+            verify(exactly = 1) {
+                DocumentsContract.createDocument(
+                    connectedResolver,
+                    bareRootDocUri,
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    DIR_NAME,
+                )
+            }
+            verify(exactly = 1) { client.close() }
+        }
+
+        test(
+            "given cross-user tree uri when building external document or child uris then encodedAuthority keeps " +
+                "literal @",
+        ) {
+            mockkStatic(DocumentsContract::class)
+            val treeUri = mockk<Uri>()
+            val builtDoc = mockk<Uri>()
+            val builtChildren = mockk<Uri>()
+            val docBuilder = mockk<Uri.Builder>()
+            val childrenBuilder = mockk<Uri.Builder>()
+            val finalDoc = mockk<Uri>()
+            val finalChildren = mockk<Uri>()
+            val crossUserRaw = "content://0%40com.lomo.documents/tree/primary%3ALomo"
+            val bareRaw = "content://com.lomo.documents/tree/primary%3ALomo"
+
+            every { DocumentsContract.buildDocumentUriUsingTree(treeUri, DOCUMENT_ID) } returns builtDoc
+            every { DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, ROOT_DOCUMENT_ID) } returns builtChildren
+            every { builtDoc.buildUpon() } returns docBuilder
+            every { docBuilder.encodedAuthority("0@com.lomo.documents") } returns docBuilder
+            every { docBuilder.build() } returns finalDoc
+            every { builtChildren.buildUpon() } returns childrenBuilder
+            every { childrenBuilder.encodedAuthority("0@com.lomo.documents") } returns childrenBuilder
+            every { childrenBuilder.build() } returns finalChildren
+
+            buildTreeDocumentUri(crossUserRaw, treeUri, DOCUMENT_ID) shouldBe finalDoc
+            buildTreeChildDocumentsUri(crossUserRaw, treeUri, ROOT_DOCUMENT_ID) shouldBe finalChildren
+            buildTreeDocumentUri(bareRaw, treeUri, DOCUMENT_ID) shouldBe builtDoc
+            buildTreeChildDocumentsUri(bareRaw, treeUri, ROOT_DOCUMENT_ID) shouldBe builtChildren
         }
     }
 }

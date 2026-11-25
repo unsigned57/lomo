@@ -3,6 +3,7 @@ package com.lomo.data.engine
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.core.net.toUri
+import com.lomo.domain.model.canonicalCrossUserAuthorityOrNull
 import com.lomo.nativebridge.ActionOutcome
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.WorkspaceTarget
@@ -139,3 +140,23 @@ private fun String.sha256Hex(): String = toByteArray(Charsets.UTF_8).sha256Hex()
 /** The document portion is the selected directory; the tree portion retains its grant. */
 internal fun selectedSafDocumentId(raw: String, uri: Uri): String =
     if ("/document/" in raw) DocumentsContract.getDocumentId(uri) else DocumentsContract.getTreeDocumentId(uri)
+
+/**
+ * Builds a tree-backed document URI while preserving any unencoded numeric cross-user authority
+ * prefix (`0@authority`), avoiding `Uri.Builder.authority` percent-encoding `@` into `%40`.
+ */
+internal fun buildTreeDocumentUri(treeUriString: String, treeUri: Uri, documentId: String): Uri {
+    val built = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+    val authorityWithUserId = canonicalCrossUserAuthorityOrNull(treeUriString) ?: return built
+    return built.buildUpon().encodedAuthority(authorityWithUserId).build()
+}
+
+/**
+ * Builds a tree-backed child-documents URI while preserving any unencoded numeric cross-user
+ * authority prefix (`0@authority`).
+ */
+internal fun buildTreeChildDocumentsUri(treeUriString: String, treeUri: Uri, parentDocumentId: String): Uri {
+    val built = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+    val authorityWithUserId = canonicalCrossUserAuthorityOrNull(treeUriString) ?: return built
+    return built.buildUpon().encodedAuthority(authorityWithUserId).build()
+}

@@ -1,10 +1,10 @@
 package com.lomo.data.media
 
 import android.content.Context
-import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import com.lomo.data.engine.ContentResolverPlatformDocumentsGateway
 import com.lomo.data.engine.SnapshotDigestMode
+import com.lomo.data.engine.buildTreeDocumentUri
 import com.lomo.data.engine.isValidWorkspacePath
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.WorkspaceMount
@@ -173,7 +173,7 @@ class AudioPlaybackUriResolverImpl(
     private fun resolveSafUri(baseDir: String, uri: String): String? = runNonFatalCatching {
         val snapshot = documents.stat(baseDir, WorkspaceTarget.Relative(uri), SnapshotDigestMode.METADATA_ONLY)
         snapshot?.takeIf { it.kind == DocumentKind.FILE }?.let {
-            DocumentsContract.buildDocumentUriUsingTree(baseDir.toUri(), it.documentId).toString()
+            buildTreeDocumentUri(baseDir, baseDir.toUri(), it.documentId).toString()
         }
     }.getOrElse { error ->
         Timber.e(error, "Failed to resolve SAF uri=%s from baseDir=%s", uri, baseDir)

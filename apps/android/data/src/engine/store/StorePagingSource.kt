@@ -127,11 +127,18 @@ private fun Long.toPagingPlaceholderCount(field: String): Int {
     return toInt()
 }
 
+private const val MARKDOWN_FILE_EXTENSION = ".md"
 private val FALLBACK_DATE_KEY: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy_MM_dd")
 
 internal fun sourcePathToDateKey(sourcePath: String, createdAtMs: Long): String = sourcePath
     .substringAfterLast('/')
-    .let { name -> if (name.endsWith(".md", ignoreCase = true)) name.dropLast(3) else name }
+    .let { name ->
+        if (name.endsWith(MARKDOWN_FILE_EXTENSION, ignoreCase = true)) {
+            name.dropLast(MARKDOWN_FILE_EXTENSION.length)
+        } else {
+            name
+        }
+    }
     .ifBlank {
         Instant
             .ofEpochMilli(createdAtMs)

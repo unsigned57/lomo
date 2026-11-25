@@ -163,7 +163,7 @@ internal object SafWorkspaceIdentity {
         return StableWorkspaceId("ws-${digest.toLowerHex()}")
     }
 
-    private val SAF_AUTHORITY = Regex("[A-Za-z0-9._-]+")
+    private val SAF_AUTHORITY = Regex("(?:[0-9]+@)?[A-Za-z0-9._-]+")
     private const val TREE_PATH_PREFIX = "/tree/"
 }
 
