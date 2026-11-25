@@ -1,7 +1,7 @@
 //! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 19;
+pub const STORE_SCHEMA_VERSION: u32 = 20;
 
 /// Tokenizer version embedded in FTS projections and `PageCursor`.
 pub const TOKENIZER_VERSION: u32 = 1;
@@ -194,6 +194,9 @@ CREATE INDEX idx_memo_updated ON {memo}(updated_at_ms, memo_id);
 CREATE INDEX idx_memo_gallery
     ON {memo}(is_pinned DESC, created_at_ms DESC, memo_id DESC)
     WHERE is_trashed = 0 AND has_attachment = 1 AND image_urls_json <> '[]';
+CREATE INDEX idx_memo_empty_time_part
+    ON {memo}(memo_id)
+    WHERE time_part = '';
 CREATE INDEX idx_revision_record ON {revision_index}(history_record_id);
 
 INSERT INTO {stats}(key, value_i64) VALUES
@@ -466,4 +469,19 @@ CREATE INDEX IF NOT EXISTS idx_memo_gallery
     ON memo(is_pinned DESC, created_at_ms DESC, memo_id DESC)
     WHERE is_trashed = 0 AND has_attachment = 1 AND image_urls_json <> '[]';
 PRAGMA user_version = 19;
+";
+
+/// Additive v19 -> v20 migration: index empty `time_part` rows for O(1) startup completeness
+/// checks and invalidate projections left with empty `time_part` by v17 -> v18 upgrades whose
+/// unchanged `file_listing` snapshot bypassed rescanning.
+pub const MIGRATE_V19_TO_V20_DDL: &str = r"
+CREATE INDEX IF NOT EXISTS idx_memo_empty_time_part ON memo(memo_id)
+    WHERE time_part = '';
+UPDATE store_meta SET value = '0'
+WHERE key = 'high_water_revision'
+  AND EXISTS(SELECT 1 FROM memo WHERE time_part = '');
+DELETE FROM store_meta
+WHERE key = 'workspace_listing_digest'
+  AND EXISTS(SELECT 1 FROM memo WHERE time_part = '');
+PRAGMA user_version = 20;
 ";

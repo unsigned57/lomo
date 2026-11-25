@@ -401,6 +401,14 @@ impl Store {
         rebuild::live_reconciled_result(&self.opened.connection, self.high_water_revision)
     }
 
+    /// Whether any projected memo row has an empty `time_part` and requires a workspace rescan.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn has_empty_time_part(&self) -> Result<bool, LomoError> {
+        rebuild::has_empty_time_part(&self.opened.connection)
+    }
+
     /// Restores the private clock floor before rebuilding a lost query database.
     ///
     /// # Errors

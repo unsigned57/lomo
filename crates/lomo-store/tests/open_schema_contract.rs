@@ -47,7 +47,7 @@ mod tests {
 
     fn remove_v16_triggers(connection: &Connection) {
         connection.execute_batch("DROP TRIGGER memo_stats_insert; DROP TRIGGER memo_stats_delete;
-            DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; DROP INDEX idx_memo_gallery; ALTER TABLE memo DROP COLUMN image_urls_json; ALTER TABLE memo DROP COLUMN time_part;")
+            DROP TRIGGER memo_stats_update; DROP TRIGGER tag_stats_insert; DROP TRIGGER tag_stats_delete; DROP INDEX idx_memo_pending_operation; DROP INDEX idx_memo_reminders; DROP INDEX idx_memo_gallery; DROP INDEX idx_memo_empty_time_part; ALTER TABLE memo DROP COLUMN image_urls_json; ALTER TABLE memo DROP COLUMN time_part;")
             .expect("historical schemas have no v16 triggers or v18 columns");
     }
 
@@ -348,7 +348,8 @@ mod tests {
         let connection = Connection::open(&database).expect("construct v17 cache");
         connection
             .execute_batch(
-                "DROP INDEX idx_memo_gallery;\
+                "DROP INDEX idx_memo_empty_time_part;\
+                 DROP INDEX idx_memo_gallery;\
                  ALTER TABLE memo DROP COLUMN image_urls_json;\
                  ALTER TABLE memo DROP COLUMN time_part;\
                  INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
@@ -401,18 +402,19 @@ mod tests {
         let connection = Connection::open(&db_path).expect("raw sqlite");
         connection
             .execute_batch(
-                "DROP INDEX idx_memo_gallery;\
+                "DROP INDEX idx_memo_empty_time_part;\
+                 DROP INDEX idx_memo_gallery;\
                  ALTER TABLE memo DROP COLUMN image_urls_json;\
-                 INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
+                 INSERT INTO memo(memo_id, source_path, time_part, file_fingerprint, has_todo, has_url, \
                  has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
                  search_content, word_count, char_count, content_revision, reminders_json, \
                  is_pinned, is_trashed) VALUES\
-                 ('v18-active','2026_10_12.md','fp1',0,1,1,300,300,'p',\
+                 ('v18-active','2026_10_12.md','09:30:00','fp1',0,1,1,300,300,'p',\
                   '![second](images/z.jpg)\n![ext](https://example.com/pic.png)\n![first](images/a.webp)\n![voice](voice/clip.m4a)',\
                   's',1,1,1,'[]',0,0),\
-                 ('v18-trashed','2026_10_13.md','fp2',0,0,1,200,200,'p',\
+                 ('v18-trashed','2026_10_13.md','09:31:00','fp2',0,0,1,200,200,'p',\
                   '![trashed](images/trashed.png)','s',1,1,1,'[]',0,1),\
-                 ('v18-plain','2026_10_14.md','fp3',0,0,0,100,100,'p','no attachments','s',1,1,1,'[]',0,0);\
+                 ('v18-plain','2026_10_14.md','09:32:00','fp3',0,0,0,100,100,'p','no attachments','s',1,1,1,'[]',0,0);\
                  UPDATE store_meta SET value='7' WHERE key='high_water_revision';\
                  INSERT OR REPLACE INTO store_meta(key, value) VALUES('workspace_listing_digest', 'keep-v18-digest');\
                  PRAGMA user_version=18;",
@@ -517,5 +519,76 @@ mod tests {
             .expect_err("corrupt image_urls_json must fail closed");
         assert_eq!(err.category(), ErrorCategory::Corruption);
         assert_eq!(err.code(), "invalid_image_urls_projection");
+    }
+
+    #[test]
+    fn v19_upgrade_invalidates_revision_and_digest_when_any_memo_has_empty_time_part() {
+        let dir = tempdir().expect("tempdir");
+        let opened = open_store(dir.path()).expect("initial schema");
+        let db_path = opened.database_path.clone();
+        drop(opened);
+
+        let connection = Connection::open(&db_path).expect("raw sqlite");
+        connection
+            .execute_batch(
+                "DROP INDEX idx_memo_empty_time_part;\
+                 INSERT INTO memo(memo_id, source_path, time_part, file_fingerprint, has_todo, has_url, \
+                 has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
+                 search_content, word_count, char_count, content_revision, reminders_json, \
+                 is_pinned, is_trashed, image_urls_json) VALUES\
+                 ('v19-empty','2026_10_12.md','','fp1',0,0,0,100,100,'p','body','s',1,1,1,'[]',0,0,'[]');\
+                 UPDATE store_meta SET value='9' WHERE key='high_water_revision';\
+                 INSERT OR REPLACE INTO store_meta(key, value) VALUES('workspace_listing_digest', 'stale-v19-digest');\
+                 PRAGMA user_version=19;",
+            )
+            .expect("seed v19 row with empty time_part");
+        drop(connection);
+
+        let upgraded = Store::open(dir.path()).expect("upgrade v19 to v20");
+        assert_eq!(upgraded.open_info().user_version, STORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.high_water_revision(), 0);
+        assert_eq!(
+            upgraded
+                .workspace_listing_digest()
+                .expect("read listing digest"),
+            None
+        );
+        assert!(upgraded.has_empty_time_part().expect("empty time_part"));
+    }
+
+    #[test]
+    fn v19_upgrade_preserves_revision_and_digest_when_all_memos_have_time_part() {
+        let dir = tempdir().expect("tempdir");
+        let opened = open_store(dir.path()).expect("initial schema");
+        let db_path = opened.database_path.clone();
+        drop(opened);
+
+        let connection = Connection::open(&db_path).expect("raw sqlite");
+        connection
+            .execute_batch(
+                "DROP INDEX idx_memo_empty_time_part;\
+                 INSERT INTO memo(memo_id, source_path, time_part, file_fingerprint, has_todo, has_url, \
+                 has_attachment, created_at_ms, updated_at_ms, body_preview, body, \
+                 search_content, word_count, char_count, content_revision, reminders_json, \
+                 is_pinned, is_trashed, image_urls_json) VALUES\
+                 ('v19-valid','2026_10_12.md','09:30:00','fp1',0,0,0,100,100,'p','body','s',1,1,1,'[]',0,0,'[]');\
+                 UPDATE store_meta SET value='9' WHERE key='high_water_revision';\
+                 INSERT OR REPLACE INTO store_meta(key, value) VALUES('workspace_listing_digest', 'keep-v19-digest');\
+                 PRAGMA user_version=19;",
+            )
+            .expect("seed healthy v19 row");
+        drop(connection);
+
+        let upgraded = Store::open(dir.path()).expect("upgrade v19 to v20");
+        assert_eq!(upgraded.open_info().user_version, STORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.high_water_revision(), 9);
+        assert_eq!(
+            upgraded
+                .workspace_listing_digest()
+                .expect("read listing digest")
+                .as_deref(),
+            Some("keep-v19-digest")
+        );
+        assert!(!upgraded.has_empty_time_part().expect("no empty time_part"));
     }
 }

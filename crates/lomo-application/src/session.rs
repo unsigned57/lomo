@@ -163,19 +163,23 @@ impl WorkspaceSession {
         let pending = session.recover_files_for_mount()?;
         let floor = session.intent_journal.clock_floor()?;
         // Decide before restoring the clock: a migration can intentionally invalidate a
-        // projection by resetting its revision, and a journal floor cannot certify its rows.
+        // projection by resetting its revision or leaving incomplete rows, and a journal floor
+        // cannot certify them.
+        let projection_incomplete = session.with_store(|store| {
+            Ok(store.high_water_revision() == 0 || store.has_empty_time_part()?)
+        })?;
         let retained = retain_projection
             && pending.is_empty()
+            && !projection_incomplete
             && session.with_store(|store| {
-                Ok(store.high_water_revision() > 0
-                    && store.high_water_revision() >= floor.core_revision
+                Ok(store.high_water_revision() >= floor.core_revision
                     && store.workspace_listing_digest()?.is_some())
             })?;
         session.with_store_mut(|store| store.restore_clock_floor(floor))?;
         if retained {
             session.projection_verified.store(false, Ordering::Release);
         } else {
-            session.rebuild_locked(!pending.is_empty())?;
+            session.rebuild_locked(!pending.is_empty() || projection_incomplete)?;
             session.acknowledge_mounted_operations(&pending)?;
             session.evict_stale_baselines()?;
         }
@@ -1168,7 +1172,10 @@ impl WorkspaceSession {
         let evidence = crate::rebuild::list_workspace_listing(&self.config, &self.executor)?;
         let skipped_sync = evidence.skipped_sync_subtrees();
         let listing = evidence.admitted_listing()?;
-        if !force_scan {
+        let incomplete_projection = self.with_store(|store| {
+            Ok(store.high_water_revision() == 0 || store.has_empty_time_part()?)
+        })?;
+        if !force_scan && !incomplete_projection {
             if let Some(digest) = evidence.listing_digest() {
                 let matched = self.with_store(|store| {
                     Ok(store.workspace_listing_digest()?.as_deref() == Some(digest.as_str()))

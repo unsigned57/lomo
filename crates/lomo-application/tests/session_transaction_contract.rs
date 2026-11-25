@@ -2505,4 +2505,139 @@ mod tests {
         assert_eq!(summary.source_path, "2026.05.04.md");
         assert_eq!(summary.time_part, "16:07");
     }
+
+    #[test]
+    fn v17_upgrade_with_intact_file_listing_rebuilds_file_native_time_parts() {
+        let context = setup_test_context();
+        let config = context.config.clone();
+        let executor = context.executor.clone();
+        let db_path = lomo_store::database_path(&config.cache_dir);
+        fs::write(
+            context.workspace_path.join("2026_05_01.md"),
+            "- 09:05:30\nunderscore full\n",
+        )
+        .expect("seed underscore doc");
+        fs::write(
+            context.workspace_path.join("05-03-2026.md"),
+            "- 08:15\nus date\n",
+        )
+        .expect("seed us date doc");
+        context
+            .session
+            .rebuild_projection()
+            .expect("initial verified index");
+        drop(context.session);
+
+        {
+            let conn = rusqlite::Connection::open(&db_path).expect("open store db");
+            conn.execute_batch(
+                "DROP INDEX IF EXISTS idx_memo_empty_time_part;\
+                 DROP INDEX IF EXISTS idx_memo_gallery;\
+                 ALTER TABLE memo DROP COLUMN image_urls_json;\
+                 ALTER TABLE memo DROP COLUMN time_part;\
+                 PRAGMA user_version = 17;",
+            )
+            .expect("simulate v17 projection with intact file_listing");
+        }
+
+        let reopened = WorkspaceSession::open_for_presentation(config, executor)
+            .expect("reopen upgraded v17 projection");
+        assert!(
+            reopened.projection_is_verified(),
+            "upgraded projection with empty time_part must force a full verify instead of staying retained",
+        );
+        let page = reopened
+            .list_memos(&MemoQuery {
+                search_text: None,
+                filters: lomo_store::MemoFilters::default(),
+                sort: lomo_store::MemoSort::default(),
+            })
+            .expect("list healed memos");
+        let by_path: std::collections::BTreeMap<String, String> = page
+            .items
+            .into_iter()
+            .map(|item| (item.source_path, item.time_part))
+            .collect();
+        assert_eq!(
+            by_path.get("2026_05_01.md").map(String::as_str),
+            Some("09:05:30")
+        );
+        assert_eq!(
+            by_path.get("05-03-2026.md").map(String::as_str),
+            Some("08:15")
+        );
+    }
+
+    #[test]
+    fn v19_projection_with_empty_time_part_self_heals_on_open_for_presentation() {
+        let context = setup_test_context();
+        let config = context.config.clone();
+        let executor = context.executor.clone();
+        let db_path = lomo_store::database_path(&config.cache_dir);
+        fs::write(
+            context.workspace_path.join("2026_05_01.md"),
+            "- 09:05:30\nunderscore full\n",
+        )
+        .expect("seed underscore doc");
+        fs::write(
+            context.workspace_path.join("05-03-2026.md"),
+            "- 08:15\nus date\n",
+        )
+        .expect("seed us date doc");
+        context
+            .session
+            .rebuild_projection()
+            .expect("initial verified index");
+        drop(context.session);
+
+        {
+            let conn = rusqlite::Connection::open(&db_path).expect("open store db");
+            conn.execute_batch(
+                "DROP INDEX IF EXISTS idx_memo_empty_time_part;\
+                 UPDATE memo SET time_part = '';\
+                 PRAGMA user_version = 19;",
+            )
+            .expect("simulate v2.0.3 v19 projection with empty time_part");
+        }
+
+        let healed = WorkspaceSession::open_for_presentation(config.clone(), executor.clone())
+            .expect("self-heal v19 projection");
+        assert!(
+            healed.projection_is_verified(),
+            "v19 projection with empty time_part must self-heal during open",
+        );
+        let page = healed
+            .list_memos(&MemoQuery {
+                search_text: None,
+                filters: lomo_store::MemoFilters::default(),
+                sort: lomo_store::MemoSort::default(),
+            })
+            .expect("list healed memos");
+        let by_path: std::collections::BTreeMap<String, String> = page
+            .items
+            .into_iter()
+            .map(|item| (item.source_path, item.time_part))
+            .collect();
+        assert_eq!(
+            by_path.get("2026_05_01.md").map(String::as_str),
+            Some("09:05:30")
+        );
+        assert_eq!(
+            by_path.get("05-03-2026.md").map(String::as_str),
+            Some("08:15")
+        );
+        drop(healed);
+
+        let retained = WorkspaceSession::open_for_presentation(config, executor)
+            .expect("retained open after self-heal");
+        assert!(
+            !retained.projection_is_verified(),
+            "healthy projection after self-heal should use retained fast path",
+        );
+        let reconcile = retained.rebuild_projection().expect("reconcile after heal");
+        assert!(
+            !reconcile.rewritten,
+            "healthy projection should converge without rewriting",
+        );
+    }
 }

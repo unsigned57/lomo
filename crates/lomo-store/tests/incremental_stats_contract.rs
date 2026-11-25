@@ -31,6 +31,10 @@ mod tests {
                 "SELECT memo_id,reminders_json FROM memo INDEXED BY idx_memo_reminders WHERE is_trashed=0 AND pending_operation_id IS NULL AND reminders_json!='[]'",
                 "idx_memo_reminders",
             ),
+            (
+                "SELECT EXISTS(SELECT 1 FROM memo INDEXED BY idx_memo_empty_time_part WHERE time_part = '')",
+                "idx_memo_empty_time_part",
+            ),
         ] {
             let mut statement = opened
                 .connection

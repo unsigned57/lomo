@@ -455,6 +455,33 @@ class StorePagingSourceTest :
             port.lastStartMemoId.shouldBeNull()
             port.lastBackward shouldBe true
         }
+
+        test("toDomainMemo preserves mixed file-native dateKey and timePart including uppercase md suffix") {
+            val cases = listOf(
+                Triple("2026_11_24.md", "09:30:00", "2026_11_24 09:30:00"),
+                Triple("memos/11-24-2026.md", "09:30", "11-24-2026 09:30"),
+                Triple("2026_11_24.MD", "09:30:00", "2026_11_24 09:30:00"),
+            )
+
+            cases.forEach { (sourcePath, timePart, expected) ->
+                val memo = StoreMemoSummary(
+                    memoId = "memo-$sourcePath",
+                    sourcePath = sourcePath,
+                    fileFingerprint = "fp",
+                    updatedAtMs = 2L,
+                    createdAtMs = 1L,
+                    hasTodo = false,
+                    hasUrl = false,
+                    hasAttachment = false,
+                    isPinned = false,
+                    isTrashed = false,
+                    bodyPreview = "hello",
+                    contentRevision = 1L,
+                    timePart = timePart,
+                ).toDomainMemo(body = "hello")
+                memo.displayTimestamp() shouldBe expected
+            }
+        }
     })
 
 private fun samplePage(

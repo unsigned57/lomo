@@ -76,6 +76,9 @@ pub fn reconcile_scoped(
     listing: &[DocumentMetadata],
     observed: Option<&[RelativeWorkspacePath]>,
 ) -> Result<Option<RebuildResult>, LomoError> {
+    if store.high_water_revision() == 0 || store.has_empty_time_part()? {
+        return Ok(None);
+    }
     let current = listing_token_map(listing);
     let snapshot = store.workspace_listing_snapshot()?;
 

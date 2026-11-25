@@ -2669,7 +2669,7 @@ fn delete_memo_row(connection: &Connection, memo_id: &str) -> Result<(), lomo_co
 fn projection_state_digest(connection: &Connection) -> Result<String, lomo_core::LomoError> {
     let mut facts = Vec::new();
     for (table, columns) in [
-        ("memo", "memo_id, file_fingerprint"),
+        ("memo", "memo_id, file_fingerprint, time_part"),
         ("memo_pin", "memo_id, pinned_at_ms"),
         ("memo_trash", "memo_id, trashed_at_ms, record_digest"),
         ("purged_memo", "memo_id"),
@@ -3435,6 +3435,20 @@ fn rebuild_result_from_evidence(
     }
 }
 
+/// Whether any projected memo row is missing its file-native `time_part`.
+///
+/// Uses the narrow partial index `idx_memo_empty_time_part` so healthy projections pay one
+/// empty-index probe regardless of library size.
+pub fn has_empty_time_part(connection: &Connection) -> Result<bool, lomo_core::LomoError> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM memo INDEXED BY idx_memo_empty_time_part WHERE time_part = '')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| from_sqlite(&error))
+}
+
 /// Live-projection fingerprint gate. `None` means the projection diverges and a rewrite is required.
 pub fn try_reconcile_direct(
     workspace_root: &Path,
@@ -3474,17 +3488,8 @@ pub fn try_reconcile_scanned(
     if high_water_revision == 0 {
         return Ok(None);
     }
-    if pins.is_some() {
-        let has_empty_time_part: bool = connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM memo WHERE time_part = '')",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|error| from_sqlite(&error))?;
-        if has_empty_time_part {
-            return Ok(None);
-        }
+    if pins.is_some() && has_empty_time_part(connection)? {
+        return Ok(None);
     }
     let Some(evidence) = projection_matches_rows(connection, image)? else {
         return Ok(None);

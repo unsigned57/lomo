@@ -131,7 +131,7 @@ private val FALLBACK_DATE_KEY: DateTimeFormatter = DateTimeFormatter.ofPattern("
 
 internal fun sourcePathToDateKey(sourcePath: String, createdAtMs: Long): String = sourcePath
     .substringAfterLast('/')
-    .removeSuffix(".md")
+    .let { name -> if (name.endsWith(".md", ignoreCase = true)) name.dropLast(3) else name }
     .ifBlank {
         Instant
             .ofEpochMilli(createdAtMs)
