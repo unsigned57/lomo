@@ -8,13 +8,13 @@
 // are unchanged; only equivalent API/assertion syntax and fixture construction are migrated.
 //
 //! Behavior Contract:
-//! Capability: one JDK/SDK/NDK/serialization declaration site with every copy verified;
+//! Capability: one JDK/SDK/serialization declaration site with every copy verified;
 //! owning layer: lomo-xtask; priority: P0.
 //! Scenarios:
 //! - Given the live repository, when checked, then every pin copy equals its declaration site.
 //! - Given a drifted or missing module/workflow copy, when checked, then the violation names
 //!   the location, pin, found and expected literals.
-//! - Given unreadable/malformed manifests or a workflow set with no JDK/NDK copies, when
+//! - Given unreadable/malformed manifests or a workflow set with no JDK pins, when
 //!   checked, then the gate fails closed instead of passing vacuously.
 //! - Given the verification DAG, when planning check/dev/ci scopes, then
 //!   `kotlin-toolchain-check` is scheduled exactly when its inputs can be in scope.
@@ -126,10 +126,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '27'
-      - uses: actions/cache@v4
-        with:
-          path: ndk/30.0.16248370
-          key: android-ndk30-cache
 ";
 
     fn fixture(files: &[(&str, &str)]) -> tempfile::TempDir {
@@ -440,28 +436,7 @@ jobs:
     }
 
     #[test]
-    fn drifted_ndk_cache_path_and_key_prefix_violate() -> Result<()> {
-        for (before, after) in [
-            // A synthetic version, not a historical pin — the shell contract scans the
-            // worktree for retired NDK literals.
-            ("ndk/30.0.16248370", "ndk/99.0.0"),
-            ("ndk30-cache", "ndk99-cache"),
-        ] {
-            let dir = parity_fixture();
-            fs::write(
-                dir.path().join(".github/workflows/release.yml"),
-                WORKFLOW.replace(before, after),
-            )?;
-            ensure!(
-                lomo_xtask::check_kotlin_toolchain_parity(dir.path()).is_err(),
-                "{before} -> {after} must fail"
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn workflow_set_without_jdk_or_ndk_copies_fails_closed() -> Result<()> {
+    fn workflow_set_without_jdk_pins_fails_closed() -> Result<()> {
         let dir = fixture(&[
             ("apps/android/project.yaml", "modules:\n  - app\n"),
             ("apps/android/app/module.yaml", APP_MANIFEST),

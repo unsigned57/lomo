@@ -54,7 +54,15 @@ which requires `docs/releases/<tag>.md` and verifies via the Actions API that `a
 (`check`, `rust-host`, `android-kotlin`, `native` matrix, `quality`) already succeeded on the exact
 commit (default branch pushes run full gates automatically; other refs need a manual full dispatch
 first). Active runs wait up to 90 minutes; missing/failed/cancelled runs block release without
-re-running checks. Never duplicate native/signing/validation logic outside xtask.
+re-running checks.
+
+While the quality gate waits, four runners build the shipping `release-android` libraries and
+upload one library and build stamp per ABI. After the gate passes, xtask validates all four
+artifacts against the checkout, shipping profile, and library digests. It then uses those inputs to
+build, sign, and verify the universal APK and the four split APKs. The publish job downloads the
+signed APK artifact, so a publish-only retry can use the existing packages. A manual dispatch
+builds and uploads the signed artifact for the selected commit. Never duplicate
+native/signing/validation logic outside xtask.
 
 ### In-place upgrade compatibility
 

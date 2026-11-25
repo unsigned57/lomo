@@ -100,7 +100,7 @@ pub fn rust_delivery_ci(workspace: &Workspace) -> Result<()> {
 }
 
 pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
-    tools::ensure_quality(workspace)?;
+    tools::install_ndk(workspace)?;
     native::generate_bindings(workspace)?;
     // android_ci consumes whatever is currently packaged; treat as shipping-class so size
     // honesty fails closed if Dev unstripped artifacts remain in app/jniLibs.

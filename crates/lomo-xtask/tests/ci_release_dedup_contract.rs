@@ -52,6 +52,75 @@ mod tests {
     }
 
     #[test]
+    fn release_native_builds_can_overlap_quality_without_access_to_signing() -> Result<()> {
+        let release = workflow(".github/workflows/android_release.yml")?;
+        let jobs = &release["jobs"];
+        let native = &jobs["release-native"];
+        ensure!(
+            native["needs"].as_str() == Some("notes"),
+            "release native builds should start while the gate waits"
+        );
+        let abis = native["strategy"]["matrix"]["abi"]
+            .as_vec()
+            .context("release native matrix")?;
+        ensure!(
+            abis.iter().filter_map(Yaml::as_str).collect::<Vec<_>>()
+                == lomo_xtask::Abi::ALL.map(lomo_xtask::Abi::android_name)
+        );
+        let prerequisites = jobs["release"]["needs"]
+            .as_vec()
+            .context("release prerequisites")?;
+        for job in ["gate", "release-native"] {
+            ensure!(prerequisites.contains(&Yaml::String(job.to_owned())));
+        }
+        for job in ["notes", "gate", "release-native"] {
+            ensure!(
+                !format!("{:?}", jobs[job]).contains("secrets."),
+                "{job} requests signing material"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn android_caches_share_downloads_and_host_builds_without_archiving_the_runner_ndk()
+    -> Result<()> {
+        let quality = workflow(".github/workflows/architecture_checks.yml")?;
+        let release = workflow(".github/workflows/android_release.yml")?;
+        let cache = |job: &Yaml, id: &str| -> Result<Yaml> {
+            job["steps"]
+                .as_vec()
+                .context("job steps")?
+                .iter()
+                .find(|step| step["id"].as_str() == Some(id))
+                .map(|step| step["with"].clone())
+                .with_context(|| format!("missing {id} cache"))
+        };
+        for workflow in [&quality, &release] {
+            for (name, job) in workflow["jobs"].as_hash().context("workflow jobs")? {
+                for step in job["steps"].as_vec().context("job steps")? {
+                    if let Some(path) = step["with"]["path"].as_str() {
+                        ensure!(!path.contains("/ndk/"), "{name:?} archives the SDK NDK");
+                    }
+                }
+            }
+        }
+        let android = &quality["jobs"]["android-kotlin"];
+        let publish = &release["jobs"]["release"];
+        for id in ["android-deps", "android-host"] {
+            let producer_cache = cache(android, id)?;
+            let release_cache = cache(publish, id)?;
+            for field in ["path", "key", "restore-keys"] {
+                ensure!(
+                    producer_cache[field] == release_cache[field],
+                    "{id} restore must use the same {field}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn default_branch_produces_the_complete_evidence_a_release_requires() -> Result<()> {
         let quality = workflow(".github/workflows/architecture_checks.yml")?;
         let script = quality["jobs"]["changes"]["steps"]

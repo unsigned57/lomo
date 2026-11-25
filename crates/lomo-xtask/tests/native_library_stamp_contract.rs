@@ -50,7 +50,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, process::Command};
 
     use anyhow::{Context, Result, ensure};
     use lomo_xtask::{
@@ -321,6 +321,60 @@ mod tests {
             NativeProfile::Release,
             &[Abi::X86_64]
         )?);
+        Ok(())
+    }
+
+    #[test]
+    fn release_packaging_rejects_missing_or_invalid_matrix_artifacts_before_signing() -> Result<()>
+    {
+        let directory = tempfile::tempdir()?;
+        let artifacts = directory.path().join("artifacts");
+        let bundle = artifacts.join(Abi::Arm64.android_name());
+        let consumer = directory.path().join("consumer");
+        let run = |expected: &str| -> Result<()> {
+            let output = Command::new(env!("CARGO_BIN_EXE_lomo-xtask"))
+                .args(["build", "android", "release", "--native-artifacts"])
+                .arg(&artifacts)
+                .env("LOMO_GENERATED_ROOT", &consumer)
+                .output()?;
+            let error = String::from_utf8(output.stderr)?;
+            ensure!(
+                !output.status.success() && error.contains(expected),
+                "{error}"
+            );
+            ensure!(!consumer.exists(), "invalid artifacts reached build state");
+            Ok(())
+        };
+        run("arm64-v8a/android-libraries.json")?;
+
+        fs::create_dir_all(&bundle)?;
+        let mut producer = Workspace::discover()?;
+        producer.lomo_output = directory.path().join("producer");
+        let stash = producer
+            .build_state_dir()
+            .join("jni-stash")
+            .join(Abi::Arm64.android_name());
+        fs::create_dir_all(&stash)?;
+        fs::write(stash.join(lomo_xtask::NATIVE_LIBRARY), b"built library")?;
+
+        for (profile, expected) in [
+            (
+                NativeProfile::ReleaseCi,
+                "source or profile mismatch for arm64-v8a",
+            ),
+            (
+                NativeProfile::Release,
+                "library digest mismatch for arm64-v8a",
+            ),
+        ] {
+            write_android_libraries_stamp(&producer, profile, &[Abi::Arm64])?;
+            fs::copy(
+                producer.build_state_dir().join("android-libraries.json"),
+                bundle.join("android-libraries.json"),
+            )?;
+            fs::write(bundle.join(lomo_xtask::NATIVE_LIBRARY), b"replaced library")?;
+            run(expected)?;
+        }
         Ok(())
     }
 }

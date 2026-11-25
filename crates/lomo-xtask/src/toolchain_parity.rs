@@ -6,8 +6,8 @@
 //! `apps/android/project.yaml` is a verified copy. `crates/lomo-xtask/src/workspace.rs`
 //! owns the NDK version and the native Android API level — `ANDROID_API` is `minSdk`'s
 //! seventh copy. Workflow `java-version` literals are the *effective* CI compiler under
-//! `selectionMode: javaHome` and must equal `jdk.version`; `ndk/<version>` cache paths
-//! and `ndk<major>` cache-key prefixes must equal `NDK_VERSION`.
+//! `selectionMode: javaHome` and must equal `jdk.version`. Android builds resolve the
+//! NDK using the pin in `workspace.rs`.
 
 use std::{collections::BTreeMap, fmt, fs, path::Path};
 
@@ -35,7 +35,7 @@ const MISSING: &str = "<missing>";
 pub struct PinViolation {
     /// Repository-relative file holding the copy.
     pub location: String,
-    /// Pin fact, e.g. `jvm.release`, `java-version` or `ndk/<version>`.
+    /// Pin fact, e.g. `jvm.release` or `java-version`.
     pub pin: String,
     /// Literal found at the copy site; `<missing>` when the declaration vanished.
     pub found: String,
@@ -60,7 +60,7 @@ pub struct ToolchainParity {
     pub pins: BTreeMap<String, String>,
     /// `apps/android/**/module.yaml` manifests verified against the canonical pins.
     pub module_manifests: Vec<String>,
-    /// `.github/workflows/*` files verified for `java-version`/`ndk` literals.
+    /// `.github/workflows/*` files verified for `java-version` literals.
     pub workflows: Vec<String>,
 }
 
@@ -444,10 +444,8 @@ fn serialization_json_version(
         .map(str::to_owned))
 }
 
-/// Every `java-version` literal and every setup-java step is a copy of `jdk.version`;
-/// every `ndk/<version>` cache path and `ndk<major>` key prefix is a copy of
-/// `NDK_VERSION`. A workflow file that fails to parse is an error, and a workflow set
-/// that pins no JDK or caches no pinned NDK directory fails closed.
+/// Every `java-version` literal and every setup-java step is a copy of `jdk.version`.
+/// Unparseable workflows and workflow sets that pin no JDK fail the parity check.
 fn workflow_violations(
     root: &Path,
     canonical: &Canonical,
@@ -474,7 +472,6 @@ fn workflow_violations(
     );
     let mut names = Vec::new();
     let mut java_version_sites = 0_usize;
-    let mut ndk_path_sites = 0_usize;
     for path in files {
         let name = path
             .file_name()
@@ -504,7 +501,6 @@ fn workflow_violations(
                 expected: canonical.jdk_version.clone(),
             });
         }
-        ndk_path_sites += ndk_literal_violations(&location, &observed.strings, violations)?;
         names.push(location);
     }
     ensure!(
@@ -512,71 +508,13 @@ fn workflow_violations(
         "no workflow pins `{JAVA_VERSION_KEY}`; the CI-installed JDK would drift from \
          {APP_MANIFEST} jvm.jdk.version"
     );
-    ensure!(
-        ndk_path_sites > 0,
-        "no workflow caches `ndk/<version>`; the pinned NDK cache literal is gone"
-    );
     Ok(names)
-}
-
-/// Scans one workflow's string scalars for `ndk/<version>` and `ndk<major>` copies.
-/// Returns the number of `ndk/` cache-path literals found.
-fn ndk_literal_violations(
-    location: &str,
-    strings: &[String],
-    violations: &mut Vec<PinViolation>,
-) -> Result<usize> {
-    let major = NDK_VERSION
-        .split('.')
-        .next()
-        .context("NDK_VERSION must contain a major component")?;
-    let key_prefix = format!("ndk{major}");
-    let mut sites = 0_usize;
-    for text in strings {
-        for tail in text.split("ndk").skip(1) {
-            if let Some(version) = tail.strip_prefix('/') {
-                let claim: String = version
-                    .chars()
-                    .take_while(|c| c.is_ascii_digit() || *c == '.')
-                    .collect();
-                ensure!(
-                    !claim.is_empty(),
-                    "{location}: `ndk/` cache path must carry the literal pinned NDK version"
-                );
-                sites += 1;
-                if claim != NDK_VERSION {
-                    violations.push(PinViolation {
-                        location: location.to_owned(),
-                        pin: "ndk/<version>".to_owned(),
-                        found: claim,
-                        expected: NDK_VERSION.to_owned(),
-                    });
-                }
-            } else {
-                let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
-                if digits.is_empty() {
-                    continue;
-                }
-                let claim = format!("ndk{digits}");
-                if claim != key_prefix {
-                    violations.push(PinViolation {
-                        location: location.to_owned(),
-                        pin: "ndk<major> cache-key prefix".to_owned(),
-                        found: claim,
-                        expected: key_prefix.clone(),
-                    });
-                }
-            }
-        }
-    }
-    Ok(sites)
 }
 
 #[derive(Default)]
 struct WorkflowObserved {
     java_versions: Vec<String>,
     setup_java_without_pin: usize,
-    strings: Vec<String>,
 }
 
 impl WorkflowObserved {
@@ -597,9 +535,6 @@ impl WorkflowObserved {
                         .push(scalar_text(value).unwrap_or_else(|| "<non-scalar>".to_owned()));
                 }
             }
-        }
-        if let Some(text) = node.as_str() {
-            self.strings.push(text.to_owned());
         }
     }
 }

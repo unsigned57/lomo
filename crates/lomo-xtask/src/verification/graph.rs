@@ -346,7 +346,7 @@ impl ImpactGraph {
             .map(PathBuf::from),
         );
         if matches!(action, TaskAction::KotlinToolchainCheck) {
-            // The parity check reads the workflow `java-version`/`ndk` literals too.
+            // The parity check reads the workflow `java-version` literals too.
             inputs.insert(PathBuf::from(".github"));
         }
         inputs

@@ -38,6 +38,38 @@ mod tests {
     use anyhow::{Result, bail};
     use lomo_xtask::validate_ndk_directory;
 
+    #[cfg(unix)]
+    #[test]
+    fn ci_native_requests_the_pinned_ndk_on_a_clean_sdk() -> Result<()> {
+        use std::{os::unix::fs::PermissionsExt as _, process::Command};
+
+        use anyhow::{Context as _, ensure};
+
+        let directory = tempfile::tempdir()?;
+        let sdkmanager = directory.path().join("cmdline-tools/latest/bin/sdkmanager");
+        let bin = sdkmanager.parent().context("sdkmanager directory")?;
+        fs::create_dir_all(bin)?;
+        fs::write(
+            &sdkmanager,
+            "#!/bin/sh\n[ \"$1\" != --version ] || exit 0\nprintf '%s\\n' \"$@\" > \"$ANDROID_HOME/requested\"\nexit 7\n",
+        )?;
+        fs::set_permissions(&sdkmanager, fs::Permissions::from_mode(0o755))?;
+        let output = Command::new(env!("CARGO_BIN_EXE_lomo-xtask"))
+            .args(["ci-native", "release", "arm64"])
+            .env("LOMO_KOTLIN_ANDROID_SDK", directory.path())
+            .env_remove("ANDROID_NDK_HOME")
+            .env_remove("ANDROID_NDK_ROOT")
+            .output()?;
+        ensure!(
+            !output.status.success(),
+            "failed sdkmanager must block native build"
+        );
+        let request = fs::read_to_string(directory.path().join("requested"))
+            .with_context(|| String::from_utf8_lossy(&output.stderr).into_owned())?;
+        ensure!(request.trim() == format!("ndk;{}", lomo_xtask::NDK_VERSION));
+        Ok(())
+    }
+
     #[test]
     fn test_validate_ndk_version_valid() -> Result<()> {
         let path = env::temp_dir().join(format!("lomo_ndk_test_valid_{}", std::process::id()));

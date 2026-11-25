@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 concurrency:
@@ -93,14 +93,58 @@ jobs:
           echo "Timed out waiting for Quality Checks for $RELEASE_SHA" >&2
           exit 1
 
+  # Compile the shipping profile while gate waits for the same commit's Quality Checks.
+  release-native:
+    needs: notes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      - name: Restore pinned cargo tools
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: &cargo_tools
+          path: ~/.cache/lomo/cargo-tools
+          key: cargo-tools-1.99-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'quality/tools.toml') }}
+      - name: Restore Cargo downloads
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: &cargo_downloads
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'quality/tools.toml') }}
+          restore-keys: cargo-downloads-${{ runner.os }}-${{ runner.arch }}-
+      - name: Build and verify ${{ matrix.abi }} (release-android)
+        env:
+          ABI: ${{ matrix.abi }}
+        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-native release "$ABI"
+      - name: Stage the library and its build stamp
+        env:
+          ABI: ${{ matrix.abi }}
+        run: |
+          dir="target/lomo/tmp/release-native/$ABI"
+          mkdir -p "$dir"
+          cp "apps/android/app/jniLibs/$ABI/liblomo_native_jni.so" \
+             target/lomo/build/android-libraries.json "$dir/"
+      - name: Upload release native library
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-native-${{ matrix.abi }}
+          path: target/lomo/tmp/release-native/
+          if-no-files-found: error
+          overwrite: true
+
   release:
-    needs: [notes, gate]
+    needs: [gate, release-native]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
       - name: Set up JDK 27
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
@@ -109,29 +153,37 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
       - name: Restore pinned cargo tools
-        id: tools-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/lomo/cargo-tools
-          key: cargo-tools-1.99-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'quality/tools.toml') }}
-      - name: Restore release build cache
-        id: build-cache
+        with: *cargo_tools
+      - name: Restore Cargo downloads
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *cargo_downloads
+      - name: Restore Android dependencies
+        id: android-deps
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cache/lomo/detekt
-            ~/.cache/lomo/gradle
-            ~/.cache/lomo/lint-checks
             ~/.cache/JetBrains/Kotlin
-            ~/.gradle/caches
+            ~/.cache/lomo/gradle
+            ~/.gradle/caches/modules-2
             ~/.gradle/wrapper
-            target/cargo
-            target/lomo/build
-            ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
-          key: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: release-1.99-ndk30-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml', 'kotlin', 'apps/android/kotlin', 'apps/android/project.yaml', '**/module.yaml') }}-${{ runner.os }}-${{ runner.arch }}-
+          key: android-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('kotlin', 'apps/android/kotlin') }}-${{ hashFiles('apps/android/project.yaml', '**/module.yaml', 'apps/android/benchmark/build.gradle.kts') }}
+          restore-keys: android-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('kotlin', 'apps/android/kotlin') }}-
+      - name: Restore Android host build
+        id: android-host
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            target/cargo/debug
+            target/cargo/boltffi-source-records
+          key: android-host-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml') }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: android-host-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'quality/tools.toml') }}-${{ runner.os }}-${{ runner.arch }}-
+      - name: Download release native libraries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-native-*
+          path: target/lomo/tmp/release-native
+          merge-multiple: true
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -156,47 +208,10 @@ jobs:
             printf 'keyAlias=%s\n' "$KEY_ALIAS"
             printf 'keyPassword=%s\n' "$KEY_PASSWORD"
           } > apps/android/app/keystore.properties
-      - name: Bootstrap pinned toolchain
-        run: cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap
-      - name: Save pinned cargo tools
-        if: steps.tools-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/lomo/cargo-tools
-          key: ${{ steps.tools-cache.outputs.cache-primary-key }}
       - name: Build, validate, and verify release APKs
         run: |
-          # The universal build compiles all four release natives first; the split builds then
-          # reuse those Cargo outputs and only repackage.
-          for abi in all arm64-v8a armeabi-v7a x86_64 x86; do
-            echo "Building release APK for $abi..."
-            cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- build android release "$abi"
-          done
-      - name: Save release build cache
-        if: ${{ !cancelled() && steps.build-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cache/lomo/detekt
-            ~/.cache/lomo/gradle
-            ~/.cache/lomo/lint-checks
-            ~/.cache/JetBrains/Kotlin
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            target/cargo
-            target/lomo/build
-            ${{ env.ANDROID_HOME }}/ndk/30.0.16248370
-          key: ${{ steps.build-cache.outputs.cache-primary-key }}
-      - name: Upload release APKs
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-apks
-          path: |
-            target/lomo/artifacts/android/release/Lomo-*.apk
-            target/lomo/artifacts/android/release/lomo-v*-vc*.apk
-          if-no-files-found: error
+          cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- \
+            build android release --native-artifacts target/lomo/tmp/release-native
       - name: Validate release tag matches the universal APK
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -205,19 +220,15 @@ jobs:
           shopt -s nullglob
           apks=(target/lomo/artifacts/android/release/lomo-"$RELEASE_TAG"-vc*.apk)
           test "${#apks[@]}" -eq 1
-      - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+      - name: Upload release APKs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: Lomo ${{ github.ref_name }}
-          body_path: docs/releases/${{ github.ref_name }}.md
-          draft: false
-          prerelease: false
-          make_latest: true
-          fail_on_unmatched_files: true
-          files: |
+          name: release-apks
+          path: |
             target/lomo/artifacts/android/release/Lomo-*.apk
             target/lomo/artifacts/android/release/lomo-v*-vc*.apk
+          if-no-files-found: error
+          overwrite: true
       - name: Upload release diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -228,3 +239,30 @@ jobs:
       - name: Remove signing material
         if: always()
         run: rm -f apps/android/app/release.keystore apps/android/app/keystore.properties
+
+  publish:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download signed release APKs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-apks
+          path: release-files
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          name: Lomo ${{ github.ref_name }}
+          body_path: docs/releases/${{ github.ref_name }}.md
+          draft: false
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            release-files/Lomo-*.apk
+            release-files/lomo-v*-vc*.apk

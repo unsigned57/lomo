@@ -395,11 +395,10 @@ fn ensure_rust_version(workspace: &Workspace) -> Result<()> {
     Ok(())
 }
 
-fn install_ndk(workspace: &Workspace) -> Result<()> {
+pub fn install_ndk(workspace: &Workspace) -> Result<()> {
     if workspace
-        .ndk_root()?
-        .join("toolchains/llvm/prebuilt")
-        .is_dir()
+        .find_ndk()?
+        .is_some_and(|ndk| ndk.join("toolchains/llvm/prebuilt").is_dir())
     {
         return Ok(());
     }
@@ -412,9 +411,8 @@ fn install_ndk(workspace: &Workspace) -> Result<()> {
         .arg(format!("ndk;{NDK_VERSION}"));
     run(&mut command)?;
     if !workspace
-        .ndk_root()?
-        .join("toolchains/llvm/prebuilt")
-        .is_dir()
+        .find_ndk()?
+        .is_some_and(|ndk| ndk.join("toolchains/llvm/prebuilt").is_dir())
     {
         bail!(
             "sdkmanager completed without installing NDK {NDK_VERSION} under {}",

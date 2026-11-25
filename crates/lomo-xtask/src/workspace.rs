@@ -175,12 +175,21 @@ impl Workspace {
     /// # Errors
     /// Returns missing or mismatched pinned NDK errors.
     pub fn ndk_root(&self) -> Result<PathBuf> {
+        self.find_ndk()?.with_context(|| {
+            format!(
+                "Android NDK {NDK_VERSION} not found: install `ndk;{NDK_VERSION}` into {} or point ANDROID_NDK_HOME at a matching NDK",
+                self.android_sdk.join("ndk").display()
+            )
+        })
+    }
+
+    pub(crate) fn find_ndk(&self) -> Result<Option<PathBuf>> {
         if let Some(configured) =
             env_path("ANDROID_NDK_HOME").or_else(|| env_path("ANDROID_NDK_ROOT"))
         {
             let ndk = absolute_path(&self.root, configured.clone());
             match usable_ndk(&ndk) {
-                Ok(()) => return Ok(ndk),
+                Ok(()) => return Ok(Some(ndk)),
                 Err(reason) => crate::util::emit_stderr(format_args!(
                     "xtask: ignoring ANDROID_NDK_HOME/ANDROID_NDK_ROOT={} ({reason:#})",
                     configured.display()
@@ -188,13 +197,17 @@ impl Workspace {
             }
         }
         let sdk_ndk = self.android_sdk.join("ndk").join(NDK_VERSION);
-        ensure!(
-            sdk_ndk.is_dir(),
-            "Android NDK {NDK_VERSION} not found: install `ndk;{NDK_VERSION}` into {} or point ANDROID_NDK_HOME at a matching NDK",
-            self.android_sdk.join("ndk").display()
-        );
+        match fs::metadata(&sdk_ndk) {
+            Ok(metadata) => ensure!(
+                metadata.is_dir(),
+                "{} is not a directory",
+                sdk_ndk.display()
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error).with_context(|| format!("stat {}", sdk_ndk.display())),
+        }
         validate_ndk_version(&sdk_ndk)?;
-        Ok(sdk_ndk)
+        Ok(Some(sdk_ndk))
     }
 
     #[must_use]

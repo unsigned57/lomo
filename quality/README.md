@@ -33,6 +33,7 @@ generated from `lomo-xtask`. Every xtask invocation writes exactly one JSON docu
 | `just ci` | completed `verification` evidence and published `apk` |
 | `just cache paths` / `audit` / `prune` / `clean` | resolved absolute paths, byte counts (`present`/`absent`), sweep/prune counts, or removed paths |
 | `just build android\|tui` / `native` / `bindings` | published APK, `lomo` binary, or generated output directory |
+| `build android release --native-artifacts <dir>` | signed universal and split `apks` from verified CI native artifacts |
 | `just build android benchmark` / `just perf device` | see [Android performance](android-performance.md) |
 | `just uitest` / `just uishot` | `android-uitest.v1.json` or `uisnap.v1.json` + screenshots/hierarchies/logs ([Android UI test](android-uitest.md)) |
 | `just tuitest` | `tui-uitest.v1.json` + PTY screen snapshots/logs ([TUI UI test](tui-uitest.md)) |
@@ -89,9 +90,11 @@ and missing outputs fail closed.
 | Default branch / manual | `.github/workflows/architecture_checks.yml` | Complete `check`, `rust-host` (`ci-rust delivery`), 4-ABI `native` (`release-ci`), `android-kotlin` (`ci-android coverage`), and `quality` aggregation |
 | Release tag | `.github/workflows/android_release.yml`, `tui_release.yml` | See [Release](release.md) |
 
-CI caches cargo tools by pin alone and keys build caches by toolchain/manifests plus `run_id`/`run_attempt`,
-restoring the newest prefix snapshot and saving with `!cancelled()` so failed attempts retain
-completed compilation. Workflows invoke `lomo-xtask` rather than maintaining a second build graph.
+CI caches cargo tools by pin. Main publishes separate Cargo and Android dependency caches for
+other jobs and tag builds. The Android dependency cache can restore by Kotlin CLI pin across
+app manifest changes. The SDK owns the pinned NDK installation. Job-specific compiler caches
+restore the newest compatible prefix and save with `!cancelled()` so failed attempts retain
+completed compilation. Workflows invoke `lomo-xtask` for native builds and packaging.
 
 ## Canonical build inputs
 
@@ -100,7 +103,7 @@ Read versions from their authoritative manifests; never duplicate pins elsewhere
 | Fact | Authoritative input |
 | --- | --- |
 | Rust channel and MSRV | [`rust-toolchain.toml`](../rust-toolchain.toml) + [`Cargo.toml`](../Cargo.toml); bump via `just rust-toolchain-bump` |
-| JDK, Kotlin, Android SDKs, app version | [`apps/android/app/module.yaml`](../apps/android/app/module.yaml); sibling copies checked by `just kotlin-toolchain-check` (including workflow `java-version` / `ndk`) |
+| JDK, Kotlin, Android SDKs, app version | [`apps/android/app/module.yaml`](../apps/android/app/module.yaml); sibling copies checked by `just kotlin-toolchain-check` (including workflow `java-version`) |
 | Cargo tools and BoltFFI CLI | [`tools.toml`](tools.toml), installed by `just bootstrap` |
 | Dependencies and capability catalogue | Manifests/lockfiles + [`dependency-capabilities.toml`](dependency-capabilities.toml) |
 | NDK, native API, ABIs, profiles | [`workspace.rs`](../crates/lomo-xtask/src/workspace.rs) and [`native.rs`](../crates/lomo-xtask/src/native.rs) |

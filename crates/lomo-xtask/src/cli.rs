@@ -97,7 +97,7 @@ const COMMANDS: &[CommandSpec] = &[
     ),
     command(
         "build",
-        "<android|tui> [debug|release|benchmark] [abi|scenario] [--redroid]",
+        "<android|tui> [debug|release|benchmark] [abi|scenario] [--redroid|--native-artifacts <dir>]",
         "Build and validate an application: android APK (default debug arm64; benchmark runs the device Macrobenchmark suite, --redroid provisions the pinned container) or tui desktop binary",
         build_command,
     ),
@@ -161,7 +161,7 @@ const COMMANDS: &[CommandSpec] = &[
     command(
         "kotlin-toolchain-check",
         "",
-        "Assert JDK/SDK/NDK/serialization pin parity: module.yaml copies, workflows, workspace.rs",
+        "Assert JDK/SDK/NDK/serialization pin parity: module.yaml copies, workflow JDK pins, workspace.rs",
         |w, args| {
             no_args(args, || {
                 crate::toolchain_parity::check_kotlin_toolchain_parity(&w.root)
@@ -305,6 +305,13 @@ fn tui_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
 }
 
 fn android_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
+    if let [variant, flag, directory] = arguments
+        && variant == "release"
+        && flag == "--native-artifacts"
+    {
+        let apks = android::build_release_apks(workspace, std::path::Path::new(directory))?;
+        return Ok(json!({ "apks": apks }));
+    }
     if matches!(arguments.first().map(String::as_str), Some("benchmark")) {
         // The scenario slot also accepts an ABI token so `just build android benchmark
         // arm64` still resolves to the full run set; `benchmark_scenarios` maps it (and
@@ -465,8 +472,9 @@ fn ci_native(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         [profile, abi] if profile == "release" => (NativeProfile::Release, abi.as_str()),
         _ => bail!("usage: lomo-xtask ci-native [release-ci|release] <abi>"),
     };
-    tools::ensure_quality(workspace)?;
-    native::generate_android(workspace, profile, &[Abi::parse(abi)?])
+    let abi = Abi::parse(abi)?;
+    tools::install_ndk(workspace)?;
+    native::generate_android(workspace, profile, &[abi])
 }
 
 fn ci_rust(workspace: &Workspace, arguments: &[String]) -> Result<()> {

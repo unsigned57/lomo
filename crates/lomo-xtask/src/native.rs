@@ -19,6 +19,7 @@ use crate::{
 pub const NATIVE_LIBRARY: &str = "liblomo_native_jni.so";
 const GENERATED_OWNER: &str = "LomoNativeBridge.kt";
 const GENERATED_PACKAGE_DIR: &str = "com/lomo/nativebridge";
+const ANDROID_LIBRARIES_STAMP: &str = "android-libraries.json";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum NativeProfile {
@@ -248,7 +249,7 @@ struct AndroidLibraryStamp {
 }
 
 fn read_android_libraries_stamp(workspace: &Workspace) -> Result<Option<AndroidLibrariesStamp>> {
-    let path = workspace.build_state_dir().join("android-libraries.json");
+    let path = workspace.build_state_dir().join(ANDROID_LIBRARIES_STAMP);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -404,11 +405,68 @@ fn publish_android_libraries_stamp(
             },
         );
     }
-    let path = workspace.build_state_dir().join("android-libraries.json");
+    write_library_stamp(workspace, &stamp)
+}
+
+fn write_library_stamp(workspace: &Workspace, stamp: &AndroidLibrariesStamp) -> Result<()> {
+    let path = workspace.build_state_dir().join(ANDROID_LIBRARIES_STAMP);
     let temporary = path.with_extension("partial");
     fs::create_dir_all(workspace.build_state_dir())?;
-    fs::write(&temporary, serde_json::to_vec_pretty(&stamp)?)?;
+    fs::write(&temporary, serde_json::to_vec_pretty(stamp)?)?;
     fs::rename(&temporary, &path).with_context(|| format!("publish {}", path.display()))
+}
+
+pub struct ReleaseNativeArtifacts<'a> {
+    directory: &'a Path,
+    stamp: AndroidLibrariesStamp,
+}
+
+impl<'a> ReleaseNativeArtifacts<'a> {
+    pub fn read(workspace: &Workspace, directory: &'a Path) -> Result<Self> {
+        let inputs = android_library_inputs_digest(workspace)?;
+        let mut libraries = BTreeMap::new();
+        for abi in Abi::ALL {
+            let name = abi.android_name();
+            let bundle = directory.join(name);
+            let stamp_path = bundle.join(ANDROID_LIBRARIES_STAMP);
+            let mut stamp: AndroidLibrariesStamp = serde_json::from_slice(
+                &fs::read(&stamp_path).with_context(|| format!("read {}", stamp_path.display()))?,
+            )
+            .with_context(|| format!("parse {}", stamp_path.display()))?;
+            ensure!(
+                stamp.schema_version == 1 && stamp.libraries.len() == 1,
+                "invalid release native stamp for {name}"
+            );
+            let entry = stamp
+                .libraries
+                .remove(name)
+                .with_context(|| format!("release native stamp does not describe {name}"))?;
+            ensure!(
+                entry.profile == NativeProfile::Release && entry.inputs == inputs,
+                "release native source or profile mismatch for {name}"
+            );
+            let library = bundle.join(NATIVE_LIBRARY);
+            let bytes =
+                fs::read(&library).with_context(|| format!("read {}", library.display()))?;
+            ensure!(
+                entry.output == binding_digest(&bytes),
+                "release native library digest mismatch for {name}"
+            );
+            libraries.insert(name.to_owned(), entry);
+        }
+        Ok(Self {
+            directory,
+            stamp: AndroidLibrariesStamp {
+                schema_version: 1,
+                libraries,
+            },
+        })
+    }
+
+    pub fn stage(self, workspace: &Workspace) -> Result<()> {
+        publish_selected_abis(self.directory, &workspace.jni_libs(), &Abi::ALL)?;
+        write_library_stamp(workspace, &self.stamp)
+    }
 }
 
 fn has_debug_sections(readelf: &Path, path: &Path) -> Result<bool> {

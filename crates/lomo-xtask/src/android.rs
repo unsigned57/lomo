@@ -97,14 +97,45 @@ pub fn build(workspace: &Workspace, variant: AndroidVariant, abis: &[Abi]) -> Re
         validate_baseline_sources(workspace)?;
     }
     // Prepare and validate inputs before cache maintenance or native compilation starts.
-    let mut command = android_apk_command(workspace, variant)?;
+    let command = android_apk_command(workspace, variant)?;
     crate::cache::prune(workspace)?;
     let profile = match variant {
         AndroidVariant::Debug => NativeProfile::Dev,
         AndroidVariant::Release => NativeProfile::Release,
     };
     native::ensure_android_libraries(workspace, profile, abis)?;
+    package_apk(workspace, variant, abis, command)
+}
 
+pub fn build_release_apks(workspace: &Workspace, native_artifacts: &Path) -> Result<Vec<PathBuf>> {
+    let artifacts = native::ReleaseNativeArtifacts::read(workspace, native_artifacts)?;
+    validate_baseline_sources(workspace)?;
+    validate_signing_config(workspace)?;
+    crate::tools::install_ndk(workspace)?;
+    artifacts.stage(workspace)?;
+    native::verify_native_tree(workspace, &Abi::ALL, NativeProfile::Release)?;
+    native::generate_bindings(workspace)?;
+
+    let variant = AndroidVariant::Release;
+    std::iter::once(Abi::ALL.as_slice())
+        .chain(Abi::ALL.iter().map(std::slice::from_ref))
+        .map(|abis| {
+            package_apk(
+                workspace,
+                variant,
+                abis,
+                android_apk_command(workspace, variant)?,
+            )
+        })
+        .collect()
+}
+
+fn package_apk(
+    workspace: &Workspace,
+    variant: AndroidVariant,
+    abis: &[Abi],
+    mut command: Command,
+) -> Result<PathBuf> {
     let abi_tag = abi_tag_name(abis);
     let build_dir = workspace.kotlin_build.clone();
 
