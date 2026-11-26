@@ -5,7 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,11 +16,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,12 +35,20 @@ import androidx.compose.ui.window.DialogProperties
 import com.lomo.app.R
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.component.common.LocalLomoHazeState
 import com.lomo.ui.component.common.LomoTextButton
 import com.lomo.ui.icon.LomoIcon
 import com.lomo.ui.icon.LomoIcons
 import com.lomo.ui.theme.AppShapes
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.HazeColorEffect
+import dev.chrisbanes.haze.blur.hazeBlur
+import dev.chrisbanes.haze.glass.GlassStyle
+import dev.chrisbanes.haze.glass.hazeGlass
 
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LomoAppUpdateProgressDialog(
     state: AppUpdateProgressDialogState?,
@@ -50,6 +61,8 @@ fun LomoAppUpdateProgressDialog(
 ) {
     state ?: return
     val presentation = state.installState.toUpdateProgressPresentation()
+    val hazeState = LocalLomoHazeState.current
+    val hazeSpec = resolveUpdateProgressHazeSpec(MaterialTheme.colorScheme)
 
     BasicAlertDialog(
         onDismissRequest = onDismiss,
@@ -60,76 +73,133 @@ fun LomoAppUpdateProgressDialog(
             decorFitsSystemWindows = false,
         ),
     ) {
-        Box(
-            modifier =
-            Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.scrim.copy(alpha = UPDATE_PROGRESS_SCRIM_ALPHA))
-                .padding(horizontal = 24.dp),
-            contentAlignment = Alignment.Center,
+        UpdateProgressScrim(
+            hazeState = hazeState,
+            hazeSpec = hazeSpec,
         ) {
-            Surface(
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = UPDATE_PROGRESS_MAX_WIDTH)
-                    .clip(UPDATE_PROGRESS_SHAPE),
-                shape = UPDATE_PROGRESS_SHAPE,
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
-                shadowElevation = 6.dp,
-                border =
-                BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = UPDATE_PROGRESS_BORDER_ALPHA),
-                ),
+            UpdateProgressDialogCard(
+                hazeState = hazeState,
+                hazeSpec = hazeSpec,
             ) {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    UpdateProgressBackdrop(modifier = Modifier.matchParentSize())
-                    Column(
-                        modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 28.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(20.dp),
-                    ) {
-                        Text(
-                            text = presentation.title.asText(),
-                            style = MaterialTheme.typography.headlineSmallEmphasized,
-                            fontWeight = FontWeight.SemiBold,
-                            color = progressAccentColor(presentation.tone),
-                            textAlign = TextAlign.Center,
-                        )
+                Column(
+                    modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    Text(
+                        text = presentation.title.asText(),
+                        style = MaterialTheme.typography.headlineSmallEmphasized,
+                        fontWeight = FontWeight.SemiBold,
+                        color = progressAccentColor(presentation.tone),
+                        textAlign = TextAlign.Center,
+                    )
 
-                        UpdateProgressMainVisual(
-                            installState = state.installState,
-                            presentation = presentation,
-                        )
+                    UpdateProgressMainVisual(
+                        installState = state.installState,
+                        presentation = presentation,
+                    )
 
-                        Text(
-                            text = supportingMessageAsText(presentation.supportingMessage),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = progressSupportingColor(presentation.tone),
-                            textAlign = TextAlign.Center,
-                        )
+                    Text(
+                        text = supportingMessageAsText(presentation.supportingMessage),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = progressSupportingColor(presentation.tone),
+                        textAlign = TextAlign.Center,
+                    )
 
-                        UpdateProgressActions(
-                            state = state,
-                            presentation = presentation,
-                            onCancel = onCancel,
-                            onRetry = onRetry,
-                            onOpenInstallPermissionSettings = onOpenInstallPermissionSettings,
-                            onOpenReleasePage = onOpenReleasePage,
-                            onDismiss = onDismiss,
-                        )
-                    }
+                    UpdateProgressActions(
+                        state = state,
+                        presentation = presentation,
+                        onCancel = onCancel,
+                        onRetry = onRetry,
+                        onOpenInstallPermissionSettings = onOpenInstallPermissionSettings,
+                        onOpenReleasePage = onOpenReleasePage,
+                        onDismiss = onDismiss,
+                    )
                 }
             }
         }
     }
 }
 
+@Composable
+private fun UpdateProgressScrim(
+    hazeState: HazeState?,
+    hazeSpec: UpdateProgressHazeSpec,
+    content: @Composable () -> Unit,
+) {
+    val scrimModifier =
+        if (hazeState != null) {
+            Modifier.hazeBlur(
+                input = HazeInput.Sources(hazeState),
+                style =
+                HazeBlurStyle {
+                    blurRadius(hazeSpec.scrimBlurRadius)
+                    colorEffects(listOf(HazeColorEffect.tint(hazeSpec.scrimTintColor)))
+                    fallbackColorEffect(HazeColorEffect.tint(hazeSpec.scrimFallbackTintColor))
+                },
+            )
+        } else {
+            Modifier.background(hazeSpec.scrimFallbackTintColor)
+        }
+    Box(
+        modifier =
+        Modifier
+            .fillMaxSize()
+            .then(scrimModifier)
+            .padding(horizontal = 24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun UpdateProgressDialogCard(
+    hazeState: HazeState?,
+    hazeSpec: UpdateProgressHazeSpec,
+    content: @Composable () -> Unit,
+) {
+    if (hazeState != null) {
+        val glassStyle =
+            remember(hazeSpec.cardSurfaceColor, hazeSpec.cardGlassTintColor) {
+                GlassStyle.regular.then {
+                    shape(UPDATE_PROGRESS_SHAPE)
+                    backgroundColor(hazeSpec.cardSurfaceColor)
+                    tint(hazeSpec.cardGlassTintColor)
+                }
+            }
+        Surface(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .widthIn(max = UPDATE_PROGRESS_MAX_WIDTH)
+                .hazeGlass(input = HazeInput.Sources(hazeState), style = glassStyle),
+            shape = UPDATE_PROGRESS_SHAPE,
+            color = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            content = content,
+        )
+    } else {
+        Surface(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .widthIn(max = UPDATE_PROGRESS_MAX_WIDTH),
+            shape = UPDATE_PROGRESS_SHAPE,
+            color = hazeSpec.cardSurfaceColor,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 6.dp,
+            shadowElevation = 6.dp,
+            border = BorderStroke(width = 1.dp, color = hazeSpec.cardFallbackBorderColor),
+            content = content,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presentation: UpdateProgressPresentation) {
     when (installState) {
@@ -163,22 +233,16 @@ private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presen
                         .height(WAVY_PROGRESS_BAR_HEIGHT)
                         .clip(PROGRESS_BAR_SHAPE),
                     color = progressAccentColor(presentation.tone),
-                    trackColor = progressTrackColor(),
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     gapSize = 0.dp,
                 )
             }
         }
 
-        AppUpdateInstallState.Installing -> {
-            LomoIcon(
-                icon = LomoIcons.InstallMobile,
-                contentDescription = null,
-                tint = progressAccentColor(presentation.tone),
-                modifier = Modifier.size(72.dp),
-            )
-        }
-
-        AppUpdateInstallState.WaitingForInstallerResult -> {
+        AppUpdateInstallState.Installing,
+        AppUpdateInstallState.WaitingForInstallerResult,
+        is AppUpdateInstallState.RequiresInstallPermission,
+        -> {
             LomoIcon(
                 icon = LomoIcons.InstallMobile,
                 contentDescription = null,
@@ -196,15 +260,6 @@ private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presen
             )
         }
 
-        is AppUpdateInstallState.RequiresInstallPermission -> {
-            LomoIcon(
-                icon = LomoIcons.InstallMobile,
-                contentDescription = null,
-                tint = progressAccentColor(presentation.tone),
-                modifier = Modifier.size(72.dp),
-            )
-        }
-
         is AppUpdateInstallState.Failed -> {
             LomoIcon(
                 icon = LomoIcons.Error,
@@ -216,6 +271,7 @@ private fun UpdateProgressMainVisual(installState: AppUpdateInstallState, presen
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UpdateProgressActions(
     state: AppUpdateProgressDialogState,
@@ -226,18 +282,21 @@ private fun UpdateProgressActions(
     onOpenReleasePage: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Row(
+    val secondaryColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val primaryColor = progressAccentColor(presentation.tone)
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         when (state.installState) {
             AppUpdateInstallState.Idle,
             AppUpdateInstallState.Preparing,
             is AppUpdateInstallState.Downloading,
             -> {
-                UpdateProgressSecondaryAction(
+                UpdateProgressActionButton(
                     text = stringResource(R.string.action_cancel),
+                    color = secondaryColor,
                     onClick = onCancel,
                 )
             }
@@ -246,42 +305,45 @@ private fun UpdateProgressActions(
             AppUpdateInstallState.WaitingForInstallerResult,
             AppUpdateInstallState.Completed,
             -> {
-                UpdateProgressSecondaryAction(
+                UpdateProgressActionButton(
                     text = stringResource(R.string.action_close),
+                    color = secondaryColor,
                     onClick = onDismiss,
                 )
             }
 
             is AppUpdateInstallState.RequiresInstallPermission -> {
-                UpdateProgressSecondaryAction(
+                UpdateProgressActionButton(
                     text = stringResource(R.string.action_close),
+                    color = secondaryColor,
                     onClick = onDismiss,
                 )
-                UpdateProgressPrimaryAction(
+                UpdateProgressActionButton(
                     text = stringResource(R.string.action_go_to_settings),
-                    tone = presentation.tone,
+                    color = primaryColor,
                     onClick = onOpenInstallPermissionSettings,
                 )
-                UpdateProgressPrimaryAction(
+                UpdateProgressActionButton(
                     text = stringResource(R.string.action_retry),
-                    tone = presentation.tone,
+                    color = primaryColor,
                     onClick = onRetry,
                 )
             }
 
             is AppUpdateInstallState.Failed -> {
-                UpdateProgressSecondaryAction(
+                UpdateProgressActionButton(
                     text = stringResource(R.string.action_close),
+                    color = secondaryColor,
                     onClick = onDismiss,
                 )
-                UpdateProgressPrimaryAction(
+                UpdateProgressActionButton(
                     text = stringResource(R.string.action_github_download),
-                    tone = presentation.tone,
+                    color = primaryColor,
                     onClick = { onOpenReleasePage(state.update.url) },
                 )
-                UpdateProgressPrimaryAction(
+                UpdateProgressActionButton(
                     text = stringResource(R.string.action_retry),
-                    tone = presentation.tone,
+                    color = primaryColor,
                     onClick = onRetry,
                 )
             }
@@ -290,23 +352,10 @@ private fun UpdateProgressActions(
 }
 
 @Composable
-private fun UpdateProgressPrimaryAction(text: String, tone: UpdateProgressTone, onClick: () -> Unit) {
+private fun UpdateProgressActionButton(text: String, color: Color, onClick: () -> Unit) {
     LomoTextButton(
         onClick = onClick,
-        colors = ButtonDefaults.textButtonColors(contentColor = progressAccentColor(tone)),
-    ) {
-        Text(text = text)
-    }
-}
-
-@Composable
-private fun UpdateProgressSecondaryAction(text: String, onClick: () -> Unit) {
-    LomoTextButton(
-        onClick = onClick,
-        colors =
-        ButtonDefaults.textButtonColors(
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
+        colors = ButtonDefaults.textButtonColors(contentColor = color),
     ) {
         Text(text = text)
     }
@@ -359,12 +408,7 @@ private fun progressSupportingColor(tone: UpdateProgressTone): Color = when (ton
     -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
-@Composable
-private fun progressTrackColor(): Color = MaterialTheme.colorScheme.surfaceContainerHighest
-
 private val UPDATE_PROGRESS_SHAPE = AppShapes.ExtraLarge
 private val PROGRESS_BAR_SHAPE = AppShapes.Full
 private val WAVY_PROGRESS_BAR_HEIGHT = 16.dp
 private val UPDATE_PROGRESS_MAX_WIDTH = 420.dp
-private const val UPDATE_PROGRESS_SCRIM_ALPHA = 0.58f
-private const val UPDATE_PROGRESS_BORDER_ALPHA = 0.88f

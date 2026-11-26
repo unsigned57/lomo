@@ -1,6 +1,28 @@
 package com.lomo.app.feature.update
 
+import androidx.compose.material3.ColorScheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.AppUpdateInstallState
+
+internal data class UpdateProgressHazeSpec(
+    val scrimBlurRadius: Dp,
+    val scrimTintColor: Color,
+    val scrimFallbackTintColor: Color,
+    val cardSurfaceColor: Color,
+    val cardGlassTintColor: Color,
+    val cardFallbackBorderColor: Color,
+)
+
+internal fun resolveUpdateProgressHazeSpec(colorScheme: ColorScheme): UpdateProgressHazeSpec = UpdateProgressHazeSpec(
+    scrimBlurRadius = UPDATE_PROGRESS_SCRIM_BLUR_RADIUS,
+    scrimTintColor = colorScheme.scrim.copy(alpha = UPDATE_PROGRESS_SCRIM_HAZE_ALPHA),
+    scrimFallbackTintColor = colorScheme.scrim.copy(alpha = UPDATE_PROGRESS_SCRIM_FALLBACK_ALPHA),
+    cardSurfaceColor = colorScheme.surfaceContainer,
+    cardGlassTintColor = colorScheme.surfaceContainer.copy(alpha = UPDATE_PROGRESS_GLASS_TINT_ALPHA),
+    cardFallbackBorderColor = colorScheme.outlineVariant.copy(alpha = UPDATE_PROGRESS_BORDER_ALPHA),
+)
 
 internal data class UpdateProgressPresentation(
     val title: UpdateProgressTitle,
@@ -115,3 +137,8 @@ internal fun AppUpdateInstallState.toUpdateProgressPresentation(): UpdateProgres
 
 private const val MIN_PROGRESS_PERCENT = 0
 private const val MAX_PROGRESS_PERCENT = 100
+private val UPDATE_PROGRESS_SCRIM_BLUR_RADIUS = 20.dp
+private const val UPDATE_PROGRESS_SCRIM_HAZE_ALPHA = 0.34f
+private const val UPDATE_PROGRESS_SCRIM_FALLBACK_ALPHA = 0.58f
+private const val UPDATE_PROGRESS_GLASS_TINT_ALPHA = 0.68f
+private const val UPDATE_PROGRESS_BORDER_ALPHA = 0.88f
