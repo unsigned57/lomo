@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -24,21 +23,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.MediaClass
-import com.lomo.ui.component.markdown.MarkdownPresentationPolicy
+import com.lomo.ui.component.markdown.MarkdownMediaPresentation
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.theme.memoBodyTextStyle
 
 private val OuterPadding = 24.dp
-private val CardPadding = 30.dp
+private val CardHorizontalPadding = 28.dp
+private val CardTopPadding = 28.dp
+private val CardBottomPadding = 22.dp
 private val CardCornerRadius = 24.dp
-private val CardMinHeight = 330.dp
+private val CardMinHeight = 320.dp
 private val TagCornerRadius = 8.dp
 private val TagHorizontalPadding = 8.dp
 private val TagVerticalPadding = 4.dp
@@ -49,7 +54,11 @@ private val MediaCornerRadius = 12.dp
 private val MediaMaxHeight = 360.dp
 private val FooterTopSpacing = 20.dp
 private val FooterRowTopSpacing = 14.dp
-private val CenteredBodyMinHeight = 180.dp
+
+private const val SHARE_CARD_SLOT_COUNT = 3
+private const val HEADER_SLOT_INDEX = 0
+private const val BODY_SLOT_INDEX = 1
+private const val FOOTER_SLOT_INDEX = 2
 
 @Composable
 internal fun ShareCardContent(state: ShareCardUiState, modifier: Modifier = Modifier) {
@@ -73,37 +82,118 @@ internal fun ShareCardContent(state: ShareCardUiState, modifier: Modifier = Modi
             border = BorderStroke(1.dp, colorScheme.outlineVariant),
             shadowElevation = 2.dp,
         ) {
-            Column(
+            ShareCardCardLayout(
+                state = state,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .defaultMinSize(minHeight = CardMinHeight)
-                    .padding(CardPadding),
-            ) {
-                if (state.displayTags.isNotEmpty()) {
-                    ShareCardTagRow(tags = state.displayTags)
-                    Spacer(modifier = Modifier.height(TagBottomSpacing))
-                }
-                val titleText = state.title
-                if (!titleText.isNullOrBlank()) {
-                    Text(
-                        text = titleText,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(modifier = Modifier.height(TitleBottomSpacing))
-                }
-                ShareCardBody(state = state)
-                val footerRow = state.footer.row
-                if (state.footer.showFooter && footerRow != null) {
-                    Spacer(modifier = Modifier.height(FooterTopSpacing))
-                    HorizontalDivider(thickness = 1.dp, color = colorScheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(FooterRowTopSpacing))
-                    ShareCardFooter(row = footerRow)
-                }
-            }
+                    .padding(
+                        start = CardHorizontalPadding,
+                        top = CardTopPadding,
+                        end = CardHorizontalPadding,
+                        bottom = CardBottomPadding,
+                    ),
+            )
         }
+    }
+}
+
+@Composable
+private fun ShareCardCardLayout(state: ShareCardUiState, modifier: Modifier = Modifier) {
+    val minContentHeightPx =
+        with(LocalDensity.current) {
+            (CardMinHeight - CardTopPadding - CardBottomPadding).roundToPx().coerceAtLeast(0)
+        }
+
+    Layout(
+        modifier = modifier,
+        content = {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                ShareCardHeader(state = state)
+            }
+            Box(modifier = Modifier.fillMaxWidth().clipToBounds()) {
+                ShareCardBody(state = state)
+            }
+            Box(modifier = Modifier.fillMaxWidth()) {
+                ShareCardFooterBlock(footer = state.footer)
+            }
+        },
+    ) { measurables, constraints ->
+        check(measurables.size == SHARE_CARD_SLOT_COUNT)
+        val childConstraints = constraints.copy(minHeight = 0)
+        val headerPlaceable = measurables[HEADER_SLOT_INDEX].measure(childConstraints)
+        // Measure footer BEFORE body so long memos clamp and clip above the footer instead of pushing it off.
+        val footerMaxHeight =
+            if (constraints.hasBoundedHeight) {
+                (constraints.maxHeight - headerPlaceable.height).coerceAtLeast(0)
+            } else {
+                Constraints.Infinity
+            }
+        val footerPlaceable = measurables[FOOTER_SLOT_INDEX].measure(childConstraints.copy(maxHeight = footerMaxHeight))
+        val bodyMaxHeight =
+            computeShareCardBodyMaxHeight(
+                maxHeightPx = if (constraints.hasBoundedHeight) constraints.maxHeight else Int.MAX_VALUE,
+                headerHeightPx = headerPlaceable.height,
+                footerHeightPx = footerPlaceable.height,
+            )
+        val bodyPlaceable = measurables[BODY_SLOT_INDEX].measure(childConstraints.copy(maxHeight = bodyMaxHeight))
+        val placement =
+            computeShareCardSlotLayout(
+                ShareCardSlotLayoutInput(
+                    minHeightPx = minContentHeightPx,
+                    maxHeightPx = if (constraints.hasBoundedHeight) constraints.maxHeight else Int.MAX_VALUE,
+                    headerHeightPx = headerPlaceable.height,
+                    bodyHeightPx = bodyPlaceable.height,
+                    footerHeightPx = footerPlaceable.height,
+                    centeredBody = state.centeredBody,
+                ),
+            )
+        val layoutWidth =
+            if (constraints.hasBoundedWidth) {
+                constraints.maxWidth
+            } else {
+                maxOf(headerPlaceable.width, bodyPlaceable.width, footerPlaceable.width)
+            }
+        layout(layoutWidth, placement.contentHeightPx) {
+            headerPlaceable.placeRelative(0, placement.headerY)
+            bodyPlaceable.placeRelative(0, placement.bodyY)
+            footerPlaceable.placeRelative(0, placement.footerY)
+        }
+    }
+}
+
+@Composable
+private fun ShareCardHeader(state: ShareCardUiState) {
+    val titleText = state.title?.takeIf(String::isNotBlank)
+    if (state.displayTags.isEmpty() && titleText == null) return
+    val colorScheme = MaterialTheme.colorScheme
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (state.displayTags.isNotEmpty()) {
+            ShareCardTagRow(tags = state.displayTags)
+            Spacer(modifier = Modifier.height(TagBottomSpacing))
+        }
+        if (titleText != null) {
+            Text(
+                text = titleText,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(TitleBottomSpacing))
+        }
+    }
+}
+
+@Composable
+private fun ShareCardFooterBlock(footer: ShareCardFooterContent) {
+    val footerRow = footer.row
+    if (!footer.showFooter || footerRow == null) return
+    val colorScheme = MaterialTheme.colorScheme
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Spacer(modifier = Modifier.height(FooterTopSpacing))
+        HorizontalDivider(thickness = 1.dp, color = colorScheme.outlineVariant)
+        Spacer(modifier = Modifier.height(FooterRowTopSpacing))
+        ShareCardFooter(row = footerRow)
     }
 }
 
@@ -135,25 +225,19 @@ private fun ShareCardTagRow(tags: List<String>) {
 
 @Composable
 private fun ShareCardBody(state: ShareCardUiState) {
-    val bodyModifier =
-        if (state.centeredBody) {
-            Modifier.fillMaxWidth().defaultMinSize(minHeight = CenteredBodyMinHeight)
-        } else {
-            Modifier.fillMaxWidth()
-        }
-    val alignment = if (state.centeredBody) Alignment.CenterStart else Alignment.TopStart
-    Box(modifier = bodyModifier, contentAlignment = alignment) {
+    Box(modifier = Modifier.fillMaxWidth()) {
         if (state.isBlankFallback) {
             Text(
                 text = state.emptyFallbackText,
                 style = MaterialTheme.typography.memoBodyTextStyle(),
                 color = MaterialTheme.colorScheme.onSurface,
             )
-        } else {
+        } else if (state.presentationPlan.items.isNotEmpty()) {
             MarkdownRenderer(
                 document = state.document,
                 modifier = Modifier.fillMaxWidth(),
-                presentationPolicy = MarkdownPresentationPolicy.DEFAULT,
+                presentationPlan = state.presentationPlan,
+                presentationPolicy = SHARE_CARD_PRESENTATION_POLICY,
                 softWrapCode = true,
                 imageContent = { image ->
                     val bitmap = state.imagesByDestination[image.destination]
@@ -174,7 +258,7 @@ private fun ShareCardBody(state: ShareCardUiState) {
                 },
                 mediaPresentationResolver = { image ->
                     if (image.mediaClass == MediaClass.AUDIO) {
-                        com.lomo.ui.component.markdown.MarkdownMediaPresentation(
+                        MarkdownMediaPresentation(
                             source = image.destination,
                             description = image.description,
                             kind = "audio",

@@ -8,13 +8,17 @@ import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.ui.component.markdown.MarkdownIrPresentationPlan
+import com.lomo.ui.component.markdown.MarkdownPresentationPolicy
+import com.lomo.ui.component.markdown.buildMarkdownIrPresentationPlan
 import com.lomo.ui.theme.TypographyScales
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 internal const val SHARE_CARD_TIME_PATTERN = "yyyy-MM-dd HH:mm"
-internal const val MAX_SHARE_BITMAP_HEIGHT_PX = 4096
+internal const val MAX_SHARE_BITMAP_HEIGHT_PX = 12288
+internal val SHARE_CARD_PRESENTATION_POLICY = MarkdownPresentationPolicy.MEMO_CARD
 internal const val MIN_SHARE_CARD_CANVAS_WIDTH_PX = 720
 internal const val SHARE_CARD_CANVAS_WIDTH_RATIO = 0.9f
 internal const val SHORT_BODY_CENTER_THRESHOLD = 42
@@ -118,8 +122,67 @@ internal fun shouldUseCenteredShareCardBody(
     return nonBlankLines <= SHORT_BODY_MAX_NON_BLANK_LINES
 }
 
+internal fun resolveShareCardPresentationPlan(document: MarkdownRenderDocument): MarkdownIrPresentationPlan =
+    buildMarkdownIrPresentationPlan(
+        document = document,
+        policy = SHARE_CARD_PRESENTATION_POLICY,
+    )
+
+internal fun isShareCardBlankFallback(plan: MarkdownIrPresentationPlan, displayTags: List<String>): Boolean =
+    plan.items.isEmpty() && displayTags.isEmpty()
+
+internal data class ShareCardSlotLayoutInput(
+    val minHeightPx: Int,
+    val maxHeightPx: Int,
+    val headerHeightPx: Int,
+    val bodyHeightPx: Int,
+    val footerHeightPx: Int,
+    val centeredBody: Boolean,
+)
+
+internal data class ShareCardSlotLayoutResult(
+    val contentHeightPx: Int,
+    val headerY: Int,
+    val bodyY: Int,
+    val bodyMaxHeightPx: Int,
+    val footerY: Int,
+)
+
+internal fun computeShareCardBodyMaxHeight(maxHeightPx: Int, headerHeightPx: Int, footerHeightPx: Int): Int {
+    if (maxHeightPx == Int.MAX_VALUE) return Int.MAX_VALUE
+    return (maxHeightPx - headerHeightPx - footerHeightPx).coerceAtLeast(0)
+}
+
+internal fun computeShareCardSlotLayout(input: ShareCardSlotLayoutInput): ShareCardSlotLayoutResult {
+    val bodyMaxHeight =
+        computeShareCardBodyMaxHeight(
+            maxHeightPx = input.maxHeightPx,
+            headerHeightPx = input.headerHeightPx,
+            footerHeightPx = input.footerHeightPx,
+        )
+    val clampedBodyHeight = input.bodyHeightPx.coerceAtMost(bodyMaxHeight)
+    val naturalHeight = input.headerHeightPx + clampedBodyHeight + input.footerHeightPx
+    val contentHeight = maxOf(naturalHeight, input.minHeightPx).coerceAtMost(input.maxHeightPx)
+    val footerY = (contentHeight - input.footerHeightPx).coerceAtLeast(input.headerHeightPx)
+    val availableBodyHeight = (footerY - input.headerHeightPx).coerceAtLeast(0)
+    val bodyY =
+        if (input.centeredBody && clampedBodyHeight < availableBodyHeight) {
+            input.headerHeightPx + (availableBodyHeight - clampedBodyHeight) / 2
+        } else {
+            input.headerHeightPx
+        }
+    return ShareCardSlotLayoutResult(
+        contentHeightPx = contentHeight,
+        headerY = 0,
+        bodyY = bodyY,
+        bodyMaxHeightPx = bodyMaxHeight,
+        footerY = footerY,
+    )
+}
+
 internal data class ShareCardUiState(
     val document: MarkdownRenderDocument,
+    val presentationPlan: MarkdownIrPresentationPlan,
     val displayTags: List<String>,
     val title: String?,
     val isBlankFallback: Boolean,

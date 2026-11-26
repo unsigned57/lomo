@@ -74,6 +74,7 @@ class ShareCardComposeRenderer(
     ): PreparedShareCardRender {
         // Same body bytes as the list/card path; Rust owns all Markdown structure parsing.
         val document = markdownWorkspaceRepository.renderMarkdown(content)
+        val presentationPlan = resolveShareCardPresentationPlan(document)
         val imageDestinations = collectShareCardImageDestinations(document)
         val hasImages = imageDestinations.isNotEmpty() || options.resolvedImagePaths.isNotEmpty()
         val shareCardContent = prepareShareCardContentUseCase(document = document, sourceTags = options.tags)
@@ -97,9 +98,10 @@ class ShareCardComposeRenderer(
         )
         val uiState = ShareCardUiState(
             document = document,
+            presentationPlan = presentationPlan,
             displayTags = displayTags,
             title = title?.run { trim().takeIf(String::isNotEmpty) },
-            isBlankFallback = document.blocks.isEmpty() && document.plainText.isBlank(),
+            isBlankFallback = isShareCardBlankFallback(presentationPlan, displayTags),
             emptyFallbackText = context.getString(R.string.app_name),
             centeredBody = shouldUseCenteredShareCardBody(document, shareCardContent.bodyText, hasImages),
             imagesByDestination = imagesByDestination,
@@ -122,10 +124,16 @@ class ShareCardComposeRenderer(
         val activity = context.findHostActivity()
             ?: error("Share card Compose rendering requires an Activity Context")
         val decorView = activity.window.decorView as ViewGroup
-        val container = FrameLayout(activity).apply {
+        val container = OffscreenShareCardContainer(
+            context = activity,
+            fixedWidthPx = widthPx,
+            maxHeightPx = MAX_SHARE_BITMAP_HEIGHT_PX,
+        ).apply {
             alpha = 0f
             isClickable = false
             isFocusable = false
+            clipChildren = false
+            clipToPadding = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         }
         val composeView = ComposeView(activity).apply {
@@ -171,6 +179,21 @@ class ShareCardComposeRenderer(
     }
 
     private data class PreparedShareCardRender(val uiState: ShareCardUiState, val decodedBitmaps: List<Bitmap>)
+
+    private class OffscreenShareCardContainer(
+        context: Context,
+        private val fixedWidthPx: Int,
+        private val maxHeightPx: Int,
+    ) : FrameLayout(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            // Bypass decorView screen-height clamping during frame settle passes so long share cards
+            // measure at their full content height up to MAX_SHARE_BITMAP_HEIGHT_PX.
+            super.onMeasure(
+                MeasureSpec.makeMeasureSpec(fixedWidthPx, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(maxHeightPx, MeasureSpec.AT_MOST),
+            )
+        }
+    }
 
     private companion object {
         const val COMPOSE_SETTLE_FRAMES = 2

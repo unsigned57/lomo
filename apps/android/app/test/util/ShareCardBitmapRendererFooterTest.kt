@@ -21,6 +21,7 @@ import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
+import com.lomo.ui.component.markdown.MarkdownIrPresentationItem
 import io.kotest.matchers.shouldBe
 import java.time.Instant
 import java.time.ZoneId
@@ -166,8 +167,117 @@ class ShareCardBitmapRendererFooterTest : AppFunSpec() {
                 hasImages = false,
             ) shouldBe false
         }
+
+        test("resolveShareCardPresentationPlan strips inline tags and prunes tag-only paragraphs") {
+            val tagOnlySpan = span(0uL, 5uL)
+            val mixedSpan = span(6uL, 28uL)
+            val doc =
+                MarkdownRenderDocument(
+                    sourceByteLength = 28uL,
+                    plainText = "#idea\nHello world #work",
+                    tagNames = listOf("idea", "work"),
+                    attachments = emptyList(),
+                    blocks =
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = tagOnlySpan,
+                            inlines = listOf(MarkdownRenderInline.Tag(tagOnlySpan, "idea")),
+                        ),
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = mixedSpan,
+                            inlines =
+                            listOf(
+                                MarkdownRenderInline.Text(span(6uL, 18uL), "Hello world "),
+                                MarkdownRenderInline.Tag(span(18uL, 23uL), "work"),
+                            ),
+                        ),
+                    ),
+                )
+
+            val plan = resolveShareCardPresentationPlan(doc)
+
+            plan.totalBlocks shouldBe 1
+            val paragraph = plan.items.single() as MarkdownIrPresentationItem.Block
+            val bodyParagraph = paragraph.block as MarkdownRenderBlock.Paragraph
+            bodyParagraph.inlines.filterIsInstance<MarkdownRenderInline.Tag>() shouldBe emptyList()
+            bodyParagraph.inlines.filterIsInstance<MarkdownRenderInline.Text>().joinToString("") { it.text } shouldBe
+                "Hello world"
+            isShareCardBlankFallback(plan, listOf("idea", "work")) shouldBe false
+        }
+
+        test("isShareCardBlankFallback triggers only when both filtered body items and tags are empty") {
+            val tagOnlyDoc =
+                MarkdownRenderDocument(
+                    sourceByteLength = 5uL,
+                    plainText = "#note",
+                    tagNames = listOf("note"),
+                    attachments = emptyList(),
+                    blocks =
+                    listOf(
+                        MarkdownRenderBlock.Paragraph(
+                            sourceSpan = span(0uL, 5uL),
+                            inlines = listOf(MarkdownRenderInline.Tag(span(0uL, 5uL), "note")),
+                        ),
+                    ),
+                )
+            val tagOnlyPlan = resolveShareCardPresentationPlan(tagOnlyDoc)
+            isShareCardBlankFallback(tagOnlyPlan, listOf("note")) shouldBe false
+            isShareCardBlankFallback(tagOnlyPlan, emptyList()) shouldBe true
+        }
+
+        test("computeShareCardSlotLayout pins footer to card bottom for short centered and non-centered bodies") {
+            val shortCentered =
+                computeShareCardSlotLayout(
+                    ShareCardSlotLayoutInput(
+                        minHeightPx = 800,
+                        maxHeightPx = 12000,
+                        headerHeightPx = 0,
+                        bodyHeightPx = 120,
+                        footerHeightPx = 80,
+                        centeredBody = true,
+                    ),
+                )
+            shortCentered.contentHeightPx shouldBe 800
+            shortCentered.footerY shouldBe 720
+            shortCentered.bodyY shouldBe 300
+
+            val shortNonCentered =
+                computeShareCardSlotLayout(
+                    ShareCardSlotLayoutInput(
+                        minHeightPx = 800,
+                        maxHeightPx = 12000,
+                        headerHeightPx = 60,
+                        bodyHeightPx = 160,
+                        footerHeightPx = 80,
+                        centeredBody = false,
+                    ),
+                )
+            shortNonCentered.contentHeightPx shouldBe 800
+            shortNonCentered.bodyY shouldBe 60
+            shortNonCentered.footerY shouldBe 720
+        }
+
+        test("computeShareCardSlotLayout preserves footer at bottom when long body exceeds maxHeight") {
+            val longOverflow =
+                computeShareCardSlotLayout(
+                    ShareCardSlotLayoutInput(
+                        minHeightPx = 800,
+                        maxHeightPx = 12000,
+                        headerHeightPx = 100,
+                        bodyHeightPx = 15000,
+                        footerHeightPx = 90,
+                        centeredBody = false,
+                    ),
+                )
+            longOverflow.bodyMaxHeightPx shouldBe 11810
+            longOverflow.contentHeightPx shouldBe 12000
+            longOverflow.bodyY shouldBe 100
+            longOverflow.footerY shouldBe 11910
+        }
     }
 }
+
+private fun span(start: ULong, end: ULong): MarkdownSourceSpan = MarkdownSourceSpan(start, end)
 
 private fun paragraphDoc(text: String): MarkdownRenderDocument {
     val span = MarkdownSourceSpan(0uL, text.encodeToByteArray().size.toULong())
