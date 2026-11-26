@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -38,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
@@ -46,6 +46,8 @@ import com.lomo.domain.model.StorageArea
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.LomoIconButton
+import com.lomo.ui.component.common.LomoTextButton
+import com.lomo.ui.component.common.lomoCompactInteractiveHeight
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.icon.LomoIcon
@@ -315,13 +317,9 @@ private fun SettingsHomeFooter(
         modifier =
         Modifier
             .fillMaxWidth()
-            .clickable(enabled = !checking) {
-                haptic.medium()
-                onCheckUpdates()
-            }
             .padding(
                 horizontal = AppSpacing.ScreenHorizontalPadding,
-                vertical = AppSpacing.Medium,
+                vertical = AppSpacing.MediumSmall,
             ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
@@ -338,15 +336,31 @@ private fun SettingsHomeFooter(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         )
-        Spacer(modifier = Modifier.width(AppSpacing.Small))
-        Text(
-            text = stringResource(R.string.settings_home_footer_check_updates),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Medium,
-        )
+        Spacer(modifier = Modifier.width(AppSpacing.ExtraSmall))
+        LomoTextButton(
+            onClick = {
+                haptic.medium()
+                onCheckUpdates()
+            },
+            enabled = !checking,
+            contentPadding = PaddingValues(horizontal = AppSpacing.Small, vertical = AppSpacing.ExtraSmall),
+            modifier = Modifier.lomoCompactInteractiveHeight(SETTINGS_FOOTER_BUTTON_VISUAL_HEIGHT),
+        ) {
+            Text(
+                text =
+                if (checking) {
+                    stringResource(R.string.settings_checking_updates)
+                } else {
+                    stringResource(R.string.settings_home_footer_check_updates)
+                },
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+            )
+        }
     }
 }
+
+private val SETTINGS_FOOTER_BUTTON_VISUAL_HEIGHT = 32.dp
 
 private fun triggerEnabledProviderSyncs(features: SettingsFeatures, uiState: SettingsScreenUiState) {
     if (uiState.git.providerSettings.enabled) features.git.provider.triggerSyncNow()
