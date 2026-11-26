@@ -59,10 +59,15 @@ package com.lomo.app.feature.settings
 
 import androidx.core.graphics.ColorUtils
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.domain.model.ColorPresetId
+import com.lomo.domain.model.ColorSource
 import io.kotest.matchers.floats.shouldBeExactly
+import io.kotest.matchers.floats.shouldBeGreaterThanOrEqual
+import io.kotest.matchers.floats.shouldBeLessThan
 import io.kotest.matchers.floats.shouldBeLessThanOrEqual
 import io.kotest.matchers.shouldBe
 import kotlin.math.abs
+import kotlin.random.Random
 
 class SettingsColorPaletteColorConversionTest : AppFunSpec() {
     init {
@@ -127,6 +132,68 @@ class SettingsColorPaletteColorConversionTest : AppFunSpec() {
             val atZero = goldenHslToArgb.first { (hsl, _) -> hsl[0] == 0f && hsl[1] == 1f && hsl[2] == 0.5f }
             val atMax = goldenHslToArgb.first { (hsl, _) -> hsl[0] == 360f && hsl[1] == 1f && hsl[2] == 0.5f }
             atMax.second shouldBe atZero.second
+        }
+
+        test("parseHexColorInput classifies valid, incomplete, and invalid hex inputs accurately") {
+            parseHexColorInput("#4f63d6") shouldBe HexColorParseResult.Valid(0xFF4F63D6.toInt())
+            parseHexColorInput("  00FF80  ") shouldBe HexColorParseResult.Valid(0xFF00FF80.toInt())
+            parseHexColorInput("") shouldBe HexColorParseResult.Incomplete
+            parseHexColorInput("#") shouldBe HexColorParseResult.Incomplete
+            parseHexColorInput("#4F63") shouldBe HexColorParseResult.Incomplete
+            parseHexColorInput("#4F63ZZ") shouldBe HexColorParseResult.Invalid
+            parseHexColorInput("#1234567") shouldBe HexColorParseResult.Invalid
+        }
+
+        test("shouldUseDarkContentOnColor picks dark ink on light colors and light ink on dark colors") {
+            shouldUseDarkContentOnColor(0xFFFFFFFF.toInt()) shouldBe true
+            shouldUseDarkContentOnColor(0xFFFFEB3B.toInt()) shouldBe true
+            shouldUseDarkContentOnColor(0xFF000000.toInt()) shouldBe false
+            shouldUseDarkContentOnColor(0xFF4F63D6.toInt()) shouldBe false
+        }
+
+        test("isContrastAdjustable disables contrast only for active dynamic wallpaper on Android 12+") {
+            isContrastAdjustable(ColorSource.DynamicWallpaper, isPreviewingCustom = false, sdkInt = 31) shouldBe false
+            isContrastAdjustable(ColorSource.DynamicWallpaper, isPreviewingCustom = true, sdkInt = 31) shouldBe true
+            isContrastAdjustable(ColorSource.DynamicWallpaper, isPreviewingCustom = false, sdkInt = 30) shouldBe true
+            isContrastAdjustable(
+                ColorSource.Preset(ColorPresetId.OCEAN),
+                isPreviewingCustom = false,
+                sdkInt = 34,
+            ) shouldBe true
+            isContrastAdjustable(
+                ColorSource.CustomSeed(0xFF4F63D6.toInt()),
+                isPreviewingCustom = false,
+                sdkInt = 34,
+            ) shouldBe true
+        }
+
+        test("isCustomSeedAlreadyApplied ignores alpha bits and matches custom seeds only") {
+            isCustomSeedAlreadyApplied(
+                activeSource = ColorSource.CustomSeed(0xFF4F63D6.toInt()),
+                currentCustomSeedArgb = 0x004F63D6,
+            ) shouldBe true
+            isCustomSeedAlreadyApplied(
+                activeSource = ColorSource.CustomSeed(0xFF4F63D6.toInt()),
+                currentCustomSeedArgb = 0xFF3F7D44.toInt(),
+            ) shouldBe false
+            isCustomSeedAlreadyApplied(
+                activeSource = ColorSource.Preset(ColorPresetId.INDIGO),
+                currentCustomSeedArgb = 0xFF4F63D6.toInt(),
+            ) shouldBe false
+        }
+
+        test("generateRandomSeedHsl returns vibrant bounded HSL seed coordinates") {
+            val seeded = Random(42)
+            repeat(25) {
+                val hsl = generateRandomSeedHsl(seeded)
+                hsl.size shouldBe 3
+                hsl[0] shouldBeGreaterThanOrEqual 0f
+                hsl[0] shouldBeLessThan 360f
+                hsl[1] shouldBeGreaterThanOrEqual 0.48f
+                hsl[1] shouldBeLessThanOrEqual 0.85f
+                hsl[2] shouldBeGreaterThanOrEqual 0.40f
+                hsl[2] shouldBeLessThanOrEqual 0.60f
+            }
         }
     }
 }
