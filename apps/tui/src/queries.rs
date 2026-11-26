@@ -198,15 +198,8 @@ pub fn query_feed(runtime: &TuiRuntime, request: &FeedRequest) -> Result<Runtime
                 cards = merged;
                 items_before = behind.items_before;
             }
-            let (above, below) = refresh_window_sides(
-                runtime,
-                request,
-                known,
-                head_bound.as_ref(),
-                next.as_ref(),
-                items_before,
-                cards.len(),
-            )?;
+            let (above, below) =
+                refresh_window_sides(runtime, request, known, head_bound.as_ref(), next.as_ref())?;
             // The frontier cursor always mints under this reply's revision:
             // survivors below the window continue from their own live tail,
             // not from the window's edge (which sits inside loaded cards) and
@@ -275,8 +268,6 @@ fn refresh_window_sides(
     known: &[MemoId],
     head: Option<&lomo_application::PageCursor>,
     tail: Option<&lomo_application::PageCursor>,
-    window_start: u64,
-    window_len: usize,
 ) -> Result<(Vec<MemoId>, Vec<MemoId>), TuiError> {
     if known.is_empty() {
         return Ok((Vec::new(), Vec::new()));
@@ -296,25 +287,17 @@ fn refresh_window_sides(
             tail,
         )?
     } else {
-        match request.query.mode {
-            lomo_application::SearchMode::Fulltext => runtime.session.matching_memo_window(
-                &MemoQuery {
-                    search_text: Some(request.query.text.trim().to_owned()),
-                    filters,
-                    sort: MemoSort::default(),
-                },
-                &ids,
-                head,
-                tail,
-            )?,
-            lomo_application::SearchMode::Fuzzy => runtime.session.fuzzy_window_sides(
-                &request.query.text,
-                &filters,
-                &ids,
-                window_start,
-                window_start.saturating_add(u64::try_from(window_len).unwrap_or(u64::MAX)),
-            )?,
-        }
+        runtime.session.search_window_sides(
+            &MemoQuery {
+                search_text: Some(request.query.text.trim().to_owned()),
+                filters,
+                sort: MemoSort::default(),
+            },
+            request.query.mode,
+            &ids,
+            head,
+            tail,
+        )?
     };
     let parse = |ids: Vec<String>| -> Result<Vec<MemoId>, TuiError> {
         ids.iter()
@@ -425,8 +408,10 @@ fn query_page_once(
             mode: request.query.mode,
             text: request.query.text.clone(),
             filters,
+            sort: MemoSort::default(),
             cursor,
             anchor,
+            backward: false,
             page_size: PageSize::new(page_size)?,
         })?;
         let SearchOutcome::Ready(page) = result else {

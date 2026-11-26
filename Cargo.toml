@@ -74,7 +74,13 @@ rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs"
 getrandom = "=0.4.3"
 zip = { version = "=9.5.1", default-features = false, features = ["deflate"] }
 pinyin = { version = "=0.11.0", default-features = false, features = ["plain"] }
-# Bounded LRU memoization for fuzzy search snapshots. Ratatui retains its own upstream
+# Full-text & fuzzy search projection engine (pure-Rust mmap + LZ4, no C zstd-sys) and
+# multilingual/Chinese tokenizer + built-in jieba dictionary + Traditional/Simplified normalization.
+# Note: jieba-rs compresses its built-in dictionary via include-flate (transitively referencing zstd-sys).
+tantivy = { version = "=0.27.0", default-features = false, features = ["mmap", "lz4-compression"] }
+charabia = { version = "=0.10.0", default-features = false, features = ["chinese-segmentation"] }
+hanconv = { version = "=0.6.0", default-features = false }
+# Bounded LRU memoization for summary walk snapshots. Ratatui retains its own upstream
 # minor-version constraint; the dependency gate records that forced split.
 lru = { version = "=0.19.0", default-features = false }
 

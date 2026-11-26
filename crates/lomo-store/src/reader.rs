@@ -6,11 +6,13 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{from_sqlite, storage, validation};
 use crate::open::{IntegrityWitness, database_path, quick_integrity};
+use crate::search::{SearchCoordinator, SearchIndexStats, SearchPageRequest, StoreSearchMode};
 use crate::{
     GalleryPage, HistoryAttachmentRef, HistoryRevisionBody, MemoHistoryPage, MemoPage,
     MemoPreviewSource, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot,
@@ -19,8 +21,7 @@ use crate::{
     get_memo_preview_sources, get_memo_projection, get_projected_memo, get_projected_memos,
     list_history_attachment_refs, list_history_revision_bodies, list_memo_history,
     list_projected_attachment_refs, query_count, query_gallery_page, query_memo_statistics_rows,
-    query_memos_starting_at, query_memos_with_boundary, query_sidebar_projection, query_stats,
-    source_document_fingerprint,
+    query_memos_starting_at, query_sidebar_projection, query_stats, source_document_fingerprint,
 };
 use crate::{
     history_record_owner, memo_source_path, purged_memo_ids, trashed_memo_ids,
@@ -36,6 +37,7 @@ use lomo_core::{LomoError, PageSize};
 pub struct StoreReader {
     workspace_root: PathBuf,
     connection: Connection,
+    search: Arc<SearchCoordinator>,
 }
 
 impl std::fmt::Debug for StoreReader {
@@ -118,10 +120,12 @@ impl StoreReader {
             }
             true
         };
+        let search = SearchCoordinator::for_root(&workspace_root);
         Ok(OpenedReader {
             reader: Self {
                 workspace_root,
                 connection,
+                search,
             },
             token,
             checked,
@@ -170,6 +174,16 @@ impl StoreReader {
         page_size: PageSize,
         revision: u64,
     ) -> Result<(Vec<MemoSummary>, Option<PageCursor>), LomoError> {
+        if crate::has_search_text(query) {
+            return self.search.search_walk_page_at(
+                &self.connection,
+                false,
+                query,
+                cursor,
+                page_size,
+                revision,
+            );
+        }
         self.snapshot_at(revision, |connection| {
             crate::query::query_memo_walk_page(connection, query, cursor, page_size, revision)
         })
@@ -198,9 +212,7 @@ impl StoreReader {
         cursor: Option<&PageCursor>,
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
-        self.snapshot(|connection, revision| {
-            query_memos_with_boundary(connection, query, None, cursor, page_size, revision)
-        })
+        self.query_memos_with_boundary(query, None, cursor, page_size)
     }
 
     /// Bounded memo query with an inclusive ordering boundary.
@@ -215,9 +227,8 @@ impl StoreReader {
         cursor: Option<&PageCursor>,
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
-        self.snapshot(|connection, revision| {
-            query_memos_with_boundary(connection, query, boundary, cursor, page_size, revision)
-        })
+        let start = cursor.map_or(MemoQueryStart::Head, MemoQueryStart::After);
+        self.query_memos_starting_at(query, boundary, start, page_size)
     }
 
     /// Bounded memo query from an explicit start in the current query order.
@@ -232,9 +243,65 @@ impl StoreReader {
         start: MemoQueryStart<'_>,
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
+        if crate::has_search_text(query) {
+            return self.search.search_memos(
+                &self.connection,
+                false,
+                SearchPageRequest {
+                    text: query.search_text.as_deref(),
+                    mode: StoreSearchMode::Fulltext,
+                    filters: &query.filters,
+                    sort: &query.sort,
+                    boundary,
+                    start,
+                    page_size,
+                },
+            );
+        }
         self.snapshot(|connection, revision| {
             query_memos_starting_at(connection, query, boundary, start, page_size, revision)
         })
+    }
+
+    /// Executes an explicit `Fulltext` or `Fuzzy` Tantivy search page aligned with SQLite.
+    ///
+    /// # Errors
+    ///
+    /// Propagates query validation, cursor staleness, and storage errors.
+    pub fn search_memos(&self, request: SearchPageRequest<'_>) -> Result<MemoPage, LomoError> {
+        self.search.search_memos(&self.connection, false, request)
+    }
+
+    /// Computes ordered `above` and `below` side evidence across both search modes.
+    ///
+    /// # Errors
+    ///
+    /// Propagates query validation and storage errors.
+    pub fn search_window_sides(
+        &self,
+        query: &MemoQuery,
+        mode: StoreSearchMode,
+        memo_ids: &[String],
+        head: Option<&PageCursor>,
+        tail: Option<&PageCursor>,
+    ) -> Result<MemoWindowSides, LomoError> {
+        self.search
+            .search_window_sides(&self.connection, false, query, mode, memo_ids, head, tail)
+    }
+
+    /// Lazily materializes and synchronizes the Tantivy search index ahead of user typing.
+    ///
+    /// # Errors
+    ///
+    /// Propagates Tantivy or SQLite read/sync errors.
+    pub fn warmup_search_index(&self) -> Result<SearchIndexStats, LomoError> {
+        self.search.warmup_with_connection(&self.connection, false)
+    }
+
+    /// Current lazy search index diagnostics without forcing initialization.
+    #[must_use]
+    pub fn search_index_stats(&self) -> SearchIndexStats {
+        self.search.stats()
     }
 
     /// Queries one lightweight gallery page using `idx_memo_gallery`.
@@ -321,6 +388,14 @@ impl StoreReader {
     ///
     /// Returns query validation or projection storage errors.
     pub fn query_count(&self, query: &MemoQuery) -> Result<u64, LomoError> {
+        if crate::has_search_text(query) {
+            return self.search.search_count(
+                &self.connection,
+                false,
+                query,
+                StoreSearchMode::Fulltext,
+            );
+        }
         self.snapshot(|connection, _revision| query_count(connection, query))
     }
 
@@ -338,6 +413,17 @@ impl StoreReader {
         head: Option<&PageCursor>,
         tail: Option<&PageCursor>,
     ) -> Result<MemoWindowSides, LomoError> {
+        if crate::has_search_text(query) {
+            return self.search.search_window_sides(
+                &self.connection,
+                false,
+                query,
+                StoreSearchMode::Fulltext,
+                memo_ids,
+                head,
+                tail,
+            );
+        }
         self.snapshot(|connection, _revision| {
             crate::query::memos_matching_window(connection, query, memo_ids, head, tail)
         })

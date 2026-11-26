@@ -9,8 +9,8 @@ use lomo_core::{LomoError, OperationId, PageSize, PlatformActionExecutor, Relati
 use lomo_store::{
     DocumentPublication, MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart,
     MemoSnapshot, MemoWindowSides, PageCursor, ProjectionClock, ReaderPoolOptions, RebuildResult,
-    SafProjectionMutation, SafProjectionMutationKind, SidebarProjection, Store, StoreReader,
-    StoreReaderPool,
+    SafProjectionMutation, SafProjectionMutationKind, SearchCoordinator, SearchIndexStats,
+    SidebarProjection, Store, StoreReader, StoreReaderPool, StoreSearchMode,
 };
 use lomo_workspace::{
     DocumentPatchCommand, HistorySnapshotV1, MemoId, MemoIdentityChange, encode_trash_record,
@@ -58,12 +58,6 @@ pub struct WorkspaceSession {
     /// whether a read rebuilds or serves the retained index.
     pub(crate) attachment_index_cache: Mutex<crate::media_index::AttachmentIndexCache>,
     pub(crate) search_epoch: AtomicU64,
-    /// Ranked fuzzy hits memoized per (query fingerprint, projection
-    /// revision) — a continuation cursor paginates the snapshot instead of
-    /// rescanning and rescoring every candidate, and a prefix-extending
-    /// keystroke derives its candidate set from the cached ancestor's hits.
-    pub(crate) fuzzy_results: Mutex<lru::LruCache<(String, u64), crate::search::FuzzyResult>>,
-    pub(crate) fuzzy_scan: Mutex<crate::search::FuzzyScanStats>,
     /// Revision-keyed query projection shared by search, tasks, review and
     /// reminder planning — collected walks and the derived views cut from
     /// them are functions of one committed revision and invalidate by key.
@@ -155,8 +149,6 @@ impl WorkspaceSession {
             store: Mutex::new(Some(store)),
             mount: Mutex::new(None),
             search_epoch: AtomicU64::new(0),
-            fuzzy_results: Mutex::new(lru::LruCache::new(crate::search::FUZZY_CACHE_ENTRIES)),
-            fuzzy_scan: Mutex::new(crate::search::FuzzyScanStats::default()),
             query_projection: Mutex::new(crate::paging::QueryProjection::new()),
         };
         let pending = session.recover_files_for_mount()?;
@@ -270,16 +262,39 @@ impl WorkspaceSession {
             .map_err(|error| storage("attachment_index_cache_poisoned", error.to_string()))
     }
 
-    /// Cumulative fuzzy-scan evidence: snapshot hits, prefix-seeded and full
-    /// scans, epoch supersessions and scored-candidate counts.
+    /// Lazily materializes and synchronizes the Tantivy search index ahead of user typing.
     ///
     /// # Errors
-    /// Storage when the scan-state lock is poisoned.
-    pub fn fuzzy_scan_stats(&self) -> Result<crate::search::FuzzyScanStats, LomoError> {
-        self.fuzzy_scan
-            .lock()
-            .map(|scan| *scan)
-            .map_err(|error| storage("fuzzy_scan_poisoned", error.to_string()))
+    /// Propagates projection or Tantivy build/sync errors.
+    pub fn warmup_search_index(&self) -> Result<SearchIndexStats, LomoError> {
+        let stats = self.with_reader(StoreReader::warmup_search_index)?;
+        self.maybe_compact_search_changelog()?;
+        Ok(stats)
+    }
+
+    pub(crate) fn maybe_compact_search_changelog(&self) -> Result<(), LomoError> {
+        if !SearchCoordinator::for_root(&self.config.cache_dir).has_pending_changelog_compaction() {
+            return Ok(());
+        }
+        let guard = match self.store.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(()),
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                return Err(storage("store_lock_poisoned", error.to_string()));
+            }
+        };
+        let Some(store) = guard.as_ref() else {
+            return Ok(());
+        };
+        let _compacted = store.compact_synced_search_changelog()?;
+        drop(guard);
+        Ok(())
+    }
+
+    /// Lock-free search index readiness and sync diagnostics (never triggers disk initialization).
+    #[must_use]
+    pub fn search_index_stats(&self) -> SearchIndexStats {
+        SearchCoordinator::for_root(&self.config.cache_dir).stats()
     }
 
     /// Cumulative query-projection evidence: shared summary walks and the
@@ -924,9 +939,11 @@ impl WorkspaceSession {
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
         crate::search::validate_filters(&query.filters)?;
-        self.with_reader(|store| {
+        let page = self.with_reader(|store| {
             store.query_memos_with_boundary(query, boundary, cursor, page_size)
-        })
+        })?;
+        self.maybe_compact_search_changelog()?;
+        Ok(page)
     }
 
     /// Queries one page from an explicit start in the current query order.
@@ -941,7 +958,11 @@ impl WorkspaceSession {
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
         crate::search::validate_filters(&query.filters)?;
-        self.with_reader(|store| store.query_memos_starting_at(query, boundary, start, page_size))
+        let page = self.with_reader(|store| {
+            store.query_memos_starting_at(query, boundary, start, page_size)
+        })?;
+        self.maybe_compact_search_changelog()?;
+        Ok(page)
     }
 
     /// Queries one lightweight gallery page from `idx_memo_gallery`.
@@ -962,7 +983,9 @@ impl WorkspaceSession {
     /// Propagates query validation and storage failures.
     pub fn query_count(&self, query: &MemoQuery) -> Result<u64, LomoError> {
         crate::search::validate_filters(&query.filters)?;
-        self.with_reader(|store| store.query_count(query))
+        let count = self.with_reader(|store| store.query_count(query))?;
+        self.maybe_compact_search_changelog()?;
+        Ok(count)
     }
 
     /// Which of `memo_ids` still satisfy `query`, split by where they sort
@@ -983,26 +1006,31 @@ impl WorkspaceSession {
         tail: Option<&PageCursor>,
     ) -> Result<MemoWindowSides, LomoError> {
         crate::search::validate_filters(&query.filters)?;
-        self.with_reader(|store| store.matching_memo_window(query, memo_ids, head, tail))
+        let sides =
+            self.with_reader(|store| store.matching_memo_window(query, memo_ids, head, tail))?;
+        self.maybe_compact_search_changelog()?;
+        Ok(sides)
     }
 
-    /// The fuzzy counterpart of [`Self::matching_memo_window`]: the same
-    /// above/below split measured in scored hit positions instead of keyset
-    /// bounds, read from the same snapshot pagination uses.
+    /// Which of `memo_ids` satisfy `query` and `mode`, split above `head` and below `tail`.
     ///
     /// # Errors
-    /// Propagates filter validation, projection storage and
-    /// `stale_search_result` failures.
-    pub fn fuzzy_window_sides(
+    /// Propagates filter validation and projection storage failures.
+    pub fn search_window_sides(
         &self,
-        text: &str,
-        filters: &MemoFilters,
+        query: &MemoQuery,
+        mode: crate::search::SearchMode,
         memo_ids: &[String],
-        window_start: u64,
-        window_end: u64,
+        head: Option<&PageCursor>,
+        tail: Option<&PageCursor>,
     ) -> Result<MemoWindowSides, LomoError> {
-        crate::search::validate_filters(filters)?;
-        crate::search::fuzzy_window_sides(self, text, filters, memo_ids, window_start, window_end)
+        crate::search::validate_filters(&query.filters)?;
+        let store_mode = StoreSearchMode::from(mode);
+        let sides = self.with_reader(|reader| {
+            reader.search_window_sides(query, store_mode, memo_ids, head, tail)
+        })?;
+        self.maybe_compact_search_changelog()?;
+        Ok(sides)
     }
 
     /// Reads the sidebar aggregate from the session projection.

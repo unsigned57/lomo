@@ -17,10 +17,10 @@ This document defines the immutable architecture and authority model for Lomo. I
 - `benchmark`: Standalone Gradle instrumented-test harness (AndroidX Macrobenchmark) measuring the installed debug APK through `just build android benchmark`. Not an Amper module, ships no product code and holds no domain authority.
 
 ### Rust Crates (`crates/`)
-- `lomo-application`: Sole authority for workspace session orchestration, durable document write transactions, dual-mode retrieval, task aggregation, statistics, daily review, reminder planning, history/trash/archive lifecycle, platform action staging via exchange tokens, operation idempotency journals, private state/cache isolation, and full/incremental SQLite query projection rebuilds.
+- `lomo-application`: Sole authority for workspace session orchestration, durable document write transactions, dual-mode retrieval, task aggregation, statistics, daily review, reminder planning, history/trash/archive lifecycle, platform action staging via exchange tokens, operation idempotency journals, private state/cache isolation, and full/incremental query projection rebuilds.
 - `lomo-core`: Platform-independent engine runtime, identity, concurrency locks, journals, and execution protocols.
 - `lomo-workspace`: Sole authority for Markdown, document rendering/patching, durable memo identity mappings and conflict evidence, trash records, and workspace record codecs. Durable `MemoId` values are independent of source-version `MemoLocator` addresses.
-- `lomo-store`: Sole local query-projection authority (SQLite). Purely rebuildable from workspace facts; never the primary authority for documents.
+- `lomo-store`: Sole local query-projection authority (SQLite structured projection and Tantivy search index). Purely rebuildable from workspace facts; never the primary authority for documents.
 - `lomo-sync` / `lomo-git`: Sole remote synchronization planner (Git, WebDAV, S3) and provider adapters.
 - `lomo-lan`: Local network discovery, pairing, trust, and peer-to-peer transfer protocols.
 - `lomo-media`: Media identity and lifecycle operations.

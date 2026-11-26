@@ -12,6 +12,8 @@ import com.lomo.domain.repository.MemoSearchRepository
 
 class FakeMemoSearchRepository(private val store: FakeMemoStore) : MemoSearchRepository {
     val searchPagingCalls = mutableListOf<SearchPagingCall>()
+    var warmupCallCount: Int = 0
+        private set
 
     override fun getMemosByTagPagingSource(selection: TagSelection): PagingSource<String, Memo> =
         FakeMemoPagingSource { limit, offset ->
@@ -30,6 +32,10 @@ class FakeMemoSearchRepository(private val store: FakeMemoStore) : MemoSearchRep
     ): PagingSource<String, Memo> {
         searchPagingCalls += SearchPagingCall(query = query, mode = mode, filter = filter)
         return store.mainListPagingSourceFor(MemoQuerySpec.fromFilter(queryText = query, filter = filter))
+    }
+
+    override suspend fun warmupSearchIndex() {
+        warmupCallCount += 1
     }
 
     data class SearchPagingCall(val query: String, val mode: MemoSearchMode, val filter: MemoListFilter)

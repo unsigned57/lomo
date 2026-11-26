@@ -392,8 +392,10 @@ mod tests {
             mode: lomo_application::SearchMode::Fuzzy,
             text: "needle".to_owned(),
             filters: lomo_application::MemoFilters::default(),
+            sort: lomo_application::MemoSort::default(),
             cursor,
             anchor: None,
+            backward: false,
             page_size: lomo_core::PageSize::new(48).expect("page size"),
         };
         let start = Instant::now();

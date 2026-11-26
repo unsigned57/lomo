@@ -523,8 +523,10 @@ mod tests {
                     mode: SearchMode::Fulltext,
                     text: "needle".to_owned(),
                     filters: lomo_application::MemoFilters::default(),
+                    sort: MemoSort::default(),
                     cursor: Some(cursor),
                     anchor: Some(anchor),
+                    backward: false,
                     page_size: PageSize::new(48).expect("page size"),
                 })
                 .expect_err("cursor+anchor in one request is an ambiguous start");

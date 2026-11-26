@@ -831,23 +831,27 @@ pub fn memo_query_from_ffi(query: StoreMemoQuery) -> (MemoQuery, Option<MemoQuer
         MemoQuery {
             search_text: query.search_text,
             filters: memo_filters_from_ffi(query.filters),
-            sort: store::MemoSort {
-                seed: query.sort.seed,
-                time_zone: query.sort.time_zone,
-                field: match query.sort.field {
-                    StoreMemoSortField::CreatedAt => store::MemoSortField::CreatedAt,
-                    StoreMemoSortField::UpdatedAt => store::MemoSortField::UpdatedAt,
-                    StoreMemoSortField::ReviewMonth => store::MemoSortField::ReviewMonth,
-                    StoreMemoSortField::ReviewRandom => store::MemoSortField::ReviewRandom,
-                },
-                direction: match query.sort.direction {
-                    StoreSortDirection::Ascending => store::SortDirection::Ascending,
-                    StoreSortDirection::Descending => store::SortDirection::Descending,
-                },
-            },
+            sort: memo_sort_from_ffi(query.sort),
         },
         boundary,
     )
+}
+
+pub fn memo_sort_from_ffi(sort: StoreMemoSort) -> store::MemoSort {
+    store::MemoSort {
+        seed: sort.seed,
+        time_zone: sort.time_zone,
+        field: match sort.field {
+            StoreMemoSortField::CreatedAt => store::MemoSortField::CreatedAt,
+            StoreMemoSortField::UpdatedAt => store::MemoSortField::UpdatedAt,
+            StoreMemoSortField::ReviewMonth => store::MemoSortField::ReviewMonth,
+            StoreMemoSortField::ReviewRandom => store::MemoSortField::ReviewRandom,
+        },
+        direction: match sort.direction {
+            StoreSortDirection::Ascending => store::SortDirection::Ascending,
+            StoreSortDirection::Descending => store::SortDirection::Descending,
+        },
+    }
 }
 
 fn boundary_err(code: &str, diagnostic: &str) -> LomoError {

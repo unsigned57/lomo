@@ -165,10 +165,13 @@ pub enum SessionSearchMode {
 #[derive(Clone, Debug)]
 pub struct SessionSearchRequest {
     pub filters: crate::StoreMemoFilters,
+    pub sort: crate::StoreMemoSort,
     pub query_epoch: u64,
     pub mode: SessionSearchMode,
     pub text: String,
     pub cursor: Option<StorePageCursor>,
+    pub anchor: Option<String>,
+    pub backward: bool,
     pub page_size: u32,
 }
 
@@ -186,6 +189,10 @@ pub struct SessionSearchPage {
     pub mode: SessionSearchMode,
     pub items: Vec<SessionSearchHit>,
     pub next_cursor: Option<StorePageCursor>,
+    pub prev_cursor: Option<StorePageCursor>,
+    pub items_before: u64,
+    pub items_after: u64,
+    pub total: u64,
 }
 
 #[data]
@@ -691,7 +698,7 @@ impl LomoEngine {
             .map(|result| commit_to_ffi(&memo_id, result.commit_result))
     }
 
-    /// Runs dual-mode retrieval through the application session.
+    /// Runs dual-mode Tantivy retrieval through the application session.
     ///
     /// # Errors
     ///
@@ -707,6 +714,7 @@ impl LomoEngine {
             .transpose()?;
         let inner = SearchRequest {
             filters: crate::store_ffi::memo_filters_from_ffi(request.filters),
+            sort: crate::store_ffi::memo_sort_from_ffi(request.sort),
             query_epoch: request.query_epoch,
             mode: match request.mode {
                 SessionSearchMode::Fulltext => SearchMode::Fulltext,
@@ -714,12 +722,23 @@ impl LomoEngine {
             },
             text: request.text,
             cursor,
-            // Anchored starts are a TUI refresh concern; the FFI surface pages
-            // by cursor or from the head only.
-            anchor: None,
+            anchor: request.anchor,
+            backward: request.backward,
             page_size: PageSize::new(request.page_size).map_err(EngineError::from)?,
         };
         with_session(self, |session| session.search(&inner)).map(search_outcome_to_ffi)
+    }
+
+    /// Lazily materializes and synchronizes the local Tantivy search index ahead of queries.
+    ///
+    /// # Errors
+    ///
+    /// Propagates projection or Tantivy build/sync failures.
+    pub fn session_warmup_search_index(&self) -> Result<(), EngineError> {
+        with_session(self, |session| {
+            let _stats = session.warmup_search_index()?;
+            Ok(())
+        })
     }
 
     /// Aggregates Markdown task-list items from active memos.
@@ -1721,6 +1740,12 @@ fn search_outcome_to_ffi(outcome: SearchOutcome) -> SessionSearchOutcome {
                 next_cursor: page.next_cursor.map(|cursor| StorePageCursor {
                     encoded: encode_cursor(&cursor),
                 }),
+                prev_cursor: page.prev_cursor.map(|cursor| StorePageCursor {
+                    encoded: encode_cursor(&cursor),
+                }),
+                items_before: page.items_before,
+                items_after: page.items_after,
+                total: page.total,
             },
         },
         SearchOutcome::Discarded {

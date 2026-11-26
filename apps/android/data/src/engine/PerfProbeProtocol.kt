@@ -28,6 +28,14 @@ internal val EMPTY_FILTERS =
         trashOnly = false,
     )
 
+internal val EMPTY_SORT =
+    com.lomo.nativebridge.StoreMemoSort(
+        seed = 0L,
+        timeZone = "UTC",
+        field = com.lomo.nativebridge.StoreMemoSortField.CREATED_AT,
+        direction = com.lomo.nativebridge.StoreSortDirection.DESCENDING,
+    )
+
 internal fun okPayload(run: String, op: String): JSONObject =
     JSONObject().put("schema", "lomo.perf-probe.v1").put("op", op).put("run", run).put("status", "ok")
 

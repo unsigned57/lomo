@@ -243,6 +243,10 @@ internal class RustEngineAdapter private constructor(
         request: com.lomo.nativebridge.SessionSearchRequest,
     ): com.lomo.nativebridge.SessionSearchOutcome = native.sessionSearch(request)
 
+    override fun sessionWarmupSearchIndex() {
+        native.sessionWarmupSearchIndex()
+    }
+
     override fun sessionListTasks(): List<com.lomo.nativebridge.SessionTaskItem> = native.sessionListTasks()
 
     override fun sessionToggleTask(

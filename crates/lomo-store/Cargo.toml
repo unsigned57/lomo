@@ -75,6 +75,10 @@ serde_json.workspace = true
 sha2.workspace = true
 zip.workspace = true
 tempfile.workspace = true
+tantivy.workspace = true
+charabia.workspace = true
+hanconv.workspace = true
+pinyin = { workspace = true, features = ["heteronym"] }
 
 [dev-dependencies]
 serde_json.workspace = true

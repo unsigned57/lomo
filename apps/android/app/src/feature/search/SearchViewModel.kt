@@ -34,6 +34,7 @@ import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.SearchMemosPageUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
@@ -341,6 +342,24 @@ class SearchViewModel(dependencies: SearchViewModelDependencies) : ViewModel() {
             exitAnimationRegistry = exitAnimationRegistry,
             filterController = searchFilterController,
         )
+
+    init {
+        viewModelScope.launch {
+            workspaceCoordinator.mount
+                .map { it.admittedAuthority }
+                .distinctUntilChanged()
+                .filterNotNull()
+                .collect {
+                    try {
+                        searchMemosPageUseCase.warmup()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        actionStateHolder.errors.report(error, "Failed to prepare search index")
+                    }
+                }
+        }
+    }
 }
 
 fun SearchViewModel.saveImage(

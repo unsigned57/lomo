@@ -27,6 +27,8 @@ class FakeMemoSearchRepository(private val store: FakeMemoStore) : MemoSearchRep
         filter: MemoListFilter,
     ): PagingSource<String, Memo> =
         store.mainListPagingSourceFor(MemoQuerySpec.fromFilter(queryText = query, filter = filter))
+
+    override suspend fun warmupSearchIndex() = Unit
 }
 
 private class FakeMemoPagingSource(private val pageLoader: suspend (limit: Int, offset: Int) -> List<Memo>) :

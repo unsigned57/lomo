@@ -70,6 +70,8 @@ private class RecordingMemoSearchRepository : MemoSearchRepository {
         mode: MemoSearchMode,
         filter: MemoListFilter,
     ): PagingSource<String, Memo> = error("text search is not under test")
+
+    override suspend fun warmupSearchIndex() = Unit
 }
 
 private class EmptyMemoPagingSource : PagingSource<String, Memo>() {

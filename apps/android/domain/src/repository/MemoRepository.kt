@@ -104,6 +104,8 @@ interface MemoSearchRepository {
     fun getMemosByTagPagingSource(selection: TagSelection): PagingSource<String, Memo>
 
     fun searchPagingSource(query: String, mode: MemoSearchMode, filter: MemoListFilter): PagingSource<String, Memo>
+
+    suspend fun warmupSearchIndex()
 }
 
 interface MemoStatisticsRepository {

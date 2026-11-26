@@ -105,45 +105,78 @@ mod tests {
         assert!(fs::metadata(&wal).expect("reused WAL").len() <= max_retained_bytes);
     }
 
-    #[test]
-    fn v20_upgrade_removes_duplicate_search_text_and_preserves_rank_and_deletion() {
-        let root = tempdir().expect("projection root");
-        let database = lomo_store::database_path(root.path());
+    /*
+     * Test Change Justification:
+     * Reason category: Schema v22 cutover (SQLite FTS5 `memo_fts` retired in favor of lazy Tantivy).
+     * Old behavior/assertion being replaced: Queried raw `bm25(memo_fts)` SQL after upgrading a v20 DB.
+     * Why old assertion is no longer correct: Schema v22 drops `memo_fts` and `memo.search_content`,
+     *   installs `search_changelog` triggers + `search_generation`, and serves fulltext search from
+     *   Tantivy rebuilt lazily from `memo`.
+     * Coverage preserved by: Verifying `memo_fts` and `memo.search_content` are removed on upgrade,
+     *   `search_changelog` + `search_generation` exist, and Tantivy returns/ranks all surviving rows
+     *   including after `memo` deletion.
+     * Why this is not fitting the test to the implementation: Proves real legacy v20 upgrade and search
+     *   continuity rather than retaining deleted SQLite FTS5 tables.
+     */
+    fn seed_legacy_v20_fts_db(database: &Path) {
         std::fs::create_dir_all(database.parent().expect("database directory"))
             .expect("create legacy directory");
         let legacy = Connection::open(database).expect("open legacy database");
         legacy
             .execute_batch(
                 "CREATE TABLE memo(
-                    rowid INTEGER PRIMARY KEY, memo_id TEXT NOT NULL, body TEXT,
-                    search_content TEXT NOT NULL DEFAULT '', pending_operation_id TEXT
+                    rowid INTEGER PRIMARY KEY, memo_id TEXT NOT NULL UNIQUE,
+                    source_path TEXT NOT NULL DEFAULT '2026_09_01.md',
+                    time_part TEXT NOT NULL DEFAULT '10:00:00',
+                    file_fingerprint TEXT NOT NULL DEFAULT 'fp',
+                    has_todo INTEGER NOT NULL DEFAULT 0,
+                    has_url INTEGER NOT NULL DEFAULT 0,
+                    has_attachment INTEGER NOT NULL DEFAULT 0,
+                    is_pinned INTEGER NOT NULL DEFAULT 0,
+                    is_trashed INTEGER NOT NULL DEFAULT 0,
+                    created_at_ms INTEGER NOT NULL DEFAULT 1000,
+                    updated_at_ms INTEGER NOT NULL DEFAULT 1000,
+                    body_preview TEXT NOT NULL DEFAULT '',
+                    body TEXT,
+                    word_count INTEGER NOT NULL DEFAULT 0,
+                    char_count INTEGER NOT NULL DEFAULT 0,
+                    reminders_json TEXT NOT NULL DEFAULT '[]',
+                    image_urls_json TEXT NOT NULL DEFAULT '[]',
+                    content_revision INTEGER NOT NULL DEFAULT 1,
+                    search_content TEXT NOT NULL DEFAULT '',
+                    pending_operation_id TEXT
                  );
+                 CREATE TABLE tag(id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL UNIQUE);
+                 CREATE TABLE memo_tag(
+                    memo_id TEXT NOT NULL REFERENCES memo(memo_id) ON DELETE CASCADE,
+                    tag_id INTEGER NOT NULL REFERENCES tag(id) ON DELETE CASCADE,
+                    PRIMARY KEY (memo_id, tag_id)
+                 );
+                 CREATE TABLE store_meta(key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
+                 INSERT INTO store_meta(key, value) VALUES
+                    ('high_water_revision', '3'),
+                    ('event_sequence', '3');
                  CREATE VIRTUAL TABLE memo_fts USING fts5(
                     search_content, content='memo', content_rowid='rowid', tokenize='unicode61'
                  );
-                 INSERT INTO memo VALUES
-                    (1,'both','你好 needle needle','你 好 你好 needle needle',NULL),
-                    (2,'other','one needle','one needle',NULL),
-                    (3,'unindexed','needle','needle',NULL);
+                 INSERT INTO memo(rowid, memo_id, body_preview, body, search_content, pending_operation_id) VALUES
+                    (1,'both','你好 needle needle needle','你好 needle needle needle','你 好 你好 needle needle needle',NULL),
+                    (2,'other','one needle','one needle','one needle',NULL),
+                    (3,'unindexed','alpha beta needle','alpha beta needle','alpha beta needle',NULL);
                  INSERT INTO memo_fts(rowid, search_content)
                     SELECT rowid, search_content FROM memo WHERE rowid < 3;
                  PRAGMA user_version = 20;",
             )
             .expect("seed v20 projection and FTS");
-        let ranks = |connection: &Connection| {
-            connection
-                .prepare("SELECT rowid, bm25(memo_fts) FROM memo_fts WHERE memo_fts MATCH 'needle' ORDER BY 2,1")
-                .expect("ranked query")
-                .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?.to_bits())))
-                .expect("fetch ranked matches")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("decode ranks")
-        };
-        let before = ranks(&legacy);
-        drop(legacy);
+    }
+
+    #[test]
+    fn v20_upgrade_removes_duplicate_search_text_and_migrates_search_to_tantivy() {
+        let root = tempdir().expect("projection root");
+        let database = lomo_store::database_path(root.path());
+        seed_legacy_v20_fts_db(&database);
 
         let upgraded = open_store(root.path()).expect("upgrade projection");
-        assert_eq!(ranks(&upgraded.connection), before);
         let duplicated_columns: i64 = upgraded
             .connection
             .query_row(
@@ -153,12 +186,69 @@ mod tests {
             )
             .expect("inspect migrated memo table");
         assert_eq!(duplicated_columns, 0);
-        upgraded
+        let fts_tables: i64 = upgraded
             .connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='memo_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("inspect sqlite_master for memo_fts");
+        assert_eq!(fts_tables, 0);
+        let changelog_tables: i64 = upgraded
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='search_changelog'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("inspect sqlite_master for search_changelog");
+        assert_eq!(changelog_tables, 1);
+        drop(upgraded);
+
+        let store = Store::open(root.path()).expect("open upgraded store");
+        let page = store
+            .query_memos(
+                &lomo_store::MemoQuery {
+                    search_text: Some("needle".to_owned()),
+                    filters: lomo_store::MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
+                },
+                None,
+                lomo_core::PageSize::new(10).expect("page"),
+            )
+            .expect("tantivy search after v20->v22 upgrade");
+        assert_eq!(page.items.len(), 3);
+        assert_eq!(
+            page.items.first().map(|item| item.memo_id.as_str()),
+            Some("both")
+        );
+
+        drop(store);
+        let raw = open_store(root.path()).expect("reopen raw connection");
+        raw.connection
             .execute("DELETE FROM memo WHERE memo_id='both'", [])
-            .expect("delete ranked memo");
-        let remaining = ranks(&upgraded.connection);
-        assert_eq!(remaining.iter().map(|(id, _)| *id).collect::<Vec<_>>(), [2]);
+            .expect("delete ranked memo via changelog trigger");
+        drop(raw);
+
+        let reopened = Store::open(root.path()).expect("reopen upgraded store");
+        let remaining = reopened
+            .query_memos(
+                &lomo_store::MemoQuery {
+                    search_text: Some("needle".to_owned()),
+                    filters: lomo_store::MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
+                },
+                None,
+                lomo_core::PageSize::new(10).expect("page"),
+            )
+            .expect("tantivy incremental sync after delete");
+        let remaining_ids: Vec<&str> = remaining
+            .items
+            .iter()
+            .map(|item| item.memo_id.as_str())
+            .collect();
+        assert_eq!(remaining_ids, vec!["other", "unindexed"]);
     }
 
     #[test]

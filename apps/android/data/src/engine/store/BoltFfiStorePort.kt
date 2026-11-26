@@ -49,23 +49,7 @@ internal class BoltFfiStorePort(
                     searchText = query.searchText,
                     filters =
                     query.filters.toNativeFilters(),
-                    sort =
-                    BridgeMemoSort(
-                        seed = query.sort.seed,
-                        timeZone = query.sort.timeZone,
-                        field =
-                        when (query.sort.field) {
-                            StoreMemoSortField.CreatedAt -> BridgeMemoSortField.CREATED_AT
-                            StoreMemoSortField.UpdatedAt -> BridgeMemoSortField.UPDATED_AT
-                            StoreMemoSortField.ReviewMonth -> BridgeMemoSortField.REVIEW_MONTH
-                            StoreMemoSortField.ReviewRandom -> BridgeMemoSortField.REVIEW_RANDOM
-                        },
-                        direction =
-                        when (query.sort.direction) {
-                            StoreSortDirection.Ascending -> BridgeSortDirection.ASCENDING
-                            StoreSortDirection.Descending -> BridgeSortDirection.DESCENDING
-                        },
-                    ),
+                    sort = query.sort.toNativeSort(),
                     boundary =
                     query.boundary?.let { boundary ->
                         BridgeMemoQueryBoundary(
@@ -473,6 +457,23 @@ internal fun ULong.toStoreLong(field: String): Long {
     require(this <= Long.MAX_VALUE.toULong()) { "$field exceeds the Kotlin signed revision range" }
     return toLong()
 }
+
+internal fun StoreMemoSort.toNativeSort(): BridgeMemoSort = BridgeMemoSort(
+    seed = seed,
+    timeZone = timeZone,
+    field =
+    when (field) {
+        StoreMemoSortField.CreatedAt -> BridgeMemoSortField.CREATED_AT
+        StoreMemoSortField.UpdatedAt -> BridgeMemoSortField.UPDATED_AT
+        StoreMemoSortField.ReviewMonth -> BridgeMemoSortField.REVIEW_MONTH
+        StoreMemoSortField.ReviewRandom -> BridgeMemoSortField.REVIEW_RANDOM
+    },
+    direction =
+    when (direction) {
+        StoreSortDirection.Ascending -> BridgeSortDirection.ASCENDING
+        StoreSortDirection.Descending -> BridgeSortDirection.DESCENDING
+    },
+)
 
 private fun Long.toSidebarCount(field: String): Int {
     require(this in 0..Int.MAX_VALUE.toLong()) { "$field is outside the Kotlin count range" }

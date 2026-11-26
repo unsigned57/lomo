@@ -84,10 +84,13 @@ internal suspend fun EnginePerfProbe.search(intent: Intent, run: String): JSONOb
             session.sessionSearch(
                 SessionSearchRequest(
                     filters = EMPTY_FILTERS,
+                    sort = EMPTY_SORT,
                     queryEpoch = startEpoch + index.toULong(),
                     mode = SessionSearchMode.FUZZY,
                     text = text,
                     cursor = null,
+                    anchor = null,
+                    backward = false,
                     pageSize = DEFAULT_PAGE_SIZE.toUInt(),
                 ),
             )
@@ -307,10 +310,13 @@ internal fun EnginePerfProbe.resolveNextSearchEpoch(text: String, pageSize: Int)
         session.sessionSearch(
             SessionSearchRequest(
                 filters = EMPTY_FILTERS,
+                sort = EMPTY_SORT,
                 queryEpoch = 1uL,
                 mode = SessionSearchMode.FUZZY,
                 text = text,
                 cursor = null,
+                anchor = null,
+                backward = false,
                 pageSize = pageSize.toUInt(),
             ),
         )

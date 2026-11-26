@@ -505,36 +505,34 @@ internal class StoreMemoSearchRepository(
         query: String,
         mode: MemoSearchMode,
         filter: MemoListFilter,
-    ): PagingSource<String, Memo> = when (mode) {
-        MemoSearchMode.Fulltext ->
-            StorePagingSource(
-                port = port,
-                query = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery(),
-                dispatcherProvider = dispatcherProvider,
-                previewPrefetcher = previewCache?.let { cache -> { memos -> cache.prefetchLeadingWindow(memos) } },
-                registerInvalidation = { source ->
-                    invalidation.register(source)
-                },
-            )
+    ): PagingSource<String, Memo> {
+        val storeQuery = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery()
+        val epoch = searchEpoch.incrementAndGet().toULong()
+        val epochStillCurrent = { searchEpoch.get().toULong() == epoch }
+        return SessionSearchPagingSource(
+            session = session,
+            mode = mode,
+            filters = storeQuery.filters,
+            sort = storeQuery.sort,
+            queryEpoch = epoch,
+            text = query,
+            dispatcherProvider = dispatcherProvider,
+            previewPrefetcher =
+            previewCache?.let { cache ->
+                { memos -> cache.prefetchLeadingWindow(memos = memos, isStillValid = epochStillCurrent) }
+            },
+            isEpochCurrent = epochStillCurrent,
+            registerInvalidation = { source ->
+                invalidation.register(source)
+            },
+        )
+    }
 
-        MemoSearchMode.Fuzzy -> {
-            val epoch = searchEpoch.incrementAndGet().toULong()
-            val epochStillCurrent = { searchEpoch.get().toULong() == epoch }
-            SessionSearchPagingSource(
-                session = session,
-                filters = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery().filters,
-                queryEpoch = epoch,
-                text = query,
-                dispatcherProvider = dispatcherProvider,
-                previewPrefetcher =
-                previewCache?.let { cache ->
-                    { memos -> cache.prefetchLeadingWindow(memos = memos, isStillValid = epochStillCurrent) }
-                },
-                isEpochCurrent = epochStillCurrent,
-                registerInvalidation = { source ->
-                    invalidation.register(source)
-                },
-            )
+    override suspend fun warmupSearchIndex() {
+        kotlinx.coroutines.withContext(dispatcherProvider.io) {
+            com.lomo.data.engine.withEngineFailureConversion {
+                session.sessionWarmupSearchIndex()
+            }
         }
     }
 }

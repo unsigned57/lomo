@@ -172,6 +172,8 @@ class SearchMemosPageUseCaseTest : DomainFunSpec() {
             return RecordingPagingSource(rows = searchPage, loads = searchLoads)
         }
 
+        override suspend fun warmupSearchIndex() = Unit
+
         data class SearchCall(val query: String, val mode: MemoSearchMode, val filter: MemoListFilter)
 
         data class SearchLoad(val key: String?, val loadSize: Int)

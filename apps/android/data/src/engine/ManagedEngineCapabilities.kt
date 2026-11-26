@@ -285,6 +285,10 @@ internal abstract class ManagedEngineCapabilities :
         request: com.lomo.nativebridge.SessionSearchRequest,
     ): com.lomo.nativebridge.SessionSearchOutcome = withProjectionAdapter { adapter -> adapter.sessionSearch(request) }
 
+    override fun sessionWarmupSearchIndex() {
+        withProjectionAdapter { adapter -> adapter.sessionWarmupSearchIndex() }
+    }
+
     override fun sessionListTasks(): List<com.lomo.nativebridge.SessionTaskItem> =
         withProjectionAdapter { adapter -> adapter.sessionListTasks() }
 

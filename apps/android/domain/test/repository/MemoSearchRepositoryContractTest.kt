@@ -54,6 +54,14 @@ class MemoSearchRepositoryContractTest : DomainFunSpec() {
             withClue("MemoSearchRepository.searchPagingSource must not have a default fallback") {
                 Modifier.isAbstract(searchMethod.modifiers) shouldBe true
             }
+
+            val warmupMethod =
+                checkNotNull(methodsByName["warmupSearchIndex"]) {
+                    "Missing MemoSearchRepository.warmupSearchIndex"
+                }
+            withClue("MemoSearchRepository.warmupSearchIndex must not have a default fallback") {
+                Modifier.isAbstract(warmupMethod.modifiers) shouldBe true
+            }
         }
     }
 }

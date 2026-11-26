@@ -1,23 +1,39 @@
 //! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 21;
+pub const STORE_SCHEMA_VERSION: u32 = 22;
 
 pub const EXTERNAL_CONTENT_SCHEMA_VERSION: u32 = 20;
 
-pub const CONTENTLESS_FTS_DDL: &str = r"
-CREATE VIRTUAL TABLE memo_fts USING fts5(
-    search_content,
-    content='',
-    contentless_delete=1,
-    tokenize='unicode61'
+/// Transactional search-changelog table and triggers that record dirty `memo_id` values
+/// inside every SQLite projection mutation without touching Tantivy at write time.
+pub const SEARCH_CHANGELOG_DDL: &str = r"
+CREATE TABLE IF NOT EXISTS search_changelog (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    memo_id TEXT NOT NULL
 );
-CREATE TRIGGER memo_fts_delete AFTER DELETE ON memo BEGIN
-    DELETE FROM memo_fts WHERE rowid=OLD.rowid;
-END;";
+CREATE TRIGGER IF NOT EXISTS memo_search_changelog_insert AFTER INSERT ON memo BEGIN
+    INSERT INTO search_changelog(memo_id) VALUES (NEW.memo_id);
+END;
+CREATE TRIGGER IF NOT EXISTS memo_search_changelog_delete AFTER DELETE ON memo BEGIN
+    INSERT INTO search_changelog(memo_id) VALUES (OLD.memo_id);
+END;
+CREATE TRIGGER IF NOT EXISTS memo_search_changelog_update AFTER UPDATE OF
+    source_path, has_todo, has_url, has_attachment,
+    is_pinned, is_trashed, created_at_ms, updated_at_ms, body, pending_operation_id
+ON memo BEGIN
+    INSERT INTO search_changelog(memo_id) VALUES (NEW.memo_id);
+END;
+CREATE TRIGGER IF NOT EXISTS memo_tag_search_changelog_insert AFTER INSERT ON memo_tag BEGIN
+    INSERT INTO search_changelog(memo_id) VALUES (NEW.memo_id);
+END;
+CREATE TRIGGER IF NOT EXISTS memo_tag_search_changelog_delete AFTER DELETE ON memo_tag BEGIN
+    INSERT INTO search_changelog(memo_id) VALUES (OLD.memo_id);
+END;
+";
 
-/// Tokenizer version embedded in FTS projections and `PageCursor`.
-pub const TOKENIZER_VERSION: u32 = 1;
+/// Tokenizer version embedded in Tantivy watermarks and `PageCursor`.
+pub const TOKENIZER_VERSION: u32 = 2;
 
 /// Default busy timeout applied on every open.
 pub const BUSY_TIMEOUT_MS: u32 = 5_000;
@@ -40,6 +56,7 @@ pub mod tables {
     pub const FILE_LISTING: &str = "file_listing";
     pub const HISTORY_ATTACHMENT_REF: &str = "history_attachment_ref";
     pub const PURGED_MEMO: &str = "purged_memo";
+    pub const SEARCH_CHANGELOG: &str = "search_changelog";
 }
 
 /// Full live schema DDL applied on create (and rebuild temp databases).
@@ -107,8 +124,6 @@ CREATE TABLE {memo_trash} (
     -- certify as unchanged under a stable claimed fingerprint.
     record_digest TEXT NOT NULL DEFAULT ''
 );
-
-{fts_ddl}
 
 CREATE TABLE {revision_index} (
     memo_id TEXT NOT NULL,
@@ -222,7 +237,6 @@ INSERT INTO {store_meta}(key, value) VALUES
         attachment_ref = tables::ATTACHMENT_REF,
         memo_pin = tables::MEMO_PIN,
         memo_trash = tables::MEMO_TRASH,
-        fts_ddl = CONTENTLESS_FTS_DDL,
         revision_index = tables::REVISION_INDEX,
         stats = tables::STATS,
         rebuild_checkpoint = tables::REBUILD_CHECKPOINT,
@@ -236,6 +250,7 @@ INSERT INTO {store_meta}(key, value) VALUES
         tokenizer_version = TOKENIZER_VERSION,
     ) + INCREMENTAL_STATS_DDL
         + MIGRATE_V16_TO_V17_DDL
+        + SEARCH_CHANGELOG_DDL
 }
 
 /// Additive v1 -> v2 migration for durable SAF projection mutation replay.
@@ -490,4 +505,13 @@ DELETE FROM store_meta
 WHERE key = 'workspace_listing_digest'
   AND EXISTS(SELECT 1 FROM memo WHERE time_part = '');
 PRAGMA user_version = 20;
+";
+
+/// Additive v21 -> v22 migration: retire SQLite `memo_fts` in favor of lazy Tantivy search
+/// backed by transactional `search_changelog` triggers and `search_generation` in `store_meta`.
+pub const MIGRATE_V21_TO_V22_DDL: &str = r"
+DROP TRIGGER IF EXISTS memo_fts_delete;
+DROP TABLE IF EXISTS memo_fts;
+INSERT OR REPLACE INTO store_meta(key, value) VALUES ('tokenizer_version', '2');
+PRAGMA user_version = 22;
 ";

@@ -263,8 +263,11 @@ mod tests {
             .expect_err("tokenizer mismatch");
         assert_eq!(err.code(), "stale_cursor");
 
-        let plan = lomo_store::query_plan("hello world").expect("plan");
-        let fp = lomo_store::fingerprint_plan(&plan, "filters");
+        let fp = lomo_store::fingerprint_query(
+            Some("hello world"),
+            "filters",
+            lomo_store::TOKENIZER_VERSION,
+        );
         assert_ne!(fp, "");
         assert_ne!(fp, cursor.query_fingerprint);
     }

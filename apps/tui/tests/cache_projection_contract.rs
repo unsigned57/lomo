@@ -1463,8 +1463,10 @@ mod tests {
                     mode,
                     text: text.to_owned(),
                     filters: lomo_application::MemoFilters::default(),
+                    sort: lomo_application::MemoSort::default(),
                     cursor: None,
                     anchor: None,
+                    backward: false,
                     page_size: lomo_core::PageSize::new(48)
                         .expect("fixture and operation must succeed"),
                 })

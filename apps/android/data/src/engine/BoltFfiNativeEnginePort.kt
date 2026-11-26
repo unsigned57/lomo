@@ -265,6 +265,10 @@ internal class BoltFfiNativeEnginePort(engine: LomoEngine) :
         request: com.lomo.nativebridge.SessionSearchRequest,
     ): com.lomo.nativebridge.SessionSearchOutcome = withReadLease { engine -> engine.sessionSearch(request) }
 
+    override fun sessionWarmupSearchIndex() {
+        withReadLease { engine -> engine.sessionWarmupSearchIndex() }
+    }
+
     override fun sessionListTasks(): List<com.lomo.nativebridge.SessionTaskItem> =
         withReadLease { engine -> engine.sessionListTasks() }
 

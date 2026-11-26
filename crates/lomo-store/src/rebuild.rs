@@ -17,7 +17,6 @@ use crate::error::{busy, conflict, corruption, from_sqlite, storage, validation}
 use crate::lomo_format::{MemoCommandKind, WorkspaceLayout};
 use crate::open::{SQLITE_DIR_NAME, create_schema_db, database_path};
 use crate::purge::list_purged_memo_ids;
-use crate::tokenizer::index_tokens;
 use crate::transaction::{WriteGate, memo_command_scopes};
 use lomo_workspace::{
     TrashRecordV1, canonical_attachment_keys, decode_trash_record, trash_record_relative_path,
@@ -1643,7 +1642,7 @@ fn insert_pending_memo_row(
             ],
         )
         .map_err(|error| from_sqlite(&error))?;
-    put_search_index(transaction, transaction.last_insert_rowid(), &begin.body)
+    Ok(())
 }
 
 /// Removes a pending SAF create using an already-open projection connection.
@@ -1791,7 +1790,7 @@ fn upsert_saf_projection(
     let reminders_json = serde_json::to_string(&projection.reminders)
         .map_err(|error| validation("invalid_reminder_projection", &error.to_string()))?;
     let image_urls_json = project_image_urls_json(&projection.body)?;
-    let rowid = if let Some(rowid) = existing {
+    if existing.is_some() {
         connection
             .execute(
                 "UPDATE memo SET source_path=?1,time_part=?2,file_fingerprint=?3,has_todo=?4,has_url=?5,has_attachment=?6,updated_at_ms=?7,body_preview=?8,body=?9,word_count=?10,char_count=?11,content_revision=?12,reminders_json=?13,image_urls_json=?14,is_trashed=0 WHERE memo_id=?15",
@@ -1814,7 +1813,6 @@ fn upsert_saf_projection(
                 ],
             )
             .map_err(|error| from_sqlite(&error))?;
-        rowid
     } else {
         connection
             .execute(
@@ -1838,9 +1836,7 @@ fn upsert_saf_projection(
                 ],
             )
             .map_err(|error| from_sqlite(&error))?;
-        connection.last_insert_rowid()
-    };
-    put_search_index(connection, rowid, &projection.body)?;
+    }
     connection
         .execute(
             "DELETE FROM memo_tag WHERE memo_id = ?1",
@@ -3126,19 +3122,6 @@ pub fn run_rebuild(
     if checkpoint.phase == RebuildPhase::Integrity {
         let conn = open_temp_existing(&temp_db)?;
         ensure_quick_check(&conn, "temp")?;
-        // FTS count should not exceed memo count.
-        let memo_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM memo", [], |row| row.get(0))
-            .map_err(|err| from_sqlite(&err))?;
-        let fts_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM memo_fts", [], |row| row.get(0))
-            .map_err(|err| from_sqlite(&err))?;
-        if fts_count > memo_count {
-            return Err(corruption(
-                "rebuild_fts_mismatch",
-                "FTS row count exceeds memo count",
-            ));
-        }
         drop(conn);
         checkpoint.phase = RebuildPhase::Compare;
         save_checkpoint(&checkpoint_path, &checkpoint)?;
@@ -4269,20 +4252,6 @@ fn index_memo_file(conn: &Connection, path: &Path) -> Result<(), lomo_core::Lomo
     )
 }
 
-fn put_search_index(
-    connection: &Connection,
-    rowid: i64,
-    body: &str,
-) -> Result<(), lomo_core::LomoError> {
-    connection
-        .execute(
-            "INSERT OR REPLACE INTO memo_fts(rowid, search_content) VALUES(?1, ?2)",
-            params![rowid, index_tokens(body)],
-        )
-        .map_err(|error| from_sqlite(&error))?;
-    Ok(())
-}
-
 fn index_scanned_memo(
     conn: &Connection,
     memo: &ScannedMemoProjection,
@@ -4342,7 +4311,6 @@ fn index_scanned_memo_with_lifecycle(
         ],
     )
     .map_err(|err| from_sqlite(&err))?;
-    put_search_index(conn, conn.last_insert_rowid(), &memo.body)?;
     for tag in &memo.tags {
         rehydrate_tag(conn, &memo.memo_id, tag)?;
     }

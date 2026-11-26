@@ -1,4 +1,4 @@
-//! `query_memos` + filters + bm25/tie-breaker + stats.
+//! `query_memos` + filters + keyset tie-breaker + hydration + stats.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -6,16 +6,15 @@ use std::path::Path;
 use rusqlite::functions::FunctionFlags;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
-use sha2::{Digest, Sha256};
 
 use lomo_core::PageSize;
 use lomo_workspace::{decode_trash_record, trash_record_relative_path};
 
 use crate::content_facts::fingerprint_content;
 use crate::cursor::{PageCursor, fingerprint_query};
-use crate::error::{corruption, from_sqlite, storage, validation};
+use crate::error::{conflict, corruption, from_sqlite, storage, validation};
 use crate::schema::TOKENIZER_VERSION;
-use crate::tokenizer::{QueryPlan, Tokenizer, UnicodeTokenizer};
+use crate::search::collector::{RankedDocKey, review_month, review_random_key, review_time_zone};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TagSelectionMode {
@@ -60,14 +59,14 @@ impl Default for MemoSort {
 }
 
 impl MemoSort {
-    const fn is_review(&self) -> bool {
+    pub(crate) const fn is_review(&self) -> bool {
         matches!(
             self.field,
             MemoSortField::ReviewMonth | MemoSortField::ReviewRandom
         )
     }
 
-    fn fingerprint(&self) -> String {
+    pub(crate) fn fingerprint(&self) -> String {
         match (self.field, self.direction) {
             (MemoSortField::CreatedAt, SortDirection::Ascending) => "created_at:asc".to_owned(),
             (MemoSortField::CreatedAt, SortDirection::Descending) => "created_at:desc".to_owned(),
@@ -128,59 +127,6 @@ impl MemoSort {
             "m.created_at_ms".to_owned()
         }
     }
-}
-
-fn review_random_key(memo_id: &str, seed: i64) -> i64 {
-    let mut hash = Sha256::new();
-    hash.update(b"lomo-review-v1");
-    hash.update(seed.to_be_bytes());
-    hash.update(memo_id.as_bytes());
-    let bytes: [u8; 32] = hash.finalize().into();
-    let [
-        first,
-        second,
-        third,
-        fourth,
-        fifth,
-        sixth,
-        seventh,
-        eighth,
-        ..,
-    ] = bytes;
-    i64::from_be_bytes([first, second, third, fourth, fifth, sixth, seventh, eighth])
-}
-
-fn review_time_zone(name: &str) -> Result<jiff::tz::TimeZone, lomo_core::LomoError> {
-    if matches!(
-        name,
-        "Z" | "UT"
-            | "UTC"
-            | "GMT"
-            | "GMT0"
-            | "UCT"
-            | "Etc/UTC"
-            | "Etc/GMT"
-            | "Etc/GMT+0"
-            | "Etc/GMT-0"
-            | "Etc/GMT0"
-    ) {
-        return Ok(jiff::tz::TimeZone::UTC);
-    }
-    let normalized = ["UTC", "GMT", "UT"]
-        .into_iter()
-        .find_map(|prefix| name.strip_prefix(prefix))
-        .filter(|tail| tail.starts_with(['+', '-']))
-        .unwrap_or(name);
-    jiff::fmt::temporal::DateTimeParser::new()
-        .parse_time_zone(normalized)
-        .map_err(|error| validation("invalid_review_time_zone", &error.to_string()))
-}
-
-fn review_month(timestamp_ms: i64, zone: &jiff::tz::TimeZone) -> Result<i64, lomo_core::LomoError> {
-    let timestamp = jiff::Timestamp::from_millisecond(timestamp_ms)
-        .map_err(|error| validation("invalid_review_timestamp", &error.to_string()))?;
-    let date = timestamp.to_zoned(zone.clone()).date();
-    Ok(i64::from(date.year()) * 12 + i64::from(date.month()))
 }
 
 fn register_review_functions(
@@ -264,7 +210,7 @@ pub struct MemoQueryBoundary {
 }
 
 impl MemoQueryBoundary {
-    fn validate(&self) -> Result<(), lomo_core::LomoError> {
+    pub(crate) fn validate(&self) -> Result<(), lomo_core::LomoError> {
         if self.sort_memo_id.trim().is_empty() || self.sort_memo_id.len() > 512 {
             return Err(validation(
                 "invalid_query_boundary",
@@ -274,7 +220,7 @@ impl MemoQueryBoundary {
         Ok(())
     }
 
-    fn fingerprint(&self) -> String {
+    pub(crate) fn fingerprint(&self) -> String {
         format!(
             "pin={}|primary={}|created={}|id={}",
             self.sort_pinned, self.sort_primary_ms, self.sort_created_at_ms, self.sort_memo_id
@@ -451,16 +397,15 @@ pub fn query_memos_starting_at(
     page_size: PageSize,
     high_water_revision: u64,
 ) -> Result<MemoPage, lomo_core::LomoError> {
+    reject_search_text(query)?;
     if let Some(boundary) = boundary {
         boundary.validate()?;
     }
     register_review_functions(connection, &query.sort)?;
-    let plan = query_plan_for(query)?;
-    let query_fingerprint = fingerprint_for(query, &plan, boundary);
+    let query_fingerprint = fingerprint_for(query, boundary);
     let resolved = resolve_start(
         connection,
         query,
-        &plan,
         boundary,
         start,
         &query_fingerprint,
@@ -469,46 +414,42 @@ pub fn query_memos_starting_at(
     let mut items = query_summary_items(
         connection,
         query,
-        &plan,
         boundary,
         &resolved,
         i64::from(page_size.get()),
     )?;
 
     attach_tags(connection, &mut items)?;
-    let total = count_rows(connection, query, &plan, boundary, None)?;
-    let (items_before, items_after) = page_ranks(
-        connection,
-        query,
-        &plan,
-        boundary,
-        resolved.kind,
-        &items,
-        total,
-    )?;
+    let total = count_rows(connection, query, boundary, None)?;
+    let (items_before, items_after) =
+        page_ranks(connection, query, boundary, resolved.kind, &items, total)?;
+    query_memo_page_tail(
+        items,
+        items_before,
+        items_after,
+        &query.sort,
+        query_fingerprint,
+        high_water_revision,
+    )
+}
+
+pub fn query_memo_page_tail(
+    items: Vec<MemoSummary>,
+    items_before: u64,
+    items_after: u64,
+    sort: &MemoSort,
+    query_fingerprint: String,
+    high_water_revision: u64,
+) -> Result<MemoPage, lomo_core::LomoError> {
     let prev_cursor = items
         .first()
         .filter(|_| items_before > 0)
-        .map(|first| {
-            page_cursor_for(
-                first,
-                &query.sort,
-                query_fingerprint.clone(),
-                high_water_revision,
-            )
-        })
+        .map(|first| page_cursor_for(first, sort, query_fingerprint.clone(), high_water_revision))
         .transpose()?;
     let next_cursor = items
         .last()
         .filter(|_| items_after > 0)
-        .map(|last| {
-            page_cursor_for(
-                last,
-                &query.sort,
-                query_fingerprint.clone(),
-                high_water_revision,
-            )
-        })
+        .map(|last| page_cursor_for(last, sort, query_fingerprint.clone(), high_water_revision))
         .transpose()?;
 
     Ok(MemoPage {
@@ -529,21 +470,13 @@ pub fn query_memo_walk_page(
     page_size: PageSize,
     revision: u64,
 ) -> Result<(Vec<MemoSummary>, Option<PageCursor>), lomo_core::LomoError> {
+    reject_search_text(query)?;
     register_review_functions(connection, &query.sort)?;
-    let plan = query_plan_for(query)?;
-    let fingerprint = fingerprint_for(query, &plan, None);
+    let fingerprint = fingerprint_for(query, None);
     let start = cursor.map_or(MemoQueryStart::Head, MemoQueryStart::After);
-    let resolved = resolve_start(
-        connection,
-        query,
-        &plan,
-        None,
-        start,
-        &fingerprint,
-        revision,
-    )?;
+    let resolved = resolve_start(connection, query, None, start, &fingerprint, revision)?;
     let limit = i64::from(page_size.get());
-    let mut items = query_summary_items(connection, query, &plan, None, &resolved, limit + 1)?;
+    let mut items = query_summary_items(connection, query, None, &resolved, limit + 1)?;
     let next_cursor = if items.len()
         > usize::try_from(limit)
             .map_err(|error| validation("invalid_page_size", &error.to_string()))?
@@ -560,24 +493,70 @@ pub fn query_memo_walk_page(
     Ok((items, next_cursor))
 }
 
+/// Hydrates full SQLite `MemoSummary` projections for an ordered page of Tantivy `RankedDocKey`s.
+pub fn hydrate_summaries_in_order(
+    connection: &Connection,
+    ranked: &[RankedDocKey],
+    has_query: bool,
+) -> Result<Vec<MemoSummary>, lomo_core::LomoError> {
+    if ranked.is_empty() {
+        return Ok(Vec::new());
+    }
+    let memo_ids: Vec<&str> = ranked.iter().map(|key| key.memo_id.as_str()).collect();
+    let ids_json = serde_json::to_string(&memo_ids).map_err(|error| {
+        corruption(
+            "invalid_memo_id_batch",
+            &format!("cannot encode Tantivy memo id batch: {error}"),
+        )
+    })?;
+    let mut statement = connection
+        .prepare(
+            "SELECT m.memo_id, m.source_path, m.file_fingerprint, m.updated_at_ms, m.created_at_ms, \
+             m.has_todo, m.has_url, m.has_attachment, \
+             m.is_pinned, m.is_trashed, \
+             m.body_preview, m.content_revision, NULL AS rank, m.reminders_json, \
+             m.pending_operation_id IS NOT NULL, m.char_count, m.time_part, m.image_urls_json \
+             FROM memo m \
+             WHERE m.memo_id IN (SELECT value FROM json_each(?1))",
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map(params![ids_json], |row| Ok(memo_summary_from_row(row)))
+        .map_err(|error| from_sqlite(&error))?;
+    let mut by_id: BTreeMap<String, MemoSummary> = BTreeMap::new();
+    for row in rows {
+        let summary = row.map_err(|error| from_sqlite(&error))??;
+        let _prev = by_id.insert(summary.memo_id.clone(), summary);
+    }
+
+    let mut ordered = Vec::with_capacity(ranked.len());
+    for key in ranked {
+        let mut summary = by_id.remove(&key.memo_id).ok_or_else(|| {
+            conflict(
+                "stale_snapshot",
+                "search result disappeared from aligned SQLite snapshot",
+            )
+        })?;
+        summary.rank = if has_query { key.rank } else { None };
+        ordered.push(summary);
+    }
+    attach_tags(connection, &mut ordered)?;
+    Ok(ordered)
+}
+
 fn query_summary_items(
     connection: &Connection,
     query: &MemoQuery,
-    plan: &QueryPlan,
     boundary: Option<&MemoQueryBoundary>,
     resolved: &ResolvedStart,
     limit: i64,
 ) -> Result<Vec<MemoSummary>, lomo_core::LomoError> {
-    let use_fts = plan.match_expr.is_some();
-    let cursor_rank = if let Some(cursor) = resolved.cursor.as_ref() {
-        cursor.validated_sort_rank(use_fts)?
-    } else {
-        None
-    };
+    if let Some(cursor) = resolved.cursor.as_ref() {
+        let _rank = cursor.validated_sort_rank(false)?;
+    }
 
-    let (sql, bind_search) = build_sql(
+    let sql = build_sql(
         query,
-        plan,
         boundary,
         resolved
             .cursor
@@ -586,15 +565,7 @@ fn query_summary_items(
         resolved.invert,
     )?;
     let mut stmt = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
-    let bindings = bind_query(
-        query,
-        bind_search,
-        boundary,
-        resolved.cursor.as_ref(),
-        use_fts,
-        cursor_rank,
-        Some(limit),
-    )?;
+    let bindings = bind_query(query, boundary, resolved.cursor.as_ref(), Some(limit));
     let mut rows = stmt
         .query(params_from_iter(bindings.iter()))
         .map_err(|err| from_sqlite(&err))?;
@@ -632,28 +603,28 @@ struct ResolvedStart {
     kind: ResolvedKind,
 }
 
-fn query_plan_for(query: &MemoQuery) -> Result<QueryPlan, lomo_core::LomoError> {
-    match query.search_text.as_deref() {
-        Some(text) if !text.trim().is_empty() => UnicodeTokenizer.query_plan(text),
-        _ => Ok(QueryPlan {
-            terms: Vec::new(),
-            match_expr: None,
-        }),
+fn reject_search_text(query: &MemoQuery) -> Result<(), lomo_core::LomoError> {
+    if query
+        .search_text
+        .as_deref()
+        .is_some_and(|text| !text.trim().is_empty())
+    {
+        return Err(validation(
+            "search_requires_store",
+            "search_text queries must run through Store or StoreReader",
+        ));
     }
+    Ok(())
 }
 
-fn fingerprint_for(
-    query: &MemoQuery,
-    plan: &QueryPlan,
-    boundary: Option<&MemoQueryBoundary>,
-) -> String {
+fn fingerprint_for(query: &MemoQuery, boundary: Option<&MemoQueryBoundary>) -> String {
     let filter_fp = format!(
         "{}|sort={}|boundary={}",
         query.filters.fingerprint(),
         query.sort.fingerprint(),
         boundary.map_or_else(|| "none".to_owned(), MemoQueryBoundary::fingerprint)
     );
-    fingerprint_query(plan.match_expr.as_deref(), &filter_fp, TOKENIZER_VERSION)
+    fingerprint_query(None, &filter_fp, TOKENIZER_VERSION)
 }
 
 fn page_cursor_for(
@@ -676,7 +647,6 @@ fn page_cursor_for(
 fn resolve_start(
     connection: &Connection,
     query: &MemoQuery,
-    plan: &QueryPlan,
     boundary: Option<&MemoQueryBoundary>,
     start: MemoQueryStart<'_>,
     query_fingerprint: &str,
@@ -708,7 +678,7 @@ fn resolve_start(
             })
         }
         MemoQueryStart::AtMemo(memo_id) => {
-            let Some(summary) = start_summary(connection, query, plan, boundary, memo_id)? else {
+            let Some(summary) = start_summary(connection, query, boundary, memo_id)? else {
                 return Ok(ResolvedStart {
                     cursor: None,
                     bound: CursorBound::ExclusiveAfter,
@@ -734,35 +704,26 @@ fn resolve_start(
 fn start_summary(
     connection: &Connection,
     query: &MemoQuery,
-    plan: &QueryPlan,
     boundary: Option<&MemoQueryBoundary>,
     memo_id: &str,
 ) -> Result<Option<MemoSummary>, lomo_core::LomoError> {
     let PredicateSql {
         where_sql,
-        match_expr,
         first_cursor_index,
-    } = predicate_sql(query, plan, boundary, None)?;
-    let use_fts = plan.match_expr.is_some();
+    } = predicate_sql(query, boundary, None)?;
     let memo_idx = first_cursor_index;
-    let rank_select = if use_fts {
-        "bm25(memo_fts) AS rank"
-    } else {
-        "NULL AS rank"
-    };
     let sql = format!(
         "SELECT m.memo_id, m.source_path, m.file_fingerprint, m.updated_at_ms, m.created_at_ms, \
          m.has_todo, m.has_url, m.has_attachment, \
          m.is_pinned, m.is_trashed, \
-         m.body_preview, m.content_revision, {rank_select}, m.reminders_json, \
+         m.body_preview, m.content_revision, NULL AS rank, m.reminders_json, \
          m.pending_operation_id IS NOT NULL, m.char_count, m.time_part, m.image_urls_json \
-         FROM {} \
+         FROM memo m \
          WHERE {where_sql} AND m.memo_id = ?{memo_idx} \
-         LIMIT 1",
-        from_sql(use_fts)
+         LIMIT 1"
     );
     let mut statement = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
-    let mut bindings = bind_query(query, match_expr, boundary, None, use_fts, None, None)?;
+    let mut bindings = bind_query(query, boundary, None, None);
     bindings.push(Value::Text(memo_id.to_owned()));
     let mut rows = statement
         .query(params_from_iter(bindings.iter()))
@@ -775,19 +736,13 @@ fn start_summary(
 
 fn bind_query(
     query: &MemoQuery,
-    bind_search: Option<String>,
     boundary: Option<&MemoQueryBoundary>,
     cursor: Option<&PageCursor>,
-    use_fts: bool,
-    cursor_rank: Option<f64>,
     limit: Option<i64>,
-) -> Result<Vec<Value>, lomo_core::LomoError> {
+) -> Vec<Value> {
     let mut bindings = Vec::new();
     if let Some(tag) = query.filters.tag.as_deref() {
         bindings.push(Value::Text(tag.to_owned()));
-    }
-    if let Some(match_expr) = bind_search {
-        bindings.push(Value::Text(match_expr));
     }
     if let Some(boundary) = boundary {
         bindings.push(Value::Integer(i64::from(boundary.sort_pinned)));
@@ -796,11 +751,6 @@ fn bind_query(
         bindings.push(Value::Text(boundary.sort_memo_id.clone()));
     }
     if let Some(cursor) = cursor {
-        if use_fts {
-            bindings.push(Value::Real(cursor_rank.ok_or_else(|| {
-                validation("invalid_page_cursor", "FTS page cursor must include rank")
-            })?));
-        }
         bindings.push(Value::Integer(i64::from(cursor.sort_pinned)));
         bindings.push(Value::Integer(cursor.sort_primary_ms));
         bindings.push(Value::Integer(cursor.sort_created_at_ms));
@@ -809,13 +759,12 @@ fn bind_query(
     if let Some(limit) = limit {
         bindings.push(Value::Integer(limit));
     }
-    Ok(bindings)
+    bindings
 }
 
 fn page_ranks(
     connection: &Connection,
     query: &MemoQuery,
-    plan: &QueryPlan,
     boundary: Option<&MemoQueryBoundary>,
     kind: ResolvedKind,
     items: &[MemoSummary],
@@ -829,7 +778,6 @@ fn page_ranks(
                 count_rows(
                     connection,
                     query,
-                    plan,
                     boundary,
                     Some((first, CursorBound::ExclusiveBefore)),
                 )?
@@ -854,11 +802,10 @@ fn page_ranks(
 fn count_rows(
     connection: &Connection,
     query: &MemoQuery,
-    plan: &QueryPlan,
     boundary: Option<&MemoQueryBoundary>,
     rank_of: Option<(&MemoSummary, CursorBound)>,
 ) -> Result<u64, lomo_core::LomoError> {
-    if boundary.is_none() && rank_of.is_none() && plan.match_expr.is_none() {
+    if boundary.is_none() && rank_of.is_none() {
         let mut unfiltered = query.filters.clone();
         unfiltered.include_trash = false;
         unfiltered.trash_only = false;
@@ -880,29 +827,16 @@ fn count_rows(
             page_cursor_for(summary, &query.sort, String::new(), 0).map(|cursor| (cursor, bound))
         })
         .transpose()?;
-    let PredicateSql {
-        where_sql,
-        match_expr,
-        ..
-    } = predicate_sql(query, plan, boundary, rank_of.map(|(_, bound)| bound))?;
-    let use_fts = plan.match_expr.is_some();
-    let sql = format!(
-        "SELECT COUNT(*) FROM {} WHERE {where_sql}",
-        from_sql(use_fts)
-    );
+    let PredicateSql { where_sql, .. } =
+        predicate_sql(query, boundary, rank_of.map(|(_, bound)| bound))?;
+    let sql = format!("SELECT COUNT(*) FROM memo m WHERE {where_sql}");
     let mut statement = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
-    let cursor_rank = rank_of
-        .filter(|_| use_fts)
-        .and_then(|(summary, _)| summary.rank);
     let bindings = bind_query(
         query,
-        match_expr,
         boundary,
         cursor.as_ref().map(|(cursor, _)| cursor),
-        use_fts,
-        cursor_rank,
         None,
-    )?;
+    );
     let count: i64 = statement
         .query_row(params_from_iter(bindings.iter()), |row| row.get(0))
         .map_err(|err| from_sqlite(&err))?;
@@ -951,87 +885,55 @@ fn memo_summary_from_row(row: &Row<'_>) -> Result<MemoSummary, lomo_core::LomoEr
 
 fn build_sql(
     query: &MemoQuery,
-    plan: &QueryPlan,
     boundary: Option<&MemoQueryBoundary>,
     cursor: Option<(&PageCursor, CursorBound)>,
     invert: bool,
-) -> Result<(String, Option<String>), lomo_core::LomoError> {
+) -> Result<String, lomo_core::LomoError> {
     let bound = cursor.map(|(_, bound)| bound);
     let PredicateSql {
         where_sql,
-        match_expr,
         first_cursor_index,
-    } = predicate_sql(query, plan, boundary, bound)?;
-    let use_fts = plan.match_expr.is_some();
+    } = predicate_sql(query, boundary, bound)?;
 
-    let cursor_binding_count = if bound.is_some() {
-        usize::from(use_fts) + 4
-    } else {
-        0
-    };
+    let cursor_binding_count = if bound.is_some() { 4 } else { 0 };
     let limit_idx = first_cursor_index + cursor_binding_count;
+    let order_sql = order_sql(&query.sort, invert);
 
-    let rank_select = if use_fts {
-        "bm25(memo_fts) AS rank"
-    } else {
-        "NULL AS rank"
-    };
-
-    let from_sql = from_sql(use_fts);
-
-    let order_sql = order_sql(&query.sort, use_fts, invert);
-
-    let sql = format!(
+    Ok(format!(
         "SELECT m.memo_id, m.source_path, m.file_fingerprint, m.updated_at_ms, m.created_at_ms, \
          m.has_todo, m.has_url, m.has_attachment, \
          m.is_pinned, m.is_trashed, \
-         m.body_preview, m.content_revision, {rank_select}, m.reminders_json, \
+         m.body_preview, m.content_revision, NULL AS rank, m.reminders_json, \
          m.pending_operation_id IS NOT NULL, m.char_count, m.time_part, m.image_urls_json \
-         FROM {from_sql} \
+         FROM memo m \
          WHERE {where_sql} \
          ORDER BY {order_sql} \
          LIMIT ?{limit_idx}"
-    );
-
-    Ok((sql, match_expr))
+    ))
 }
 
-/// Shared row predicate for `query_memos` and `query_count` (same filters, same FTS match).
+/// Shared row predicate for non-search `query_memos` and `query_count`.
 struct PredicateSql {
     where_sql: String,
-    match_expr: Option<String>,
     /// Bind index where cursor bindings start (and where `LIMIT` goes when no cursor is bound).
     first_cursor_index: usize,
 }
 
 fn predicate_sql(
     query: &MemoQuery,
-    plan: &QueryPlan,
     boundary: Option<&MemoQueryBoundary>,
     cursor: Option<CursorBound>,
 ) -> Result<PredicateSql, lomo_core::LomoError> {
     let f = &query.filters;
     let mut where_clauses = filter_clauses(f)?;
 
-    let use_fts = plan.match_expr.is_some();
-    let has_tag = f.tag.is_some();
-    let search_idx = if has_tag { 2 } else { 1 };
-    if use_fts {
-        where_clauses.push(format!("memo_fts MATCH ?{search_idx}"));
-    }
-
-    let first_dynamic_index = search_idx + usize::from(use_fts);
+    let first_dynamic_index = if f.tag.is_some() { 2 } else { 1 };
     if boundary.is_some() {
         where_clauses.push(boundary_predicate(&query.sort, first_dynamic_index));
     }
     let first_cursor_index = first_dynamic_index + usize::from(boundary.is_some()) * 4;
     if let Some(bound) = cursor {
-        where_clauses.push(cursor_predicate(
-            use_fts,
-            &query.sort,
-            first_cursor_index,
-            bound,
-        ));
+        where_clauses.push(cursor_predicate(&query.sort, first_cursor_index, bound));
     }
 
     let where_sql = if where_clauses.is_empty() {
@@ -1042,17 +944,8 @@ fn predicate_sql(
 
     Ok(PredicateSql {
         where_sql,
-        match_expr: plan.match_expr.clone(),
         first_cursor_index,
     })
-}
-
-const fn from_sql(use_fts: bool) -> &'static str {
-    if use_fts {
-        "memo m JOIN memo_fts ON memo_fts.rowid = m.rowid"
-    } else {
-        "memo m"
-    }
 }
 
 fn filter_clauses(filters: &MemoFilters) -> Result<Vec<String>, lomo_core::LomoError> {
@@ -1096,7 +989,7 @@ fn push_boolean_clause(clauses: &mut Vec<String>, column: &str, value: Option<bo
     }
 }
 
-fn order_sql(sort: &MemoSort, use_fts: bool, invert: bool) -> String {
+fn order_sql(sort: &MemoSort, invert: bool) -> String {
     let primary_column = sort.primary_column();
     let secondary_column = sort.secondary_column();
     let pinned = sort.pinned_column();
@@ -1105,25 +998,13 @@ fn order_sql(sort: &MemoSort, use_fts: bool, invert: bool) -> String {
         (SortDirection::Descending, false) | (SortDirection::Ascending, true) => "DESC",
     };
     let pin_direction = if invert { "ASC" } else { "DESC" };
-    let temporal = format!(
+    format!(
         "({pinned}) {pin_direction}, {primary_column} {direction}, {secondary_column} {direction}, m.memo_id {direction}"
-    );
-    if use_fts {
-        let rank_direction = if invert { "DESC" } else { "ASC" };
-        format!("rank {rank_direction}, {temporal}")
-    } else {
-        temporal
-    }
+    )
 }
 
-fn cursor_predicate(
-    use_fts: bool,
-    sort: &MemoSort,
-    first_cursor_idx: usize,
-    bound: CursorBound,
-) -> String {
-    let rank_idx = use_fts.then_some(first_cursor_idx);
-    let pin_idx = first_cursor_idx + usize::from(use_fts);
+fn cursor_predicate(sort: &MemoSort, first_cursor_idx: usize, bound: CursorBound) -> String {
+    let pin_idx = first_cursor_idx;
     let primary_idx = pin_idx + 1;
     let created_idx = primary_idx + 1;
     let memo_id_idx = created_idx + 1;
@@ -1139,10 +1020,6 @@ fn cursor_predicate(
         (SortDirection::Ascending, CursorBound::InclusiveAfter) => (">", ">="),
         (SortDirection::Descending, CursorBound::InclusiveAfter) => ("<", "<="),
     };
-    let rank_cmp = match bound {
-        CursorBound::ExclusiveBefore => "<",
-        CursorBound::ExclusiveAfter | CursorBound::InclusiveAfter => ">",
-    };
     let primary_column = sort.primary_column();
     let secondary_column = sort.secondary_column();
     let pinned = sort.pinned_column();
@@ -1154,33 +1031,21 @@ fn cursor_predicate(
             CursorBound::ExclusiveAfter => "<",
             CursorBound::InclusiveAfter => "<=",
         };
-        let temporal = if sort.field == MemoSortField::CreatedAt {
-            format!(
+        if sort.field == MemoSortField::CreatedAt {
+            return format!(
                 "(m.is_pinned, m.created_at_ms, m.memo_id) {comparison} (?{pin_idx}, ?{primary_idx}, ?{memo_id_idx})"
-            )
-        } else {
-            format!(
-                "(m.is_pinned, m.updated_at_ms, m.created_at_ms, m.memo_id) {comparison} (?{pin_idx}, ?{primary_idx}, ?{created_idx}, ?{memo_id_idx})"
-            )
-        };
-        return rank_idx.map_or_else(|| temporal.clone(), |rank_idx| {
-            format!("(bm25(memo_fts) {rank_cmp} ?{rank_idx} OR (bm25(memo_fts) = ?{rank_idx} AND {temporal}))")
-        });
+            );
+        }
+        return format!(
+            "(m.is_pinned, m.updated_at_ms, m.created_at_ms, m.memo_id) {comparison} (?{pin_idx}, ?{primary_idx}, ?{created_idx}, ?{memo_id_idx})"
+        );
     }
-    let temporal = format!(
+    format!(
         "({pinned} {pin_cmp} ?{pin_idx} OR ({pinned} = ?{pin_idx} AND \
          ({primary_column} {temporal_cmp} ?{primary_idx} OR \
           ({primary_column} = ?{primary_idx} AND \
            ({secondary_column} {temporal_cmp} ?{created_idx} OR \
             ({secondary_column} = ?{created_idx} AND m.memo_id {id_cmp} ?{memo_id_idx}))))))"
-    );
-    rank_idx.map_or_else(
-        || temporal.clone(),
-        |rank_idx| {
-            format!(
-                "(bm25(memo_fts) {rank_cmp} ?{rank_idx} OR (bm25(memo_fts) = ?{rank_idx} AND {temporal}))"
-            )
-        },
     )
 }
 
@@ -2043,9 +1908,9 @@ pub fn query_count(
     connection: &Connection,
     query: &MemoQuery,
 ) -> Result<u64, lomo_core::LomoError> {
+    reject_search_text(query)?;
     register_review_functions(connection, &query.sort)?;
-    let plan = query_plan_for(query)?;
-    count_rows(connection, query, &plan, None, None)
+    count_rows(connection, query, None, None)
 }
 
 /// Placement evidence for a bounded-window refresh merge.
@@ -2071,11 +1936,11 @@ pub fn memos_matching_window(
     head: Option<&PageCursor>,
     tail: Option<&PageCursor>,
 ) -> Result<MemoWindowSides, lomo_core::LomoError> {
+    reject_search_text(query)?;
     if memo_ids.is_empty() || (head.is_none() && tail.is_none()) {
         return Ok(MemoWindowSides::default());
     }
     register_review_functions(connection, &query.sort)?;
-    let plan = query_plan_for(query)?;
     // The id list travels as one JSON parameter — a single statement keeps the
     // ORDER BY global across the whole set instead of one ordering per chunk.
     let ids_json = serde_json::to_string(memo_ids).map_err(|error| {
@@ -2088,14 +1953,12 @@ pub fn memos_matching_window(
         above: matching_window_side(
             connection,
             query,
-            &plan,
             &ids_json,
             head.map(|cursor| (cursor, CursorBound::ExclusiveBefore)),
         )?,
         below: matching_window_side(
             connection,
             query,
-            &plan,
             &ids_json,
             tail.map(|cursor| (cursor, CursorBound::ExclusiveAfter)),
         )?,
@@ -2105,37 +1968,25 @@ pub fn memos_matching_window(
 fn matching_window_side(
     connection: &Connection,
     query: &MemoQuery,
-    plan: &QueryPlan,
     ids_json: &str,
     bound: Option<(&PageCursor, CursorBound)>,
 ) -> Result<Vec<String>, lomo_core::LomoError> {
     let Some((cursor, cursor_bound)) = bound else {
         return Ok(Vec::new());
     };
+    let _rank = cursor.validated_sort_rank(false)?;
     let PredicateSql {
         where_sql,
-        match_expr,
         first_cursor_index,
-    } = predicate_sql(query, plan, None, Some(cursor_bound))?;
-    let use_fts = plan.match_expr.is_some();
-    let cursor_rank = cursor.validated_sort_rank(use_fts)?;
-    let ids_idx = first_cursor_index + usize::from(use_fts) + 4;
+    } = predicate_sql(query, None, Some(cursor_bound))?;
+    let ids_idx = first_cursor_index + 4;
     let sql = format!(
-        "SELECT m.memo_id FROM {} WHERE {where_sql} \
+        "SELECT m.memo_id FROM memo m WHERE {where_sql} \
          AND m.memo_id IN (SELECT value FROM json_each(?{ids_idx})) \
          ORDER BY {}",
-        from_sql(use_fts),
-        order_sql(&query.sort, use_fts, false),
+        order_sql(&query.sort, false),
     );
-    let mut bindings = bind_query(
-        query,
-        match_expr,
-        None,
-        Some(cursor),
-        use_fts,
-        cursor_rank,
-        None,
-    )?;
+    let mut bindings = bind_query(query, None, Some(cursor), None);
     bindings.push(Value::Text(ids_json.to_owned()));
     let mut statement = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
     let rows = statement

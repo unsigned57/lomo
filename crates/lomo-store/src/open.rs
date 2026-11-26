@@ -7,12 +7,13 @@ use rusqlite::{Connection, OpenFlags, params};
 
 use crate::error::{corruption, from_sqlite, storage, validation};
 use crate::schema::{
-    BUSY_TIMEOUT_MS, CONTENTLESS_FTS_DDL, EXTERNAL_CONTENT_SCHEMA_VERSION, INCREMENTAL_STATS_DDL,
-    MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL, MIGRATE_V3_TO_V4_DDL, MIGRATE_V4_TO_V5_DDL,
-    MIGRATE_V5_TO_V6_DDL, MIGRATE_V6_TO_V7_DDL, MIGRATE_V7_TO_V8_DDL, MIGRATE_V8_TO_V9_DDL,
-    MIGRATE_V9_TO_V10_DDL, MIGRATE_V10_TO_V11_DDL, MIGRATE_V11_TO_V12_DDL, MIGRATE_V12_TO_V13_DDL,
-    MIGRATE_V13_TO_V14_DDL, MIGRATE_V14_TO_V15_DDL, MIGRATE_V16_TO_V17_DDL, MIGRATE_V17_TO_V18_DDL,
-    MIGRATE_V18_TO_V19_DDL, MIGRATE_V19_TO_V20_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
+    BUSY_TIMEOUT_MS, EXTERNAL_CONTENT_SCHEMA_VERSION, INCREMENTAL_STATS_DDL, MIGRATE_V1_TO_V2_DDL,
+    MIGRATE_V2_TO_V3_DDL, MIGRATE_V3_TO_V4_DDL, MIGRATE_V4_TO_V5_DDL, MIGRATE_V5_TO_V6_DDL,
+    MIGRATE_V6_TO_V7_DDL, MIGRATE_V7_TO_V8_DDL, MIGRATE_V8_TO_V9_DDL, MIGRATE_V9_TO_V10_DDL,
+    MIGRATE_V10_TO_V11_DDL, MIGRATE_V11_TO_V12_DDL, MIGRATE_V12_TO_V13_DDL, MIGRATE_V13_TO_V14_DDL,
+    MIGRATE_V14_TO_V15_DDL, MIGRATE_V16_TO_V17_DDL, MIGRATE_V17_TO_V18_DDL, MIGRATE_V18_TO_V19_DDL,
+    MIGRATE_V19_TO_V20_DDL, MIGRATE_V21_TO_V22_DDL, SEARCH_CHANGELOG_DDL, STORE_SCHEMA_VERSION,
+    schema_v1_ddl,
 };
 
 /// Ordered migrations through the last schema using external FTS content.
@@ -47,6 +48,9 @@ pub const SQLITE_DIR_NAME: &str = lomo_workspace::LOMO_SQLITE_ROOT_NAME;
 
 /// Primary database file name inside the `SQLite` directory.
 pub const SQLITE_FILE_NAME: &str = "store.db";
+
+/// Relative directory inside `.lomo-sqlite/` holding derived Tantivy search generations.
+pub const SEARCH_DIR_NAME: &str = "search";
 
 /// Opened store connection with observed pragma state (for contract assertions).
 #[derive(Debug)]
@@ -104,6 +108,12 @@ impl IntegrityWitness {
 #[must_use]
 pub fn database_path(workspace_root: &Path) -> PathBuf {
     workspace_root.join(SQLITE_DIR_NAME).join(SQLITE_FILE_NAME)
+}
+
+/// Resolves the derived Tantivy search root for a workspace / projection root.
+#[must_use]
+pub fn search_dir(workspace_root: &Path) -> PathBuf {
+    workspace_root.join(SQLITE_DIR_NAME).join(SEARCH_DIR_NAME)
 }
 
 /// Opens or creates the store database with the live schema contract.
@@ -186,38 +196,52 @@ pub fn admit_schema(
         connection
             .execute_batch(&schema_v1_ddl())
             .map_err(|err| from_sqlite(&err))?;
+        mint_search_generation(connection)?;
         connection
             .pragma_update(None, "user_version", STORE_SCHEMA_VERSION)
             .map_err(|err| from_sqlite(&err))?;
     } else if user_version < STORE_SCHEMA_VERSION {
-        // v20 has an empty legacy migration suffix and only replaces the search index.
-        let start = usize::try_from(user_version - 1).map_err(|_overflow| {
-            validation(
-                "unknown_schema_version",
-                "database schema cannot be upgraded to the supported version",
-            )
-        })?;
-        let ddl = MIGRATIONS.get(start..).ok_or_else(|| {
-            validation(
-                "unknown_schema_version",
-                "database schema cannot be upgraded to the supported version",
-            )
-        })?;
         let transaction = rusqlite::Transaction::new_unchecked(
             connection,
             rusqlite::TransactionBehavior::Immediate,
         )
         .map_err(|err| from_sqlite(&err))?;
+        if user_version < EXTERNAL_CONTENT_SCHEMA_VERSION {
+            let start = usize::try_from(user_version - 1).map_err(|_overflow| {
+                validation(
+                    "unknown_schema_version",
+                    "database schema cannot be upgraded to the supported version",
+                )
+            })?;
+            let ddl = MIGRATIONS.get(start..).ok_or_else(|| {
+                validation(
+                    "unknown_schema_version",
+                    "database schema cannot be upgraded to the supported version",
+                )
+            })?;
+            transaction
+                .execute_batch(&ddl.concat())
+                .map_err(|err| from_sqlite(&err))?;
+            if user_version < 15 {
+                migrate_render_projections(&transaction)?;
+            }
+            if user_version < 19 {
+                migrate_image_urls(&transaction)?;
+            }
+        }
+        if user_version <= EXTERNAL_CONTENT_SCHEMA_VERSION {
+            drop_legacy_search_content(&transaction)?;
+        }
         transaction
-            .execute_batch(&ddl.concat())
+            .execute_batch(MIGRATE_V21_TO_V22_DDL)
             .map_err(|err| from_sqlite(&err))?;
-        if user_version < 15 {
-            migrate_render_projections(&transaction)?;
-        }
-        if user_version < 19 {
-            migrate_image_urls(&transaction)?;
-        }
-        migrate_to_contentless_fts(&transaction)?;
+        transaction
+            .execute_batch(SEARCH_CHANGELOG_DDL)
+            .map_err(|err| from_sqlite(&err))?;
+        mint_search_generation(&transaction)?;
+        transaction
+            .pragma_update(None, "user_version", STORE_SCHEMA_VERSION)
+            .map_err(|err| from_sqlite(&err))?;
         transaction.commit().map_err(|err| from_sqlite(&err))?;
     } else if user_version != STORE_SCHEMA_VERSION {
         // `open_store` refuses anything newer first; the admission boundary still
@@ -231,23 +255,71 @@ pub fn admit_schema(
     Ok(())
 }
 
-/// The v20 FTS docsize rows identify indexed documents, including empty token
-/// streams. Preserve that exact membership so bm25 ranks and existing cursors agree.
-fn migrate_to_contentless_fts(connection: &Connection) -> Result<(), lomo_core::LomoError> {
+/// Mints a random 128-bit `search_generation` in `store_meta` so fresh or rebuilt databases
+/// never alias an older Tantivy index directory.
+pub fn mint_search_generation(connection: &Connection) -> Result<String, lomo_core::LomoError> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| {
+        storage(
+            "search_generation_entropy_failed",
+            &format!("cannot mint search_generation: {error}"),
+        )
+    })?;
+    let generation = lomo_core::hex_encode(&bytes);
     connection
-        .execute_batch("ALTER TABLE memo_fts RENAME TO memo_fts_external;")
-        .and_then(|()| connection.execute_batch(CONTENTLESS_FTS_DDL))
-        .and_then(|()| {
-            connection.execute_batch(
-                "INSERT INTO memo_fts(rowid, search_content)
-                 SELECT memo.rowid, memo.search_content FROM memo
-                 JOIN memo_fts_external_docsize ON memo_fts_external_docsize.id = memo.rowid;
-                 DROP TABLE memo_fts_external;
-                 ALTER TABLE memo DROP COLUMN search_content;",
-            )
-        })
-        .and_then(|()| connection.pragma_update(None, "user_version", STORE_SCHEMA_VERSION))
-        .map_err(|error| from_sqlite(&error))
+        .execute(
+            "INSERT OR REPLACE INTO store_meta(key, value) VALUES ('search_generation', ?1)",
+            params![&generation],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(generation)
+}
+
+/// Drops obsolete SQLite FTS5 tables and legacy `memo.search_content` column during v20/pre-v20 upgrades.
+fn drop_legacy_search_content(connection: &Connection) -> Result<(), lomo_core::LomoError> {
+    connection
+        .execute_batch(
+            "DROP TRIGGER IF EXISTS memo_fts_delete;
+             DROP TABLE IF EXISTS memo_fts;",
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let has_search_content: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('memo') WHERE name = 'search_content'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    if has_search_content > 0 {
+        connection
+            .execute_batch("ALTER TABLE memo DROP COLUMN search_content;")
+            .map_err(|error| from_sqlite(&error))?;
+    }
+    Ok(())
+}
+
+/// Retires older `search_changelog` rows strictly below `synced_seq`, keeping the highest sequence
+/// row intact so `COALESCE(MAX(seq), 0)` never drops backwards.
+pub fn compact_search_changelog(
+    connection: &Connection,
+    synced_seq: u64,
+) -> Result<(), lomo_core::LomoError> {
+    if synced_seq <= 1 {
+        return Ok(());
+    }
+    let bound = i64::try_from(synced_seq).map_err(|_overflow| {
+        validation(
+            "invalid_changelog_seq",
+            "search_changelog sequence exceeds i64",
+        )
+    })?;
+    connection
+        .execute(
+            "DELETE FROM search_changelog WHERE seq < ?1",
+            params![bound],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(())
 }
 
 /// Stream one persisted body at a time; the migration never accumulates a workspace in memory.
@@ -356,6 +428,7 @@ pub fn create_schema_db(path: &Path) -> Result<Connection, lomo_core::LomoError>
     connection
         .execute_batch(&schema_v1_ddl())
         .map_err(|err| from_sqlite(&err))?;
+    mint_search_generation(&connection)?;
     connection
         .pragma_update(None, "user_version", STORE_SCHEMA_VERSION)
         .map_err(|err| from_sqlite(&err))?;

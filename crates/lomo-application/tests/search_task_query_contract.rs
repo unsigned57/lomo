@@ -64,6 +64,7 @@ mod tests {
         _runtime: tempfile::TempDir,
         _exchange: tempfile::TempDir,
         workspace_path: std::path::PathBuf,
+        cache_path: std::path::PathBuf,
     }
 
     fn open_session() -> Ctx {
@@ -77,6 +78,7 @@ mod tests {
         executor
             .bind_root(capability.clone(), workspace.path())
             .expect("bind");
+        let cache_path = cache.path().to_path_buf();
         let config = WorkspaceSessionConfig {
             capability,
             root_id: WorkspaceRootId::Notes,
@@ -85,7 +87,7 @@ mod tests {
             time_zone: "UTC".to_owned(),
             date_format: lomo_application::calendar::DateFormat::default(),
             state_dir: state.path().to_path_buf(),
-            cache_dir: cache.path().to_path_buf(),
+            cache_dir: cache_path.clone(),
             runtime_dir: runtime.path().to_path_buf(),
             exchange_dir: exchange.path().to_path_buf(),
             media_stage_root: exchange.path().join("media-stage"),
@@ -93,6 +95,7 @@ mod tests {
         let session = WorkspaceSession::open(config, executor).expect("open");
         Ctx {
             workspace_path: workspace.path().to_path_buf(),
+            cache_path,
             session,
             _workspace: workspace,
             _state: state,
@@ -250,8 +253,10 @@ mod tests {
                 mode: SearchMode::Fuzzy,
                 query_epoch: 1,
                 text: "月末目标".to_owned(),
+                sort: lomo_application::MemoSort::default(),
                 cursor: None,
                 anchor: None,
+                backward: false,
                 page_size: PageSize::new(1).expect("page"),
                 filters: lomo_application::MemoFilters::default(),
             })
@@ -369,11 +374,13 @@ mod tests {
         ctx.session
             .search(&SearchRequest {
                 filters: lomo_application::MemoFilters::default(),
+                sort: lomo_application::MemoSort::default(),
                 query_epoch: 1,
                 mode: SearchMode::Fuzzy,
                 text: "zzzz".to_owned(),
                 cursor: None,
                 anchor: None,
+                backward: false,
                 page_size: PageSize::new(16).expect("page"),
             })
             .expect("stale search");
@@ -381,11 +388,13 @@ mod tests {
             .session
             .search(&SearchRequest {
                 filters: lomo_application::MemoFilters::default(),
+                sort: lomo_application::MemoSort::default(),
                 query_epoch: 2,
                 mode: SearchMode::Fuzzy,
                 text: "bdlcc".to_owned(),
                 cursor: None,
                 anchor: None,
+                backward: false,
                 page_size: PageSize::new(16).expect("page"),
             })
             .expect("fuzzy");
@@ -399,11 +408,13 @@ mod tests {
             .session
             .search(&SearchRequest {
                 filters: lomo_application::MemoFilters::default(),
+                sort: lomo_application::MemoSort::default(),
                 query_epoch: 1,
                 mode: SearchMode::Fuzzy,
                 text: "zzzz".to_owned(),
                 cursor: None,
                 anchor: None,
+                backward: false,
                 page_size: PageSize::new(16).expect("page"),
             })
             .expect("discard");
@@ -416,11 +427,13 @@ mod tests {
             .session
             .search(&SearchRequest {
                 filters: lomo_application::MemoFilters::default(),
+                sort: lomo_application::MemoSort::default(),
                 query_epoch: 3,
                 mode: SearchMode::Fulltext,
                 text: "八达岭".to_owned(),
                 cursor: None,
                 anchor: None,
+                backward: false,
                 page_size: PageSize::new(16).expect("page"),
             })
             .expect("fulltext");
@@ -454,11 +467,13 @@ mod tests {
                 .session
                 .search(&SearchRequest {
                     filters: lomo_application::MemoFilters::default(),
+                    sort: lomo_application::MemoSort::default(),
                     query_epoch: 1,
                     mode: SearchMode::Fuzzy,
                     text: "needle".to_owned(),
                     cursor,
                     anchor: None,
+                    backward: false,
                     page_size: PageSize::new(2).expect("page size"),
                 })
                 .expect("search page");
@@ -574,8 +589,10 @@ mod tests {
                     query_epoch: 1,
                     mode,
                     text: "needle".to_owned(),
+                    sort: lomo_application::MemoSort::default(),
                     cursor: None,
                     anchor: None,
+                    backward: false,
                     page_size: PageSize::new(2).expect("size"),
                     filters: lomo_application::MemoFilters {
                         tag: Some("reading".to_owned()),
@@ -611,8 +628,10 @@ mod tests {
             query_epoch: 1,
             mode: SearchMode::Fuzzy,
             text: "needle".to_owned(),
+            sort: lomo_application::MemoSort::default(),
             cursor: None,
             anchor: None,
+            backward: false,
             page_size: PageSize::new(2).expect("size"),
             filters: lomo_application::MemoFilters::default(),
         };
@@ -650,8 +669,10 @@ mod tests {
             query_epoch: 1,
             mode: SearchMode::Fuzzy,
             text: "x".repeat(4097),
+            sort: lomo_application::MemoSort::default(),
             cursor: None,
             anchor: None,
+            backward: false,
             page_size: PageSize::new(2).expect("size"),
             filters: lomo_application::MemoFilters::default(),
         };
@@ -700,8 +721,10 @@ mod tests {
                     query_epoch: epoch,
                     mode,
                     text: text.to_owned(),
+                    sort: lomo_application::MemoSort::default(),
                     cursor: None,
                     anchor: None,
+                    backward: false,
                     page_size: PageSize::new(2).expect("size"),
                     filters: lomo_application::MemoFilters::default(),
                 })
@@ -741,8 +764,10 @@ mod tests {
             query_epoch: 1,
             mode: SearchMode::Fuzzy,
             text: "needle".to_owned(),
+            sort: lomo_application::MemoSort::default(),
             cursor: None,
             anchor: None,
+            backward: false,
             page_size: PageSize::new(2).expect("size"),
             filters: lomo_application::MemoFilters::default(),
         };
@@ -765,192 +790,181 @@ mod tests {
         assert!(error.to_string().contains("stale_cursor"));
     }
 
+    /*
+     * Test Change Justification:
+     * Reason category: Architecture cutover (in-memory corpus scan + FuzzyResult LRU replaced by Tantivy).
+     * Old behavior/assertion being replaced: Asserted internal `FUZZY_CACHE_ENTRIES` LRU eviction,
+     *   prefix-seeded candidate rescoring (`fuzzy_scan_stats`), and `fuzzy_snapshot` cancellation.
+     * Why old assertion is no longer correct: `WorkspaceSession::search` delegates both `Fulltext` and
+     *   `Fuzzy` to Tantivy + Charabia in `lomo-store` with lazy index sync and zero write overhead;
+     *   `FuzzyResult`, `FUZZY_CACHE_ENTRIES`, and `FuzzyScanStats` no longer exist.
+     * Coverage preserved by: Verifying lazy zero-write overhead before first search, `warmup_search_index`
+     *   and incremental changelog sync counters via `search_index_stats`, `Fulltext` vs `Fuzzy` mode
+     *   capabilities (Traditional/Simplified, typo edit distance, within-term subsequence, heteronym
+     *   pinyin), `search_window_sides`, and stale epoch discarding.
+     * Why this is not fitting the test to the implementation: Directly tests observable search contracts.
+     */
     #[test]
-    fn fuzzy_result_cache_evicts_the_least_recently_used_entry_at_capacity() {
-        // Test Change Justification: `cache_fuzzy` now carries the scored needle and filter
-        // fingerprint (the prefix-derivation evidence); the calls below are the same inserts
-        // with the metadata the entry genuinely belongs to.
-        use lomo_application::search::{
-            FUZZY_CACHE_ENTRIES, FuzzyResult, cache_fuzzy, cached_fuzzy,
+    fn lazy_tantivy_warmup_syncs_incrementally_and_preserves_zero_write_overhead() {
+        let ctx = open_session();
+        create(
+            &ctx,
+            "lazy-1",
+            "2026_09_10.md",
+            "10:00:00",
+            "開發筆記",
+            None,
+        );
+        let search_dir = ctx
+            .cache_path
+            .join(lomo_store::SQLITE_DIR_NAME)
+            .join("search");
+        assert!(
+            !ctx.session.search_index_stats().is_loaded,
+            "writes must never eagerly load Tantivy"
+        );
+        assert!(
+            !search_dir.exists(),
+            "writes must never eagerly materialize search directory"
+        );
+
+        let warmed = ctx.session.warmup_search_index().expect("warmup");
+        assert!(warmed.is_loaded);
+        assert_eq!(warmed.doc_count, 1);
+        assert_eq!(warmed.full_rebuilds, 1);
+        assert_eq!(warmed.incremental_syncs, 0);
+
+        create(
+            &ctx,
+            "lazy-2",
+            "2026_09_11.md",
+            "11:00:00",
+            "重庆长城",
+            None,
+        );
+        let outcome = ctx
+            .session
+            .search(&SearchRequest {
+                query_epoch: 1,
+                mode: SearchMode::Fuzzy,
+                text: "zq".to_owned(),
+                sort: lomo_application::MemoSort::default(),
+                cursor: None,
+                anchor: None,
+                backward: false,
+                page_size: PageSize::new(10).expect("page"),
+                filters: lomo_application::MemoFilters::default(),
+            })
+            .expect("incremental sync on search");
+        let SearchOutcome::Ready(page) = outcome else {
+            panic!("expected ready page");
         };
-        use std::sync::Mutex;
-
-        let cache: Mutex<lru::LruCache<(String, u64), FuzzyResult>> =
-            Mutex::new(lru::LruCache::new(FUZZY_CACHE_ENTRIES));
-        for query in ["q1", "q2", "q3", "q4", "q5"] {
-            cache_fuzzy(
-                &cache,
-                query.to_owned(),
-                7,
-                query.to_owned(),
-                "filters".to_owned(),
-                Arc::from([]),
-                Vec::new(),
-            )
-            .expect("cache insert");
-        }
-        // The fifth insert overfills the bound — the oldest entry leaves.
-        assert_eq!(cached_queries(&cache), ["q5", "q4", "q3", "q2"]);
-
-        cached_fuzzy(&cache, "q2", 7)
-            .expect("cache read")
-            .expect("q2 remains memoized");
-        cache_fuzzy(
-            &cache,
-            "q6".to_owned(),
-            7,
-            "q6".to_owned(),
-            "filters".to_owned(),
-            Arc::from([]),
-            Vec::new(),
-        )
-        .expect("cache insert");
-
-        // A hit promotes: q3 — not the re-read q2 — is the next victim.
-        assert_eq!(cached_queries(&cache), ["q6", "q2", "q5", "q4"]);
+        assert_eq!(page.total, 1);
+        let after = ctx.session.search_index_stats();
+        assert_eq!(after.doc_count, 2);
+        assert_eq!(after.full_rebuilds, 1);
+        assert_eq!(after.incremental_syncs, 1);
     }
 
     #[test]
-    fn fuzzy_prefix_derivation_rescores_only_prior_hits_and_matches_a_fresh_scan() {
+    fn unified_tantivy_modes_enforce_fulltext_strictness_and_fuzzy_recall() {
         let ctx = open_session();
-        // The needle chain narrows purely on body content: no `z` ever appears
-        // in the `2026_09_*.md` source paths.
-        create(&ctx, "z1", "2026_09_10.md", "10:00:00", "zoo meadow", None);
-        create(&ctx, "z2", "2026_09_11.md", "10:00:00", "zap maple", None);
-        create(&ctx, "z3", "2026_09_12.md", "10:00:00", "cozy unit", None);
-        create(&ctx, "z4", "2026_09_13.md", "10:00:00", "lazy calm", None);
-        create(&ctx, "z5", "2026_09_14.md", "10:00:00", "plain water", None);
+        create(
+            &ctx,
+            "u-1",
+            "2026_09_10.md",
+            "10:00:00",
+            "needle 開發筆記",
+            None,
+        );
 
-        let fuzzy = |epoch: u64, text: &str| {
+        let full_ndle = ctx
+            .session
+            .search(&SearchRequest {
+                query_epoch: 1,
+                mode: SearchMode::Fulltext,
+                text: "ndle".to_owned(),
+                sort: lomo_application::MemoSort::default(),
+                cursor: None,
+                anchor: None,
+                backward: false,
+                page_size: PageSize::new(10).expect("page"),
+                filters: lomo_application::MemoFilters::default(),
+            })
+            .expect("fulltext ndle");
+        let SearchOutcome::Ready(full_ndle) = full_ndle else {
+            panic!("ready");
+        };
+        assert_eq!(full_ndle.total, 0);
+
+        let full_sc = ctx
+            .session
+            .search(&SearchRequest {
+                query_epoch: 2,
+                mode: SearchMode::Fulltext,
+                text: "开发".to_owned(),
+                sort: lomo_application::MemoSort::default(),
+                cursor: None,
+                anchor: None,
+                backward: false,
+                page_size: PageSize::new(10).expect("page"),
+                filters: lomo_application::MemoFilters::default(),
+            })
+            .expect("fulltext simplified");
+        let SearchOutcome::Ready(full_sc) = full_sc else {
+            panic!("ready");
+        };
+        assert_eq!(full_sc.total, 1);
+        assert_eq!(
+            full_sc.items[0].excerpt.source,
+            lomo_application::search_excerpt::MatchSource::Body
+        );
+
+        for (epoch, query_text) in [(3, "ndle"), (4, "nedle")] {
             let outcome = ctx
                 .session
                 .search(&SearchRequest {
                     query_epoch: epoch,
                     mode: SearchMode::Fuzzy,
-                    text: text.to_owned(),
+                    text: query_text.to_owned(),
+                    sort: lomo_application::MemoSort::default(),
                     cursor: None,
                     anchor: None,
-                    page_size: PageSize::new(16).expect("size"),
+                    backward: false,
+                    page_size: PageSize::new(10).expect("page"),
                     filters: lomo_application::MemoFilters::default(),
                 })
-                .expect("fuzzy");
+                .expect("fuzzy match");
             let SearchOutcome::Ready(page) = outcome else {
-                panic!("current query must be ready");
+                panic!("ready");
             };
-            page
-        };
-        let key = |page: &lomo_application::SearchPage| {
-            page.items
-                .iter()
-                .map(|hit| (hit.memo_id.clone(), hit.score, hit.excerpt.clone()))
-                .collect::<Vec<_>>()
-        };
-
-        let baseline = ctx.session.fuzzy_scan_stats().expect("stats");
-        let wide = fuzzy(1, "z");
-        assert_eq!(wide.total, 4, "z hits every z-bearing body");
-        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
-        assert_eq!(stats.full_scans - baseline.full_scans, 1);
-        assert_eq!(
-            stats.candidates_scored - baseline.candidates_scored,
-            5,
-            "the first keystroke still pays the whole corpus"
-        );
-
-        let mid = fuzzy(2, "za");
-        assert_eq!(mid.total, 3);
-        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
-        assert_eq!(stats.seeded_scans - baseline.seeded_scans, 1);
-        assert_eq!(
-            stats.candidates_scored - baseline.candidates_scored,
-            9,
-            "an extending keystroke rescores only the prior hit set (5 + 4)"
-        );
-
-        let deep = fuzzy(3, "zap");
-        assert_eq!(deep.total, 1);
-        assert_eq!(
-            ctx.session
-                .fuzzy_scan_stats()
-                .expect("stats")
-                .candidates_scored
-                - baseline.candidates_scored,
-            12,
-            "the deepest step pays only the 'za' hits (5 + 4 + 3)"
-        );
-
-        // "ZAP" folds to the same needle but is not a textual prefix of any
-        // cached entry — a fresh full scan that must equal the seeded order.
-        let fresh = fuzzy(4, "ZAP");
-        assert_eq!(
-            key(&fresh),
-            key(&deep),
-            "incremental derivation must equal a fresh full scan"
-        );
-        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
-        assert_eq!(stats.full_scans - baseline.full_scans, 2);
-        assert_eq!(stats.seeded_scans - baseline.seeded_scans, 2);
-
-        // A repeated query is a snapshot hit — no scan work at all.
-        let again = fuzzy(5, "zap");
-        assert_eq!(key(&again), key(&deep));
-        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
-        assert_eq!(stats.snapshot_hits - baseline.snapshot_hits, 1);
-        assert_eq!(stats.candidates_scored - baseline.candidates_scored, 17);
-    }
-
-    #[test]
-    fn fuzzy_scan_cancellation_is_fail_safe_and_poaches_nothing() {
-        let ctx = open_session();
-        for index in 0..6 {
-            create(
-                &ctx,
-                &format!("s{index}"),
-                &format!("2026_09_{}.md", 10 + index),
-                "10:00:00",
-                "zesty note",
-                None,
+            assert_eq!(page.total, 1, "fuzzy query '{query_text}' must match");
+            assert_eq!(
+                page.items[0].excerpt.source,
+                lomo_application::search_excerpt::MatchSource::Body
             );
         }
-        let filters = lomo_application::MemoFilters::default();
 
-        // Seed a narrower query so the injected cancellation lands inside scoring.
-        let built =
-            lomo_application::search::fuzzy_snapshot(&ctx.session, "z", &filters, &|| false)
-                .expect("warm build");
-        assert_eq!(built.hit_count(), 6);
-
-        let checks = std::sync::atomic::AtomicUsize::new(0);
-        let cancel = || checks.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2;
-        let error = lomo_application::search::fuzzy_snapshot(&ctx.session, "ze", &filters, &cancel)
-            .expect_err("a superseded scan fails closed");
-        assert_eq!(error.category(), lomo_core::ErrorCategory::Cancelled);
-        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
-        assert_eq!(stats.superseded_scans, 1);
-        assert_eq!(stats.seeded_scans, 0, "a cancelled scan is never counted");
-        assert_eq!(
-            stats.candidates_scored, 8,
-            "six warm scores + two partial scores before the drop"
-        );
-
-        // Nothing torn was cached: the same needle re-runs and derives from
-        // the "z" seed exactly once.
-        let retried =
-            lomo_application::search::fuzzy_snapshot(&ctx.session, "ze", &filters, &|| false)
-                .expect("retry");
-        assert_eq!(retried.hit_count(), 6);
-        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
-        assert_eq!(stats.seeded_scans, 1);
-
-        // Cancellation before the first page also drops the unseeded scan.
-        let cold = open_session();
-        create(&cold, "cold", "2026_09_10.md", "10:00:00", "zesty", None);
-        let error =
-            lomo_application::search::fuzzy_snapshot(&cold.session, "z", &filters, &|| true)
-                .expect_err("a cancelled build fails closed");
-        assert_eq!(error.category(), lomo_core::ErrorCategory::Cancelled);
-        let stats = cold.session.fuzzy_scan_stats().expect("stats");
-        assert_eq!(stats.superseded_scans, 1);
+        let all_ids: Vec<String> = full_sc
+            .items
+            .iter()
+            .map(|hit| hit.memo_id.clone())
+            .collect();
+        let sides = ctx
+            .session
+            .search_window_sides(
+                &lomo_application::MemoQuery {
+                    search_text: Some("开发".to_owned()),
+                    filters: lomo_application::MemoFilters::default(),
+                    sort: lomo_application::MemoSort::default(),
+                },
+                SearchMode::Fulltext,
+                &all_ids,
+                None,
+                None,
+            )
+            .expect("window sides");
+        assert!(sides.above.is_empty() && sides.below.is_empty());
     }
 
     #[test]
@@ -1087,21 +1101,6 @@ mod tests {
             4,
             "a task edit must refresh exactly its changed memo"
         );
-    }
-
-    /// Iteration order is most- to least-recently-used — the tail is the next
-    /// eviction victim.
-    fn cached_queries(
-        cache: &std::sync::Mutex<
-            lru::LruCache<(String, u64), lomo_application::search::FuzzyResult>,
-        >,
-    ) -> Vec<String> {
-        cache
-            .lock()
-            .expect("fuzzy cache lock")
-            .iter()
-            .map(|((fingerprint, _), _)| fingerprint.clone())
-            .collect()
     }
 
     #[test]
@@ -1247,5 +1246,446 @@ mod tests {
         lomo_workspace::SourceFingerprint::of_bytes(&bytes)
             .as_str()
             .to_owned()
+    }
+
+    fn ready_search(
+        session: &WorkspaceSession,
+        request: &SearchRequest,
+    ) -> lomo_application::SearchPage {
+        let outcome = session.search(request).expect("search must succeed");
+        let SearchOutcome::Ready(page) = outcome else {
+            panic!("expected ready search page");
+        };
+        *page
+    }
+
+    fn simple_search_req(
+        query_epoch: u64,
+        mode: SearchMode,
+        text: &str,
+        filters: lomo_application::MemoFilters,
+        page_size: u32,
+    ) -> SearchRequest {
+        SearchRequest {
+            query_epoch,
+            mode,
+            text: text.to_owned(),
+            filters,
+            sort: lomo_application::MemoSort::default(),
+            cursor: None,
+            anchor: None,
+            backward: false,
+            page_size: PageSize::new(page_size).expect("page"),
+        }
+    }
+
+    #[test]
+    fn search_excerpts_handle_punctuation_long_fuzzy_tokens_path_stems_and_heteronyms() {
+        let ctx = open_session();
+        let long_word = format!("prefix_{}q{}z", "x".repeat(80), "y".repeat(20));
+        create(
+            &ctx,
+            "ex-long",
+            "2026_09_11.md",
+            "10:00:00",
+            &format!("{long_word} #project/alpha"),
+            None,
+        );
+        let doc_fp = fs_read_doc(&ctx.workspace_path, "2026_09_11.md");
+        create(
+            &ctx,
+            "ex-pinyin",
+            "2026_09_11.md",
+            "10:01:00",
+            "重庆火锅",
+            Some(doc_fp),
+        );
+
+        let project_filter = || lomo_application::MemoFilters {
+            tag: Some("project".to_owned()),
+            tag_selection: lomo_application::TagSelectionMode::Subtree,
+            ..lomo_application::MemoFilters::default()
+        };
+        for (epoch, mode) in [(1, SearchMode::Fulltext), (2, SearchMode::Fuzzy)] {
+            let page = ready_search(
+                &ctx.session,
+                &simple_search_req(epoch, mode, "!!!", project_filter(), 10),
+            );
+            assert_eq!(page.items.len(), 1);
+            let first = page.items.first().expect("punctuation hit");
+            assert_eq!(
+                first.excerpt.source,
+                lomo_application::search_excerpt::MatchSource::Body
+            );
+            assert_eq!(
+                first.excerpt.highlights,
+                Vec::<std::ops::Range<usize>>::new()
+            );
+        }
+
+        let long_hit = ready_search(
+            &ctx.session,
+            &simple_search_req(
+                3,
+                SearchMode::Fuzzy,
+                "qz",
+                lomo_application::MemoFilters::default(),
+                10,
+            ),
+        );
+        assert_eq!(long_hit.items.len(), 1);
+        let long_first = long_hit.items.first().expect("long fuzzy hit");
+        assert_eq!(
+            long_first.excerpt.source,
+            lomo_application::search_excerpt::MatchSource::Body
+        );
+        assert_ne!(
+            long_first.excerpt.highlights,
+            Vec::<std::ops::Range<usize>>::new()
+        );
+
+        let path_hit = ready_search(
+            &ctx.session,
+            &simple_search_req(
+                4,
+                SearchMode::Fuzzy,
+                "2026_09_12",
+                lomo_application::MemoFilters::default(),
+                10,
+            ),
+        );
+        assert_eq!(path_hit.items.len(), 2);
+        let path_first = path_hit.items.first().expect("path hit");
+        assert_eq!(
+            path_first.excerpt.source,
+            lomo_application::search_excerpt::MatchSource::Path
+        );
+        assert_ne!(
+            path_first.excerpt.highlights,
+            Vec::<std::ops::Range<usize>>::new()
+        );
+
+        let pinyin_hit = ready_search(
+            &ctx.session,
+            &simple_search_req(
+                5,
+                SearchMode::Fuzzy,
+                "zongqing",
+                lomo_application::MemoFilters::default(),
+                10,
+            ),
+        );
+        assert_eq!(pinyin_hit.items.len(), 1);
+        let pinyin_first = pinyin_hit.items.first().expect("pinyin hit");
+        assert_eq!(
+            pinyin_first.excerpt.source,
+            lomo_application::search_excerpt::MatchSource::Pinyin
+        );
+        assert_ne!(
+            pinyin_first.excerpt.highlights,
+            Vec::<std::ops::Range<usize>>::new()
+        );
+    }
+
+    #[test]
+    fn search_supports_anchor_and_backward_cursor_paging() {
+        let ctx = open_session();
+        for idx in 10..15 {
+            create(
+                &ctx,
+                &format!("pg-{idx}"),
+                &format!("2026_09_{idx}.md"),
+                "10:00:00",
+                "needle common",
+                None,
+            );
+        }
+
+        for (base_epoch, mode) in [(1, SearchMode::Fulltext), (10, SearchMode::Fuzzy)] {
+            let p1 = ready_search(
+                &ctx.session,
+                &simple_search_req(
+                    base_epoch,
+                    mode,
+                    "needle",
+                    lomo_application::MemoFilters::default(),
+                    2,
+                ),
+            );
+            let p2 = ready_search(
+                &ctx.session,
+                &SearchRequest {
+                    cursor: p1.next_cursor,
+                    ..simple_search_req(
+                        base_epoch + 1,
+                        mode,
+                        "needle",
+                        lomo_application::MemoFilters::default(),
+                        2,
+                    )
+                },
+            );
+            let prev_cursor = p2.prev_cursor.clone().expect("prev_cursor");
+            let back = ready_search(
+                &ctx.session,
+                &SearchRequest {
+                    cursor: Some(prev_cursor),
+                    backward: true,
+                    ..simple_search_req(
+                        base_epoch + 2,
+                        mode,
+                        "needle",
+                        lomo_application::MemoFilters::default(),
+                        2,
+                    )
+                },
+            );
+            assert_eq!(
+                back.items
+                    .iter()
+                    .map(|hit| hit.memo_id.as_str())
+                    .collect::<Vec<_>>(),
+                p1.items
+                    .iter()
+                    .map(|hit| hit.memo_id.as_str())
+                    .collect::<Vec<_>>()
+            );
+
+            let anchor_id = p2.items.first().expect("page 2 head").memo_id.clone();
+            let anchored = ready_search(
+                &ctx.session,
+                &SearchRequest {
+                    anchor: Some(anchor_id.clone()),
+                    ..simple_search_req(
+                        base_epoch + 3,
+                        mode,
+                        "needle",
+                        lomo_application::MemoFilters::default(),
+                        2,
+                    )
+                },
+            );
+            assert_eq!(anchored.items_before, 2);
+            assert_eq!(
+                anchored.items.first().expect("anchored head").memo_id,
+                anchor_id
+            );
+        }
+
+        let err = ctx
+            .session
+            .search(&SearchRequest {
+                query_epoch: 99,
+                mode: SearchMode::Fulltext,
+                text: "needle".to_owned(),
+                filters: lomo_application::MemoFilters::default(),
+                sort: lomo_application::MemoSort::default(),
+                cursor: None,
+                anchor: None,
+                backward: true,
+                page_size: PageSize::new(2).expect("page"),
+            })
+            .expect_err("backward without cursor must fail closed");
+        assert_eq!(err.code(), "invalid_search_start");
+    }
+
+    #[test]
+    fn session_read_paths_compact_consumed_search_changelog() {
+        use std::fmt::Write as _;
+
+        let ctx = open_session();
+        let mut doc_body = String::new();
+        for idx in 0..1_106_u32 {
+            let hh = idx / 3600;
+            let mm = (idx % 3600) / 60;
+            let ss = idx % 60;
+            writeln!(doc_body, "- {hh:02}:{mm:02}:{ss:02}\nitem {idx}\n").expect("write item");
+        }
+        std::fs::write(ctx.workspace_path.join("2026_09_10.md"), doc_body).expect("seed bulk doc");
+        ctx.session.rebuild_projection().expect("rebuild 1106 rows");
+
+        let db_path = lomo_store::database_path(&ctx.cache_path);
+        let inspect = rusqlite::Connection::open(&db_path).expect("open store db");
+        let before_count: i64 = inspect
+            .query_row("SELECT COUNT(*) FROM search_changelog", [], |row| {
+                row.get(0)
+            })
+            .expect("count before");
+        assert_eq!(before_count, 1_106);
+
+        let warmed = ctx.session.warmup_search_index().expect("session warmup");
+        assert_eq!(warmed.doc_count, 1_106);
+        assert_eq!(warmed.full_rebuilds, 1);
+
+        let after_count: i64 = inspect
+            .query_row("SELECT COUNT(*) FROM search_changelog", [], |row| {
+                row.get(0)
+            })
+            .expect("count after");
+        let max_seq: i64 = inspect
+            .query_row(
+                "SELECT COALESCE(MAX(seq), 0) FROM search_changelog",
+                [],
+                |row| row.get(0),
+            )
+            .expect("max seq");
+        assert_eq!(after_count, 1);
+        assert_eq!(max_seq, 1_106);
+
+        create(
+            &ctx,
+            "post-compact",
+            "2026_09_11.md",
+            "10:00:00",
+            "compaction sentinel works",
+            None,
+        );
+        let SearchOutcome::Ready(hit) = ctx
+            .session
+            .search(&SearchRequest {
+                query_epoch: 1,
+                mode: SearchMode::Fulltext,
+                text: "compaction".to_owned(),
+                filters: lomo_application::MemoFilters::default(),
+                sort: lomo_application::MemoSort::default(),
+                cursor: None,
+                anchor: None,
+                backward: false,
+                page_size: PageSize::new(5).expect("page"),
+            })
+            .expect("incremental search after compaction")
+        else {
+            panic!("ready");
+        };
+        assert_eq!(hit.total, 1);
+        let stats = ctx.session.search_index_stats();
+        assert_eq!(stats.full_rebuilds, 1);
+        assert_eq!(stats.incremental_syncs, 1);
+    }
+
+    fn edit_memo_several_times(session: &WorkspaceSession, target_id: &str, count: u32) {
+        let memo_id = lomo_workspace::MemoId::parse(target_id).expect("memo id");
+        for edit_idx in 1..=count {
+            let snap = session
+                .projected_memo(target_id)
+                .expect("projected")
+                .expect("memo exists");
+            session
+                .update_memo(lomo_application::UpdateMemoRequest {
+                    operation_id: op(&format!("rb-edit-{edit_idx}")),
+                    memo_id: memo_id.clone(),
+                    content: format!("needle edited version {edit_idx}"),
+                    expected_document_fingerprint: snap.summary.file_fingerprint,
+                    pending_promotes: Vec::new(),
+                })
+                .expect("update memo");
+            session.settle_workspace().expect("settle edit");
+        }
+    }
+
+    #[test]
+    fn search_cursor_is_rejected_after_derived_search_cache_rebuild_at_same_revision() {
+        let ctx = open_session();
+        create(
+            &ctx,
+            "rb-1",
+            "2026_09_10.md",
+            "10:00:00",
+            "needle alpha",
+            None,
+        );
+        create(
+            &ctx,
+            "rb-2",
+            "2026_09_11.md",
+            "10:00:00",
+            "needle beta x",
+            None,
+        );
+        create(
+            &ctx,
+            "rb-3",
+            "2026_09_12.md",
+            "10:00:00",
+            "needle gamma x y",
+            None,
+        );
+        ctx.session.warmup_search_index().expect("initial warmup");
+
+        let no_filters = lomo_application::MemoFilters::default;
+        let target_id = ctx
+            .session
+            .query_memos_page(
+                &lomo_application::MemoQuery {
+                    search_text: None,
+                    filters: no_filters(),
+                    sort: lomo_application::MemoSort::default(),
+                },
+                None,
+                None,
+                PageSize::new(10).expect("page"),
+            )
+            .expect("list memos")
+            .items
+            .first()
+            .expect("seeded memo")
+            .memo_id
+            .clone();
+        edit_memo_several_times(&ctx.session, &target_id, 3);
+
+        let exact_page = ready_search(
+            &ctx.session,
+            &simple_search_req(1, SearchMode::Fulltext, "needle", no_filters(), 1),
+        );
+        let fuzzy_page = ready_search(
+            &ctx.session,
+            &simple_search_req(2, SearchMode::Fuzzy, "needle", no_filters(), 1),
+        );
+        let exact_cursor = exact_page.next_cursor.expect("fulltext next_cursor");
+        let fuzzy_cursor = fuzzy_page.next_cursor.expect("fuzzy next_cursor");
+        let stats_before = ctx.session.search_index_stats();
+
+        let search_dir = ctx
+            .cache_path
+            .join(lomo_store::SQLITE_DIR_NAME)
+            .join("search");
+        std::fs::remove_dir_all(&search_dir).expect("simulate search cache loss");
+
+        for (epoch, mode, cursor) in [
+            (3_u64, SearchMode::Fulltext, exact_cursor),
+            (4_u64, SearchMode::Fuzzy, fuzzy_cursor),
+        ] {
+            let err = ctx
+                .session
+                .search(&SearchRequest {
+                    cursor: Some(cursor),
+                    ..simple_search_req(epoch, mode, "needle", no_filters(), 1)
+                })
+                .expect_err("cursor from deleted index snapshot must fail closed");
+            assert_eq!(err.code(), "stale_cursor");
+        }
+
+        let stats_after = ctx.session.search_index_stats();
+        assert_eq!(
+            stats_after.high_water_revision,
+            stats_before.high_water_revision
+        );
+        assert_eq!(stats_after.full_rebuilds, stats_before.full_rebuilds + 1);
+
+        let mut seen = std::collections::BTreeSet::new();
+        let mut cursor = None;
+        for step in 0..3_u64 {
+            let page = ready_search(
+                &ctx.session,
+                &SearchRequest {
+                    cursor,
+                    ..simple_search_req(10 + step, SearchMode::Fulltext, "needle", no_filters(), 1)
+                },
+            );
+            let id = page.items.first().expect("walk item").memo_id.clone();
+            assert!(seen.insert(id), "fresh walk must not duplicate items");
+            cursor = page.next_cursor;
+        }
+        assert_eq!(seen.len(), 3);
     }
 }

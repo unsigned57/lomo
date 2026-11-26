@@ -5,7 +5,6 @@ use sha2::{Digest, Sha256};
 
 use crate::error::validation;
 use crate::schema::TOKENIZER_VERSION;
-use crate::tokenizer::QueryPlan;
 
 /// Opaque page cursor for bounded, stable pagination.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,7 +120,7 @@ impl PageCursor {
         if self.query_fingerprint != query_fingerprint {
             return Err(validation(
                 "stale_cursor",
-                "page cursor query fingerprint does not match current query",
+                "page cursor query fingerprint does not match current query or index snapshot",
             ));
         }
         if self.high_water_revision != high_water_revision {
@@ -245,14 +244,4 @@ pub fn fingerprint_query(
     hasher.update(filter_fingerprint.as_bytes());
     let digest = hasher.finalize();
     lomo_core::hex_encode(&digest)
-}
-
-/// Fingerprint helper when a full plan is available.
-#[must_use]
-pub fn fingerprint_plan(plan: &QueryPlan, filter_fingerprint: &str) -> String {
-    fingerprint_query(
-        plan.match_expr.as_deref(),
-        filter_fingerprint,
-        TOKENIZER_VERSION,
-    )
 }

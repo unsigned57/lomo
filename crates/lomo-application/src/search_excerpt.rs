@@ -1,14 +1,21 @@
-//! Search ranking and presentation share source-addressed evidence.
-use std::{
-    collections::{BTreeMap, VecDeque},
-    ops::Range,
-};
+//! Search highlighting and excerpt presentation sharing `lomo-store` query parsing rules.
+
+use std::collections::{BTreeMap, HashSet};
+use std::ops::Range;
 
 use lomo_core::LomoError;
-use lomo_store::{QueryTerm, Tokenizer, UnicodeTokenizer};
+use lomo_store::{
+    SearchQueryPlan, SearchSpanPlan, analyze_charabia_tokens, analyze_cjk_bigrams,
+    is_bounded_subsequence_token, is_cjk, is_emoji_char, is_pinyin_query_token, normalize_cjk_char,
+    source_path_raw_spans,
+};
 use pinyin::ToPinyinMulti;
 
 use crate::error::validation;
+use crate::search::SearchMode;
+
+const MAX_PINYIN_COMBOS_PER_UNIT: usize = 16;
+const MAX_CHAR_READINGS: usize = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MatchSource {
@@ -25,109 +32,450 @@ pub struct SearchExcerpt {
     pub body_start: Option<usize>,
 }
 
-#[derive(Clone, Debug)]
-struct Evidence {
-    score: i64,
-    ranges: Vec<Range<usize>>,
+#[derive(Default)]
+struct ExcerptTerms {
+    charabia_words: Vec<String>,
+    cjk_fallback_terms: Vec<String>,
+    raw_paths: Vec<String>,
+    fuzzy_words: Vec<String>,
+    pinyin_tokens: Vec<String>,
 }
 
+/// Builds one source-verified excerpt and UTF-8 highlight spans for `mode` (`Fulltext` or `Fuzzy`).
+///
+/// Degrades to an unhighlighted body excerpt when a legitimate match (e.g., tag-only or filter-only
+/// fallback) has no direct body, pinyin, or path span.
+///
 /// # Errors
-/// Query validation or a projection hit that cannot be located in its source snapshot.
-pub fn fulltext_excerpt(path: &str, body: &str, query: &str) -> Result<SearchExcerpt, LomoError> {
-    let plan = UnicodeTokenizer.query_plan(query)?;
-    let terms: Vec<_> = plan
-        .terms
-        .into_iter()
-        .flat_map(|term| match term {
-            QueryTerm::Word { token }
-            | QueryTerm::Emoji { token }
-            | QueryTerm::CjkUnigram { token } => vec![token],
-            QueryTerm::CjkAdjacentBigrams { bigrams } => bigrams,
-        })
-        .collect();
-    if terms.is_empty() {
+///
+/// Returns `query_too_long` on oversized queries or `invalid_search_evidence` if excerpt slicing
+/// violates UTF-8 boundaries.
+pub fn search_excerpt(
+    mode: SearchMode,
+    path: &str,
+    body: &str,
+    query: &str,
+) -> Result<SearchExcerpt, LomoError> {
+    let plan = SearchQueryPlan::parse(Some(query))?;
+    if plan.is_empty() {
         return make_excerpt(body, &[], MatchSource::Body);
     }
-    let ranges = literal_ranges(body, &terms);
-    if !ranges.is_empty() {
-        return make_excerpt(body, &ranges, MatchSource::Body);
-    }
-    let ranges = literal_ranges(path, &terms);
-    if !ranges.is_empty() {
-        return make_excerpt(path, &ranges, MatchSource::Path);
-    }
-    Err(validation(
-        "search_evidence_missing",
-        "indexed match no longer has a matching source snapshot",
-    ))
-}
 
-pub(crate) struct FuzzyMatcher {
-    needle: Vec<char>,
-}
+    let terms = ExcerptTerms::from_plan(&plan);
+    let fulltext_body = direct_token_and_literal_ranges(body, &terms, false);
+    if !fulltext_body.is_empty() {
+        return make_excerpt(body, &fulltext_body, MatchSource::Body);
+    }
 
-impl FuzzyMatcher {
-    pub(crate) fn new(query: &str) -> Self {
-        Self {
-            needle: query.trim().chars().flat_map(char::to_lowercase).collect(),
+    if mode == SearchMode::Fuzzy {
+        let fuzzy_body = fuzzy_token_ranges(body, &terms, false);
+        if !fuzzy_body.is_empty() {
+            return make_excerpt(body, &fuzzy_body, MatchSource::Body);
+        }
+        if let Some(pinyin_ranges) = best_pinyin_ranges(body, &terms) {
+            return make_excerpt(body, &pinyin_ranges, MatchSource::Pinyin);
         }
     }
 
-    pub(crate) fn score(&self, path: &str, body: &str) -> Option<i64> {
-        self.evidence(path, body)
-            .map(|(evidence, _, _)| evidence.score)
+    let fulltext_path = direct_token_and_literal_ranges(path, &terms, true);
+    if !fulltext_path.is_empty() {
+        return make_excerpt(path, &fulltext_path, MatchSource::Path);
     }
 
-    pub(crate) fn excerpt(
-        &self,
-        path: &str,
-        body: &str,
-        score: i64,
-    ) -> Result<SearchExcerpt, LomoError> {
-        let (evidence, source, text) = self
-            .evidence(path, body)
-            .filter(|(evidence, _, _)| evidence.score == score)
-            .ok_or_else(|| {
-                validation(
-                    "search_evidence_missing",
-                    "ranked fuzzy hit has no matching source evidence",
-                )
-            })?;
-        make_excerpt(text, &evidence.ranges, source)
-    }
-
-    fn evidence<'a>(
-        &self,
-        path: &'a str,
-        body: &'a str,
-    ) -> Option<(Evidence, MatchSource, &'a str)> {
-        if self.needle.is_empty() {
-            return Some((
-                Evidence {
-                    score: 0,
-                    ranges: Vec::new(),
-                },
-                MatchSource::Body,
-                body,
-            ));
+    if mode == SearchMode::Fuzzy {
+        let fuzzy_path = fuzzy_token_ranges(path, &terms, true);
+        if !fuzzy_path.is_empty() {
+            return make_excerpt(path, &fuzzy_path, MatchSource::Path);
         }
-        let body_evidence = direct_evidence(body, &self.needle);
-        if body_evidence
-            .as_ref()
-            .is_some_and(|evidence| evidence.score == 1000)
+    }
+
+    make_excerpt(body, &[], MatchSource::Body)
+}
+
+impl ExcerptTerms {
+    fn from_plan(plan: &SearchQueryPlan) -> Self {
+        let mut collector = TermCollector::default();
+        for span in plan.chunks.iter().flat_map(|chunk| chunk.spans.iter()) {
+            collector.collect_span(span);
+        }
+        collector.terms
+    }
+}
+
+#[derive(Default)]
+struct TermCollector {
+    terms: ExcerptTerms,
+    seen_charabia: HashSet<String>,
+    seen_cjk: HashSet<String>,
+    seen_paths: HashSet<String>,
+    seen_fuzzy: HashSet<String>,
+    seen_pinyin: HashSet<String>,
+}
+
+impl TermCollector {
+    fn collect_span(&mut self, span: &SearchSpanPlan) {
+        match span {
+            SearchSpanPlan::CjkRun {
+                charabia_tokens,
+                bigrams,
+                unigrams,
+            } => {
+                for token in charabia_tokens {
+                    push_dedup(
+                        &mut self.seen_charabia,
+                        &mut self.terms.charabia_words,
+                        token,
+                    );
+                }
+                let fallback = if bigrams.is_empty() {
+                    unigrams.first().map_or(&[][..], std::slice::from_ref)
+                } else {
+                    bigrams.as_slice()
+                };
+                for term in fallback {
+                    push_dedup(&mut self.seen_cjk, &mut self.terms.cjk_fallback_terms, term);
+                }
+            }
+            SearchSpanPlan::NonCjk { tokens, raw_path } => {
+                for token in tokens {
+                    push_dedup(
+                        &mut self.seen_charabia,
+                        &mut self.terms.charabia_words,
+                        token,
+                    );
+                    if !token.chars().all(is_emoji_char) && !token.chars().any(is_cjk) {
+                        push_dedup(&mut self.seen_fuzzy, &mut self.terms.fuzzy_words, token);
+                    }
+                    if is_pinyin_query_token(token) {
+                        push_dedup(&mut self.seen_pinyin, &mut self.terms.pinyin_tokens, token);
+                    }
+                }
+                if let Some(path_token) = raw_path {
+                    push_dedup(&mut self.seen_paths, &mut self.terms.raw_paths, path_token);
+                }
+            }
+        }
+    }
+}
+
+fn push_dedup(seen: &mut HashSet<String>, out: &mut Vec<String>, value: &str) {
+    if !value.is_empty() && seen.insert(value.to_owned()) {
+        out.push(value.to_owned());
+    }
+}
+
+fn direct_token_and_literal_ranges(
+    text: &str,
+    query: &ExcerptTerms,
+    include_raw_path_spans: bool,
+) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    for doc_token in analyze_charabia_tokens(text) {
+        if query
+            .charabia_words
+            .iter()
+            .any(|needle| token_direct_match(&doc_token.text, needle))
         {
-            return body_evidence.map(|evidence| (evidence, MatchSource::Body, body));
+            ranges.push(doc_token.byte_start..doc_token.byte_end);
         }
-        [
-            body_evidence.map(|evidence| (evidence, MatchSource::Body, body)),
-            direct_evidence(path, &self.needle).map(|evidence| (evidence, MatchSource::Path, path)),
-            pinyin_evidence(body, &self.needle)
-                .map(|evidence| (evidence, MatchSource::Pinyin, body)),
-        ]
-        .into_iter()
-        .flatten()
-        .max_by_key(|(evidence, source, _)| (evidence.score, *source == MatchSource::Body))
     }
+    for doc_bigram in analyze_cjk_bigrams(text) {
+        if query.cjk_fallback_terms.contains(&doc_bigram.text) {
+            ranges.push(doc_bigram.byte_start..doc_bigram.byte_end);
+        }
+    }
+    ranges.extend(literal_ranges(text, &query.raw_paths));
+    if include_raw_path_spans {
+        for (raw_tok, range) in source_path_raw_spans(text) {
+            if query
+                .raw_paths
+                .iter()
+                .chain(query.charabia_words.iter())
+                .any(|needle| token_direct_match(&raw_tok, needle))
+            {
+                ranges.push(range);
+            }
+        }
+    }
+    normalize_ranges(ranges)
+}
+
+fn token_direct_match(candidate: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    if needle.chars().all(is_emoji_char) {
+        candidate == needle
+    } else {
+        candidate == needle || candidate.starts_with(needle)
+    }
+}
+
+fn fuzzy_token_ranges(
+    text: &str,
+    query: &ExcerptTerms,
+    include_raw_path_spans: bool,
+) -> Vec<Range<usize>> {
+    let mut candidates: Vec<(String, Range<usize>)> = analyze_charabia_tokens(text)
+        .into_iter()
+        .filter(|tok| !tok.text.chars().all(is_emoji_char) && !tok.text.chars().any(is_cjk))
+        .map(|tok| (tok.text, tok.byte_start..tok.byte_end))
+        .collect();
+    if include_raw_path_spans {
+        candidates.extend(source_path_raw_spans(text));
+    } else {
+        for (start, slice) in whitespace_spans(text) {
+            let lower = slice.to_ascii_lowercase();
+            if lower.contains(['_', '-', '.', '/']) {
+                candidates.push((lower, start..start + slice.len()));
+            }
+        }
+    }
+
+    let needles: Vec<&str> = query
+        .fuzzy_words
+        .iter()
+        .chain(query.raw_paths.iter())
+        .map(String::as_str)
+        .collect();
+
+    let mut ranges = Vec::new();
+    for (doc_text, range) in candidates {
+        for needle in &needles {
+            if fuzzy_term_matches(&doc_text, needle) {
+                ranges.push(range.clone());
+            }
+        }
+    }
+    normalize_ranges(ranges)
+}
+
+fn fuzzy_term_matches(candidate: &str, needle: &str) -> bool {
+    let needle_chars: Vec<char> = needle.chars().collect();
+    let cand_chars: Vec<char> = candidate.chars().collect();
+    if needle_chars.is_empty() || cand_chars.is_empty() {
+        return false;
+    }
+    if is_bounded_subsequence_token(needle) && is_bounded_subsequence(&cand_chars, &needle_chars) {
+        return true;
+    }
+    if needle_chars.len() >= 3 {
+        let max_dist = if needle_chars.len() >= 6 { 2 } else { 1 };
+        if cand_chars.len().abs_diff(needle_chars.len()) <= max_dist
+            && bounded_damerau_levenshtein(&cand_chars, &needle_chars, max_dist).is_some()
+        {
+            return true;
+        }
+        if needle_chars.len() >= 4 {
+            let min_prefix = needle_chars.len().saturating_sub(1);
+            let max_prefix = (needle_chars.len() + 1).min(cand_chars.len());
+            for prefix_len in min_prefix..=max_prefix {
+                if let Some(prefix) = cand_chars.get(..prefix_len)
+                    && bounded_damerau_levenshtein(prefix, &needle_chars, 1).is_some()
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn best_pinyin_ranges(text: &str, query: &ExcerptTerms) -> Option<Vec<Range<usize>>> {
+    let mut collected = Vec::new();
+    for token in &query.pinyin_tokens {
+        let chars: Vec<char> = token.chars().collect();
+        if let Some(ranges) = pinyin_evidence(text, &chars) {
+            collected.extend(ranges);
+        } else if chars.len() >= 4
+            && let Some(range) = fuzzy_pinyin_cjk_run(text, &chars)
+        {
+            collected.push(range);
+        }
+    }
+    let normalized = normalize_ranges(collected);
+    (!normalized.is_empty()).then_some(normalized)
+}
+
+fn fuzzy_pinyin_cjk_run(text: &str, needle: &[char]) -> Option<Range<usize>> {
+    let max_dist = if needle.len() >= 6 { 2 } else { 1 };
+    let mut current: Vec<(char, Range<usize>)> = Vec::new();
+
+    for (byte, ch) in text.char_indices() {
+        if is_cjk(ch) {
+            current.push((normalize_cjk_char(ch), byte..byte + ch.len_utf8()));
+        } else if !current.is_empty() {
+            if let Some(matched) = match_cjk_run_fuzzy_pinyin(&current, needle, max_dist) {
+                return Some(matched);
+            }
+            current.clear();
+        }
+    }
+    if !current.is_empty()
+        && let Some(matched) = match_cjk_run_fuzzy_pinyin(&current, needle, max_dist)
+    {
+        return Some(matched);
+    }
+    None
+}
+
+fn match_cjk_run_fuzzy_pinyin(
+    run: &[(char, Range<usize>)],
+    needle: &[char],
+    max_dist: usize,
+) -> Option<Range<usize>> {
+    let mut readings_per_char = Vec::with_capacity(run.len());
+    for (ch, _) in run {
+        let multi = ch.to_pinyin_multi()?;
+        let mut readings = Vec::new();
+        for item in multi.into_iter().take(MAX_CHAR_READINGS) {
+            let plain = item.plain();
+            if !plain.is_empty() && !readings.contains(&plain) {
+                readings.push(plain);
+            }
+        }
+        if readings.is_empty() {
+            return None;
+        }
+        readings_per_char.push(readings);
+    }
+    for window_len in 2..=run.len().min(8) {
+        for (start, window) in readings_per_char.windows(window_len).enumerate() {
+            for combo in expand_pinyin_combos(window, MAX_PINYIN_COMBOS_PER_UNIT) {
+                let joined: Vec<char> = combo.chars().collect();
+                if joined.len().abs_diff(needle.len()) <= max_dist
+                    && bounded_damerau_levenshtein(&joined, needle, max_dist).is_some()
+                    && let (Some((_, first)), Some((_, last))) =
+                        (run.get(start), run.get(start + window_len - 1))
+                {
+                    return Some(first.start..last.end);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn expand_pinyin_combos(per_char: &[Vec<&'static str>], max_combos: usize) -> Vec<String> {
+    let mut acc = vec![String::new()];
+    for choices in per_char {
+        let mut next = Vec::with_capacity(acc.len().saturating_mul(choices.len()).min(max_combos));
+        for prefix in &acc {
+            for choice in choices {
+                if next.len() >= max_combos {
+                    break;
+                }
+                let mut combined = String::with_capacity(prefix.len() + choice.len());
+                combined.push_str(prefix);
+                combined.push_str(choice);
+                next.push(combined);
+            }
+            if next.len() >= max_combos {
+                break;
+            }
+        }
+        acc = next;
+    }
+    acc
+}
+
+fn bounded_damerau_levenshtein(left: &[char], right: &[char], max_dist: usize) -> Option<usize> {
+    let n = left.len();
+    let m = right.len();
+    if n.abs_diff(m) > max_dist {
+        return None;
+    }
+    let sentinel = max_dist + 1;
+    let mut prev2 = vec![sentinel; m + 1];
+    let mut prev1: Vec<usize> = (0..=m).map(|j| j.min(sentinel)).collect();
+    let mut curr = vec![sentinel; m + 1];
+    let mut prev1_min = 0usize;
+
+    for i in 1..=n {
+        curr.fill(sentinel);
+        let row_base = i.min(sentinel);
+        if let Some(first) = curr.first_mut() {
+            *first = row_base;
+        }
+        let mut curr_min = row_base;
+        let Some(&a) = left.get(i - 1) else {
+            continue;
+        };
+        for j in 1..=m {
+            let Some(&b) = right.get(j - 1) else {
+                continue;
+            };
+            let cost = usize::from(a != b);
+            let del = prev1.get(j).copied().unwrap_or(sentinel).saturating_add(1);
+            let ins = curr
+                .get(j - 1)
+                .copied()
+                .unwrap_or(sentinel)
+                .saturating_add(1);
+            let sub = prev1
+                .get(j - 1)
+                .copied()
+                .unwrap_or(sentinel)
+                .saturating_add(cost);
+            let mut best = del.min(ins).min(sub);
+            if i > 1 && j > 1 && left.get(i - 2) == Some(&b) && right.get(j - 2) == Some(&a) {
+                let trans = prev2
+                    .get(j - 2)
+                    .copied()
+                    .unwrap_or(sentinel)
+                    .saturating_add(cost);
+                best = best.min(trans);
+            }
+            if let Some(cell) = curr.get_mut(j) {
+                *cell = best.min(sentinel);
+            }
+            curr_min = curr_min.min(best.min(sentinel));
+        }
+        if curr_min > max_dist && prev1_min > max_dist {
+            return None;
+        }
+        prev1_min = curr_min;
+        std::mem::swap(&mut prev2, &mut prev1);
+        std::mem::swap(&mut prev1, &mut curr);
+    }
+
+    let final_dist = prev1.get(m).copied().unwrap_or(sentinel);
+    (final_dist <= max_dist).then_some(final_dist)
+}
+
+fn is_bounded_subsequence(haystack: &[char], needle: &[char]) -> bool {
+    let mut needle_idx = 0usize;
+    for ch in haystack {
+        if needle.get(needle_idx) == Some(ch) {
+            needle_idx += 1;
+            if needle_idx == needle.len() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn whitespace_spans(text: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    let mut start: Option<usize> = None;
+    for (idx, ch) in text.char_indices() {
+        if ch.is_whitespace() {
+            if let Some(s) = start.take()
+                && let Some(slice) = text.get(s..idx)
+            {
+                out.push((s, slice));
+            }
+        } else if start.is_none() {
+            start = Some(idx);
+        }
+    }
+    if let Some(s) = start
+        && let Some(slice) = text.get(s..)
+    {
+        out.push((s, slice));
+    }
+    out
 }
 
 fn mapped_chars(text: &str) -> impl Iterator<Item = (char, Range<usize>)> + '_ {
@@ -153,33 +501,25 @@ fn literal_ranges(text: &str, terms: &[String]) -> Vec<Range<usize>> {
             }
         }
     }
-    ranges.sort_by_key(|range| range.start);
-    ranges.dedup();
     ranges
 }
 
-fn direct_evidence(text: &str, needle: &[char]) -> Option<Evidence> {
-    let mut window = VecDeque::with_capacity(needle.len());
-    let mut subsequence = Vec::new();
-    for (ch, range) in mapped_chars(text) {
-        if needle.get(subsequence.len()) == Some(&ch) {
-            subsequence.push(range.clone());
+fn pinyin_evidence(text: &str, needle: &[char]) -> Option<Vec<Range<usize>>> {
+    match (
+        pinyin_match(text, needle, false),
+        pinyin_match(text, needle, true),
+    ) {
+        (Some(full), Some(initials)) => {
+            if proximity(&full) >= proximity(&initials) {
+                Some(full)
+            } else {
+                Some(initials)
+            }
         }
-        if window.len() == needle.len() {
-            let _retired = window.pop_front();
-        }
-        window.push_back((ch, range));
-        if window.iter().map(|(ch, _)| ch).eq(needle.iter()) {
-            return Some(Evidence {
-                score: 1000,
-                ranges: window.into_iter().map(|(_, range)| range).collect(),
-            });
-        }
+        (Some(full), None) => Some(full),
+        (None, Some(initials)) => Some(initials),
+        (None, None) => None,
     }
-    (subsequence.len() == needle.len()).then(|| Evidence {
-        score: proximity(&subsequence),
-        ranges: subsequence,
-    })
 }
 
 fn proximity(ranges: &[Range<usize>]) -> i64 {
@@ -192,21 +532,12 @@ fn proximity(ranges: &[Range<usize>]) -> i64 {
         .max(10)
 }
 
-/// Each source character contributes exactly one pronunciation. Dynamic states avoid
-/// concatenating full spellings and initials into a false match spanning two indexes.
-fn pinyin_evidence(text: &str, needle: &[char]) -> Option<Evidence> {
-    let full = pinyin_match(text, needle, false);
-    let initials = pinyin_match(text, needle, true);
-    full.into_iter()
-        .chain(initials)
-        .max_by_key(|evidence| evidence.score)
-}
-
-fn pinyin_match(text: &str, needle: &[char], initials: bool) -> Option<Evidence> {
+fn pinyin_match(text: &str, needle: &[char], initials: bool) -> Option<Vec<Range<usize>>> {
     let mut states = BTreeMap::from([(0, Vec::<Range<usize>>::new())]);
     for (byte, ch) in text.char_indices() {
         let range = byte..byte + ch.len_utf8();
-        let Some(pronunciations) = ch.to_pinyin_multi() else {
+        let norm = normalize_cjk_char(ch);
+        let Some(pronunciations) = norm.to_pinyin_multi() else {
             continue;
         };
         let before = states.clone();
@@ -232,10 +563,7 @@ fn pinyin_match(text: &str, needle: &[char], initials: bool) -> Option<Evidence>
             }
         }
     }
-    states.remove(&needle.len()).map(|ranges| Evidence {
-        score: proximity(&ranges),
-        ranges,
-    })
+    states.remove(&needle.len())
 }
 
 fn retain_closest(
@@ -249,6 +577,12 @@ fn retain_closest(
     {
         states.insert(matched, ranges);
     }
+}
+
+fn normalize_ranges(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    ranges.sort_by_key(|range| (range.start, range.end));
+    ranges.dedup();
+    ranges
 }
 
 fn make_excerpt(

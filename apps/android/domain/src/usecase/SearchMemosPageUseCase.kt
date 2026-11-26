@@ -22,6 +22,10 @@ class SearchMemosPageUseCase(private val repository: MemoSearchRepository) {
             filter = filter,
         )
     }
+
+    suspend fun warmup() {
+        repository.warmupSearchIndex()
+    }
 }
 
 private class EmptyMemoPagingSource : PagingSource<String, Memo>() {

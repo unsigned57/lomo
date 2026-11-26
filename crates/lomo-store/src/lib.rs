@@ -1,6 +1,6 @@
 //! Local data-loop owner for stage-3 dark-build (`lomo-store`).
 //!
-//! Owns `SQLite` query projections, FTS5 + pure-Rust tokenizer, memo transaction recovery,
+//! Owns `SQLite` query projections, Tantivy + Charabia search projections, memo transaction recovery,
 //! `.lomo/` durable format, rebuild (packages P3-01..P3-06), reminder business state (P3-07),
 //! and archive v2 orchestration (stage-4 P4-06..P4-08).
 //!
@@ -22,8 +22,8 @@ mod reader;
 mod rebuild;
 mod reminder;
 mod schema;
+pub mod search;
 mod sync_local;
-mod tokenizer;
 mod transaction;
 
 pub use archive::{
@@ -39,7 +39,7 @@ pub use content_facts::{
 };
 // Attachment-destination canonicalization is owned by `lomo_workspace`; re-export the authority
 // so projection callers share one implementation.
-pub use cursor::{HistoryPageCursor, PageCursor, fingerprint_plan, fingerprint_query};
+pub use cursor::{HistoryPageCursor, PageCursor, fingerprint_query};
 pub use history_refs::{
     DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, HistoryAttachmentRef, HistoryRevisionBody,
     MemoHistoryPage, MemoHistoryRevision, list_history_attachment_refs,
@@ -94,6 +94,14 @@ pub use reminder::{
     resolve_floating_local_to_utc_ms, session_base_trigger_utc_ms,
 };
 pub use schema::{BUSY_TIMEOUT_MS, STORE_SCHEMA_VERSION, TOKENIZER_VERSION, tables};
+pub use search::{
+    AnalyzedToken, MAX_PINYIN_QUERY_LEN, MAX_SEARCH_QUERY_BYTES, MAX_SUBSEQUENCE_LEN,
+    SearchChunkPlan, SearchCoordinator, SearchIndexStats, SearchPageRequest, SearchQueryPlan,
+    SearchSpanPlan, StoreSearchMode, analyze_charabia_tokens, analyze_cjk_bigrams,
+    extract_pinyin_full_tokens, extract_pinyin_initial_tokens, is_bounded_subsequence_token,
+    is_cjk, is_emoji_char, is_pinyin_query_token, normalize_cjk_char, source_path_raw_spans,
+    tokenizer_version,
+};
 pub use sync_local::{
     LocalSyncCommitResult, LocalSyncMutation, LocalSyncMutationBatch, LocalSyncMutationResult,
     PreparedSyncApply, SafProjectionBinding, SyncLocalPathFact, SyncLocalSnapshot,
@@ -101,15 +109,13 @@ pub use sync_local::{
     memo_content_revision, prepare_sync_apply, snapshot_sync_view, sync_local_write_authority,
     verify_platform_results,
 };
-pub use tokenizer::{
-    QueryPlan, QueryTerm, Tokenizer, UnicodeTokenizer, index_tokens, is_cjk, is_emoji_char,
-    query_plan, tokenizer_version,
-};
 pub use transaction::{
     CrashPoint, MemoCommand, MemoCommitResult, WriteGate, apply_memo_command,
     cleanup_expired_operations, create_received_memo, refuse_v1_writers_on_layout_v2,
     select_pending_promotes,
 };
+
+use std::sync::Arc;
 
 use crate::rebuild::{
     begin_saf_memo_create_on_connection, commit_saf_projection_mutation_on_connection,
@@ -130,6 +136,7 @@ pub struct Store {
     opened: OpenedStore,
     high_water_revision: u64,
     event_sequence: u64,
+    search: Arc<SearchCoordinator>,
 }
 
 /// Committed operation records are replay guards, not an unbounded event log.
@@ -159,11 +166,13 @@ impl Store {
         cleanup_expired_operations(&workspace_root, OPERATION_LOG_RETENTION_MS)?;
         let high_water_revision = read_meta_u64(&opened.connection, "high_water_revision")?;
         let event_sequence = read_meta_u64(&opened.connection, "event_sequence")?;
+        let search = SearchCoordinator::for_root(&workspace_root);
         Ok(Self {
             workspace_root,
             opened,
             high_water_revision,
             event_sequence,
+            search,
         })
     }
 
@@ -187,11 +196,13 @@ impl Store {
         cleanup_expired_operations(&workspace_root, OPERATION_LOG_RETENTION_MS)?;
         let high_water_revision = read_meta_u64(&opened.connection, "high_water_revision")?;
         let event_sequence = read_meta_u64(&opened.connection, "event_sequence")?;
+        let search = SearchCoordinator::for_root(&workspace_root);
         Ok(Self {
             workspace_root,
             opened,
             high_water_revision,
             event_sequence,
+            search,
         })
     }
 
@@ -500,13 +511,7 @@ impl Store {
         cursor: Option<&PageCursor>,
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
-        query_memos(
-            &self.opened.connection,
-            query,
-            cursor,
-            page_size,
-            self.high_water_revision,
-        )
+        self.query_memos_with_boundary(query, None, cursor, page_size)
     }
 
     /// Bounded memo query with an inclusive ordering boundary.
@@ -524,14 +529,8 @@ impl Store {
         cursor: Option<&PageCursor>,
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
-        query_memos_with_boundary(
-            &self.opened.connection,
-            query,
-            boundary,
-            cursor,
-            page_size,
-            self.high_water_revision,
-        )
+        let start = cursor.map_or(MemoQueryStart::Head, MemoQueryStart::After);
+        self.query_memos_starting_at(query, boundary, start, page_size)
     }
 
     /// Bounded memo query from an explicit start in the current query order.
@@ -546,6 +545,21 @@ impl Store {
         start: MemoQueryStart<'_>,
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
+        if has_search_text(query) {
+            return self.search.search_memos(
+                &self.opened.connection,
+                true,
+                SearchPageRequest {
+                    text: query.search_text.as_deref(),
+                    mode: StoreSearchMode::Fulltext,
+                    filters: &query.filters,
+                    sort: &query.sort,
+                    boundary,
+                    start,
+                    page_size,
+                },
+            );
+        }
         query_memos_starting_at(
             &self.opened.connection,
             query,
@@ -554,6 +568,66 @@ impl Store {
             page_size,
             self.high_water_revision,
         )
+    }
+
+    /// Executes an explicit `Fulltext` or `Fuzzy` Tantivy search page aligned with SQLite.
+    ///
+    /// # Errors
+    ///
+    /// Propagates query validation, cursor staleness, and storage errors.
+    pub fn search_memos(&self, request: SearchPageRequest<'_>) -> Result<MemoPage, LomoError> {
+        self.search
+            .search_memos(&self.opened.connection, true, request)
+    }
+
+    /// Computes ordered `above` and `below` side evidence across both search modes.
+    ///
+    /// # Errors
+    ///
+    /// Propagates query validation and storage errors.
+    pub fn search_window_sides(
+        &self,
+        query: &MemoQuery,
+        mode: StoreSearchMode,
+        memo_ids: &[String],
+        head: Option<&PageCursor>,
+        tail: Option<&PageCursor>,
+    ) -> Result<MemoWindowSides, LomoError> {
+        self.search.search_window_sides(
+            &self.opened.connection,
+            true,
+            query,
+            mode,
+            memo_ids,
+            head,
+            tail,
+        )
+    }
+
+    /// Lazily materializes and synchronizes the Tantivy search index ahead of user typing.
+    ///
+    /// # Errors
+    ///
+    /// Propagates Tantivy or SQLite read/sync errors.
+    pub fn warmup_search_index(&self) -> Result<SearchIndexStats, LomoError> {
+        self.search
+            .warmup_with_connection(&self.opened.connection, true)
+    }
+
+    /// Compacts consumed `search_changelog` rows if a prior read-only sync deferred compaction.
+    ///
+    /// # Errors
+    ///
+    /// Propagates SQLite read/compaction errors.
+    pub fn compact_synced_search_changelog(&self) -> Result<bool, LomoError> {
+        self.search
+            .compact_pending_changelog(&self.opened.connection)
+    }
+
+    /// Current lazy search index diagnostics without forcing initialization.
+    #[must_use]
+    pub fn search_index_stats(&self) -> SearchIndexStats {
+        self.search.stats()
     }
 
     /// Bounded lightweight gallery query using `idx_memo_gallery` (no `COUNT(*)`).
@@ -628,6 +702,14 @@ impl Store {
     ///
     /// See [`query_count`].
     pub fn query_count(&self, query: &MemoQuery) -> Result<u64, LomoError> {
+        if has_search_text(query) {
+            return self.search.search_count(
+                &self.opened.connection,
+                true,
+                query,
+                StoreSearchMode::Fulltext,
+            );
+        }
         query_count(&self.opened.connection, query)
     }
 
@@ -1094,6 +1176,13 @@ fn read_meta_optional(
         Err(SqliteError::QueryReturnedNoRows) => Ok(None),
         Err(error) => Err(from_sqlite(&error)),
     }
+}
+
+fn has_search_text(query: &MemoQuery) -> bool {
+    query
+        .search_text
+        .as_deref()
+        .is_some_and(|text| !text.trim().is_empty())
 }
 
 fn store_validation(code: &str, diagnostic: &str) -> LomoError {

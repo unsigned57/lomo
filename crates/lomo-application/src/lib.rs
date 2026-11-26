@@ -50,11 +50,11 @@ pub use lifecycle::{
 pub use lomo_store::{
     GalleryPage, GalleryRow, MemoFilters, MemoPage, MemoQuery, MemoQueryStart, MemoSnapshot,
     MemoSort, MemoSummary, MemoWindowSides, PageCursor, PlannedAlarm, ReminderPlan,
-    TagSelectionMode,
+    SearchIndexStats, TagSelectionMode,
 };
 pub use media_index::{AttachmentIndexStats, AttachmentObservation, DraftEvidenceStats};
 pub use paging::ProjectionQueryStats;
-pub use search::{FuzzyScanStats, SearchHit, SearchMode, SearchOutcome, SearchPage, SearchRequest};
+pub use search::{SearchHit, SearchMode, SearchOutcome, SearchPage, SearchRequest};
 pub use session::{
     AcceptedCreate, MAX_PREVIEW_RENDER_BATCH_SIZE, MemoPreviewRenderOutcome,
     MemoPreviewRenderRequest, WithdrawnCreate, WorkspaceSession,

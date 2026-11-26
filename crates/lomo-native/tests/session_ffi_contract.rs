@@ -451,10 +451,13 @@ mod tests {
             .engine
             .session_search(SessionSearchRequest {
                 filters: lomo_native::StoreMemoFilters::default(),
+                sort: lomo_native::StoreMemoSort::default(),
                 query_epoch: 1,
                 mode: SessionSearchMode::Fulltext,
                 text: "retain my history".to_owned(),
                 cursor: None,
+                anchor: None,
+                backward: false,
                 page_size: 20,
             })
             .test_ok("reindex user documents");
@@ -495,10 +498,13 @@ mod tests {
                     include_trash: true,
                     ..lomo_native::StoreMemoFilters::default()
                 },
+                sort: lomo_native::StoreMemoSort::default(),
                 query_epoch: 1,
                 mode: SessionSearchMode::Fulltext,
                 text: "old deleted memo".to_owned(),
                 cursor: None,
+                anchor: None,
+                backward: false,
                 page_size: 20,
             })
             .test_ok("trash query");
@@ -991,20 +997,31 @@ mod tests {
                 crate::create_observer::returned_commit_only(),
             )
             .test_ok("create searchable memo");
+        session
+            .engine
+            .session_warmup_search_index()
+            .test_ok("warmup search index");
         let outcome = session
             .engine
             .session_search(SessionSearchRequest {
                 filters: lomo_native::StoreMemoFilters::default(),
+                sort: lomo_native::StoreMemoSort::default(),
                 query_epoch: 1,
                 mode: SessionSearchMode::Fuzzy,
                 text: "bdlcc".to_owned(),
                 cursor: None,
+                anchor: None,
+                backward: false,
                 page_size: 32,
             })
             .test_ok("fuzzy search");
         let SessionSearchOutcome::Ready { page } = outcome else {
             panic!("expected a ready search page, got {outcome:?}");
         };
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items_before, 0);
+        assert_eq!(page.items_after, 0);
+        assert!(page.prev_cursor.is_none());
         assert!(
             page.items
                 .iter()
@@ -1227,5 +1244,90 @@ mod tests {
             .session_render_memo_previews(oversized, 1)
             .test_err("oversized FFI batch must fail closed");
         assert_eq!(limit_err.code(), "preview_render_batch_too_large");
+    }
+
+    fn ready_session_search(
+        engine: &LomoEngine,
+        query_epoch: u64,
+        cursor: Option<lomo_native::StorePageCursor>,
+        anchor: Option<String>,
+        backward: bool,
+    ) -> lomo_native::SessionSearchPage {
+        let SessionSearchOutcome::Ready { page } = engine
+            .session_search(SessionSearchRequest {
+                filters: lomo_native::StoreMemoFilters::default(),
+                sort: lomo_native::StoreMemoSort::default(),
+                query_epoch,
+                mode: SessionSearchMode::Fulltext,
+                text: "needle".to_owned(),
+                cursor,
+                anchor,
+                backward,
+                page_size: 2,
+            })
+            .test_ok("session_search")
+        else {
+            panic!("expected ready search page");
+        };
+        page
+    }
+
+    fn search_hit_ids(hits: &[lomo_native::SessionSearchHit]) -> Vec<&str> {
+        hits.iter()
+            .map(|hit| hit.summary.memo_id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn session_search_supports_anchor_and_backward_cursor_paging() {
+        let session = open_direct_engine();
+        attach_posix_session(&session);
+        for index in 0..4 {
+            session
+                .engine
+                .session_create_memo(
+                    SessionCreateMemoRequest {
+                        operation_id: format!("op-search-page-{index}"),
+                        relative_path: None,
+                        time_token: Some(format!("10:0{index}:00")),
+                        content: format!("needle item {index}"),
+                        expected_document_fingerprint: None,
+                        pinned: false,
+                        pending_promotes: Vec::new(),
+                        chronology_epoch_ms: None,
+                        date_format: None,
+                        timestamp_format: None,
+                    },
+                    crate::create_observer::returned_commit_only(),
+                )
+                .test_ok("create searchable memo");
+        }
+
+        let page1 = ready_session_search(&session.engine, 1, None, None, false);
+        let page2 = ready_session_search(&session.engine, 2, page1.next_cursor, None, false);
+        assert!(page2.prev_cursor.is_some());
+
+        let back = ready_session_search(&session.engine, 3, page2.prev_cursor, None, true);
+        assert_eq!(search_hit_ids(&back.items), search_hit_ids(&page1.items));
+
+        let anchor_id = page2
+            .items
+            .first()
+            .test_ok("page 2 first item")
+            .summary
+            .memo_id
+            .clone();
+        let anchored =
+            ready_session_search(&session.engine, 4, None, Some(anchor_id.clone()), false);
+        assert_eq!(anchored.items_before, 2);
+        assert_eq!(
+            anchored
+                .items
+                .first()
+                .test_ok("anchored head")
+                .summary
+                .memo_id,
+            anchor_id
+        );
     }
 }

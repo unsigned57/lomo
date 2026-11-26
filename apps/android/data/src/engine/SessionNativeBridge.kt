@@ -53,6 +53,10 @@ internal interface SessionNativeBridge {
 
     fun sessionSearch(request: SessionSearchRequest): SessionSearchOutcome = error("session search is not expected")
 
+    fun sessionWarmupSearchIndex() {
+        error("session search warmup is not expected")
+    }
+
     fun sessionListTasks(): List<SessionTaskItem> = error("session tasks are not expected")
 
     fun sessionToggleTask(request: SessionToggleTaskRequest): StoreMemoCommit =

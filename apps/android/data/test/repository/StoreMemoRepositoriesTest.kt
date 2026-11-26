@@ -778,6 +778,7 @@ private class RecordingStorePort : StorePort {
 
 private class RecordingSessionBridge : SessionNativeBridge {
     val searchRequests = mutableListOf<SessionSearchRequest>()
+    var warmupCallCount = 0
     var searchOutcome: SessionSearchOutcome =
         SessionSearchOutcome.Ready(
             SessionSearchPage(
@@ -785,6 +786,10 @@ private class RecordingSessionBridge : SessionNativeBridge {
                 mode = SessionSearchMode.FUZZY,
                 items = emptyList(),
                 nextCursor = null,
+                prevCursor = null,
+                itemsBefore = 0uL,
+                itemsAfter = 0uL,
+                total = 0uL,
             ),
         )
     var lastStatisticsSnapshot: SessionStatisticsSnapshot? = null
@@ -797,6 +802,10 @@ private class RecordingSessionBridge : SessionNativeBridge {
     override fun sessionSearch(request: SessionSearchRequest): SessionSearchOutcome {
         searchRequests += request
         return searchOutcome
+    }
+
+    override fun sessionWarmupSearchIndex() {
+        warmupCallCount += 1
     }
 
     override fun sessionStatistics(snapshot: SessionStatisticsSnapshot): SessionStatistics {
@@ -2445,11 +2454,51 @@ class StoreMemoRepositoriesTest :
             }
         }
 
-        test("fulltext search paging source uses the store query with filters") {
+        /*
+         * Test Change Justification:
+         * Reason category: Architecture cutover (unified Tantivy retrieval across Fulltext and Fuzzy).
+         * Old behavior/assertion being replaced: Fulltext asserted StorePagingSource/port.queries delivery
+         *   and empty session.searchRequests.
+         * Why old assertion is no longer correct: StoreMemoSearchRepository now routes both Fulltext and Fuzzy
+         *   through SessionSearchPagingSource -> SessionNativeBridge.sessionSearch with filters and sort.
+         * Coverage preserved by: Verifying Fulltext delivers summary results, query text, Fulltext mode,
+         *   hasTodo filter, and zero port.queries calls, plus explicit warmupSearchIndex forwarding.
+         * Why this is not fitting the test to the implementation: Validates the intended unified search bridge.
+         */
+        test("fulltext search paging source uses session search with filters and sort") {
             runTest {
                 val port = RecordingStorePort()
-                port.seed(seededSnapshot("todo", "- [ ] alpha task"))
-                val session = RecordingSessionBridge()
+                val session =
+                    RecordingSessionBridge().apply {
+                        searchOutcome =
+                            SessionSearchOutcome.Ready(
+                                SessionSearchPage(
+                                    queryEpoch = 1uL,
+                                    mode = SessionSearchMode.FULLTEXT,
+                                    items =
+                                    listOf(
+                                        SessionSearchHit(
+                                            score = 100L,
+                                            summary = com.lomo.nativebridge.StoreMemoSummary(
+                                                memoId = "todo", sourcePath = "2026_09_10.md",
+                                                timePart = "",
+                                                fileFingerprint = "f".repeat(64), updatedAtMs = 1L, createdAtMs = 1L,
+                                                hasTodo = true, hasUrl = false, hasAttachment = false,
+                                                isPinned = false, isTrashed = false, bodyPreview = "- [ ] alpha task",
+                                                contentRevision = 1uL, rank = 1.0, tags = emptyList(),
+                                                imageUrls = emptyList(),
+                                                reminders = emptyList(), isPending = false, charCount = 16L,
+                                            ),
+                                        ),
+                                    ),
+                                    nextCursor = null,
+                                    prevCursor = null,
+                                    itemsBefore = 0uL,
+                                    itemsAfter = 0uL,
+                                    total = 1uL,
+                                ),
+                            )
+                    }
                 val search =
                     StoreMemoSearchRepository(
                         port = port,
@@ -2466,9 +2515,13 @@ class StoreMemoRepositoriesTest :
                         ).loadPage(loadSize = 10)
 
                 results.map(Memo::id) shouldBe listOf("todo")
-                port.queries.single().searchText shouldBe "alpha"
-                port.queries.single().filters.hasTodo shouldBe true
-                session.searchRequests shouldBe emptyList()
+                session.searchRequests.single().text shouldBe "alpha"
+                session.searchRequests.single().mode shouldBe SessionSearchMode.FULLTEXT
+                session.searchRequests.single().filters.hasTodo shouldBe true
+                port.queries shouldBe emptyList()
+
+                search.warmupSearchIndex()
+                session.warmupCallCount shouldBe 1
             }
         }
 
@@ -2500,6 +2553,10 @@ class StoreMemoRepositoriesTest :
                                         ),
                                     ),
                                     nextCursor = com.lomo.nativebridge.StorePageCursor("next-fuzzy"),
+                                    prevCursor = null,
+                                    itemsBefore = 0uL,
+                                    itemsAfter = 1uL,
+                                    total = 2uL,
                                 ),
                             )
                     }

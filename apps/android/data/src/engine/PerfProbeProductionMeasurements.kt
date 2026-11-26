@@ -122,10 +122,13 @@ internal suspend fun EnginePerfProbe.searchProduction(intent: Intent, run: Strin
             session.sessionSearch(
                 SessionSearchRequest(
                     filters = EMPTY_FILTERS,
+                    sort = EMPTY_SORT,
                     queryEpoch = startEpoch + index.toULong(),
                     mode = SessionSearchMode.FUZZY,
                     text = text,
                     cursor = null,
+                    anchor = null,
+                    backward = false,
                     pageSize = pageSize.toUInt(),
                 ),
             )
