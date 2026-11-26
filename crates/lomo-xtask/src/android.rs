@@ -79,6 +79,19 @@ impl AndroidVariant {
 }
 
 const APP_APK_TASK_PREFIX: &str = "_app_buildAndroid";
+const RELEASE_APK_GRADLE: &str = r#"import com.android.build.api.variant.ApplicationAndroidComponentsExtension
+
+plugins.withId("com.android.application") {
+    extensions.configure<ApplicationAndroidComponentsExtension> {
+        finalizeDsl {
+            it.defaultConfig.ndk.abiFilters.addAll(listOf(LOMO_APK_ABIS))
+        }
+        onVariants(selector().withBuildType("release")) {
+            it.packaging.jniLibs.useLegacyPackaging.set(true)
+        }
+    }
+}
+"#;
 
 pub fn abi_tag_name(abis: &[Abi]) -> String {
     if abis.len() == Abi::ALL.len() && Abi::ALL.iter().all(|abi| abis.contains(abi)) {
@@ -138,11 +151,14 @@ fn package_apk(
 ) -> Result<PathBuf> {
     let abi_tag = abi_tag_name(abis);
     let build_dir = workspace.kotlin_build.clone();
+    let release = variant == AndroidVariant::Release;
+    if release {
+        configure_release_apk_packaging(&build_dir, abis)?;
+    }
 
     let _stash_guard = native::AbiStashGuard::stash_unselected(workspace, abis)?;
 
     run(&mut command)?;
-    let release = variant == AndroidVariant::Release;
     let apk = validate_built_apk(workspace, &build_dir, release, abis)?;
     if release {
         verify_signature(workspace, &apk)?;
@@ -176,19 +192,48 @@ pub fn android_apk_command(workspace: &Workspace, variant: AndroidVariant) -> Re
     Ok(command)
 }
 
-pub fn invalidate_java_resource_merge_state(
-    workspace: &Workspace,
-    variant: AndroidVariant,
-) -> Result<()> {
-    let build_dir = &workspace.kotlin_build;
+fn apk_gradle_project(build_dir: &Path, variant: AndroidVariant) -> PathBuf {
     let suffix = match variant {
         AndroidVariant::Debug => "Debug",
         AndroidVariant::Release => "Release",
     };
-    let intermediates = build_dir
+    build_dir
         .join("tasks")
         .join(format!("{APP_APK_TASK_PREFIX}{suffix}"))
-        .join("gradle-project/build/_app/intermediates");
+        .join("gradle-project")
+}
+
+fn configure_release_apk_packaging(build_dir: &Path, abis: &[Abi]) -> Result<()> {
+    let project = apk_gradle_project(build_dir, AndroidVariant::Release);
+    fs::create_dir_all(&project)?;
+    let script = project.join("build.gradle.kts");
+    let abi_names = abis
+        .iter()
+        .map(|abi| format!("\"{}\"", abi.android_name()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let configuration = RELEASE_APK_GRADLE.replace("LOMO_APK_ABIS", &abi_names);
+    match fs::read_to_string(&script) {
+        Ok(previous) if previous == configuration => return Ok(()),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).with_context(|| format!("read {}", script.display())),
+    }
+    // The Kotlin Toolchain preserves this generated project's build script. AGP applies the
+    // same variant option to the merged manifest and APK before signing.
+    let staged = script.with_extension("partial");
+    fs::write(&staged, configuration)?;
+    fs::rename(&staged, &script)
+        .with_context(|| format!("configure release APK packaging in {}", script.display()))?;
+    Ok(())
+}
+
+pub fn invalidate_java_resource_merge_state(
+    workspace: &Workspace,
+    variant: AndroidVariant,
+) -> Result<()> {
+    let intermediates =
+        apk_gradle_project(&workspace.kotlin_build, variant).join("build/_app/intermediates");
     // Amper rewrites module archives in place. AGP's retained Java-resource zip index
     // can then refer to entries no longer present in those archives ("Unknown file").
     // Rebuild this opaque merger state and its derived archives before every consumer,
@@ -270,6 +315,9 @@ pub fn validate_built_apk(
             bail!("{} is missing {expected}", apk.display());
         }
         validate_apk_elf(workspace, &apk, &expected, abi)?;
+        if release {
+            validate_apk_native_compression(&apk, &expected)?;
+        }
         for forbidden in [
             format!("lib/{}/libjnidispatch.so", abi.android_name()),
             format!("lib/{}/liblomo_native.so", abi.android_name()),
@@ -284,8 +332,19 @@ pub fn validate_built_apk(
     }
     for abi in Abi::ALL {
         if !expected_abis.contains(&abi) {
-            let forbidden = format!("lib/{}/{}", abi.android_name(), native::NATIVE_LIBRARY);
-            if entries.iter().any(|entry| entry == &forbidden) {
+            let abi_dir = format!("lib/{}/", abi.android_name());
+            let app_library = format!("{abi_dir}{}", native::NATIVE_LIBRARY);
+            let forbidden = entries.iter().find(|entry| {
+                if release {
+                    entry.starts_with(&abi_dir)
+                        && Path::new(entry)
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("so"))
+                } else {
+                    *entry == &app_library
+                }
+            });
+            if let Some(forbidden) = forbidden {
                 bail!(
                     "{} contains unselected ABI native library {forbidden}",
                     apk.display()
@@ -484,6 +543,29 @@ fn apk_entries(apk: &Path) -> Result<Vec<String>> {
         .lines()
         .map(str::to_owned)
         .collect())
+}
+
+fn validate_apk_native_compression(apk: &Path, entry: &str) -> Result<()> {
+    let listing = text_output(
+        Command::new("unzip")
+            .env("LC_ALL", "C")
+            .arg("-lv")
+            .arg(apk)
+            .arg(entry),
+    )?;
+    let compressed = listing.lines().any(|line| {
+        let mut columns = line.split_whitespace();
+        columns
+            .nth(1)
+            .is_some_and(|method| method.starts_with("Defl:"))
+            && columns.last() == Some(entry)
+    });
+    ensure!(
+        compressed,
+        "{} must store {entry} with Deflate",
+        apk.display()
+    );
+    Ok(())
 }
 
 fn validate_baseline_sources(workspace: &Workspace) -> Result<()> {

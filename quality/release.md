@@ -40,9 +40,10 @@ Pass an explicit ABI (`arm64`, `armv7`, `x86`, `x86_64`) for split builds (defau
 1. validates measured Baseline/Startup Profile receipts/syntax (`profgen`) and `keystore.properties`;
 2. compiles `lomo-native` (`release-android`, immediate abort + `-Z build-std`);
 3. regenerates BoltFFI Kotlin/JNI (`native-bindings` / `com.lomo.nativebridge`) and stages `liblomo_native_jni.so`;
-4. builds and signs the APK via the Kotlin toolchain with non-destructive ABI stashing;
-5. verifies targeted ABI ELF files, absence of unselected ABIs or JNA/legacy libraries, and embedded
-   baseline profile assets (`assets/dexopt/baseline.prof`);
+4. builds and signs the APK via the Kotlin toolchain. AGP filters native libraries to the selected
+   ABIs and compresses them for download. Android extracts the libraries at install time;
+5. verifies targeted ABI ELF files and JNI compression, absence of unselected ABIs or JNA/legacy
+   libraries, and embedded baseline profile assets (`assets/dexopt/baseline.prof`);
 6. verifies the APK signature via `apksigner verify` before publishing under `target/lomo/artifacts/android/release/`:
    - Universal updater APK: `lomo-v<version>-vc<versionCode>.apk` (metadata parsed from `app/module.yaml`)
    - Split APKs: `Lomo-<version>-<abi>.apk` (debug APKs use `artifacts/android/debug/Lomo-<version>-<abi>.apk`)

@@ -28,6 +28,12 @@ min_sdk = 26
 ndk_version = "30.0.16248370"
 architectures = ["arm64", "armv7", "x86", "x86_64"]
 
+[targets.android.link]
+# Android consumes the JNI facade. Hiding C exports lets the linker discard unreferenced code.
+export_c_symbols = false
+# APS2 relocations are supported at min_sdk 26. Fold identical sections with safe ICF.
+extra_args = ["-Wl,--pack-dyn-relocs=android", "-Wl,--icf=safe"]
+
 [targets.android.kotlin]
 package = "com.lomo.nativebridge"
 # library_name controls System.loadLibrary / final .so stem before Android lib prefix.
