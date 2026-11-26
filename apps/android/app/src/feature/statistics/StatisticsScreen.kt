@@ -218,9 +218,7 @@ private fun StatisticsContent(
         modifier =
         Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
+            .verticalScroll(scrollState),
     ) {
         Column(
             modifier =
@@ -232,7 +230,8 @@ private fun StatisticsContent(
                         this@drawWithContent.drawContent()
                     }
                     drawLayer(screenshotLayer)
-                },
+                }
+                .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Medium),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
             StatisticsOverviewSection(stats = stats)
@@ -248,9 +247,8 @@ private fun StatisticsContent(
                 weekDays = presentationDates.weekDays,
             )
             StatisticsTagsSection(stats = stats)
-
-            Spacer(modifier = Modifier.height(AppSpacing.ExtraLarge))
         }
+        Spacer(modifier = Modifier.height(AppSpacing.Medium))
     }
 }
 
@@ -483,5 +481,6 @@ private fun SectionHeader(text: String) {
         text = text,
         style = MaterialTheme.typography.titleMediumEmphasized,
         color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(horizontal = AppSpacing.ExtraSmall),
     )
 }
